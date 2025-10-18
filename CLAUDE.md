@@ -88,6 +88,21 @@ UTXOracle/
 │
 ├── UTXOracle.py              # Reference implementation v9.1 (IMMUTABLE)
 │
+├── .claude/                  # Claude Code configuration
+│   ├── agents/               # Specialized subagents (complex reasoning)
+│   │   ├── bitcoin-onchain-expert.md      # Task 01 - ZMQ listener
+│   │   ├── transaction-processor.md       # Task 02 - Binary parsing
+│   │   ├── mempool-analyzer.md            # Task 03 - Price estimation
+│   │   ├── data-streamer.md               # Task 04 - WebSocket API
+│   │   ├── visualization-renderer.md      # Task 05 - Canvas/WebGL
+│   │   └── tdd-guard.md                   # TDD enforcement
+│   ├── skills/               # Template-driven automation (token efficiency)
+│   │   ├── pytest-test-generator/         # Test boilerplate (83% savings)
+│   │   └── github-workflow/               # PR/Issue templates (79% savings)
+│   ├── prompts/
+│   │   └── utxoracle-system.md            # Orchestration rules
+│   └── settings.local.json   # Permissions & hooks
+│
 ├── core/                     # Shared algorithm modules (future)
 │   ├── __init__.py
 │   ├── histogram.py          # Steps 5-7 (extracted from UTXOracle.py)
@@ -95,22 +110,14 @@ UTXOracle/
 │   ├── convergence.py        # Step 11
 │   └── bitcoin_rpc.py        # Step 2
 │
-├── live/                     # Mempool live system (NEW)
-│   ├── pyproject.toml        # Live system dependencies
+├── live/                     # Mempool live system (implementation target)
 │   ├── backend/
-│   │   ├── __init__.py
-│   │   ├── api.py            # FastAPI WebSocket server
 │   │   ├── zmq_listener.py   # Bitcoin ZMQ interface (Task 01)
 │   │   ├── tx_processor.py   # Transaction parser/filter (Task 02)
 │   │   ├── mempool_analyzer.py  # Real-time price estimation (Task 03)
-│   │   ├── mempool_state.py  # Mempool state tracker
-│   │   ├── orchestrator.py   # Pipeline coordinator (Task 04)
-│   │   ├── histogram.py      # Histogram management
-│   │   ├── stencil.py        # Stencil matcher
-│   │   ├── convergence.py    # Price convergence
-│   │   ├── bitcoin_parser.py # Binary parsing utilities
-│   │   ├── config.py         # Configuration
-│   │   └── models.py         # Data models (Pydantic)
+│   │   ├── api.py            # FastAPI WebSocket server (Task 04)
+│   │   ├── models.py         # Data models (Pydantic)
+│   │   └── config.py         # Configuration
 │   ├── frontend/
 │   │   ├── index.html        # Main page
 │   │   ├── mempool-viz.js    # Canvas 2D renderer (MVP)
@@ -126,12 +133,13 @@ UTXOracle/
 ├── docs/                     # Documentation
 │   ├── algorithm_concepts.md # Algorithm breakdown by concept
 │   ├── tasks/                # Task breakdown for agents
-│   │   ├── 00_OVERVIEW.md    # Project overview
+│   │   ├── 00_OVERVIEW.md    # Project overview, agent assignment
 │   │   ├── 01_bitcoin_interface.md  # ZMQ listener task
 │   │   ├── 02_transaction_processor.md
 │   │   ├── 03_mempool_analyzer.md
 │   │   ├── 04_data_streamer.md
 │   │   └── 05_visualization_renderer.md
+│   ├── IMPLEMENTATION_CHECKLIST.md  # Progress tracking
 │   ├── api.md                # WebSocket API spec (future)
 │   └── deployment.md         # Deployment guide (future)
 │
@@ -154,9 +162,46 @@ UTXOracle/
 ├── MODULAR_ARCHITECTURE.md   # Black box module design
 ├── TECHNICAL_SPEC.md         # MVP KISS implementation plan
 ├── TECHNICAL_SPEC_ADVANCED.md  # Production features (WebGL, Rust, etc.)
-├── HISTORICAL_DATA.md
+├── SKILL_SUMMARY.md          # Agent Skills vs Subagents analysis
+├── HISTORICAL_DATA.md        # 672 days of historical analysis
 └── README.md
 ```
+
+## Agent & Skill Architecture
+
+### **Subagents** (6) - Complex Reasoning
+Specialized agents for deep domain expertise and multi-step workflows.
+
+| Agent | Task | Responsibility | Token Cost |
+|-------|------|---------------|-----------|
+| bitcoin-onchain-expert | 01 | ZMQ listener, Bitcoin Core integration | ~8,000 |
+| transaction-processor | 02 | Binary parsing, UTXOracle filtering | ~7,500 |
+| mempool-analyzer | 03 | Histogram, stencil, price estimation | ~9,000 |
+| data-streamer | 04 | FastAPI WebSocket server | ~6,000 |
+| visualization-renderer | 05 | Canvas 2D + Three.js WebGL | ~7,000 |
+| tdd-guard | - | TDD enforcement, coverage validation | ~5,000 |
+
+**Usage**: Invoke via Claude Code for complex implementation tasks.
+
+### **Skills** (2) - Template-Driven Automation
+Lightweight templates for repetitive operations with 70-80% token savings.
+
+| Skill | Purpose | Token Savings |
+|-------|---------|---------------|
+| pytest-test-generator | Auto-generate test boilerplate | 83% (3,000→500) |
+| github-workflow | PR/Issue/Commit templates | 79% (18,900→4,000) |
+
+**Usage**: Automatically triggered by keywords like "generate tests" or "create PR".
+
+### **Modus Operandi**
+See `.claude/prompts/utxoracle-system.md` for:
+- Task classification rules (01-05)
+- TDD workflow enforcement
+- Agent spawning patterns
+- Checkpoint management
+- Error handling protocols
+
+**Combined Token Savings**: ~87,000 tokens per full pipeline (27% reduction)
 
 ## Development Principles
 
