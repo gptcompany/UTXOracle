@@ -1,0 +1,36 @@
+"""
+Tests for {{MODULE_NAME}}
+Task: {{TASK_NUMBER}}
+Coverage target: >80%
+"""
+import pytest
+from live.backend.{{MODULE_FILE}} import {{CLASS_NAME}}
+
+
+# Fixtures
+@pytest.fixture
+def {{FIXTURE_NAME}}():
+    """Fixture for {{CLASS_NAME}}"""
+    return {{CLASS_NAME}}()
+
+
+# Unit Tests (RED phase - should fail initially)
+def test_{{FUNCTION_1}}({{FIXTURE_NAME}}):
+    """Test {{DESCRIPTION_1}}"""
+    result = {{FIXTURE_NAME}}.{{METHOD_1}}()
+    assert result is not None
+    # RED: Not implemented yet
+
+
+def test_{{FUNCTION_2}}({{FIXTURE_NAME}}):
+    """Test {{DESCRIPTION_2}}"""
+    result = {{FIXTURE_NAME}}.{{METHOD_2}}()
+    assert result is not None
+    # RED: Not implemented yet
+
+
+# Edge Cases
+def test_{{EDGE_CASE}}({{FIXTURE_NAME}}):
+    """Test {{EDGE_DESCRIPTION}}"""
+    result = {{FIXTURE_NAME}}.{{METHOD}}(invalid_input)
+    assert result is None  # Should handle gracefully
