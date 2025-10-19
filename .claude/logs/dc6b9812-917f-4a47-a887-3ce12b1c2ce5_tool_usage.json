@@ -1,11 +1,5 @@
 [
   {
-    "timestamp": "2025-10-19T17:35:34.814313",
-    "tool_name": "Read",
-    "session_id": "dc6b9812-917f-4a47-a887-3ce12b1c2ce5",
-    "success": true
-  },
-  {
     "timestamp": "2025-10-19T17:35:34.829422",
     "tool_name": "Read",
     "session_id": "dc6b9812-917f-4a47-a887-3ce12b1c2ce5",
@@ -595,6 +589,12 @@
   },
   {
     "timestamp": "2025-10-19T18:16:12.915344",
+    "tool_name": "Bash",
+    "session_id": "dc6b9812-917f-4a47-a887-3ce12b1c2ce5",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-19T18:18:11.766552",
     "tool_name": "Bash",
     "session_id": "dc6b9812-917f-4a47-a887-3ce12b1c2ce5",
     "success": true

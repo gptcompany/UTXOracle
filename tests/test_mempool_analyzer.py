@@ -320,7 +320,7 @@ def test_price_estimation_convergence():
         # Add 50 transactions per batch
         for i in range(50):
             tx = ProcessedTransaction(
-                txid=f"{batch}_{i:063x}",
+                txid=f"{batch:01x}{i:063x}",
                 amounts=[0.001, 0.002],
                 timestamp=time.time(),
                 input_count=1,

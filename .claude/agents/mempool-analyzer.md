@@ -229,10 +229,27 @@ fi
 ```
 
 ### Key Points:
-- **File-to-test mapping MUST be 1:1** (tx_processor.py → test_tx_processor.py)
+- **File-to-test mapping MUST be 1:1** (mempool_analyzer.py → test_mempool_analyzer.py)
 - **Generic "tests exist" is NOT sufficient** - must verify YOUR specific test
 - **Show the verification step** - run `ls tests/test_X.py` to prove it exists
-- **Reference test count** - show how many tests exist for this module (e.g., "10 tests in test_tx_processor.py")
+- **Reference test count** - show how many tests exist for this module (e.g., "6 tests in test_mempool_analyzer.py")
+
+### ⚡ Incremental Implementation Workflow (MANDATORY)
+
+**Context**: Tests were pre-written in batch by `tdd-guard` agent (tasks T020-T027). You implement incrementally to satisfy the TDD hook.
+
+**Required Steps** (repeat until all tests pass):
+
+1. **Run ONE test** to get specific error:
+   ```bash
+   uv run pytest tests/test_mempool_analyzer.py::test_histogram_add_transaction -v
+   ```
+
+2. **Capture error output** → Implement MINIMAL fix → Re-run → Repeat
+
+3. **Continue** until test goes GREEN ✓
+
+**Why Incremental?** The TDD hook validates each change addresses a specific test failure. Batch implementation gets rejected as "over-implementation".
 
 ### Anti-Pattern (DO NOT DO THIS):
 

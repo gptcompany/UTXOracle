@@ -217,6 +217,41 @@ fi
 - **Show the verification step** - run `ls tests/test_X.py` to prove it exists
 - **Reference test count** - show how many tests exist for this module (e.g., "10 tests in test_tx_processor.py")
 
+### ⚡ Incremental Implementation Workflow (MANDATORY)
+
+**Context**: Tests were pre-written in batch by `tdd-guard` agent (tasks T020-T027). You implement incrementally to satisfy the TDD hook.
+
+**Required Steps** (repeat until all tests pass):
+
+1. **Run ONE test** to get specific error:
+   ```bash
+   uv run pytest tests/test_tx_processor.py::test_parse_binary_transaction -v
+   ```
+
+2. **Capture error output** in your response:
+   ```
+   Error: AttributeError: 'TransactionProcessor' object has no attribute 'parse_transaction'
+   ```
+
+3. **Implement MINIMAL fix** for ONLY that error:
+   ```python
+   def parse_transaction(self, raw_bytes: bytes):
+       pass  # Fixes AttributeError only
+   ```
+
+4. **Re-run test** → Get next error (e.g., `NoneType has no attribute 'version'`)
+
+5. **Repeat** until test goes GREEN
+
+**Why Incremental?** The TDD hook validates each change addresses a specific test failure. Batch implementation gets rejected as "over-implementation".
+
+**Example Flow**:
+```
+Run test → AttributeError → Add method stub → Re-run → NoneType error →
+Return object → Re-run → version==0 but expected 2 → Parse version field →
+Re-run → NameError struct → Import struct → Re-run → Test PASSES ✓
+```
+
 ### Anti-Pattern (DO NOT DO THIS):
 
 ❌ "Tests exist somewhere in tests/ directory" → Too vague, can bypass TDD
