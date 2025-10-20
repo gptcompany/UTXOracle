@@ -146,6 +146,8 @@ docs/                               # Documentation
 ├── CANVAS_IMPLEMENTATION_COMPLETE.md
 ├── IMPLEMENTATION_CHECKLIST.md
 ├── MANUAL_TEST_US3_CONFIDENCE_WARNING.md
+├── T093_validation_LIVE_final.png
+├── T093_validation_LIVE_final_v2.png
 ├── T093_validation_report.md
 ├── T093_validation_screenshot.png
 ├── algorithm_concepts.md

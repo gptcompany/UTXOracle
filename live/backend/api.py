@@ -213,3 +213,7 @@ async def serve_js():
     return HTMLResponse(
         content=js_path.read_text(), media_type="application/javascript"
     )
+
+
+# Import orchestrator to register its startup/shutdown handlers
+from live.backend import orchestrator  # noqa: E402, F401

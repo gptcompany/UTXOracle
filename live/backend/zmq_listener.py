@@ -63,17 +63,19 @@ class ZMQListener:
 
         while True:
             try:
-                # Receive multipart message: [topic, data]
+                # Receive multipart message: [topic, data] or [topic, data, sequence]
+                # Bitcoin Core sends 3-part messages with sequence number
                 message = await self._socket.recv_multipart()
 
-                # Validate message structure
-                if len(message) != 2:
+                # Validate message structure (accept 2 or 3 parts)
+                if len(message) not in (2, 3):
                     logger.warning(
-                        f"Malformed ZMQ message: expected 2 parts, got {len(message)}. Skipping."
+                        f"Malformed ZMQ message: expected 2 or 3 parts, got {len(message)}. Skipping."
                     )
                     continue
 
-                topic_bytes, tx_bytes = message
+                # Parse message parts (ignore sequence number if present)
+                topic_bytes, tx_bytes = message[0], message[1]
 
                 # Decode topic
                 topic = topic_bytes.decode("utf-8")

@@ -1,21 +1,11 @@
 {
   "testModules": [
     {
-      "moduleId": "tests/test_mempool_analyzer.py",
+      "moduleId": "tests/test_zmq_listener.py",
       "tests": [
         {
-          "name": "test_get_stats_accuracy",
-          "fullName": "tests/test_mempool_analyzer.py::test_get_stats_accuracy",
-          "state": "passed"
-        }
-      ]
-    },
-    {
-      "moduleId": "tests/integration/test_frontend.py",
-      "tests": [
-        {
-          "name": "test_stats_panel_rendering",
-          "fullName": "tests/integration/test_frontend.py::test_stats_panel_rendering",
+          "name": "test_zmq_stream_handles_3_part_messages",
+          "fullName": "tests/test_zmq_listener.py::test_zmq_stream_handles_3_part_messages",
           "state": "passed"
         }
       ]

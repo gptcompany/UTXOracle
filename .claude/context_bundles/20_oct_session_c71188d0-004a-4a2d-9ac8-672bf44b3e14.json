@@ -400,7 +400,357 @@
       "timestamp": "2025-10-20T19:42:46.927879",
       "file_path": "/media/sam/1TB/UTXOracle/tests/test_zmq_listener.py",
       "old_string": "@pytest.mark.asyncio\nasync def test_zmq_stream_handles_malformed_messages():\n    \"\"\"\n    Test that Z..."
+    },
+    {
+      "operation": "task",
+      "timestamp": "2025-10-20T19:45:36.989883",
+      "subagent_type": "bitcoin-onchain-expert",
+      "prompt": "**Task: Configure Bitcoin Core ZMQ and Validate T093**\n\n**Objective**: Enable Bitcoin Core ZMQ notif..."
+    },
+    {
+      "operation": "todowrite",
+      "timestamp": "2025-10-20T19:45:38.075619",
+      "todo_count": 4
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-20T19:45:49.857291",
+      "file_path": "/media/sam/1TB/UTXOracle/live/backend/zmq_listener.py"
+    },
+    {
+      "operation": "grep",
+      "timestamp": "2025-10-20T19:46:00.884287",
+      "pattern": "expected 2 parts|recv_multipart|len\\(parts\\)",
+      "path": "live/backend/zmq_listener.py",
+      "output_mode": "content"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-20T19:46:17.536241",
+      "file_path": "/media/sam/1TB/UTXOracle/live/backend/zmq_listener.py"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:46:51.153393",
+      "command": "uv run pytest tests/test_zmq_listener.py::test_zmq_stream_handles_3_part_messages -v --tb=short --timeout=10 2>&1 | head -50",
+      "description": "Run the 3-part message test to prove it fails"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:47:10.015342",
+      "command": "timeout 10 uv run pytest tests/test_zmq_listener.py::test_zmq_stream_handles_3_part_messages -v 2>&1 || echo \"TEST TIMED OUT OR FAILED\"",
+      "description": "Run test with bash timeout"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:47:25.717779",
+      "command": "python3 << 'PYTHON_EOF'\nimport re\n\n# Read file\nwith open(\"live/backend/zmq_listener.py\", \"r\") as f:\n    content = f.read()\n\n# Fix: Accept 2 or 3-part messages\nold_pattern = r'''                # Receive multipart message: \\[topic, data\\]\n                message = await self\\._socket\\.recv_multipart\\(\\)\n\n                # Validate message structure\n                if len\\(message\\) != 2:\n                    logger\\.warning\\(\n                        f\"Malformed ZMQ message: expected 2 parts, got \\{len\\(message\\)\\}\\. Skipping\\.\"\n                    \\)\n                    continue\n\n                topic_bytes, tx_bytes = message'''\n\nnew_code = '''                # Receive multipart message: [topic, data] or [topic, data, sequence]\n                # Bitcoin Core sends 3-part messages with sequence number\n                message = await self._socket.recv_multipart()\n\n                # Validate message structure (accept 2 or 3 parts)\n                if len(message) not in (2, 3):\n                    logger.warning(\n                        f\"Malformed ZMQ message: expected 2 or 3 parts, got {len(message)}. Skipping.\"\n                    )\n                    continue\n\n                # Parse message parts (ignore sequence number if present)\n                topic_bytes, tx_bytes = message[0], message[1]'''\n\ncontent_fixed = re.sub(old_pattern, new_code, content)\n\n# Write back\nwith open(\"live/backend/zmq_listener.py\", \"w\") as f:\n    f.write(content_fixed)\n\nprint(\"✅ Fix applied: ZMQ now accepts 2 or 3-part messages\")\nPYTHON_EOF",
+      "description": "Apply ZMQ 3-part message fix via Python"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:47:37.518740",
+      "command": "timeout 10 uv run pytest tests/test_zmq_listener.py::test_zmq_stream_handles_3_part_messages -v 2>&1 | tail -20",
+      "description": "Verify test now passes"
+    },
+    {
+      "operation": "bashoutput",
+      "timestamp": "2025-10-20T19:47:50.182347",
+      "bash_id": "e9c971"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:47:51.271363",
+      "command": "ps aux | grep -E \"(uvicorn|orchestrator|zmq)\" | grep -v grep",
+      "description": "Check running processes"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:48:03.640133",
+      "command": "sleep 3 && uv run python orchestrator.py > /tmp/orchestrator_new.log 2>&1 & echo \"PID: $!\" && sleep 5 && tail -30 /tmp/orchestrator_new.log",
+      "description": "Start orchestrator with updated code"
+    },
+    {
+      "operation": "bashoutput",
+      "timestamp": "2025-10-20T19:48:12.420160",
+      "bash_id": "bc0d23"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:48:23.388803",
+      "command": "sleep 10 && tail -50 /tmp/orchestrator_new.log | grep -E \"(Processing transaction|Malformed|ERROR|received)\"",
+      "description": "Check if orchestrator is now processing transactions"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:48:33.937907",
+      "command": "bitcoin-cli getzmqnotifications",
+      "description": "Check if ZMQ is now configured"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:48:40.297646",
+      "command": "sleep 5 && tail -100 /tmp/orchestrator_new.log | grep -E \"(Processing|transaction|Received|stats)\" | head -20",
+      "description": "Check if transactions are being processed"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:48:53.879236",
+      "command": "tail -200 /tmp/orchestrator_new.log 2>&1 | tail -50",
+      "description": "Check recent orchestrator logs"
+    },
+    {
+      "operation": "todowrite",
+      "timestamp": "2025-10-20T19:48:54.953941",
+      "todo_count": 6
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:49:31.339504",
+      "command": "ps aux | grep -E \"(main.py|uvicorn)\" | grep -v grep",
+      "description": "Check if orchestrator/API server is running"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:49:35.088068",
+      "command": "bitcoin-cli getzmqnotifications",
+      "description": "Verify Bitcoin Core ZMQ endpoints are configured"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:49:39.649705",
+      "command": "bitcoin-cli getmempoolinfo | grep -E \"size|bytes\"",
+      "description": "Get Bitcoin Core mempool size for comparison"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:49:44.313442",
+      "command": "nohup uv run python main.py > /tmp/orchestrator.log 2>&1 &",
+      "description": "Start orchestrator in background"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:49:52.097307",
+      "command": "sleep 3 && ps aux | grep -E \"(main.py|uvicorn)\" | grep -v grep",
+      "description": "Wait and check if processes started"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:49:56.529248",
+      "command": "tail -50 /tmp/orchestrator.log",
+      "description": "Check orchestrator startup logs"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-20T19:50:00.818374",
+      "file_path": "/media/sam/1TB/UTXOracle/main.py"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-20T19:50:06.285160",
+      "file_path": "/media/sam/1TB/UTXOracle/orchestrator.py"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:50:12.038630",
+      "command": "nohup uv run uvicorn live.backend.api:app --host 0.0.0.0 --port 8000 > /tmp/uvicorn.log 2>&1 &",
+      "description": "Start FastAPI server with uvicorn"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:50:20.923393",
+      "command": "sleep 5 && ps aux | grep uvicorn | grep -v grep",
+      "description": "Wait and check if uvicorn started"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:50:24.751481",
+      "command": "tail -50 /tmp/uvicorn.log",
+      "description": "Check uvicorn startup logs"
+    },
+    {
+      "operation": "mcp__chrome-devtools__navigate_page",
+      "timestamp": "2025-10-20T19:50:28.672124",
+      "url": "http://localhost:8000"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:50:52.880849",
+      "command": "sleep 20",
+      "description": "Wait 20 seconds for data to populate"
+    },
+    {
+      "operation": "mcp__chrome-devtools__take_screenshot",
+      "timestamp": "2025-10-20T19:50:57.464438",
+      "filePath": "/media/sam/1TB/UTXOracle/docs/T093_validation_LIVE_final.png",
+      "fullPage": true
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-20T19:51:00.994577",
+      "file_path": "/media/sam/1TB/UTXOracle/docs/T093_validation_LIVE_final.png"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:51:08.788365",
+      "command": "tail -100 /tmp/uvicorn.log | grep -E \"(ERROR|WARNING|INFO.*orchestrator|INFO.*pipeline|INFO.*ZMQ)\"",
+      "description": "Check for orchestrator/pipeline logs"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:51:12.516811",
+      "command": "tail -100 /tmp/uvicorn.log",
+      "description": "Check all recent uvicorn logs"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:51:19.273622",
+      "command": "grep -n \"from orchestrator import\\|import orchestrator\\|@app.on_event\" /media/sam/1TB/UTXOracle/live/backend/api.py",
+      "description": "Check if api.py imports orchestrator"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-20T19:51:23.223299",
+      "file_path": "/media/sam/1TB/UTXOracle/live/backend/api.py"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:51:30.149062",
+      "command": "grep -r \"import orchestrator\\|from.*orchestrator\" /media/sam/1TB/UTXOracle/live/backend/ --include=\"*.py\"",
+      "description": "Find orchestrator imports in backend"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:51:36.767150",
+      "command": "ls -la /media/sam/1TB/UTXOracle/live/backend/ | grep orchestrator",
+      "description": "Check if orchestrator exists in backend"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:51:42.273345",
+      "command": "wc -l /media/sam/1TB/UTXOracle/live/backend/orchestrator.py /media/sam/1TB/UTXOracle/orchestrator.py",
+      "description": "Compare line counts"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-20T19:51:45.761469",
+      "file_path": "/media/sam/1TB/UTXOracle/live/backend/orchestrator.py"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:51:50.643708",
+      "command": "grep -n \"@app.on_event\\|async def startup\\|async def shutdown\" /media/sam/1TB/UTXOracle/live/backend/orchestrator.py",
+      "description": "Check for startup/shutdown handlers"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-20T19:51:57.962837",
+      "file_path": "/media/sam/1TB/UTXOracle/live/backend/api.py"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-20T19:52:03.228875",
+      "file_path": "/media/sam/1TB/UTXOracle/live/backend/api.py"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:52:07.921931",
+      "command": "tail -20 /media/sam/1TB/UTXOracle/live/backend/api.py",
+      "description": "Check end of api.py"
+    },
+    {
+      "operation": "edit",
+      "timestamp": "2025-10-20T19:52:27.952356",
+      "file_path": "/media/sam/1TB/UTXOracle/live/backend/api.py",
+      "old_string": "@app.get(\"/mempool-viz.js\")\nasync def serve_js():\n    \"\"\"Serve JavaScript file\"\"\"\n    js_path = fron..."
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:52:37.353501",
+      "command": "nohup uv run uvicorn live.backend.api:app --host 0.0.0.0 --port 8000 > /tmp/uvicorn.log 2>&1 &",
+      "description": "Restart FastAPI server with orchestrator"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:52:46.859505",
+      "command": "sleep 5 && tail -30 /tmp/uvicorn.log",
+      "description": "Check startup logs with orchestrator"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-20T19:52:51.561401",
+      "file_path": "/media/sam/1TB/UTXOracle/live/backend/orchestrator.py"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:53:01.410713",
+      "command": "nohup uv run uvicorn live.backend.api:app --host 0.0.0.0 --port 8000 --log-level debug > /tmp/uvicorn.log 2>&1 &",
+      "description": "Restart with debug logging"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:53:10.518279",
+      "command": "sleep 5 && tail -50 /tmp/uvicorn.log | grep -E \"(orchestrator|pipeline|ZMQ|startup)\"",
+      "description": "Look for orchestrator messages"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:53:18.616236",
+      "command": "uv run python -c \"from live.backend import orchestrator; print('Orchestrator imported successfully')\" 2>&1",
+      "description": "Test orchestrator import"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:53:24.409403",
+      "command": "grep -A5 \"@app.on_event\" /media/sam/1TB/UTXOracle/live/backend/api.py",
+      "description": "Find all app event handlers in api.py"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:53:51.358790",
+      "command": "grep -r \"startup\\|orchestrator\" /media/sam/1TB/UTXOracle/tests/integration/ --include=\"*.py\" | head -20",
+      "description": "Find orchestrator/startup tests"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-20T19:53:55.102071",
+      "file_path": "/media/sam/1TB/UTXOracle/live/backend/api.py"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:54:44.040242",
+      "command": "grep -n \"def remove_old\" /media/sam/1TB/UTXOracle/live/backend/mempool_analyzer.py",
+      "description": "Check if remove_old_transactions exists"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:54:58.831641",
+      "command": "sleep 10",
+      "description": "Wait for more data"
+    },
+    {
+      "operation": "mcp__chrome-devtools__take_screenshot",
+      "timestamp": "2025-10-20T19:55:03.724934",
+      "filePath": "/media/sam/1TB/UTXOracle/docs/T093_validation_LIVE_final_v2.png",
+      "fullPage": true
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-20T19:55:07.446098",
+      "file_path": "/media/sam/1TB/UTXOracle/docs/T093_validation_LIVE_final_v2.png"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:55:13.914858",
+      "command": "grep -E \"(orchestrator|pipeline|ZMQ|Starting|Connected)\" /tmp/uvicorn.log",
+      "description": "Find all orchestrator-related logs"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:55:20.352022",
+      "command": "cat /tmp/uvicorn.log | grep -i \"info.*orchestrator\\|info.*pipeline\" | head -20",
+      "description": "Search for orchestrator INFO logs"
     }
   ],
-  "last_updated": "2025-10-20T19:42:46.927895"
+  "last_updated": "2025-10-20T19:55:20.352039"
 }
