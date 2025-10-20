@@ -1,11 +1,11 @@
 {
   "testModules": [
     {
-      "moduleId": "tests/test_api.py",
+      "moduleId": "tests/integration/test_frontend.py",
       "tests": [
         {
-          "name": "test_websocket_includes_transaction_history",
-          "fullName": "tests/test_api.py::test_websocket_includes_transaction_history",
+          "name": "test_scatter_plot_renders_transactions",
+          "fullName": "tests/integration/test_frontend.py::test_scatter_plot_renders_transactions",
           "state": "passed"
         }
       ]

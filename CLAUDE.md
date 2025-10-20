@@ -143,6 +143,7 @@ archive/                            # Previous versions (v7, v8, v9)
 ├── v8/
 └── v9/
 docs/                               # Documentation
+├── CANVAS_IMPLEMENTATION_COMPLETE.md
 ├── IMPLEMENTATION_CHECKLIST.md
 ├── algorithm_concepts.md
 ├── mcp-builder-agent.md
@@ -157,7 +158,8 @@ examples/                           # Example outputs and screenshots
 ├── Screenshot from 2025-10-18 10-24-54.png
 ├── Screenshot from 2025-10-18 10-25-09.png
 ├── Screenshot from 2025-10-18 10-27-16.png
-└── UTXOracle_Local_Node_Price.png
+├── UTXOracle_Local_Node_Price.png
+└── canvas_t069-t074_verification.png
 historical_data/                    # 672 days of historical outputs
 └── html_files/                         # HTML price analysis files
 │   │   └── [672 HTML files]
