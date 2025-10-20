@@ -84,132 +84,146 @@ See **MODULAR_ARCHITECTURE.md** and **TECHNICAL_SPEC.md** for planned modular Ru
 - **ZMQ integration** for live transaction streaming
 - **Black box principle**: Each module independently replaceable without affecting others
 
-## File Structure
+## Repository Organization
 
-**⚠️ IMPORTANT**: When directory structure changes, update this section immediately.
+### Core Structure
 
 ```
 UTXOracle/
-├── pyproject.toml            # UV workspace root
-├── uv.lock                   # Dependency lockfile (commit this!)
+.env                                # Environment variables (DO NOT COMMIT)
+.python-version                     # Python version specification
+CLAUDE.md                           # THIS FILE - Claude Code instructions
+LICENSE                             # Blue Oak Model License 1.0.0
+README.md                           # Project overview
+UTXOracle.py                        # Reference implementation v9.1 (IMMUTABLE)
+main.py                             # Live system entry point
+orchestrator.py                     # Pipeline orchestration
+pyproject.toml                      # UV workspace root
+uv.lock                             # Dependency lockfile (commit this!)
 │
-├── UTXOracle.py              # Reference implementation v9.1 (IMMUTABLE)
-│
-├── .claude/                  # Claude Code configuration
-│   ├── agents/               # Specialized subagents (6 total)
-│   │   ├── bitcoin-onchain-expert.md      # Task 01 - ZMQ listener
-│   │   ├── transaction-processor.md       # Task 02 - Binary parsing
-│   │   ├── mempool-analyzer.md            # Task 03 - Price estimation
-│   │   ├── data-streamer.md               # Task 04 - WebSocket API
-│   │   ├── visualization-renderer.md      # Task 05 - Canvas/WebGL
-│   │   └── tdd-guard.md                   # TDD enforcement
-│   ├── skills/               # Template-driven automation (token efficiency)
-│   │   ├── pytest-test-generator/         # Test boilerplate (83% savings)
-│   │   ├── github-workflow/               # PR/Issue templates (79% savings)
-│   │   ├── pydantic-model-generator/      # Pydantic schema automation (75% savings)
-│   │   ├── bitcoin-rpc-connector/         # Bitcoin Core RPC setup (60% savings)
-│   │   ├── SKILLS_QUICK_REFERENCE.md      # One-page cheat sheet
-│   │   └── SKILLS_ANALYSIS.md             # Skills token economics
-│   ├── prompts/
-│   │   └── utxoracle-system.md            # Orchestration rules
-│   ├── tdd-guard/            # TDD enforcement data
-│   │   └── data/             # Coverage reports, test history
-│   ├── logs/                 # Claude Code session logs
-│   ├── commands/             # Custom slash commands
-│   ├── settings.local.json   # Permissions & hooks
-│   ├── MCP_OPTIMIZATION.md   # MCP tools configuration guide
-│   ├── CONSISTENCY_CHECK.md  # Structure validation report
-│   ├── SKILLS_ANALYSIS.md    # Extended Skills analysis
-│   └── SKILLS_FRAMEWORK_BLUEPRINT.md  # 📘 META: Portable framework for ANY project
-│
-├── .serena/                  # Serena MCP (code navigation memory)
-│   └── memories/             # Project knowledge base
-│
-├── .specify/                 # SpecKit (task management) - optional
-│   ├── memory/               # Specification memory
-│   ├── templates/            # Document templates
-│   └── scripts/              # Automation scripts
-│
-├── core/                     # Shared algorithm modules (FUTURE - not yet created)
-│   ├── __init__.py
-│   ├── histogram.py          # Steps 5-7 (extracted from UTXOracle.py)
-│   ├── stencil.py            # Steps 8-9
-│   ├── convergence.py        # Step 11
-│   └── bitcoin_rpc.py        # Step 2
-│
-├── live/                     # Mempool live system (CURRENT IMPLEMENTATION TARGET)
-│   ├── backend/              # ✅ Created, ready for implementation
-│   │   ├── __init__.py
-│   │   ├── zmq_listener.py   # Task 01 - Bitcoin ZMQ interface (TODO)
-│   │   ├── mempool_analyzer.py  # Task 03 - Real-time price estimation (TODO)
-│   │   ├── api.py            # Task 04 - FastAPI WebSocket server (TODO)
-│   │   ├── models.py         # Data models (Pydantic) (TODO)
-│   │   └── config.py         # Configuration (TODO)
-│   ├── frontend/             # ✅ Created, ready for implementation
-│   │   ├── __init__.py
-│   │   ├── index.html        # Main page (scaffold created)
-│   │   ├── mempool-viz.js    # Canvas 2D renderer (Task 05 MVP) (TODO)
-│   │   ├── mempool-viz-webgl.js  # Three.js renderer (Task 05 production) (TODO)
-│   │   └── styles.css        # Styling (scaffold created)
-│   └── shared/               # ✅ Created
-│       ├── __init__.py
-│       └── models.py         # Shared data structures (TODO)
-│
-├── scripts/                  # Utilities
-│   ├── utxoracle_batch.py    # Batch processor (parallel date range processing)
-│   └── README.md
-│
-├── docs/                     # Documentation
-│   ├── algorithm_concepts.md # Algorithm breakdown by concept
-│   ├── tasks/                # Task breakdown for agents
-│   │   ├── 00_OVERVIEW.md    # Project overview, agent assignment
-│   │   ├── 01_bitcoin_interface.md  # ZMQ listener task
-│   │   ├── 02_transaction_processor.md
-│   │   ├── 03_mempool_analyzer.md
-│   │   ├── 04_data_streamer.md
-│   │   └── 05_visualization_renderer.md
-│   ├── IMPLEMENTATION_CHECKLIST.md  # Progress tracking
-│   ├── api.md                # WebSocket API spec (future)
-│   └── deployment.md         # Deployment guide (future)
-│
-├── tests/                    # ✅ Created, ready for TDD
-│   ├── __init__.py
-│   ├── conftest.py           # Pytest shared fixtures
-│   ├── test_core/            # Core algorithm tests (TODO)
-│   │   └── __init__.py
-│   ├── test_live/            # Backend tests (TODO)
-│   │   └── __init__.py
-│   ├── integration/          # End-to-end tests (TODO)
-│   │   └── __init__.py
-│   └── fixtures/             # Test data (TODO)
-│       └── __init__.py
-│
-├── historical_data/
-│   └── html_files/           # 672 HTML files (Dec 15, 2023 → Oct 17, 2025)
-│
-├── archive/
-│   ├── v9/                   # Previous versions
-│   ├── v8/
-│   ├── v7/
-│   └── start9/
-│
-├── .venv/                    # Python virtual environment (DO NOT COMMIT)
-├── .git/                     # Git repository
-├── .github/                  # Cleanup automation tools
-│   ├── CLEANUP_CHECKLIST.md  # Quick reference for pre-commit cleanup
-│   ├── pre-commit.hook       # Optional automated validation hook
-│   └── README.md             # How to use cleanup tools
-│
-├── CLAUDE.md                 # THIS FILE - Claude Code instructions
-├── CHANGELOG_SPEC.md         # Formal version evolution (v7→v8→v9→v9.1)
-├── MODULAR_ARCHITECTURE.md   # Black box module design
-├── TECHNICAL_SPEC.md         # MVP KISS implementation plan
-├── TECHNICAL_SPEC_ADVANCED.md  # Production features (WebGL, Rust, etc.)
-├── SKILL_SUMMARY.md          # Agent Skills vs Subagents analysis
-├── SKILL_SUMMARY_VIDEO_TRANSCRIPT_SUMMARY.md  # Skills video notes (uncommitted)
-├── HISTORICAL_DATA.md        # 672 days of historical analysis
-└── README.md
+.claude/                            # Claude Code configuration
+├── AGENT_TOOLS_REFERENCE.md
+├── BROWSER_MCP_QUICK_REFERENCE.md
+├── HOOKS_ANALYSIS.md
+├── HOOKS_TUTORIAL_ANALYSIS.md
+├── META_LEARNING_README.md
+├── README.md
+├── REASONINGBANK_ANALYSIS.md
+├── TDD_GUARD_VS_AUTOTEST.md
+├── config.json
+├── settings.local.json
+├── agents/                             # 6 specialized subagents
+├── commands/                           # Custom slash commands (SpecKit)
+├── docs/                               # Meta-documentation
+├── hooks/                              # Pre/post tool execution hooks
+├── logs/                               # Session logs
+├── prompts/                            # Orchestration rules
+├── reports/
+├── research/                           # Research notes
+├── scripts/
+├── skills/                             # 4 template-driven automation skills
+└── tdd-guard/                          # TDD enforcement data
+.github/                            # Cleanup automation tools
+├── CLEANUP_CHECKLIST.md
+├── README.md
+└── pre-commit.hook
+.serena/                            # Serena MCP (code navigation memory)
+├── .gitignore
+├── project.yml
+└── memories/
+.specify/                           # SpecKit (task management)
+├── memory/
+├── scripts/
+└── templates/
+archive/                            # Previous versions (v7, v8, v9)
+├── start9/
+├── v7/
+├── v8/
+└── v9/
+docs/                               # Documentation
+├── IMPLEMENTATION_CHECKLIST.md
+├── algorithm_concepts.md
+└── tasks/                              # Agent task specifications (01-05)
+examples/                           # Example outputs and screenshots
+├── README.md
+├── Screenshot from 2025-10-18 09-26-57.png
+├── Screenshot from 2025-10-18 09-27-03.png
+├── Screenshot from 2025-10-18 09-27-11.png
+├── Screenshot from 2025-10-18 09-27-21.png
+├── Screenshot from 2025-10-18 10-24-54.png
+├── Screenshot from 2025-10-18 10-25-09.png
+├── Screenshot from 2025-10-18 10-27-16.png
+└── UTXOracle_Local_Node_Price.png
+historical_data/                    # 672 days of historical outputs
+└── html_files/                         # HTML price analysis files
+│   │   └── [672 HTML files]
+live/                               # Modular live system implementation
+├── backend/                            # Python modules (ZMQ, processing, API)
+├── frontend/                           # HTML/JS/CSS visualization
+└── shared/                             # Shared data models
+scripts/                            # Utilities (batch processing, etc.)
+├── README.md
+└── utxoracle_batch.py
+specs/                              # Feature specifications (SpecKit)
+├── 001-specify-scripts-bash/
+└── 002-mempool-live-oracle/
+tests/                              # Test suite (pytest)
+├── __init__.py
+├── conftest.py
+├── test_api.py
+├── test_hook_example.py
+├── test_mempool_analyzer.py
+├── test_models.py
+├── test_tx_processor.py
+├── test_zmq_listener.py
+├── benchmark/                          # Performance benchmarks
+├── fixtures/                           # Test data
+├── integration/                        # End-to-end tests
+├── test_core/
+└── test_live/
 ```
+
+### Claude Code Configuration (`.claude/`)
+
+**Agent System**:
+- `agents/` - 6 specialized subagents (1 per task + tdd-guard)
+- `skills/` - 4 template-driven automation skills (pytest, github, pydantic, bitcoin-rpc)
+- `prompts/` - Orchestration rules (utxoracle-system.md)
+
+**Automation Infrastructure**:
+- `hooks/` - Pre/post tool execution hooks (auto-format, safety checks, git guards)
+- `tdd-guard/` - TDD enforcement data (coverage, test history)
+- `commands/` - Custom slash commands (SpecKit integration)
+
+**Documentation & Analysis**:
+- `docs/` - Meta-documentation (skills analysis, MCP optimization, framework blueprint)
+- `research/` - Research notes (hook systems, best practices)
+- `logs/` - Session logs (tool usage tracking)
+
+**Configuration**:
+- `settings.local.json` - Permissions & hooks configuration
+- `config.json` - Claude configuration
+
+### MCP Server Memory (`.serena/`, `.specify/`)
+
+- **Serena**: Code navigation memory (project knowledge base)
+- **SpecKit**: Task management (memory, templates, automation scripts)
+
+### File Placement Conventions
+
+**New backend modules** → `live/backend/`
+**New frontend code** → `live/frontend/`
+**New tests** → `tests/test_<module>.py` (mirror live/ structure)
+**New docs** → `docs/` (or `.claude/docs/` if meta-documentation)
+**Agent specs** → `.claude/agents/`
+**Skills** → `.claude/skills/`
+**Utilities** → `scripts/`
+**Specs** → `specs/<feature-id>/`
+
+### Immutable Files
+
+- **UTXOracle.py** - Reference implementation (do not refactor)
+- Historical data in `historical_data/html_files/`
 
 ## Agent & Skill Architecture
 
@@ -350,23 +364,78 @@ This project follows "black box" architecture principles for maintainability and
 
 1. **🔴 RED**: Write failing test first
    ```bash
-   uv run pytest tests/test_module.py  # Should fail
+   uv run pytest tests/test_module.py::test_new_feature -v  # MUST fail
    git add tests/ && git commit -m "TDD RED: Add test for feature X"
    ```
 
-2. **🟢 GREEN**: Minimal code to pass
+2. **🟢 GREEN - BABY STEPS** (critical - TDD guard enforces this):
+
+   **Step 2a**: Add MINIMAL stub (just method signature)
+   ```python
+   def new_method(self):
+       """Stub - not implemented yet"""
+       raise NotImplementedError
+   ```
+   Run test → Should fail differently (NotImplementedError instead of AttributeError)
+
+   **Step 2b**: Add MINIMAL implementation
+   ```python
+   def new_method(self):
+       """Minimal implementation to pass test"""
+       return []  # Simplest return value
+   ```
+   Run test → May still fail on assertions
+
+   **Step 2c**: Iterate until GREEN
    ```bash
-   # Implement simplest solution
-   uv run pytest tests/test_module.py  # Should pass
+   uv run pytest tests/test_module.py::test_new_feature -v  # Should pass
    git add . && git commit -m "TDD GREEN: Implement feature X"
    ```
 
 3. **♻️ REFACTOR**: Clean up with tests passing
    ```bash
-   # Improve code quality
+   # Improve code quality without changing behavior
    uv run pytest  # All tests still pass
    git add . && git commit -m "TDD REFACTOR: Clean up feature X"
    ```
+
+**⚠️ TDD Guard Rules** (enforced automatically):
+- ❌ **NEVER** implement without failing test first
+- ❌ **NEVER** add multiple tests at once (one test at a time)
+- ❌ **NEVER** implement more than needed to pass current test
+- ✅ **ALWAYS** run pytest immediately before AND after each edit
+- ✅ **ALWAYS** implement smallest possible change
+- ✅ **FOLLOW** error messages literally (AttributeError → add method, AssertionError → fix logic)
+
+**Baby Step Example**:
+```python
+# ❌ WRONG (too much at once):
+def get_history(self):
+    if not hasattr(self, 'history'):
+        self.history = deque(maxlen=500)
+    return list(self.history)
+
+# ✅ CORRECT (baby steps):
+# Step 1: Just stub
+def get_history(self):
+    pass
+
+# Step 2: Minimal return
+def get_history(self):
+    return []
+
+# Step 3: Add empty list if test needs it
+def get_history(self):
+    if not hasattr(self, 'history'):
+        self.history = []
+    return self.history
+
+# Step 4: Fix after test shows we need deque
+def get_history(self):
+    if not hasattr(self, 'history'):
+        self.history = deque(maxlen=500)
+    return list(self.history)
+```
 
 **When TDD doesn't fit**: Frontend JS, visualization, exploratory code → Write tests after, document why.
 

@@ -96,7 +96,27 @@ fi
 # fi
 
 # ======================================
-# 7. Optional: Run linter (commented out by default)
+# 7. Auto-update CLAUDE.md structure
+# ======================================
+echo "  Checking if repository structure changed..."
+STRUCTURE_CHANGED=$(git diff --cached --name-only | grep -E "^(live|tests|docs|\.claude|scripts|specs)/" || true)
+
+if [ -n "$STRUCTURE_CHANGED" ]; then
+    echo "  → Structure changes detected, updating CLAUDE.md..."
+
+    if python3 .claude/hooks/update-claude-structure.py; then
+        # If CLAUDE.md was updated, stage it
+        if [ -n "$(git diff CLAUDE.md)" ]; then
+            git add CLAUDE.md
+            echo "  ✅ CLAUDE.md updated and staged"
+        fi
+    else
+        echo "  ⚠️  Failed to update CLAUDE.md (continuing anyway)"
+    fi
+fi
+
+# ======================================
+# 8. Optional: Run linter (commented out by default)
 # ======================================
 # Uncomment to run linter before every commit
 # echo "  Running linter..."
