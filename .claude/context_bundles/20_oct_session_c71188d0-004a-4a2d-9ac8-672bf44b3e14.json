@@ -750,7 +750,139 @@
       "timestamp": "2025-10-20T19:55:20.352022",
       "command": "cat /tmp/uvicorn.log | grep -i \"info.*orchestrator\\|info.*pipeline\" | head -20",
       "description": "Search for orchestrator INFO logs"
+    },
+    {
+      "operation": "task",
+      "timestamp": "2025-10-20T19:55:48.668080",
+      "subagent_type": "visualization-renderer",
+      "prompt": "**Task T093: Manual Validation - System Health Statistics (FINAL ATTEMPT)**\n\n**Context**: \n- ✅ Bitco..."
+    },
+    {
+      "operation": "mcp__chrome-devtools__navigate_page",
+      "timestamp": "2025-10-20T19:56:28.429931",
+      "url": "http://localhost:8000"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:56:38.114539",
+      "command": "sleep 5",
+      "description": "Wait 5 seconds for page to fully load"
+    },
+    {
+      "operation": "mcp__chrome-devtools__take_screenshot",
+      "timestamp": "2025-10-20T19:56:42.496296",
+      "filePath": "/media/sam/1TB/UTXOracle/docs/T093_FINAL_SUCCESS.png",
+      "fullPage": true,
+      "format": "png"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-20T19:56:45.656281",
+      "file_path": "/media/sam/1TB/UTXOracle/docs/T093_FINAL_SUCCESS.png"
+    },
+    {
+      "operation": "mcp__chrome-devtools__list_console_messages",
+      "timestamp": "2025-10-20T19:56:51.714428"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:56:58.622487",
+      "command": "bitcoin-cli getmempoolinfo 2>&1 | grep -E \"(size|bytes)\" | head -5",
+      "description": "Check Bitcoin Core mempool size"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:56:59.131077",
+      "command": "ps aux | grep -E \"(uvicorn|python.*main.py)\" | grep -v grep",
+      "description": "Check if backend is running"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:57:05.008555",
+      "command": "curl -s http://localhost:8000/health 2>&1",
+      "description": "Check backend health endpoint"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:57:11.078880",
+      "command": "ps aux | grep -E \"zmq|listener\" | grep -v grep",
+      "description": "Check if ZMQ listener is running"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-20T19:57:17.650620",
+      "file_path": "/media/sam/1TB/UTXOracle/main.py"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-20T19:57:22.621009",
+      "file_path": "/media/sam/1TB/UTXOracle/orchestrator.py"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:57:28.303163",
+      "command": "grep -n \"orchestrator\" /media/sam/1TB/UTXOracle/live/backend/api.py",
+      "description": "Check if API imports orchestrator"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:57:36.030163",
+      "command": "journalctl --user -u uvicorn --since \"5 minutes ago\" 2>/dev/null | tail -50 || echo \"No journalctl logs available\"",
+      "description": "Check systemd logs if available"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:57:43.603847",
+      "command": "pkill -f \"uvicorn.*api:app\" && sleep 2 && uv run uvicorn live.backend.api:app --host 0.0.0.0 --port 8000 --log-level debug > /tmp/utxoracle_backend.log 2>&1 &",
+      "description": "Restart backend with logging to file"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:57:52.126959",
+      "command": "sleep 3 && tail -100 /tmp/utxoracle_backend.log",
+      "description": "Check backend startup logs"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-20T19:57:58.613672",
+      "file_path": "/media/sam/1TB/UTXOracle/live/backend/zmq_listener.py"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:58:05.160178",
+      "command": "grep -A 3 \"expected 2\" /media/sam/1TB/UTXOracle/live/backend/zmq_listener.py",
+      "description": "Check the actual error message in code"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:58:10.830807",
+      "command": "head -200 /tmp/utxoracle_backend.log | grep -E \"(INFO|WARNING|ERROR|Starting|Connected)\" | head -30",
+      "description": "Check startup logs"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:58:16.903216",
+      "command": "grep -B5 -A5 \"@app.on_event\" /media/sam/1TB/UTXOracle/orchestrator.py",
+      "description": "Check how orchestrator registers events"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:58:24.412997",
+      "command": "tail -10 /media/sam/1TB/UTXOracle/live/backend/api.py",
+      "description": "Check end of api.py"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-20T19:58:32.815152",
+      "command": "uv run python -c \"import uvicorn; print(uvicorn.__version__)\"",
+      "description": "Check uvicorn version"
+    },
+    {
+      "operation": "write",
+      "timestamp": "2025-10-20T19:59:10.942561",
+      "file_path": "/media/sam/1TB/UTXOracle/docs/T093_VALIDATION_REPORT.md",
+      "content_length": 4882
     }
   ],
-  "last_updated": "2025-10-20T19:55:20.352039"
+  "last_updated": "2025-10-20T19:59:10.942579"
 }
