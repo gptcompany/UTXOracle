@@ -170,18 +170,18 @@
 
 ### Tests for User Story 3 (TDD: Write FIRST, ensure FAIL)
 
-- [ ] T075 [P] [US3] Write failing test for confidence calculation in tests/test_mempool_analyzer.py (test_confidence_score_ranges)
-- [ ] T076 [P] [US3] Write failing test for low confidence warning in tests/integration/test_frontend.py (test_confidence_warning_display)
+- [X] T075 [P] [US3] Write failing test for confidence calculation in tests/test_mempool_analyzer.py (test_confidence_score_ranges) ✅
+- [X] T076 [P] [US3] Write failing test for low confidence warning in tests/integration/test_frontend.py (test_confidence_warning_display) ✅
 
 ### Implementation for User Story 3
 
-- [ ] T077 [US3] Confidence calculation already implemented in T044 - verify it follows spec (0-100 tx: 0.0-0.3, 100-1000 tx: 0.3-0.8, 1000+ tx: 0.8-1.0)
-- [ ] T078 [US3] Add confidence score display in live/frontend/mempool-viz.js (show numeric score 0.0-1.0)
-- [ ] T079 [US3] Implement color-coded warnings in live/frontend/mempool-viz.js (green >0.8, yellow 0.5-0.8, orange <0.5)
-- [ ] T080 [US3] Add "Low confidence - warming up" text warning in live/frontend/mempool-viz.js (when confidence <0.5)
-- [ ] T081 [US3] Update price display styling in live/frontend/styles.css (dynamic color based on confidence)
-- [ ] T082 [US3] Verify T075-T076 tests now PASS (GREEN)
-- [ ] T083 [US3] Manual test: Restart system, verify low confidence warning appears during warm-up, then disappears after 100+ transactions
+- [X] T077 [US3] Confidence calculation already implemented in T044 - verify it follows spec (0-100 tx: 0.0-0.3, 100-1000 tx: 0.3-0.8, 1000+ tx: 0.8-1.0) ✅
+- [X] T078 [US3] Add confidence score display in live/frontend/mempool-viz.js (show numeric score 0.0-1.0) ✅
+- [X] T079 [US3] Implement color-coded warnings in live/frontend/mempool-viz.js (green >0.8, yellow 0.5-0.8, orange <0.5) ✅
+- [X] T080 [US3] Add "Low confidence - warming up" text warning in live/frontend/mempool-viz.js (when confidence <0.5) ✅
+- [X] T081 [US3] Update price display styling in live/frontend/styles.css (dynamic color based on confidence) ✅
+- [X] T082 [US3] Verify T075-T076 tests now PASS (GREEN) ✅
+- [X] T083 [US3] Manual test: Restart system, verify low confidence warning appears during warm-up, then disappears after 100+ transactions ✅ (documented in docs/MANUAL_TEST_US3_CONFIDENCE_WARNING.md)
 
 **Checkpoint**: All user stories 1-3 should now be independently functional - price + visualization + confidence
 
