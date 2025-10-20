@@ -1,11 +1,11 @@
 {
-  "session_id": "7faa7bef-7438-4e68-98d2-c7891661fb78",
-  "transcript_path": "/home/sam/.claude/projects/-media-sam-1TB-UTXOracle/7faa7bef-7438-4e68-98d2-c7891661fb78.jsonl",
+  "session_id": "a025994b-071c-4df1-ac6c-c3d0ee98f545",
+  "transcript_path": "/home/sam/.claude/projects/-media-sam-1TB-UTXOracle/a025994b-071c-4df1-ac6c-c3d0ee98f545.jsonl",
   "hook_event_name": "PreToolUse",
   "tool_name": "Edit",
   "tool_input": {
-    "file_path": "/media/sam/1TB/UTXOracle/live/backend/mempool_analyzer.py",
-    "old_string": "import time\nfrom typing import Dict, List\nfrom dataclasses import dataclass\n\nfrom live.shared.models import ProcessedTransaction, MempoolState, calculate_confidence",
-    "new_string": "import time\nfrom collections import deque\nfrom typing import Dict, List, Tuple\nfrom dataclasses import dataclass\n\nfrom live.shared.models import ProcessedTransaction, MempoolState, calculate_confidence"
+    "file_path": "/media/sam/1TB/claude-meta/.gitignore",
+    "old_string": "# Claude Code logs (keep in .claude/logs/ but ignore at root)\n/claude_*.log\n/session_*.log",
+    "new_string": "# Claude Code logs (keep in .claude/logs/ but ignore at root)\n/claude_*.log\n/session_*.log\n\n# Claude Code settings (user-specific, use template instead)\n.claude/settings.local.json\n.claude/logs/*.json\n.claude/stats/*.jsonl\n.claude/stats/*.json\n.claude/context_bundles/*.json\n.claude/tdd-guard/data/modifications.json"
   }
 }

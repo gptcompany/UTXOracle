@@ -113,6 +113,7 @@ uv.lock                             # Dependency lockfile (commit this!)
 ├── settings.local.json
 ├── agents/                             # 6 specialized subagents
 ├── commands/                           # Custom slash commands (SpecKit)
+├── context_bundles/
 ├── docs/                               # Meta-documentation
 ├── hooks/                              # Pre/post tool execution hooks
 ├── logs/                               # Session logs
@@ -120,6 +121,7 @@ uv.lock                             # Dependency lockfile (commit this!)
 ├── reports/
 ├── research/                           # Research notes
 ├── scripts/
+├── self_improve/
 ├── skills/                             # 4 template-driven automation skills
 ├── stats/
 └── tdd-guard/                          # TDD enforcement data
@@ -143,6 +145,8 @@ archive/                            # Previous versions (v7, v8, v9)
 docs/                               # Documentation
 ├── IMPLEMENTATION_CHECKLIST.md
 ├── algorithm_concepts.md
+├── mcp-builder-agent.md
+├── skills-creator-agent.md
 └── tasks/                              # Agent task specifications (01-05)
 examples/                           # Example outputs and screenshots
 ├── README.md
