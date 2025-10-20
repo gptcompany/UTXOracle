@@ -1,0 +1,14 @@
+{
+  "testModules": [
+    {
+      "moduleId": "tests/test_api.py",
+      "tests": [
+        {
+          "name": "test_websocket_includes_transaction_history",
+          "fullName": "tests/test_api.py::test_websocket_includes_transaction_history",
+          "state": "passed"
+        }
+      ]
+    }
+  ]
+}
