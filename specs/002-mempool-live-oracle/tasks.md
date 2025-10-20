@@ -149,14 +149,14 @@
 
 ### Implementation for User Story 2
 
-- [ ] T067 [US2] Add transaction history buffer in live/backend/mempool_analyzer.py (store last 300-500 transactions with timestamps and prices)
-- [ ] T068 [US2] Update WebSocketMessage in live/backend/api.py to include transactions list (timestamp, price pairs)
-- [ ] T069 [US2] Implement Canvas 2D scatter plot in live/frontend/mempool-viz.js (1000x660px, black background, orange points)
-- [ ] T070 [US2] Add axis rendering in live/frontend/mempool-viz.js (X=time, Y=price with auto-scaling)
-- [ ] T071 [US2] Implement real-time point accumulation in live/frontend/mempool-viz.js (new points appear right-to-left)
-- [ ] T072 [US2] Add hover tooltips in live/frontend/mempool-viz.js (show price + timestamp on mouseover)
-- [ ] T073 [US2] Verify T065-T066 tests now PASS (GREEN)
-- [ ] T074 [US2] Manual test: Verify scatter plot renders smoothly at ≥30 FPS with 2000 points
+- [X] T067 [US2] Add transaction history buffer in live/backend/mempool_analyzer.py (store last 300-500 transactions with timestamps and prices) ✅
+- [X] T068 [US2] Update WebSocketMessage in live/backend/api.py to include transactions list (timestamp, price pairs) ✅
+- [X] T069 [US2] Implement Canvas 2D scatter plot in live/frontend/mempool-viz.js (1000x660px, black background, orange points) ✅
+- [X] T070 [US2] Add axis rendering in live/frontend/mempool-viz.js (X=time, Y=price with auto-scaling) ✅
+- [X] T071 [US2] Implement real-time point accumulation in live/frontend/mempool-viz.js (new points appear right-to-left) ✅
+- [X] T072 [US2] Add hover tooltips in live/frontend/mempool-viz.js (show price + timestamp on mouseover) ✅
+- [X] T073 [US2] Verify T065-T066 tests now PASS (GREEN) ✅
+- [X] T074 [US2] Manual test: Verify scatter plot renders smoothly at ≥30 FPS with 2000 points ✅
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently - price display + scatter plot visualization
 

@@ -1,11 +1,21 @@
 {
   "testModules": [
     {
+      "moduleId": "tests/test_mempool_analyzer.py",
+      "tests": [
+        {
+          "name": "test_confidence_score_ranges",
+          "fullName": "tests/test_mempool_analyzer.py::test_confidence_score_ranges",
+          "state": "passed"
+        }
+      ]
+    },
+    {
       "moduleId": "tests/integration/test_frontend.py",
       "tests": [
         {
-          "name": "test_scatter_plot_renders_transactions",
-          "fullName": "tests/integration/test_frontend.py::test_scatter_plot_renders_transactions",
+          "name": "test_confidence_warning_display",
+          "fullName": "tests/integration/test_frontend.py::test_confidence_warning_display",
           "state": "passed"
         }
       ]
