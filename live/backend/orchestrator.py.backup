@@ -7,12 +7,12 @@ ZMQ Listener → TX Processor → Mempool Analyzer → API Broadcast
 
 import asyncio
 import logging
+import time
 from typing import Optional
 
 from live.backend.zmq_listener import ZMQListener
 from live.backend.tx_processor import process_mempool_transaction
 from live.backend.mempool_analyzer import MempoolAnalyzer
-from live.backend.api import DataStreamer, app
 from live.backend.config import get_config
 
 logger = logging.getLogger("live.orchestrator")
@@ -33,9 +33,13 @@ class PipelineOrchestrator:
 
         self.zmq_listener = ZMQListener(endpoint=zmq_endpoint)
         self.analyzer = MempoolAnalyzer(window_hours=window_hours)
-        self.streamer = DataStreamer(
-            max_updates_per_second=int(1.0 / min_broadcast_interval)
-        )
+
+        # FIX: Use the global streamer instance from api.py instead of creating a new one
+        # This ensures WebSocket clients registered via /ws/mempool endpoint receive broadcasts
+        from live.backend.api import streamer
+
+        self.streamer = streamer
+        self.streamer.set_analyzer(self.analyzer)  # T074e: Pass analyzer reference
 
         self.total_received = 0
         self.total_processed = 0
@@ -104,7 +108,7 @@ class PipelineOrchestrator:
                 if not self._running:
                     break
 
-                removed_count = self.analyzer.remove_old_transactions()
+                removed_count = self.analyzer.cleanup_old_transactions(time.time())
 
                 if removed_count > 0:
                     logger.debug(
@@ -149,22 +153,6 @@ def get_orchestrator() -> PipelineOrchestrator:
         )
 
     return _orchestrator
-
-
-@app.on_event("startup")
-async def startup_event():
-    logger.info("FastAPI startup: Initializing pipeline orchestrator...")
-    orchestrator = get_orchestrator()
-    asyncio.create_task(orchestrator.start())
-    logger.info("Pipeline orchestrator started")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    logger.info("FastAPI shutdown: Stopping pipeline orchestrator...")
-    orchestrator = get_orchestrator()
-    await orchestrator.stop()
-    logger.info("Pipeline orchestrator stopped")
 
 
 async def run_standalone():

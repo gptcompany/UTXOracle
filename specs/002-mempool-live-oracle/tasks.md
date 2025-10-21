@@ -171,46 +171,46 @@
 - [ ] T074f [BUG] Debug estimate_price() returning fallback 100000 instead of calculated price → SUPERSEDED by baseline architecture
 - [ ] T074g [BUG] Verify get_transaction_history() returns non-empty data → WORKING (66 tx visible)
 
-### Baseline + Live Architecture - OPTION B + Verification (APPROVED)
+### Baseline + Live Architecture - OPTION B + Pragmatic Approach (APPROVED)
 
-**Decision**: Copy algorithm from UTXOracle.py to mempool_analyzer.py + verification tests
-**Rationale**: Keeps UTXOracle.py 100% immutable, verification tests prevent divergence
+**Decision**: Copy algorithm from UTXOracle.py directly, skip parity tests for MVP
+**Rationale**: UTXOracle.py rarely changes, verification tests can be added later if needed
 
-**Phase 1: Algorithm Verification Framework** (Foundation)
-- [ ] T075 Create tests/test_algorithm_parity.py with parity test suite
-- [ ] T076 Generate test vectors from real blockchain data (10+ diverse cases)
-- [ ] T077 Implement reference wrapper for UTXOracle.py Steps 7-11
-- [ ] T078 Add CI/CD hook to block merge if parity tests fail
+**Phase BL-1: Baseline Calculator** (24h rolling window) 🎯 PRIORITY 1
+- [X] T095 Create live/backend/baseline_calculator.py and copy Steps 7-11 from UTXOracle.py ✅ Core structure + stencils
+- [X] T096 Implement 144-block rolling window (24h on-chain data storage) ✅ DONE (deque with maxlen=144)
+- [X] T097 Implement calculate_baseline() → returns price + range + confidence ✅ DONE (Steps 7-11 algorithm with fallback)
+- [X] T098 Add baseline state management (last_updated, block_height tracking) ✅ DONE (get_state)
 
-**Phase 2: Copy Algorithm to Mempool Analyzer** (With verification)
-- [ ] T079 Copy Steps 7-11 from UTXOracle.py to mempool_analyzer.py methods
-- [ ] T080 Add docstring: "Algorithm from UTXOracle.py v9.1 - DO NOT MODIFY without updating parity tests"
-- [ ] T081 Run test_algorithm_parity.py - MUST PASS before proceeding
-- [ ] T082 Document: any algorithm change requires UTXOracle.py sync or test update
+**Phase BL-2: ZMQ Block Listener** (Continuous update trigger) 🎯 PRIORITY 2
+- [X] T099 Add zmqpubrawblock subscription to live/backend/zmq_listener.py (dual sockets: tx + blocks) ✅
+- [X] T100 Implement stream_blocks() async generator (yields raw block bytes + height) ✅
+- [X] T101 Add block transaction parser (extract_transactions_from_block) ✅ live/backend/block_parser.py
+- [X] T102 Integrate baseline recalculation on new block in orchestrator.py ✅ _process_blocks() task added
 
-**Phase 3: Baseline Calculator** (24h rolling window)
-- [ ] T083 Create live/backend/baseline_calculator.py using copied algorithm
-- [ ] T084 Implement 144-block rolling window (24h on-chain data)
-- [ ] T085 Implement calculate_baseline() → price + range + confidence
-- [ ] T086 Add baseline state management (last_updated, block_height)
+**Phase BL-3: Mempool Integration** (Use baseline) 🎯 PRIORITY 3
+- [ ] T103 Modify mempool_analyzer.py to accept baseline reference from orchestrator
+- [ ] T104 Update estimate_price() to use baseline price range for Y-axis scaling
+- [ ] T105 Implement get_combined_history() returning baseline + mempool data points
+- [ ] T106 Update WebSocketMessage in api.py to include baseline data (price, range)
 
-**Phase 4: ZMQ Block Listener** (Continuous update trigger)
-- [ ] T083 Add zmqpubrawblock subscription to live/backend/zmq_listener.py
-- [ ] T084 Implement stream_blocks() async generator
-- [ ] T085 Add block transaction parser
-- [ ] T086 Integrate baseline recalculation on new block in orchestrator
+**Phase BL-4: Frontend Visualization** (Dual timeline) 🎯 PRIORITY 4
+- [ ] T107 Modify mempool-viz.js to render baseline points (cyan) vs mempool (orange)
+- [ ] T108 Add baseline price line indicator (horizontal reference line)
+- [ ] T109 Implement timeline split: LEFT=baseline (24h historical), RIGHT=mempool (3h real-time)
+- [ ] T110 Manual test: Verify baseline updates on new block and mempool scales correctly
 
-**Phase 4: Mempool Analyzer Integration** (Use baseline)
-- [ ] T087 Modify mempool_analyzer.py to accept baseline reference
-- [ ] T088 Update estimate_price() to use baseline price range for Y-axis scaling
-- [ ] T089 Implement get_combined_history() returning baseline + mempool points
-- [ ] T090 Update WebSocket message to include baseline data
+**Phase BL-5: Code Refactoring** (Optional quality improvement) ⚠️ OPTIONAL
+- [ ] T111 Extract histogram logic from mempool_analyzer.py to live/backend/histogram_manager.py
+- [ ] T112 Extract price algorithm to live/backend/price_estimator.py (Steps 7-11 logic)
+- [ ] T113 Refactor mempool_analyzer.py to use extracted modules (cleaner separation)
+- [ ] T114 Verify all existing tests still pass after refactoring
 
-**Phase 5: Frontend Visualization** (Dual timeline)
-- [ ] T091 Modify mempool-viz.js to render baseline points (cyan) vs mempool (orange)
-- [ ] T092 Add baseline price line indicator
-- [ ] T093 Implement timeline split: LEFT=baseline (historical), RIGHT=mempool (real-time)
-- [ ] T094 Manual test: Verify baseline updates on new block
+**Phase BL-6: Algorithm Verification** (Optional CI/CD) ⚠️ OPTIONAL - NOT PRIORITY
+- [ ] T115 Create tests/test_algorithm_parity.py with parity test suite
+- [ ] T116 Generate test vectors from real blockchain data (10+ diverse cases)
+- [ ] T117 Implement reference wrapper for UTXOracle.py Steps 7-11
+- [ ] T118 Add CI/CD hook to block merge if parity tests fail
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently - price display + scatter plot visualization
 

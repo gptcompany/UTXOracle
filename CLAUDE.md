@@ -167,7 +167,9 @@ examples/                           # Example outputs and screenshots
 ├── mempool.png
 ├── mempool2.png
 ├── mempool3.png
-└── mempool4.png
+├── mempool4.png
+├── mempool_attuale.png
+└── mempool_space_reference.png
 historical_data/                    # 672 days of historical outputs
 └── html_files/                         # HTML price analysis files
 │   │   └── [672 HTML files]
@@ -187,6 +189,7 @@ tests/                              # Test suite (pytest)
 ├── __init__.py
 ├── conftest.py
 ├── test_api.py
+├── test_baseline_calculator.py
 ├── test_hook_example.py
 ├── test_mempool_analyzer.py
 ├── test_models.py

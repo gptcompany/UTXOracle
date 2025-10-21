@@ -1,0 +1,14 @@
+{
+  "testModules": [
+    {
+      "moduleId": "tests/test_baseline_calculator.py",
+      "tests": [
+        {
+          "name": "test_calculate_baseline_with_sufficient_data",
+          "fullName": "tests/test_baseline_calculator.py::test_calculate_baseline_with_sufficient_data",
+          "state": "passed"
+        }
+      ]
+    }
+  ]
+}
