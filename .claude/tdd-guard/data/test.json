@@ -1,21 +1,66 @@
 {
   "testModules": [
     {
-      "moduleId": "tests/test_mempool_analyzer.py",
+      "moduleId": "tests/test_api.py",
       "tests": [
         {
-          "name": "test_set_baseline",
-          "fullName": "tests/test_mempool_analyzer.py::test_set_baseline",
+          "name": "test_websocket_broadcast",
+          "fullName": "tests/test_api.py::test_websocket_broadcast",
           "state": "passed"
         },
         {
-          "name": "test_estimate_price_uses_baseline",
-          "fullName": "tests/test_mempool_analyzer.py::test_estimate_price_uses_baseline",
+          "name": "test_websocket_endpoint_connection",
+          "fullName": "tests/test_api.py::test_websocket_endpoint_connection",
+          "state": "failed",
+          "errors": [
+            {
+              "message": "E   starlette.websockets.WebSocketDisconnect"
+            }
+          ]
+        },
+        {
+          "name": "test_websocket_receives_mempool_updates",
+          "fullName": "tests/test_api.py::test_websocket_receives_mempool_updates",
+          "state": "failed",
+          "errors": [
+            {
+              "message": "E   starlette.websockets.WebSocketDisconnect"
+            }
+          ]
+        },
+        {
+          "name": "test_websocket_multiple_clients",
+          "fullName": "tests/test_api.py::test_websocket_multiple_clients",
+          "state": "failed",
+          "errors": [
+            {
+              "message": "E   starlette.websockets.WebSocketDisconnect"
+            }
+          ]
+        },
+        {
+          "name": "test_websocket_client_disconnect_handling",
+          "fullName": "tests/test_api.py::test_websocket_client_disconnect_handling",
           "state": "passed"
         },
         {
-          "name": "test_get_combined_history",
-          "fullName": "tests/test_mempool_analyzer.py::test_get_combined_history",
+          "name": "test_websocket_message_serialization",
+          "fullName": "tests/test_api.py::test_websocket_message_serialization",
+          "state": "passed"
+        },
+        {
+          "name": "test_websocket_broadcast_rate_limiting",
+          "fullName": "tests/test_api.py::test_websocket_broadcast_rate_limiting",
+          "state": "passed"
+        },
+        {
+          "name": "test_websocket_includes_transaction_history",
+          "fullName": "tests/test_api.py::test_websocket_includes_transaction_history",
+          "state": "passed"
+        },
+        {
+          "name": "test_websocket_broadcast_includes_baseline",
+          "fullName": "tests/test_api.py::test_websocket_broadcast_includes_baseline",
           "state": "passed"
         }
       ]

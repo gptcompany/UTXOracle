@@ -209,6 +209,17 @@ def calculate_confidence(active_tx_count: int) -> float:
 # =============================================================================
 
 
+class BaselineData(BaseModel):
+    """Baseline price data from on-chain blocks (T106)"""
+
+    price: float = Field(..., gt=0, description="24h baseline price (USD)")
+    price_min: float = Field(..., gt=0, description="Lower bound (USD)")
+    price_max: float = Field(..., gt=0, description="Upper bound (USD)")
+    confidence: float = Field(..., ge=0, le=1, description="Baseline confidence [0-1]")
+    timestamp: float = Field(..., gt=0, description="Last updated (Unix timestamp)")
+    block_height: Optional[int] = Field(None, description="Latest block height")
+
+
 class TransactionPoint(BaseModel):
     """Single transaction point for visualization"""
 
@@ -249,6 +260,9 @@ class MempoolUpdateData(BaseModel):
     )
     stats: SystemStats
     timestamp: float = Field(..., gt=0, description="Message timestamp (seconds)")
+    baseline: Optional[BaselineData] = Field(
+        None, description="Baseline reference (T106)"
+    )
 
 
 class WebSocketMessage(BaseModel):
@@ -293,6 +307,7 @@ __all__ = [
     "RawTransaction",
     "ProcessedTransaction",
     "MempoolState",
+    "BaselineData",
     "TransactionPoint",
     "SystemStats",
     "MempoolUpdateData",

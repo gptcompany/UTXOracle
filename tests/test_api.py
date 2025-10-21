@@ -478,3 +478,54 @@ async def test_websocket_includes_transaction_history():
     assert len(msg.data.transactions) <= 500, (
         "Transaction list should not exceed 500 items (Canvas performance limit)"
     )
+
+
+@pytest.mark.asyncio
+async def test_websocket_broadcast_includes_baseline():
+    """Test WebSocket broadcast includes baseline data when available (T106)"""
+    from live.backend.mempool_analyzer import MempoolAnalyzer
+    from live.backend.baseline_calculator import BaselineResult
+
+    analyzer = MempoolAnalyzer()
+
+    # Set baseline
+    baseline = BaselineResult(
+        price=113600.0,
+        price_min=113000.0,
+        price_max=114200.0,
+        confidence=0.95,
+        timestamp=time.time(),
+        block_height=800000,
+    )
+    analyzer.set_baseline(baseline)
+
+    streamer = DataStreamer()
+    streamer.set_analyzer(analyzer)
+
+    # Create mock WebSocket
+    class MockWebSocket:
+        def __init__(self):
+            self.messages = []
+
+        async def send_text(self, text):
+            self.messages.append(text)
+
+    mock_ws = MockWebSocket()
+    await streamer.register_client(mock_ws)
+
+    # Broadcast
+    state = MempoolState(
+        price=113700.0,
+        confidence=0.85,
+        active_tx_count=100,
+        total_received=200,
+        total_filtered=100,
+        uptime_seconds=60.0,
+    )
+    await streamer.broadcast(state)
+
+    # Verify message includes baseline
+    assert len(mock_ws.messages) == 1
+    msg_data = json.loads(mock_ws.messages[0])
+    assert "baseline" in msg_data["data"]
+    assert msg_data["data"]["baseline"]["price"] == 113600.0

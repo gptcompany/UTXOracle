@@ -168,15 +168,32 @@ class DataStreamer:
         self.last_broadcast_time = current_time
 
     def _create_websocket_message(self, state: MempoolState) -> WebSocketMessage:
-        """Convert MempoolState to WebSocketMessage (T068: includes transaction history)"""
+        """Convert MempoolState to WebSocketMessage (T068: includes transaction history, T106: includes baseline)"""
         transactions = []
+        baseline_data = None
 
         # T068: Get transaction history from analyzer if available
+        # T106: Get baseline data from analyzer if available
         if hasattr(self, "analyzer") and self.analyzer:
             history = self.analyzer.get_transaction_history()
             transactions = [
                 TransactionPoint(timestamp=ts, price=price) for ts, price in history
             ]
+
+            # T106: Get combined history (baseline + mempool)
+            combined = self.analyzer.get_combined_history()
+            if combined["baseline"] is not None:
+                from live.shared.models import BaselineData
+
+                bl = combined["baseline"]
+                baseline_data = BaselineData(
+                    price=bl.price,
+                    price_min=bl.price_min,
+                    price_max=bl.price_max,
+                    confidence=bl.confidence,
+                    timestamp=bl.timestamp,
+                    block_height=bl.block_height,
+                )
 
         stats = SystemStats(
             total_received=state.total_received,
@@ -191,6 +208,7 @@ class DataStreamer:
             transactions=transactions,
             stats=stats,
             timestamp=time.time(),
+            baseline=baseline_data,  # T106: Add baseline
         )
 
         return WebSocketMessage(type="mempool_update", data=data)

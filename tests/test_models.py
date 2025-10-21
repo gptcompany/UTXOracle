@@ -632,6 +632,56 @@ def test_websocket_message_validation():
 # =============================================================================
 
 
+def test_baseline_data_validation():
+    """Test BaselineData Pydantic model (T106)"""
+    from live.shared.models import BaselineData
+
+    baseline = BaselineData(
+        price=113600.0,
+        price_min=113000.0,
+        price_max=114200.0,
+        confidence=0.95,
+        timestamp=time.time(),
+        block_height=800000,
+    )
+
+    assert baseline.price == 113600.0
+    assert baseline.price_min < baseline.price < baseline.price_max
+    assert baseline.confidence == 0.95
+    assert baseline.block_height == 800000
+
+
+def test_websocket_message_with_baseline():
+    """Test WebSocketMessage includes baseline data (T106)"""
+    from live.shared.models import BaselineData
+
+    msg = WebSocketMessage(
+        data=MempoolUpdateData(
+            price=113700.0,
+            confidence=0.85,
+            transactions=[],
+            stats=SystemStats(
+                total_received=100,
+                total_filtered=50,
+                active_in_window=50,
+                uptime_seconds=60.0,
+            ),
+            timestamp=time.time(),
+            baseline=BaselineData(
+                price=113600.0,
+                price_min=113000.0,
+                price_max=114200.0,
+                confidence=0.95,
+                timestamp=time.time(),
+                block_height=800000,
+            ),
+        )
+    )
+
+    assert msg.data.baseline is not None
+    assert msg.data.baseline.price == 113600.0
+
+
 def test_full_pipeline_data_flow():
     """Test complete data flow from RawTransaction to WebSocketMessage"""
     # Step 1: ZMQ Listener produces RawTransaction
