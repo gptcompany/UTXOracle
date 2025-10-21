@@ -8,7 +8,6 @@ ZMQ Listener → TX Processor → Mempool Analyzer → API Broadcast
 import asyncio
 import logging
 import time
-from contextlib import asynccontextmanager
 from typing import Optional
 
 from live.backend.zmq_listener import ZMQListener
@@ -151,9 +150,6 @@ def get_orchestrator() -> PipelineOrchestrator:
         )
 
     return _orchestrator
-
-
-
 
 
 async def run_standalone():

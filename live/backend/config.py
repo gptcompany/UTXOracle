@@ -4,7 +4,7 @@ Configuration Management and Logging Infrastructure
 Settings for:
 - Bitcoin Core ZMQ connection
 - WebSocket server
-- Algorithm parameters  
+- Algorithm parameters
 - Logging (structured JSON for production, human-readable for dev)
 """
 
@@ -42,17 +42,19 @@ ENVIRONMENT = get_environment()
 
 class BitcoinConfig:
     """Bitcoin Core ZMQ and RPC settings"""
-    
+
     # ZMQ endpoints
     ZMQ_TX_ENDPOINT: str = os.getenv("BITCOIN_ZMQ_TX", "tcp://127.0.0.1:28332")
     ZMQ_BLOCK_ENDPOINT: str = os.getenv("BITCOIN_ZMQ_BLOCK", "tcp://127.0.0.1:28333")
-    
+
     # Connection settings
     ZMQ_TIMEOUT_MS: int = 5000  # 5 seconds
     ZMQ_RECONNECT_INTERVAL_SEC: int = 5
-    
+
     # Data directory (for cookie auth)
-    BITCOIN_DATA_DIR: Path = Path(os.getenv("BITCOIN_DATA_DIR", "~/.bitcoin")).expanduser()
+    BITCOIN_DATA_DIR: Path = Path(
+        os.getenv("BITCOIN_DATA_DIR", "~/.bitcoin")
+    ).expanduser()
 
 
 # =============================================================================
@@ -62,13 +64,13 @@ class BitcoinConfig:
 
 class ServerConfig:
     """FastAPI WebSocket server settings"""
-    
+
     HOST: str = os.getenv("UTXORACLE_HOST", "0.0.0.0")
     PORT: int = int(os.getenv("UTXORACLE_PORT", "8000"))
-    
+
     # Update throttling
     MIN_UPDATE_INTERVAL_SEC: float = 0.5  # Send updates every 500ms minimum
-    
+
     # CORS settings
     CORS_ORIGINS: list[str] = [
         "http://localhost:3000",
@@ -85,22 +87,22 @@ class ServerConfig:
 
 class AlgorithmConfig:
     """UTXOracle algorithm parameters"""
-    
+
     # Transaction filters (from UTXOracle.py Step 6)
     MAX_INPUTS: int = 5
     REQUIRED_OUTPUTS: int = 2
     MIN_AMOUNT_BTC: float = 1e-5
     MAX_AMOUNT_BTC: float = 1e5
-    
+
     # Histogram settings (Step 5)
     HISTOGRAM_BINS: int = 10000
     HISTOGRAM_PRICE_MIN: float = 0.0
     HISTOGRAM_PRICE_MAX: float = 200000.0  # USD
-    
+
     # Rolling window (3-hour expiration)
     ROLLING_WINDOW_HOURS: float = 3.0
     ROLLING_WINDOW_SECONDS: float = 3.0 * 3600
-    
+
     # Transaction history for visualization
     MAX_TRANSACTION_HISTORY: int = 500  # Keep last 500 for scatter plot
 
@@ -112,34 +114,38 @@ class AlgorithmConfig:
 
 class LogConfig:
     """Logging infrastructure settings"""
-    
+
     # Log level
-    LEVEL: str = os.getenv("LOG_LEVEL", "INFO" if ENVIRONMENT == "production" else "DEBUG")
-    
+    LEVEL: str = os.getenv(
+        "LOG_LEVEL", "INFO" if ENVIRONMENT == "production" else "DEBUG"
+    )
+
     # Log directory
     LOG_DIR: Path = Path(os.getenv("LOG_DIR", "./logs"))
     LOG_DIR.mkdir(exist_ok=True)
-    
+
     # Log format
     FORMAT_PRODUCTION = "json"  # Structured JSON logs
     FORMAT_DEVELOPMENT = "human"  # Human-readable colored logs
-    FORMAT: str = FORMAT_PRODUCTION if ENVIRONMENT == "production" else FORMAT_DEVELOPMENT
+    FORMAT: str = (
+        FORMAT_PRODUCTION if ENVIRONMENT == "production" else FORMAT_DEVELOPMENT
+    )
 
 
 def setup_logging():
     """
     Configure logging based on environment.
-    
+
     - Development: Human-readable format with colors
     - Production: Structured JSON format for log aggregation
     - Test: Minimal output
     """
-    
+
     if ENVIRONMENT == "test":
         # Minimal logging for tests
         logging.basicConfig(level=logging.WARNING, format="%(message)s")
         return
-    
+
     # Logging configuration dictionary
     config = {
         "version": 1,
@@ -157,7 +163,9 @@ def setup_logging():
         "handlers": {
             "console": {
                 "class": "logging.StreamHandler",
-                "formatter": LogConfig.FORMAT_DEVELOPMENT if ENVIRONMENT == "development" else "production",
+                "formatter": LogConfig.FORMAT_DEVELOPMENT
+                if ENVIRONMENT == "development"
+                else "production",
                 "stream": sys.stdout,
             },
             "file": {
@@ -169,15 +177,27 @@ def setup_logging():
             },
         },
         "loggers": {
-            "uvicorn": {"level": LogConfig.LEVEL, "handlers": ["console"], "propagate": False},
-            "uvicorn.access": {"level": "INFO", "handlers": ["console"], "propagate": False},
-            "live": {"level": LogConfig.LEVEL, "handlers": ["console", "file"], "propagate": False},
+            "uvicorn": {
+                "level": LogConfig.LEVEL,
+                "handlers": ["console"],
+                "propagate": False,
+            },
+            "uvicorn.access": {
+                "level": "INFO",
+                "handlers": ["console"],
+                "propagate": False,
+            },
+            "live": {
+                "level": LogConfig.LEVEL,
+                "handlers": ["console", "file"],
+                "propagate": False,
+            },
         },
         "root": {"level": LogConfig.LEVEL, "handlers": ["console", "file"]},
     }
-    
+
     logging.config.dictConfig(config)
-    
+
     # Log startup message
     logger = logging.getLogger("live.config")
     logger.info(f"UTXOracle Live starting in {ENVIRONMENT} mode")

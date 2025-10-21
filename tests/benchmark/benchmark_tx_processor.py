@@ -10,6 +10,7 @@ from pathlib import Path
 
 # Import the transaction processor
 import sys
+
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from live.backend.tx_processor import TransactionProcessor
@@ -49,9 +50,7 @@ def test_transaction_processing_throughput(tx_processor, sample_transaction_byte
     # Create RawTransaction objects
     raw_txs = [
         RawTransaction(
-            raw_bytes=sample_transaction_bytes,
-            timestamp=time.time(),
-            topic='rawtx'
+            raw_bytes=sample_transaction_bytes, timestamp=time.time(), topic="rawtx"
         )
         for _ in range(num_transactions)
     ]
@@ -78,17 +77,17 @@ def test_transaction_processing_throughput(tx_processor, sample_transaction_byte
     throughput = num_transactions / elapsed
 
     # Print results
-    print(f"\n{'='*60}")
-    print(f"Transaction Processing Benchmark")
-    print(f"{'='*60}")
+    print(f"\n{'=' * 60}")
+    print("Transaction Processing Benchmark")
+    print(f"{'=' * 60}")
     print(f"Total transactions:     {num_transactions:,}")
     print(f"Successful processing:  {successful:,}")
     print(f"Failed:                 {failed:,}")
     print(f"Elapsed time:           {elapsed:.3f} seconds")
     print(f"Throughput:             {throughput:.1f} tx/sec")
-    print(f"Target:                 1,000 tx/sec")
+    print("Target:                 1,000 tx/sec")
     print(f"Status:                 {'✅ PASS' if throughput >= 1000 else '❌ FAIL'}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     # Assert throughput meets requirement
     assert throughput >= 1000, (

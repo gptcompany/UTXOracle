@@ -119,8 +119,12 @@ class MempoolAnalyzer:
 
         del self.transactions[txid]
 
-    def cleanup_old_transactions(self, current_time: float) -> None:
-        """Remove transactions older than rolling window"""
+    def cleanup_old_transactions(self, current_time: float) -> int:
+        """Remove transactions older than rolling window
+
+        Returns:
+            int: Number of transactions removed
+        """
         cutoff_time = current_time - self.window_seconds
         old_txids = [
             txid
@@ -129,6 +133,7 @@ class MempoolAnalyzer:
         ]
         for txid in old_txids:
             self.remove_transaction(txid)
+        return len(old_txids)
 
     def get_transaction_count(self) -> int:
         """Get number of active transactions"""

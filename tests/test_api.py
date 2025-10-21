@@ -297,7 +297,7 @@ async def test_websocket_broadcast_rate_limiting():
         )
         await streamer.broadcast(state)
 
-    elapsed = time.time() - start_time
+    time.time() - start_time
 
     # Assert: Client received throttled messages (not all 50)
     # With 10 updates/second limit and ~0 seconds elapsed, should receive ~10 messages max

@@ -64,23 +64,19 @@ async def test_zmq_connection_status():
         listener = ZMQListener(endpoint="tcp://127.0.0.1:28332")
 
         # Assert: Not connected initially
-        assert listener.is_connected == False, (
-            "Listener should not be connected initially"
-        )
+        assert not listener.is_connected, "Listener should not be connected initially"
 
         # Act: Connect
         await listener.connect()
 
         # Assert: Connected after connect()
-        assert listener.is_connected == True, (
-            "Listener should be connected after connect()"
-        )
+        assert listener.is_connected, "Listener should be connected after connect()"
 
         # Act: Disconnect
         await listener.disconnect()
 
         # Assert: Not connected after disconnect()
-        assert listener.is_connected == False, (
+        assert not listener.is_connected, (
             "Listener should not be connected after disconnect()"
         )
 

@@ -1,11 +1,26 @@
 {
   "testModules": [
     {
-      "moduleId": "tests/test_zmq_listener.py",
+      "moduleId": "tests/test_security.py",
       "tests": [
         {
-          "name": "test_zmq_stream_handles_3_part_messages",
-          "fullName": "tests/test_zmq_listener.py::test_zmq_stream_handles_3_part_messages",
+          "name": "test_malicious_varint_does_not_cause_memory_exhaustion",
+          "fullName": "tests/test_security.py::test_malicious_varint_does_not_cause_memory_exhaustion",
+          "state": "passed"
+        }
+      ]
+    },
+    {
+      "moduleId": "tests/benchmark/test_websocket_load.py",
+      "tests": [
+        {
+          "name": "test_websocket_handles_100_concurrent_clients",
+          "fullName": "tests/benchmark/test_websocket_load.py::test_websocket_handles_100_concurrent_clients",
+          "state": "passed"
+        },
+        {
+          "name": "test_websocket_load_with_disconnections",
+          "fullName": "tests/benchmark/test_websocket_load.py::test_websocket_load_with_disconnections",
           "state": "passed"
         }
       ]

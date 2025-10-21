@@ -6,15 +6,21 @@ IMPLEMENTAZIONE COMPLETA - Copia questo contenuto in live/backend/tx_processor.p
 Parses Bitcoin binary transactions and applies UTXOracle filtering rules.
 """
 
+from __future__ import annotations
+
 import struct
 import hashlib
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from live.shared.models import RawTransaction, ProcessedTransaction
 
 
 @dataclass
 class TransactionInput:
     """Parsed transaction input (internal to Module 2)"""
+
     prev_tx: str  # Previous transaction ID (hex)
     prev_index: int  # Previous output index
     script_sig: bytes  # Signature script
@@ -24,6 +30,7 @@ class TransactionInput:
 @dataclass
 class TransactionOutput:
     """Parsed transaction output (internal to Module 2)"""
+
     value: int  # Satoshis (int64)
     script_pubkey: bytes  # Locking script
 
@@ -40,6 +47,7 @@ class ParsedTransaction:
     This is NOT exported to other modules.
     Converted to ProcessedTransaction after filtering.
     """
+
     version: int
     inputs: List[TransactionInput]
     outputs: List[TransactionOutput]
@@ -85,13 +93,13 @@ class TransactionProcessor:
         offset = 0
 
         # Parse version (4 bytes, little-endian int32)
-        version = struct.unpack("<i", raw_bytes[offset:offset+4])[0]
+        version = struct.unpack("<i", raw_bytes[offset : offset + 4])[0]
         offset += 4
 
         # Check for SegWit marker (0x00) and flag (0x01)
         is_segwit = False
         if offset + 1 < len(raw_bytes) and raw_bytes[offset] == 0x00:
-            if offset + 2 < len(raw_bytes) and raw_bytes[offset+1] == 0x01:
+            if offset + 2 < len(raw_bytes) and raw_bytes[offset + 1] == 0x01:
                 is_segwit = True
                 offset += 2  # Skip marker and flag
 
@@ -134,7 +142,7 @@ class TransactionProcessor:
         if offset + 4 > len(raw_bytes):
             raise ValueError("Transaction data truncated at locktime")
 
-        locktime = struct.unpack("<I", raw_bytes[offset:offset+4])[0]
+        locktime = struct.unpack("<I", raw_bytes[offset : offset + 4])[0]
 
         return ParsedTransaction(
             version=version,
@@ -143,7 +151,7 @@ class TransactionProcessor:
             locktime=locktime,
             is_segwit=is_segwit,
             witness_data=witness_data,
-            raw_bytes=raw_bytes
+            raw_bytes=raw_bytes,
         )
 
     def _read_varint(self, data: bytes, offset: int) -> Tuple[int, int]:
@@ -158,17 +166,17 @@ class TransactionProcessor:
         elif first_byte == 0xFD:
             if offset + 3 > len(data):
                 raise ValueError("Truncated varint (0xFD)")
-            value = struct.unpack("<H", data[offset+1:offset+3])[0]
+            value = struct.unpack("<H", data[offset + 1 : offset + 3])[0]
             return (value, 3)
         elif first_byte == 0xFE:
             if offset + 5 > len(data):
                 raise ValueError("Truncated varint (0xFE)")
-            value = struct.unpack("<I", data[offset+1:offset+5])[0]
+            value = struct.unpack("<I", data[offset + 1 : offset + 5])[0]
             return (value, 5)
         else:  # 0xFF
             if offset + 9 > len(data):
                 raise ValueError("Truncated varint (0xFF)")
-            value = struct.unpack("<Q", data[offset+1:offset+9])[0]
+            value = struct.unpack("<Q", data[offset + 1 : offset + 9])[0]
             return (value, 9)
 
     def _parse_input(self, data: bytes, offset: int) -> Tuple[TransactionInput, int]:
@@ -177,12 +185,12 @@ class TransactionProcessor:
 
         if offset + 32 > len(data):
             raise ValueError("Truncated input: prev_tx")
-        prev_tx = data[offset:offset+32].hex()
+        prev_tx = data[offset : offset + 32].hex()
         offset += 32
 
         if offset + 4 > len(data):
             raise ValueError("Truncated input: prev_index")
-        prev_index = struct.unpack("<I", data[offset:offset+4])[0]
+        prev_index = struct.unpack("<I", data[offset : offset + 4])[0]
         offset += 4
 
         script_sig_len, bytes_read = self._read_varint(data, offset)
@@ -190,19 +198,19 @@ class TransactionProcessor:
 
         if offset + script_sig_len > len(data):
             raise ValueError("Truncated input: script_sig")
-        script_sig = data[offset:offset+script_sig_len]
+        script_sig = data[offset : offset + script_sig_len]
         offset += script_sig_len
 
         if offset + 4 > len(data):
             raise ValueError("Truncated input: sequence")
-        sequence = struct.unpack("<I", data[offset:offset+4])[0]
+        sequence = struct.unpack("<I", data[offset : offset + 4])[0]
         offset += 4
 
         tx_input = TransactionInput(
             prev_tx=prev_tx,
             prev_index=prev_index,
             script_sig=script_sig,
-            sequence=sequence
+            sequence=sequence,
         )
 
         return (tx_input, offset - start_offset)
@@ -213,7 +221,7 @@ class TransactionProcessor:
 
         if offset + 8 > len(data):
             raise ValueError("Truncated output: value")
-        value = struct.unpack("<Q", data[offset:offset+8])[0]
+        value = struct.unpack("<Q", data[offset : offset + 8])[0]
         offset += 8
 
         script_len, bytes_read = self._read_varint(data, offset)
@@ -221,13 +229,10 @@ class TransactionProcessor:
 
         if offset + script_len > len(data):
             raise ValueError("Truncated output: script_pubkey")
-        script_pubkey = data[offset:offset+script_len]
+        script_pubkey = data[offset : offset + script_len]
         offset += script_len
 
-        tx_output = TransactionOutput(
-            value=value,
-            script_pubkey=script_pubkey
-        )
+        tx_output = TransactionOutput(value=value, script_pubkey=script_pubkey)
 
         return (tx_output, offset - start_offset)
 
@@ -260,11 +265,9 @@ class TransactionProcessor:
         return abs(btc_amount - round(btc_amount)) < 1e-8
 
     def to_processed(
-        self,
-        parsed: ParsedTransaction,
-        timestamp: float
-    ) -> 'ProcessedTransaction':
-        """Convert ParsedTransaction to ProcessedTransaction."""
+        self, parsed: ParsedTransaction, timestamp: float
+    ) -> ProcessedTransaction:
+        """Convert ParseedTransaction to ProcessedTransaction."""
         from live.shared.models import ProcessedTransaction
 
         if parsed.raw_bytes is None:
@@ -292,7 +295,7 @@ class TransactionProcessor:
             timestamp=timestamp,
             fee_rate=None,
             input_count=len(parsed.inputs),
-            output_count=len(parsed.outputs)
+            output_count=len(parsed.outputs),
         )
 
     def _serialize_for_txid(self, parsed: ParsedTransaction) -> bytes:
@@ -332,16 +335,16 @@ class TransactionProcessor:
         if n < 0xFD:
             return bytes([n])
         elif n <= 0xFFFF:
-            return b'\xFD' + struct.pack("<H", n)
+            return b"\xfd" + struct.pack("<H", n)
         elif n <= 0xFFFFFFFF:
-            return b'\xFE' + struct.pack("<I", n)
+            return b"\xfe" + struct.pack("<I", n)
         else:
-            return b'\xFF' + struct.pack("<Q", n)
+            return b"\xff" + struct.pack("<Q", n)
 
 
 def process_mempool_transaction(
-    raw_tx: 'RawTransaction'
-) -> Optional['ProcessedTransaction']:
+    raw_tx: RawTransaction,
+) -> Optional[ProcessedTransaction]:
     """
     One-shot processing: parse + filter + convert.
 
@@ -349,7 +352,6 @@ def process_mempool_transaction(
         Input: RawTransaction (from ZMQ listener)
         Output: ProcessedTransaction (if passes filters) or None
     """
-    from live.shared.models import RawTransaction
 
     processor = TransactionProcessor()
 
@@ -363,5 +365,5 @@ def process_mempool_transaction(
 
         return processed
 
-    except (ValueError, struct.error) as e:
+    except (ValueError, struct.error):
         return None  # Malformed transaction - skip

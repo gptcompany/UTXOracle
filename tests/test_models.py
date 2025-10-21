@@ -30,7 +30,9 @@ from live.shared.models import (
 
 def test_raw_transaction_creation():
     """Test RawTransaction dataclass creation with valid data"""
-    tx = RawTransaction(raw_bytes=b"\x01\x02\x03", timestamp=1678901234.567, topic="rawtx")
+    tx = RawTransaction(
+        raw_bytes=b"\x01\x02\x03", timestamp=1678901234.567, topic="rawtx"
+    )
     assert tx.topic == "rawtx"
     assert len(tx.raw_bytes) == 3
     assert tx.timestamp == 1678901234.567
@@ -54,7 +56,9 @@ def test_raw_transaction_invalid_timestamp():
 def test_raw_transaction_invalid_topic():
     """Test RawTransaction rejects invalid topic"""
     with pytest.raises(ValueError, match="topic must be 'rawtx'"):
-        RawTransaction(raw_bytes=b"\x01\x02\x03", timestamp=1678901234.567, topic="invalid")
+        RawTransaction(
+            raw_bytes=b"\x01\x02\x03", timestamp=1678901234.567, topic="invalid"
+        )
 
 
 def test_raw_transaction_realistic_size():
@@ -424,7 +428,9 @@ def test_confidence_score_monotonic():
     confidences = [calculate_confidence(c) for c in counts]
 
     for i in range(len(confidences) - 1):
-        assert confidences[i] <= confidences[i + 1], f"Non-monotonic at counts {counts[i]}, {counts[i+1]}"
+        assert confidences[i] <= confidences[i + 1], (
+            f"Non-monotonic at counts {counts[i]}, {counts[i + 1]}"
+        )
 
 
 # =============================================================================
@@ -457,7 +463,10 @@ def test_transaction_point_validation():
 def test_system_stats_creation():
     """Test SystemStats Pydantic model"""
     stats = SystemStats(
-        total_received=12543, total_filtered=8234, active_in_window=4309, uptime_seconds=3600.5
+        total_received=12543,
+        total_filtered=8234,
+        active_in_window=4309,
+        uptime_seconds=3600.5,
     )
     assert stats.total_received == 12543
     assert stats.total_filtered == 8234
@@ -469,13 +478,21 @@ def test_system_stats_filtered_validation():
     """Test SystemStats enforces total_filtered <= total_received"""
     # Valid
     stats = SystemStats(
-        total_received=12543, total_filtered=8234, active_in_window=4309, uptime_seconds=3600.5
+        total_received=12543,
+        total_filtered=8234,
+        active_in_window=4309,
+        uptime_seconds=3600.5,
     )
     assert stats.total_filtered <= stats.total_received
 
     # Invalid: filtered > received
     with pytest.raises(ValueError, match="total_filtered cannot exceed total_received"):
-        SystemStats(total_received=8234, total_filtered=12543, active_in_window=4309, uptime_seconds=3600.5)
+        SystemStats(
+            total_received=8234,
+            total_filtered=12543,
+            active_in_window=4309,
+            uptime_seconds=3600.5,
+        )
 
 
 def test_mempool_update_data_creation():
@@ -488,7 +505,10 @@ def test_mempool_update_data_creation():
             TransactionPoint(timestamp=1678901234.2, price=113700.0),
         ],
         stats=SystemStats(
-            total_received=12543, total_filtered=8234, active_in_window=4309, uptime_seconds=3600.5
+            total_received=12543,
+            total_filtered=8234,
+            active_in_window=4309,
+            uptime_seconds=3600.5,
         ),
         timestamp=1678901234.567,
     )
@@ -503,7 +523,10 @@ def test_mempool_update_data_empty_transactions():
         confidence=0.87,
         transactions=[],
         stats=SystemStats(
-            total_received=12543, total_filtered=8234, active_in_window=4309, uptime_seconds=3600.5
+            total_received=12543,
+            total_filtered=8234,
+            active_in_window=4309,
+            uptime_seconds=3600.5,
         ),
         timestamp=1678901234.567,
     )
@@ -518,7 +541,10 @@ def test_websocket_message_creation():
             confidence=0.87,
             transactions=[],
             stats=SystemStats(
-                total_received=12543, total_filtered=8234, active_in_window=4309, uptime_seconds=3600.5
+                total_received=12543,
+                total_filtered=8234,
+                active_in_window=4309,
+                uptime_seconds=3600.5,
             ),
             timestamp=1678901234.567,
         )
@@ -538,7 +564,10 @@ def test_websocket_message_serialization():
                 TransactionPoint(timestamp=1678901234.2, price=113700.0),
             ],
             stats=SystemStats(
-                total_received=12543, total_filtered=8234, active_in_window=4309, uptime_seconds=3600.5
+                total_received=12543,
+                total_filtered=8234,
+                active_in_window=4309,
+                uptime_seconds=3600.5,
             ),
             timestamp=1678901234.567,
         )
@@ -571,7 +600,10 @@ def test_websocket_message_validation():
                 confidence=0.87,
                 transactions=[],
                 stats=SystemStats(
-                    total_received=12543, total_filtered=8234, active_in_window=4309, uptime_seconds=3600.5
+                    total_received=12543,
+                    total_filtered=8234,
+                    active_in_window=4309,
+                    uptime_seconds=3600.5,
                 ),
                 timestamp=1678901234.567,
             )
@@ -585,7 +617,10 @@ def test_websocket_message_validation():
                 confidence=1.5,  # Invalid
                 transactions=[],
                 stats=SystemStats(
-                    total_received=12543, total_filtered=8234, active_in_window=4309, uptime_seconds=3600.5
+                    total_received=12543,
+                    total_filtered=8234,
+                    active_in_window=4309,
+                    uptime_seconds=3600.5,
                 ),
                 timestamp=1678901234.567,
             )
@@ -600,7 +635,11 @@ def test_websocket_message_validation():
 def test_full_pipeline_data_flow():
     """Test complete data flow from RawTransaction to WebSocketMessage"""
     # Step 1: ZMQ Listener produces RawTransaction
-    raw_tx = RawTransaction(raw_bytes=b"\x02\x00\x00\x00" + b"\x00" * 250, timestamp=time.time(), topic="rawtx")
+    raw_tx = RawTransaction(
+        raw_bytes=b"\x02\x00\x00\x00" + b"\x00" * 250,
+        timestamp=time.time(),
+        topic="rawtx",
+    )
 
     # Step 2: TX Processor produces ProcessedTransaction
     processed_tx = ProcessedTransaction(
@@ -627,7 +666,11 @@ def test_full_pipeline_data_flow():
         data=MempoolUpdateData(
             price=mempool_state.price,
             confidence=mempool_state.confidence,
-            transactions=[TransactionPoint(timestamp=processed_tx.timestamp, price=mempool_state.price)],
+            transactions=[
+                TransactionPoint(
+                    timestamp=processed_tx.timestamp, price=mempool_state.price
+                )
+            ],
             stats=SystemStats(
                 total_received=mempool_state.total_received,
                 total_filtered=mempool_state.total_filtered,

@@ -213,15 +213,21 @@ class TransactionPoint(BaseModel):
     """Single transaction point for visualization"""
 
     timestamp: float = Field(..., gt=0, description="Unix timestamp (seconds)")
-    price: float = Field(..., gt=0, description="Estimated price for this transaction (USD)")
+    price: float = Field(
+        ..., gt=0, description="Estimated price for this transaction (USD)"
+    )
 
 
 class SystemStats(BaseModel):
     """Operational statistics"""
 
     total_received: int = Field(..., ge=0, description="Total transactions received")
-    total_filtered: int = Field(..., ge=0, description="Total transactions filtered out")
-    active_in_window: int = Field(..., ge=0, description="Active transactions in 3-hour window")
+    total_filtered: int = Field(
+        ..., ge=0, description="Total transactions filtered out"
+    )
+    active_in_window: int = Field(
+        ..., ge=0, description="Active transactions in 3-hour window"
+    )
     uptime_seconds: float = Field(..., gt=0, description="System uptime (seconds)")
 
     @field_validator("total_filtered")

@@ -10,6 +10,7 @@ Responsibilities:
 """
 
 import logging
+import sys
 from contextlib import asynccontextmanager
 import time
 from pathlib import Path
@@ -28,6 +29,14 @@ from live.shared.models import (
     SystemStats,
 )
 
+# Configure logging to ensure our messages appear
+logging.basicConfig(
+    level=logging.DEBUG,  # Changed to DEBUG to see broadcast messages
+    format="%(levelname)s:     %(name)s - %(message)s",
+    stream=sys.stderr,
+    force=True,
+)
+
 logger = logging.getLogger("live.api")
 
 
@@ -35,27 +44,36 @@ logger = logging.getLogger("live.api")
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup/shutdown"""
     # Startup
-    print("DEBUG: Lifespan startup executing...")
+    # DEBUG: Write to file to verify lifespan is called
+    with open("/tmp/lifespan_debug.txt", "w") as f:
+        f.write("LIFESPAN CALLED!\n")
+
+    logger.info("=" * 60)
+    logger.info("LIFESPAN: Starting up...")
+    logger.info("=" * 60)
     app.state.start_time = time.time()
     logger.info("UTXOracle Live API started")
-    print("DEBUG: About to import orchestrator...")
-    
+
     # Import here to avoid circular dependency
     from live.backend.orchestrator import get_orchestrator
-    
-    print("DEBUG: Orchestrator imported successfully")
+
     logger.info("FastAPI startup: Initializing pipeline orchestrator...")
     orchestrator = get_orchestrator()
-    print(f"DEBUG: Got orchestrator: {orchestrator}")
+    logger.info(f"Orchestrator created: {orchestrator}")
+
     # Start orchestrator in background task
     import asyncio
+
+    logger.info("Creating orchestrator background task...")
     orchestrator_task = asyncio.create_task(orchestrator.start())
+    logger.info(f"Task created successfully: {orchestrator_task}")
     app.state.orchestrator_task = orchestrator_task
     app.state.orchestrator = orchestrator
-    logger.info("Pipeline orchestrator started")
-    
+    logger.info("Pipeline orchestrator started - task running in background")
+    logger.info("=" * 60)
+
     yield  # Application runs here
-    
+
     # Shutdown
     logger.info("FastAPI shutdown: Stopping pipeline orchestrator...")
     if hasattr(app.state, "orchestrator"):
@@ -119,10 +137,17 @@ class DataStreamer:
                 return
 
         if not self.active_clients:
+            logger.debug(
+                f"Broadcast skipped: No active clients (state: {state.active_tx_count} active)"
+            )
             return
 
         message = self._create_websocket_message(state)
         message_json = message.model_dump_json()
+
+        logger.debug(
+            f"Broadcasting to {len(self.active_clients)} clients: active={state.active_tx_count}, price={state.price}"
+        )
 
         disconnected_clients = []
         for client in self.active_clients:
@@ -214,8 +239,6 @@ async def websocket_endpoint(websocket: WebSocket):
         streamer.unregister_client(websocket)
 
 
-
-
 __all__ = ["app", "DataStreamer", "streamer"]
 
 
@@ -237,5 +260,3 @@ async def serve_js():
     return HTMLResponse(
         content=js_path.read_text(), media_type="application/javascript"
     )
-
-

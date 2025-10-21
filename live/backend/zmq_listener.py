@@ -103,7 +103,9 @@ class ZMQListener:
 
             except zmq.ZMQError as e:
                 # ZMQ error - likely disconnection
-                logger.error(f"ZMQ error: {e}. Attempting reconnect in {backoff:.1f}s...")
+                logger.error(
+                    f"ZMQ error: {e}. Attempting reconnect in {backoff:.1f}s..."
+                )
                 self._connected = False
 
                 # Wait before reconnecting
