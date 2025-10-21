@@ -13,7 +13,6 @@ from typing import Optional
 from live.backend.zmq_listener import ZMQListener
 from live.backend.tx_processor import process_mempool_transaction
 from live.backend.mempool_analyzer import MempoolAnalyzer
-from live.backend.api import DataStreamer
 from live.backend.config import get_config
 
 logger = logging.getLogger("live.orchestrator")
@@ -34,9 +33,12 @@ class PipelineOrchestrator:
 
         self.zmq_listener = ZMQListener(endpoint=zmq_endpoint)
         self.analyzer = MempoolAnalyzer(window_hours=window_hours)
-        self.streamer = DataStreamer(
-            max_updates_per_second=int(1.0 / min_broadcast_interval)
-        )
+
+        # FIX: Use the global streamer instance from api.py instead of creating a new one
+        # This ensures WebSocket clients registered via /ws/mempool endpoint receive broadcasts
+        from live.backend.api import streamer
+
+        self.streamer = streamer
 
         self.total_received = 0
         self.total_processed = 0

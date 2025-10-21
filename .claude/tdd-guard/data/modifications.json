@@ -4,8 +4,8 @@
   "hook_event_name": "PreToolUse",
   "tool_name": "Edit",
   "tool_input": {
-    "file_path": "/media/sam/1TB/UTXOracle/orchestrator.py",
-    "old_string": "        # FIX: Use the global streamer instance from api.py instead of creating a new one\n        # This ensures WebSocket clients registered via /ws/mempool endpoint receive broadcasts\n        from live.backend.api import streamer\n\n        self.streamer = streamer",
-    "new_string": "        # FIX: Use the global streamer instance from api.py instead of creating a new one\n        # This ensures WebSocket clients registered via /ws/mempool endpoint receive broadcasts\n        from live.backend.api import streamer\n\n        print(f\"DEBUG orchestrator.__init__: importing streamer, id={id(streamer)}\")\n        self.streamer = streamer\n        print(f\"DEBUG orchestrator.__init__: self.streamer id={id(self.streamer)}\")"
+    "file_path": "/media/sam/1TB/UTXOracle/live/backend/orchestrator.py",
+    "old_string": "        self.zmq_listener = ZMQListener(endpoint=zmq_endpoint)\n        self.analyzer = MempoolAnalyzer(window_hours=window_hours)\n        self.streamer = DataStreamer(\n            max_updates_per_second=int(1.0 / min_broadcast_interval)\n        )",
+    "new_string": "        self.zmq_listener = ZMQListener(endpoint=zmq_endpoint)\n        self.analyzer = MempoolAnalyzer(window_hours=window_hours)\n\n        # FIX: Use the global streamer instance from api.py instead of creating a new one\n        # This ensures WebSocket clients registered via /ws/mempool endpoint receive broadcasts\n        from live.backend.api import streamer\n        self.streamer = streamer"
   }
 }

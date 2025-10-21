@@ -1,41 +1,5 @@
 [
   {
-    "timestamp": "2025-10-21T10:50:50.977744",
-    "tool_name": "Bash",
-    "session_id": "cc384e8d-b3e8-4b47-8edf-372271e71a3f",
-    "success": true
-  },
-  {
-    "timestamp": "2025-10-21T10:50:52.081850",
-    "tool_name": "Bash",
-    "session_id": "cc384e8d-b3e8-4b47-8edf-372271e71a3f",
-    "success": true
-  },
-  {
-    "timestamp": "2025-10-21T10:51:01.309729",
-    "tool_name": "Bash",
-    "session_id": "cc384e8d-b3e8-4b47-8edf-372271e71a3f",
-    "success": true
-  },
-  {
-    "timestamp": "2025-10-21T10:51:07.020835",
-    "tool_name": "Read",
-    "session_id": "cc384e8d-b3e8-4b47-8edf-372271e71a3f",
-    "success": true
-  },
-  {
-    "timestamp": "2025-10-21T10:51:25.858342",
-    "tool_name": "TodoWrite",
-    "session_id": "cc384e8d-b3e8-4b47-8edf-372271e71a3f",
-    "success": true
-  },
-  {
-    "timestamp": "2025-10-21T10:51:46.070320",
-    "tool_name": "Bash",
-    "session_id": "cc384e8d-b3e8-4b47-8edf-372271e71a3f",
-    "success": true
-  },
-  {
     "timestamp": "2025-10-21T10:52:03.734998",
     "tool_name": "Read",
     "session_id": "cc384e8d-b3e8-4b47-8edf-372271e71a3f",
@@ -596,6 +560,42 @@
   {
     "timestamp": "2025-10-21T11:40:56.970832",
     "tool_name": "Bash",
+    "session_id": "cc384e8d-b3e8-4b47-8edf-372271e71a3f",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-21T11:41:06.662802",
+    "tool_name": "Bash",
+    "session_id": "cc384e8d-b3e8-4b47-8edf-372271e71a3f",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-21T11:41:14.462927",
+    "tool_name": "Bash",
+    "session_id": "cc384e8d-b3e8-4b47-8edf-372271e71a3f",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-21T11:41:20.744710",
+    "tool_name": "Bash",
+    "session_id": "cc384e8d-b3e8-4b47-8edf-372271e71a3f",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-21T11:41:25.526482",
+    "tool_name": "Read",
+    "session_id": "cc384e8d-b3e8-4b47-8edf-372271e71a3f",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-21T11:41:49.700792",
+    "tool_name": "Edit",
+    "session_id": "cc384e8d-b3e8-4b47-8edf-372271e71a3f",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-21T11:42:12.877880",
+    "tool_name": "Edit",
     "session_id": "cc384e8d-b3e8-4b47-8edf-372271e71a3f",
     "success": true
   }
