@@ -131,6 +131,7 @@ uv.lock                             # Dependency lockfile (commit this!)
 .serena/                            # Serena MCP (code navigation memory)
 ├── .gitignore
 ├── project.yml
+├── cache/
 └── memories/
 .specify/                           # SpecKit (task management)
 ├── memory/

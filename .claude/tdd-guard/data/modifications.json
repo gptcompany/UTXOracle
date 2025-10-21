@@ -1,11 +1,11 @@
 {
-  "session_id": "0fee4b1d-0579-4ef8-baf3-dd2c7ac9378d",
-  "transcript_path": "/home/sam/.claude/projects/-media-sam-1TB-UTXOracle/0fee4b1d-0579-4ef8-baf3-dd2c7ac9378d.jsonl",
+  "session_id": "9cde7b8c-ef22-4886-94af-87ea0faf71a5",
+  "transcript_path": "/home/sam/.claude/projects/-media-sam-1TB-UTXOracle/9cde7b8c-ef22-4886-94af-87ea0faf71a5.jsonl",
   "hook_event_name": "PreToolUse",
   "tool_name": "Edit",
   "tool_input": {
-    "file_path": "/media/sam/1TB/UTXOracle/live/backend/baseline_calculator.py",
-    "old_string": "        # Step 9: Stencil slide for rough price\n        rough_price, confidence = self._apply_step9_stencil_slide(histogram)\n\n        if rough_price is None:\n            return None",
-    "new_string": "        # Step 9: Stencil slide for rough price\n        rough_price, confidence = self._apply_step9_stencil_slide(histogram)\n\n        if rough_price is None:\n            # Fallback: use default price if stencil slide fails (low confidence)\n            logger.warning(\"Using fallback price $100k (stencil slide failed)\")\n            rough_price = 100000.0\n            confidence = 0.1  # Low confidence"
+    "file_path": "/media/sam/1TB/UTXOracle/live/backend/orchestrator.py",
+    "old_string": "                if baseline_result:\n                    logger.info(\n                        f\"Baseline updated: ${baseline_result.price:,.0f} \"\n                        f\"(±{baseline_result.price_max - baseline_result.price:.0f}), \"\n                        f\"confidence {baseline_result.confidence:.2f}\"\n                    )\n\n                    # TODO T103: Pass baseline to mempool analyzer for Y-axis scaling\n                    # self.analyzer.set_baseline(baseline_result)\n                else:\n                    logger.warning(\"Baseline calculation failed (insufficient data)\")",
+    "new_string": "                if baseline_result:\n                    logger.info(\n                        f\"Baseline updated: ${baseline_result.price:,.0f} \"\n                        f\"(±{baseline_result.price_max - baseline_result.price:.0f}), \"\n                        f\"confidence {baseline_result.confidence:.2f}\"\n                    )\n\n                    # T103: Pass baseline to mempool analyzer for Y-axis scaling\n                    self.analyzer.set_baseline(baseline_result)\n                else:\n                    logger.warning(\"Baseline calculation failed (insufficient data)\")"
   }
 }

@@ -634,3 +634,111 @@ def test_confidence_score_ranges():
 
     # Additional validation: should never exceed 1.0
     assert calculate_confidence(100000) <= 1.0, "Should never exceed 1.0"
+
+
+def test_set_baseline():
+    """Test MempoolAnalyzer can receive baseline reference (T103)"""
+    from live.backend.baseline_calculator import BaselineResult
+
+    analyzer = MempoolAnalyzer()
+    baseline = BaselineResult(
+        price=113600.0,
+        price_min=113000.0,
+        price_max=114200.0,
+        confidence=0.95,
+        timestamp=time.time(),
+        block_height=800000,
+        num_transactions=5000,
+    )
+    analyzer.set_baseline(baseline)
+    assert analyzer.baseline is not None
+    assert analyzer.baseline.price == 113600.0
+
+
+def test_estimate_price_uses_baseline():
+    """Test estimate_price() uses baseline when <10 transactions (T104)"""
+    from live.backend.baseline_calculator import BaselineResult
+
+    analyzer = MempoolAnalyzer()
+
+    # Set baseline first
+    baseline = BaselineResult(
+        price=113600.0,
+        price_min=113000.0,
+        price_max=114200.0,
+        confidence=0.95,
+        timestamp=time.time(),
+        block_height=800000,
+        num_transactions=5000,
+    )
+    analyzer.set_baseline(baseline)
+
+    # Add only 5 transactions (<10 threshold)
+    for i in range(5):
+        tx = ProcessedTransaction(
+            txid=f"{i:064x}",
+            amounts=[0.001, 0.002],
+            timestamp=time.time(),
+            input_count=1,
+            output_count=2,
+        )
+        analyzer.add_transaction(tx)
+
+    # Act: Estimate price with <10 transactions
+    estimated_price = analyzer.estimate_price()
+
+    # Assert: Should use baseline price (113600.0) instead of fallback (100000.0)
+    assert estimated_price == 113600.0, (
+        f"Expected baseline price 113600.0, got {estimated_price}"
+    )
+
+
+def test_get_combined_history():
+    """Test get_combined_history() returns baseline + mempool data (T105)"""
+    from live.backend.baseline_calculator import BaselineResult
+
+    analyzer = MempoolAnalyzer()
+
+    # Set baseline
+    baseline = BaselineResult(
+        price=113600.0,
+        price_min=113000.0,
+        price_max=114200.0,
+        confidence=0.95,
+        timestamp=time.time(),
+        block_height=800000,
+        num_transactions=5000,
+    )
+    analyzer.set_baseline(baseline)
+
+    # Add some transactions to create mempool history
+    for i in range(10):
+        tx = ProcessedTransaction(
+            txid=f"{i:064x}",
+            amounts=[0.001, 0.002],
+            timestamp=time.time() + i,
+            input_count=1,
+            output_count=2,
+        )
+        analyzer.add_transaction(tx)
+
+    # Act: Get combined history
+    combined = analyzer.get_combined_history()
+
+    # Assert: Dictionary structure
+    assert isinstance(combined, dict), "Should return a dictionary"
+    assert "baseline" in combined, "Should have 'baseline' key"
+    assert "mempool" in combined, "Should have 'mempool' key"
+
+    # Assert: Baseline data
+    assert combined["baseline"] is not None, "Baseline should not be None"
+    assert combined["baseline"].price == 113600.0, "Should return correct baseline"
+
+    # Assert: Mempool data
+    assert isinstance(combined["mempool"], list), "Mempool should be a list"
+    assert len(combined["mempool"]) == 10, "Should have 10 transaction history entries"
+
+    # Assert: Mempool data structure (same as get_transaction_history)
+    for entry in combined["mempool"]:
+        assert isinstance(entry, tuple), "Each entry should be a tuple"
+        assert len(entry) == 2, "Each entry should have (timestamp, price)"

@@ -1,11 +1,21 @@
 {
   "testModules": [
     {
-      "moduleId": "tests/test_baseline_calculator.py",
+      "moduleId": "tests/test_mempool_analyzer.py",
       "tests": [
         {
-          "name": "test_calculate_baseline_with_sufficient_data",
-          "fullName": "tests/test_baseline_calculator.py::test_calculate_baseline_with_sufficient_data",
+          "name": "test_set_baseline",
+          "fullName": "tests/test_mempool_analyzer.py::test_set_baseline",
+          "state": "passed"
+        },
+        {
+          "name": "test_estimate_price_uses_baseline",
+          "fullName": "tests/test_mempool_analyzer.py::test_estimate_price_uses_baseline",
+          "state": "passed"
+        },
+        {
+          "name": "test_get_combined_history",
+          "fullName": "tests/test_mempool_analyzer.py::test_get_combined_history",
           "state": "passed"
         }
       ]

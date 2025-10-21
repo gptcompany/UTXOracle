@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Tuple
 
 from live.shared.models import ProcessedTransaction, MempoolState, calculate_confidence
+from live.backend.baseline_calculator import BaselineResult
 
 
 @dataclass
@@ -206,6 +207,9 @@ class MempoolAnalyzer:
         self.cleanup_old_transactions(time.time())
 
         if len(self.transactions) < 10:
+            # T104: Use baseline price if available
+            if hasattr(self, "baseline") and self.baseline is not None:
+                return self.baseline.price
             return self.last_price_estimate
 
         histogram_array = self._histogram_to_array()
@@ -307,6 +311,24 @@ class MempoolAnalyzer:
             Ordered by timestamp (ascending - oldest first).
         """
         return list(self.transaction_history)
+
+    def set_baseline(self, baseline: BaselineResult) -> None:
+        """Set baseline price reference from on-chain data (T103)"""
+        self.baseline = baseline
+
+    def get_combined_history(self) -> dict:
+        """
+        Get combined baseline + mempool history for dual timeline visualization (T105).
+
+        Returns:
+            Dict with keys:
+            - "baseline": BaselineResult or None
+            - "mempool": List[(timestamp, price)]
+        """
+        return {
+            "baseline": getattr(self, "baseline", None),
+            "mempool": list(self.transaction_history),
+        }
 
 
 __all__ = ["MempoolAnalyzer"]

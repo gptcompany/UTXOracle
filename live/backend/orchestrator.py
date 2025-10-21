@@ -38,8 +38,7 @@ class PipelineOrchestrator:
 
         # ZMQ listener (transactions + blocks)
         self.zmq_listener = ZMQListener(
-            tx_endpoint=zmq_tx_endpoint,
-            block_endpoint=zmq_block_endpoint
+            tx_endpoint=zmq_tx_endpoint, block_endpoint=zmq_block_endpoint
         )
 
         # Baseline calculator (24h on-chain price)
@@ -50,6 +49,7 @@ class PipelineOrchestrator:
 
         # FIX: Use global streamer instance from api.py
         from live.backend.api import streamer
+
         self.streamer = streamer
         self.streamer.set_analyzer(self.analyzer)
 
@@ -136,7 +136,9 @@ class PipelineOrchestrator:
 
                 # Extract transactions from block
                 block_timestamp = time.time()
-                transactions = extract_transactions_from_block(block_bytes, block_timestamp)
+                transactions = extract_transactions_from_block(
+                    block_bytes, block_timestamp
+                )
 
                 if not transactions:
                     logger.warning(f"No valid transactions in block #{block_height}")
@@ -155,8 +157,8 @@ class PipelineOrchestrator:
                         f"confidence {baseline_result.confidence:.2f}"
                     )
 
-                    # TODO T103: Pass baseline to mempool analyzer for Y-axis scaling
-                    # self.analyzer.set_baseline(baseline_result)
+                    # T103: Pass baseline to mempool analyzer for Y-axis scaling
+                    self.analyzer.set_baseline(baseline_result)
                 else:
                     logger.warning("Baseline calculation failed (insufficient data)")
 
@@ -218,7 +220,9 @@ def get_orchestrator() -> PipelineOrchestrator:
         config = get_config()
         _orchestrator = PipelineOrchestrator(
             zmq_tx_endpoint=config.zmq_endpoint,
-            zmq_block_endpoint=getattr(config, 'zmq_block_endpoint', 'tcp://127.0.0.1:28333'),
+            zmq_block_endpoint=getattr(
+                config, "zmq_block_endpoint", "tcp://127.0.0.1:28333"
+            ),
             window_hours=config.window_hours,
             min_broadcast_interval=config.min_broadcast_interval,
         )
