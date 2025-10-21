@@ -14,15 +14,15 @@ from typing import Optional
 from live.backend.zmq_listener import ZMQListener
 from live.backend.tx_processor import process_mempool_transaction
 from live.backend.mempool_analyzer import MempoolAnalyzer
-from live.backend.api import DataStreamer, app
 from live.backend.config import get_config
+
+# Import global streamer instance from api module (fix for WebSocket client registration bug)
 
 logger = logging.getLogger("live.orchestrator")
 
 # Global instances (shared state)
 _zmq_listener: Optional[ZMQListener] = None
 _analyzer: Optional[MempoolAnalyzer] = None
-_streamer: Optional[DataStreamer] = None
 
 
 class PipelineOrchestrator:
@@ -56,9 +56,14 @@ class PipelineOrchestrator:
         # Module instances
         self.zmq_listener = ZMQListener(endpoint=zmq_endpoint)
         self.analyzer = MempoolAnalyzer(window_hours=window_hours)
-        self.streamer = DataStreamer(
-            max_updates_per_second=int(1.0 / min_broadcast_interval)
-        )
+
+        # FIX: Use the global streamer instance from api.py instead of creating a new one
+        # This ensures WebSocket clients registered via /ws/mempool endpoint receive broadcasts
+        from live.backend.api import streamer
+
+        print(f"DEBUG orchestrator.__init__: importing streamer, id={id(streamer)}")
+        self.streamer = streamer
+        print(f"DEBUG orchestrator.__init__: self.streamer id={id(self.streamer)}")
 
         # Statistics
         self.total_received = 0
@@ -137,7 +142,9 @@ class PipelineOrchestrator:
                     )
 
         except Exception as e:
-            logger.error(f"Error in transaction processing pipeline: {e}", exc_info=True)
+            logger.error(
+                f"Error in transaction processing pipeline: {e}", exc_info=True
+            )
             self._running = False
 
     async def _cleanup_old_transactions(self) -> None:
@@ -235,10 +242,10 @@ async def startup_event():
     logger.info("FastAPI startup: Initializing pipeline orchestrator...")
 
     orchestrator = get_orchestrator()
-    
+
     # Start pipeline in background
     asyncio.create_task(orchestrator.start())
-    
+
     logger.info("Pipeline orchestrator started")
 
 

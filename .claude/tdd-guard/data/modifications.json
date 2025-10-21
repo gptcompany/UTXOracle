@@ -4,8 +4,8 @@
   "hook_event_name": "PreToolUse",
   "tool_name": "Edit",
   "tool_input": {
-    "file_path": "/media/sam/1TB/UTXOracle/tests/test_security.py",
-    "old_string": "    # Should raise ValueError due to truncated data, NOT attempt to allocate 2^32 objects\n    # This validates that bounds checking happens BEFORE memory allocation\n    with pytest.raises(ValueError, match=\"Truncated|exceeds\"):\n        processor.parse_transaction(malicious_tx)",
-    "new_string": "    # Should raise ValueError due to truncated data, NOT attempt to allocate 2^32 objects\n    # This validates that bounds checking happens BEFORE memory allocation\n    with pytest.raises(ValueError, match=\"truncated|invalid|Truncated|exceeds\"):\n        processor.parse_transaction(malicious_tx)"
+    "file_path": "/media/sam/1TB/UTXOracle/orchestrator.py",
+    "old_string": "        # FIX: Use the global streamer instance from api.py instead of creating a new one\n        # This ensures WebSocket clients registered via /ws/mempool endpoint receive broadcasts\n        from live.backend.api import streamer\n\n        self.streamer = streamer",
+    "new_string": "        # FIX: Use the global streamer instance from api.py instead of creating a new one\n        # This ensures WebSocket clients registered via /ws/mempool endpoint receive broadcasts\n        from live.backend.api import streamer\n\n        print(f\"DEBUG orchestrator.__init__: importing streamer, id={id(streamer)}\")\n        self.streamer = streamer\n        print(f\"DEBUG orchestrator.__init__: self.streamer id={id(self.streamer)}\")"
   }
 }
