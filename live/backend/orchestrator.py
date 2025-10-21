@@ -39,6 +39,7 @@ class PipelineOrchestrator:
         from live.backend.api import streamer
 
         self.streamer = streamer
+        self.streamer.set_analyzer(self.analyzer)  # T074e: Pass analyzer reference
 
         self.total_received = 0
         self.total_processed = 0

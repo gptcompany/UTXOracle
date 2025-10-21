@@ -158,6 +158,19 @@
 - [X] T073 [US2] Verify T065-T066 tests now PASS (GREEN) ✅
 - [X] T074 [US2] Manual test: Verify scatter plot renders smoothly at ≥30 FPS with 2000 points ✅
 
+### Visualization Enhancement (Based on examples/mempool*.png)
+
+- [X] T074a [US2] Implement timeline scrolling in live/frontend/mempool-viz.js (fixed 5-min window, right=now, left=old, auto-scroll) ✅
+- [X] T074b [US2] Implement variable point size in live/frontend/mempool-viz.js (scale based on tx USD value, 1-8px radius) ✅
+- [X] T074c [US2] Implement fade-out in live/frontend/mempool-viz.js (older points fade to 30% opacity over last 20% of time window) ✅
+- [ ] T074d [US2] Manual test: Verify points move left-to-right, size varies, old points fade
+
+### Bug Fixes (Critical for Visualization)
+
+- [ ] T074e [BUG] Fix DataStreamer analyzer reference (currently None, prevents transaction history from being sent to frontend)
+- [ ] T074f [BUG] Debug estimate_price() returning fallback 100000 instead of calculated price
+- [ ] T074g [BUG] Verify get_transaction_history() returns non-empty data
+
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently - price display + scatter plot visualization
 
 ---

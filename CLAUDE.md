@@ -161,15 +161,12 @@ docs/                               # Documentation
 └── tasks/                              # Agent task specifications (01-05)
 examples/                           # Example outputs and screenshots
 ├── README.md
-├── Screenshot from 2025-10-18 09-26-57.png
-├── Screenshot from 2025-10-18 09-27-03.png
-├── Screenshot from 2025-10-18 09-27-11.png
-├── Screenshot from 2025-10-18 09-27-21.png
-├── Screenshot from 2025-10-18 10-24-54.png
-├── Screenshot from 2025-10-18 10-25-09.png
-├── Screenshot from 2025-10-18 10-27-16.png
 ├── UTXOracle_Local_Node_Price.png
-└── canvas_t069-t074_verification.png
+├── canvas_t069-t074_verification.png
+├── mempool.png
+├── mempool2.png
+├── mempool3.png
+└── mempool4.png
 historical_data/                    # 672 days of historical outputs
 └── html_files/                         # HTML price analysis files
 │   │   └── [672 HTML files]

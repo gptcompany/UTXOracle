@@ -114,6 +114,11 @@ class DataStreamer:
         self.min_broadcast_interval = (
             1.0 / max_updates_per_second if max_updates_per_second > 0 else 0.0
         )
+        self.analyzer = None  # Set by orchestrator
+
+    def set_analyzer(self, analyzer):
+        """Set analyzer reference for transaction history (T074e)"""
+        self.analyzer = analyzer
 
     async def register_client(self, websocket: WebSocket) -> None:
         """Register a new WebSocket client (must already be accepted)"""

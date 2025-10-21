@@ -1,5 +1,5 @@
 /**
- * UTXOracle Live - Frontend Visualization (T056-T059)
+ * UTXOracle Live - Frontend Visualization (T056-T059 + T074a-T074c)
  * 
  * Implements:
  * - T056: WebSocket client connection
@@ -7,6 +7,9 @@
  * - T058: Connection status indicator
  * - T059: Reconnection logic with exponential backoff
  * - T069-T074: Canvas 2D scatter plot visualization
+ * - T074a: Timeline scrolling (fixed 5-min window)
+ * - T074b: Variable point size (scaled by tx USD value)
+ * - T074c: Fade-out for old points
  */
 
 class MempoolWebSocketClient {
@@ -210,7 +213,7 @@ class UIController {
 
         this.statReceivedElement.textContent = stats.total_received || 0;
         this.statFilteredElement.textContent = stats.total_filtered || 0;
-        this.statActiveElement.textContent = stats.active_tx_count || 0;  // Fixed: was active_in_window
+        this.statActiveElement.textContent = stats.active_tx_count || 0;
 
         const uptime = stats.uptime_seconds || 0;
         this.statUptimeElement.textContent = this.formatUptime(uptime);
@@ -231,7 +234,7 @@ class UIController {
 }
 
 /**
- * MempoolVisualizer - Canvas 2D scatter plot visualization (T069-T074)
+ * MempoolVisualizer - Canvas 2D scatter plot (T074a-c: scrolling + variable size + fade-out)
  */
 class MempoolVisualizer {
     constructor(canvasId = 'mempool-canvas') {
@@ -243,95 +246,70 @@ class MempoolVisualizer {
 
         this.ctx = this.canvas.getContext('2d');
 
-        // Canvas dimensions
         this.width = 1000;
         this.height = 660;
 
-        // Colors
         this.backgroundColor = '#000000';
-        this.pointColor = '#FF8C00';  // Orange
-        this.axisColor = '#FFFFFF';   // White
+        this.pointColor = '#FF8C00';
+        this.axisColor = '#FFFFFF';
         this.textColor = '#FFFFFF';
         this.tooltipBgColor = 'rgba(0, 0, 0, 0.9)';
         this.tooltipBorderColor = '#FF8C00';
 
-        // Point rendering
-        this.pointRadius = 2;
+        // T074b: Variable point size
+        this.pointMinRadius = 1;
+        this.pointMaxRadius = 8;
 
-        // Margins
         this.marginLeft = 80;
         this.marginRight = 20;
         this.marginTop = 20;
         this.marginBottom = 60;
 
-        // Plot area dimensions
         this.plotWidth = this.width - this.marginLeft - this.marginRight;
         this.plotHeight = this.height - this.marginTop - this.marginBottom;
 
-        // Data
         this.transactions = [];
         this.priceMin = 0;
         this.priceMax = 100000;
-        this.timeMin = Date.now() / 1000;
-        this.timeMax = Date.now() / 1000 + 300;  // 5 minutes ahead
 
-        // Hover state
+        // T074a: Fixed 5-minute scrolling window
+        this.timeWindowSeconds = 300;  // 5 minutes
+
         this.hoveredTransaction = null;
-        this.tooltipThreshold = 10;  // pixels
+        this.tooltipThreshold = 10;
 
-        // Animation
         this.animationFrameId = null;
 
-        // Initialize
         this.enableTooltips();
         this.startRendering();
 
-        console.log('[MempoolVisualizer] Initialized', {
-            canvas: canvasId,
-            dimensions: `${this.width}x${this.height}`,
-            plotArea: `${this.plotWidth}x${this.plotHeight}`
-        });
+        console.log('[MempoolVisualizer] Initialized with scrolling timeline');
     }
 
-    /**
-     * Update transaction data and recalculate scales
-     */
     updateData(transactions) {
         if (!transactions || transactions.length === 0) {
             return;
         }
 
-        this.transactions = transactions;
+        // T074a: Filter transactions outside time window
+        const now = Date.now() / 1000;
+        this.transactions = transactions.filter(tx =>
+            tx.timestamp >= (now - this.timeWindowSeconds)
+        );
 
-        // Calculate price range with 5% padding
-        const prices = transactions.map(tx => tx.price);
+        if (this.transactions.length === 0) {
+            return;
+        }
+
+        const prices = this.transactions.map(tx => tx.price);
         const rawMin = Math.min(...prices);
         const rawMax = Math.max(...prices);
         const padding = (rawMax - rawMin) * 0.05;
 
         this.priceMin = rawMin - padding;
         this.priceMax = rawMax + padding;
-
-        // Calculate time range
-        const timestamps = transactions.map(tx => tx.timestamp);
-        this.timeMin = Math.min(...timestamps);
-        this.timeMax = Math.max(...timestamps);
-
-        // Ensure minimum time range of 60 seconds
-        if (this.timeMax - this.timeMin < 60) {
-            this.timeMax = this.timeMin + 60;
-        }
-
-        console.log('[MempoolVisualizer] Data updated:', {
-            count: transactions.length,
-            priceRange: [this.priceMin.toFixed(2), this.priceMax.toFixed(2)],
-            timeRange: [new Date(this.timeMin * 1000).toISOString(), new Date(this.timeMax * 1000).toISOString()]
-        });
     }
 
-    /**
-     * Scale price to Y coordinate
-     */
     scaleY(price) {
         const priceRange = this.priceMax - this.priceMin;
         if (priceRange === 0) return this.marginTop + this.plotHeight / 2;
@@ -340,20 +318,56 @@ class MempoolVisualizer {
         return this.marginTop + this.plotHeight - (normalized * this.plotHeight);
     }
 
-    /**
-     * Scale timestamp to X coordinate
-     */
+    // T074a: Scrolling timeline (right=now, left=5min ago)
     scaleX(timestamp) {
-        const timeRange = this.timeMax - this.timeMin;
-        if (timeRange === 0) return this.marginLeft;
+        const now = Date.now() / 1000;
+        const timeMin = now - this.timeWindowSeconds;
+        const timeMax = now;
 
-        const normalized = (timestamp - this.timeMin) / timeRange;
+        const normalized = (timestamp - timeMin) / (timeMax - timeMin);
         return this.marginLeft + (normalized * this.plotWidth);
     }
 
-    /**
-     * Start rendering loop
-     */
+    // T074b: Variable point size based on tx USD value
+    getPointSize(tx) {
+        if (!this.transactions || this.transactions.length === 0) {
+            return this.pointMinRadius;
+        }
+
+        const values = this.transactions.map(t => t.price * t.btc_amount);
+        const minValue = Math.min(...values);
+        const maxValue = Math.max(...values);
+
+        const txValue = tx.price * tx.btc_amount;
+
+        const normalized = maxValue > minValue
+            ? (txValue - minValue) / (maxValue - minValue)
+            : 0.5;
+
+        // Use sqrt for better visual distribution
+        const sqrtNormalized = Math.sqrt(normalized);
+
+        return this.pointMinRadius + sqrtNormalized * (this.pointMaxRadius - this.pointMinRadius);
+    }
+
+    // T074c: Fade-out for old points
+    getPointOpacity(timestamp) {
+        const now = Date.now() / 1000;
+        const age = now - timestamp;
+        const maxAge = this.timeWindowSeconds;
+
+        // Fade out over last 20% of time window
+        const fadeStartAge = maxAge * 0.8;
+
+        if (age < fadeStartAge) {
+            return 1.0;
+        }
+
+        // Linear fade from 1.0 to 0.3
+        const fadeProgress = (age - fadeStartAge) / (maxAge - fadeStartAge);
+        return Math.max(0.3, 1.0 - (fadeProgress * 0.7));
+    }
+
     startRendering() {
         const renderLoop = () => {
             this.render();
@@ -362,9 +376,6 @@ class MempoolVisualizer {
         renderLoop();
     }
 
-    /**
-     * Stop rendering loop
-     */
     stopRendering() {
         if (this.animationFrameId) {
             cancelAnimationFrame(this.animationFrameId);
@@ -372,9 +383,6 @@ class MempoolVisualizer {
         }
     }
 
-    /**
-     * Main render method
-     */
     render() {
         this.clear();
         this.drawAxes();
@@ -387,35 +395,29 @@ class MempoolVisualizer {
         }
     }
 
-    /**
-     * Clear canvas with black background
-     */
     clear() {
         this.ctx.fillStyle = this.backgroundColor;
         this.ctx.fillRect(0, 0, this.width, this.height);
     }
 
-    /**
-     * Draw axes and labels
-     */
     drawAxes() {
         this.ctx.strokeStyle = this.axisColor;
         this.ctx.fillStyle = this.textColor;
         this.ctx.lineWidth = 1;
 
-        // Y axis (left)
+        // Y axis
         this.ctx.beginPath();
         this.ctx.moveTo(this.marginLeft, this.marginTop);
         this.ctx.lineTo(this.marginLeft, this.marginTop + this.plotHeight);
         this.ctx.stroke();
 
-        // X axis (bottom)
+        // X axis
         this.ctx.beginPath();
         this.ctx.moveTo(this.marginLeft, this.marginTop + this.plotHeight);
         this.ctx.lineTo(this.marginLeft + this.plotWidth, this.marginTop + this.plotHeight);
         this.ctx.stroke();
 
-        // Y axis ticks and labels
+        // Y ticks
         this.ctx.font = '12px monospace';
         this.ctx.textAlign = 'right';
         this.ctx.textBaseline = 'middle';
@@ -425,24 +427,21 @@ class MempoolVisualizer {
             const price = this.priceMin + (this.priceMax - this.priceMin) * i / yTicks;
             const y = this.scaleY(price);
 
-            // Tick mark
             this.ctx.beginPath();
             this.ctx.moveTo(this.marginLeft - 5, y);
             this.ctx.lineTo(this.marginLeft, y);
             this.ctx.stroke();
 
-            // Label
             this.ctx.fillStyle = this.textColor;
             this.ctx.fillText('$' + Math.round(price).toLocaleString(), this.marginLeft - 10, y);
         }
 
-        // X axis labels (time)
+        // Axis labels
         this.ctx.textAlign = 'center';
         this.ctx.textBaseline = 'top';
         this.ctx.fillStyle = this.textColor;
         this.ctx.fillText('Time →', this.marginLeft + this.plotWidth / 2, this.marginTop + this.plotHeight + 40);
 
-        // Y axis label (price)
         this.ctx.save();
         this.ctx.translate(15, this.marginTop + this.plotHeight / 2);
         this.ctx.rotate(-Math.PI / 2);
@@ -451,34 +450,35 @@ class MempoolVisualizer {
         this.ctx.restore();
     }
 
-    /**
-     * Draw transaction scatter points
-     */
+    // T074b+T074c: Variable size + fade-out
     drawPoints() {
         if (this.transactions.length === 0) {
             return;
         }
 
-        this.ctx.fillStyle = this.pointColor;
-
         for (const tx of this.transactions) {
             const x = this.scaleX(tx.timestamp);
             const y = this.scaleY(tx.price);
 
-            // Only draw if within plot bounds
             if (x >= this.marginLeft && x <= this.marginLeft + this.plotWidth &&
                 y >= this.marginTop && y <= this.marginTop + this.plotHeight) {
 
+                const pointSize = this.getPointSize(tx);
+                const opacity = this.getPointOpacity(tx.timestamp);
+
+                // Orange with opacity
+                const r = 255;
+                const g = 140;
+                const b = 0;
+                this.ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${opacity})`;
+
                 this.ctx.beginPath();
-                this.ctx.arc(x, y, this.pointRadius, 0, 2 * Math.PI);
+                this.ctx.arc(x, y, pointSize, 0, 2 * Math.PI);
                 this.ctx.fill();
             }
         }
     }
 
-    /**
-     * Enable hover tooltips
-     */
     enableTooltips() {
         this.canvas.addEventListener('mousemove', (e) => {
             const rect = this.canvas.getBoundingClientRect();
@@ -495,9 +495,6 @@ class MempoolVisualizer {
         });
     }
 
-    /**
-     * Find nearest transaction point to mouse coordinates
-     */
     findNearestPoint(mouseX, mouseY) {
         if (this.transactions.length === 0) {
             return null;
@@ -523,19 +520,14 @@ class MempoolVisualizer {
         return nearestTx;
     }
 
-    /**
-     * Show tooltip for hovered transaction
-     */
     showTooltip(x, y, transaction) {
         const padding = 8;
         const lineHeight = 16;
 
-        // Format text
         const priceText = `$${transaction.price.toFixed(2)}`;
         const timeText = new Date(transaction.timestamp * 1000).toLocaleTimeString();
         const btcText = `${transaction.btc_amount.toFixed(8)} BTC`;
 
-        // Calculate tooltip dimensions
         this.ctx.font = '12px monospace';
         const textWidth = Math.max(
             this.ctx.measureText(priceText).width,
@@ -546,7 +538,6 @@ class MempoolVisualizer {
         const tooltipWidth = textWidth + padding * 2;
         const tooltipHeight = lineHeight * 3 + padding * 2;
 
-        // Position tooltip (avoid edges)
         let tooltipX = x + 15;
         let tooltipY = y - tooltipHeight - 10;
 
@@ -558,16 +549,13 @@ class MempoolVisualizer {
             tooltipY = y + 15;
         }
 
-        // Draw tooltip background
         this.ctx.fillStyle = this.tooltipBgColor;
         this.ctx.fillRect(tooltipX, tooltipY, tooltipWidth, tooltipHeight);
 
-        // Draw tooltip border
         this.ctx.strokeStyle = this.tooltipBorderColor;
         this.ctx.lineWidth = 1;
         this.ctx.strokeRect(tooltipX, tooltipY, tooltipWidth, tooltipHeight);
 
-        // Draw tooltip text
         this.ctx.fillStyle = this.textColor;
         this.ctx.textAlign = 'left';
         this.ctx.textBaseline = 'top';
@@ -576,17 +564,14 @@ class MempoolVisualizer {
         this.ctx.fillText(timeText, tooltipX + padding, tooltipY + padding + lineHeight);
         this.ctx.fillText(btcText, tooltipX + padding, tooltipY + padding + lineHeight * 2);
 
-        // Highlight the point
+        const pointSize = this.getPointSize(transaction);
         this.ctx.strokeStyle = this.tooltipBorderColor;
         this.ctx.lineWidth = 2;
         this.ctx.beginPath();
-        this.ctx.arc(x, y, this.pointRadius + 2, 0, 2 * Math.PI);
+        this.ctx.arc(x, y, pointSize + 2, 0, 2 * Math.PI);
         this.ctx.stroke();
     }
 
-    /**
-     * Cleanup
-     */
     destroy() {
         this.stopRendering();
         this.transactions = [];
@@ -640,7 +625,6 @@ class UTXOracleLive {
         this.uiController.updateConfidence(data.confidence);
         this.uiController.updateStats(data.stats);
 
-        // Update visualization with transaction history (T073-T074)
         if (data.transactions && data.transactions.length > 0) {
             this.visualizer.updateData(data.transactions);
         }
