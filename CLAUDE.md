@@ -97,7 +97,6 @@ LICENSE                             # Blue Oak Model License 1.0.0
 README.md                           # Project overview
 UTXOracle.py                        # Reference implementation v9.1 (IMMUTABLE)
 main.py                             # Live system entry point
-orchestrator.py                     # Pipeline orchestration
 pyproject.toml                      # UV workspace root
 uv.lock                             # Dependency lockfile (commit this!)
 │

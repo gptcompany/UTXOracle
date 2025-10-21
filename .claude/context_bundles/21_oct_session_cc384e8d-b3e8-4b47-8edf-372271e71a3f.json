@@ -121,7 +121,73 @@
       "timestamp": "2025-10-21T11:42:12.885679",
       "file_path": "/media/sam/1TB/UTXOracle/live/backend/orchestrator.py",
       "old_string": "        self.zmq_listener = ZMQListener(endpoint=zmq_endpoint)\n        self.analyzer = MempoolAnalyz..."
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-21T11:42:25.148011",
+      "command": "find /media/sam/1TB/UTXOracle -type d -name \"__pycache__\" -exec rm -rf {} + 2>/dev/null && uv run pytest tests/test_orchestrator_streamer_integration.py::test_orchestrator_uses_same_streamer_as_api -v",
+      "description": "Clear cache and run test"
+    },
+    {
+      "operation": "edit",
+      "timestamp": "2025-10-21T11:42:43.741647",
+      "file_path": "/media/sam/1TB/UTXOracle/tests/test_orchestrator_streamer_integration.py",
+      "old_string": "    # Act: Check if they share the same DataStreamer instance\n    same_instance = orchestrator.strea..."
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-21T11:42:53.996673",
+      "command": "cat /tmp/utxoracle_server.log | tail -20",
+      "description": "Check server log for errors"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-21T11:43:01.949717",
+      "command": "ps aux | grep -E \"(uvicorn|521379)\" | grep -v grep",
+      "description": "Check if server is still running"
+    },
+    {
+      "operation": "write",
+      "timestamp": "2025-10-21T11:43:31.208986",
+      "file_path": "/media/sam/1TB/UTXOracle/test_websocket_fix.py",
+      "content_length": 1823
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-21T11:43:57.692828",
+      "command": "kill -9 521376 521379 2>/dev/null; sleep 2; echo \"Server killed\"",
+      "description": "Force kill server"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-21T11:44:05.375583",
+      "command": "uv run uvicorn live.backend.api:app --host 127.0.0.1 --port 8000 > /tmp/server.log 2>&1 & sleep 3 && echo \"Server started (PID: $!)\" && tail -20 /tmp/server.log",
+      "description": "Start fresh server and check logs"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-21T11:44:19.011765",
+      "command": "uv run python3 /media/sam/1TB/UTXOracle/test_websocket_fix.py",
+      "description": "Test WebSocket again"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-21T11:44:26.090710",
+      "command": "uv run pytest tests/test_orchestrator_streamer_integration.py::test_orchestrator_uses_same_streamer_as_api -v",
+      "description": "Final test verification"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-21T11:44:32.040965",
+      "command": "rm /media/sam/1TB/UTXOracle/test_websocket_fix.py /media/sam/1TB/UTXOracle/orchestrator.py && echo \"Cleanup complete\"",
+      "description": "Clean up temporary files"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-21T11:44:38.128927",
+      "command": "curl -s http://127.0.0.1:8000/health | jq .",
+      "description": "Check server health"
     }
   ],
-  "last_updated": "2025-10-21T11:42:12.885696"
+  "last_updated": "2025-10-21T11:44:38.128941"
 }

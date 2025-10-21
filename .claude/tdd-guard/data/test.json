@@ -6,12 +6,7 @@
         {
           "name": "test_orchestrator_uses_same_streamer_as_api",
           "fullName": "tests/test_orchestrator_streamer_integration.py::test_orchestrator_uses_same_streamer_as_api",
-          "state": "failed",
-          "errors": [
-            {
-              "message": "@pytest.mark.asyncio\n    async def test_orchestrator_uses_same_streamer_as_api():\n        \"\"\"\n        Test that orchestrator broadcasts to the SAME DataStreamer instance\n        that the WebSocket endpoint uses for client registration.\n    \n        Bug reproduction:\n        - api.py creates global streamer instance (line 199)\n        - orchestrator.py creates its own streamer instance (line 59)\n        - WebSocket registers to api.streamer\n        - Orchestrator broadcasts to orchestrator.streamer\n        - Result: \"No active clients\" even though clients are connected\n    \n        Fix:\n        - Orchestrator should import and use api.streamer\n        - OR api.py should get streamer from orchestrator\n        - They MUST share the same instance\n        \"\"\"\n        # Arrange: Clear cached orchestrator to get fresh instance\n        import live.backend.orchestrator as orch_module\n    \n        orch_module._orchestrator = None\n    \n        # Get orchestrator instance\n        orchestrator = get_orchestrator()\n    \n        # Act: Check if they share the same DataStreamer instance\n        same_instance = orchestrator.streamer is api_streamer\n    \n        # Debug: Print the object IDs\n        print(f\"DEBUG: orchestrator.streamer id: {id(orchestrator.streamer)}\")\n        print(f\"DEBUG: api_streamer id: {id(api_streamer)}\")\n        print(f\"DEBUG: same_instance: {same_instance}\")\n    \n        # Assert: MUST be the same object instance\n>       assert same_instance, (\n            \"BUG: Orchestrator creates its own DataStreamer instance instead of \"\n            \"using the global api.streamer instance. This causes WebSocket clients \"\n            \"to register to api.streamer while orchestrator broadcasts to \"\n            \"orchestrator.streamer (different instance), resulting in 'No active clients' \"\n            \"even when clients are connected.\"\n        )\nE       AssertionError: BUG: Orchestrator creates its own DataStreamer instance instead of using the global api.streamer instance. This causes WebSocket clients to register to api.streamer while orchestrator broadcasts to orchestrator.streamer (different instance), resulting in 'No active clients' even when clients are connected.\nE       assert False\n\ntests/test_orchestrator_streamer_integration.py:50: AssertionError"
-            }
-          ]
+          "state": "passed"
         }
       ]
     }

@@ -41,11 +41,6 @@ async def test_orchestrator_uses_same_streamer_as_api():
     # Act: Check if they share the same DataStreamer instance
     same_instance = orchestrator.streamer is api_streamer
 
-    # Debug: Print the object IDs
-    print(f"DEBUG: orchestrator.streamer id: {id(orchestrator.streamer)}")
-    print(f"DEBUG: api_streamer id: {id(api_streamer)}")
-    print(f"DEBUG: same_instance: {same_instance}")
-
     # Assert: MUST be the same object instance
     assert same_instance, (
         "BUG: Orchestrator creates its own DataStreamer instance instead of "
