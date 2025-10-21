@@ -194,6 +194,7 @@ tests/                              # Test suite (pytest)
 ├── test_hook_example.py
 ├── test_mempool_analyzer.py
 ├── test_models.py
+├── test_orchestrator_stats_bug.py
 ├── test_orchestrator_streamer_integration.py
 ├── test_security.py
 ├── test_tx_processor.py

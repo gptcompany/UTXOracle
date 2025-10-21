@@ -203,7 +203,19 @@ class PipelineOrchestrator:
                 if not self._running:
                     break
 
+                # Get state from analyzer
                 state = self.analyzer.get_state()
+
+                # FIX: Augment state with orchestrator's counters
+                # analyzer.get_state() hardcodes total_filtered=0 because analyzer
+                # only sees PRE-FILTERED transactions. Orchestrator tracks ALL received.
+                from dataclasses import replace
+                state = replace(
+                    state,
+                    total_received=self.total_received,
+                    total_filtered=self.total_filtered,
+                )
+
                 await self.streamer.broadcast(state)
 
             except Exception as e:
