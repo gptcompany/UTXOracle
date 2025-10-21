@@ -47,6 +47,14 @@ class PipelineOrchestrator:
         # Mempool analyzer (3h real-time price)
         self.analyzer = MempoolAnalyzer(window_hours=window_hours)
 
+        # T103: Pass initial baseline to analyzer if available
+        initial_baseline = self.baseline_calc.calculate_baseline()
+        if initial_baseline:
+            self.analyzer.set_baseline(initial_baseline)
+            logger.info(
+                f"Initialized analyzer with baseline: ${initial_baseline.price:,.0f}"
+            )
+
         # FIX: Use global streamer instance from api.py
         from live.backend.api import streamer
 
@@ -210,6 +218,7 @@ class PipelineOrchestrator:
                 # analyzer.get_state() hardcodes total_filtered=0 because analyzer
                 # only sees PRE-FILTERED transactions. Orchestrator tracks ALL received.
                 from dataclasses import replace
+
                 state = replace(
                     state,
                     total_received=self.total_received,
