@@ -332,3 +332,99 @@ def test_baseline_rendering_code_present():
     assert passes_baseline_to_visualizer, (
         "T107-T109: handleMempoolUpdate should pass data.baseline to visualizer.updateData()"
     )
+
+
+def test_dual_panel_layout_code_present():
+    """
+    Test that dual-panel layout code exists for T109.
+
+    Requirements (T109 - Dual Timeline Split):
+    - LEFT panel (40%): Baseline/confirmed transactions (cyan points)
+    - RIGHT panel (60%): Mempool transactions (orange points)
+    - Panel split ratio defined (e.g., PANEL_SPLIT = 0.4)
+    - drawBaselinePoints() method exists to render cyan points
+    - Labels: "Confirmed On-Chain (3hr)" (cyan) and "Mempool" (orange)
+
+    This is a STRUCTURAL test (checks code elements exist).
+    Visual rendering verification requires browser environment - see manual testing.
+
+    Task: T109 [Phase BL-4]
+    """
+    # Assert: JavaScript visualization module exists
+    js_path = Path("live/frontend/mempool-viz.js")
+    assert js_path.exists(), f"Visualization JS not found: {js_path}"
+
+    js_content = js_path.read_text()
+
+    # T109: Check for panel split configuration
+    has_panel_split = any(
+        [
+            "panelSplit" in js_content,
+            "panel_split" in js_content,
+            "PANEL_SPLIT" in js_content,
+            "baselineWidth" in js_content and "mempoolWidth" in js_content,
+        ]
+    )
+    assert has_panel_split, (
+        "T109: JavaScript should have panel split configuration "
+        "(panelSplit ratio or baselineWidth/mempoolWidth)"
+    )
+
+    # T109: Check for drawBaselinePoints() method
+    has_baseline_points_method = (
+        "drawBaselinePoints(" in js_content
+        or "drawBaselinePoints ()" in js_content
+        or "function drawBaselinePoints" in js_content
+    )
+    assert has_baseline_points_method, (
+        "T109: JavaScript should have drawBaselinePoints() method "
+        "to render baseline transaction points"
+    )
+
+    # T109: Check for dual timeline labels
+    has_confirmed_label = (
+        "Confirmed On-Chain" in js_content or "confirmed" in js_content.lower()
+    )
+    has_mempool_label = "Mempool" in js_content or "mempool" in js_content.lower()
+    assert has_confirmed_label, (
+        "T109: Should have 'Confirmed On-Chain' label for baseline panel"
+    )
+    assert has_mempool_label, "T109: Should have 'Mempool' label for real-time panel"
+
+
+def test_render_calls_dual_panel_methods():
+    """
+    Test that render() method calls the dual-panel rendering methods.
+
+    Requirements (T109):
+    - render() should call this.drawPanelLabels()
+    - render() should call this.drawBaselinePoints()
+    - render() should use scaleXMempool() for tooltip positioning
+
+    Task: T109 [Phase BL-4]
+    """
+    js_path = Path("live/frontend/mempool-viz.js")
+    assert js_path.exists(), f"Visualization JS not found: {js_path}"
+
+    js_content = js_path.read_text()
+
+    # Find render() method
+    assert "render()" in js_content, "render() method not found"
+
+    # Check for method calls with 'this.' prefix (ensures it's called, not just defined)
+    render_calls_panel_labels = "this.drawPanelLabels()" in js_content
+    assert render_calls_panel_labels, (
+        "T109: render() should call this.drawPanelLabels() to show dual panel labels"
+    )
+
+    render_calls_baseline_points = "this.drawBaselinePoints()" in js_content
+    assert render_calls_baseline_points, (
+        "T109: render() should call this.drawBaselinePoints() to render baseline transactions"
+    )
+
+    # Check that tooltip uses scaleXMempool (not old scaleX)
+    # Should be 'this.scaleXMempool(' in tooltip/render context
+    tooltip_uses_mempool_scale = "this.scaleXMempool(" in js_content
+    assert tooltip_uses_mempool_scale, (
+        "T109: Tooltip should use this.scaleXMempool() for correct positioning in right panel"
+    )

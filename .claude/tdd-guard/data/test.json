@@ -1,0 +1,39 @@
+{
+  "testModules": [
+    {
+      "moduleId": "tests/integration/test_frontend.py",
+      "tests": [
+        {
+          "name": "test_stats_panel_rendering",
+          "fullName": "tests/integration/test_frontend.py::test_stats_panel_rendering",
+          "state": "passed"
+        },
+        {
+          "name": "test_scatter_plot_renders_transactions",
+          "fullName": "tests/integration/test_frontend.py::test_scatter_plot_renders_transactions",
+          "state": "passed"
+        },
+        {
+          "name": "test_confidence_warning_display",
+          "fullName": "tests/integration/test_frontend.py::test_confidence_warning_display",
+          "state": "passed"
+        },
+        {
+          "name": "test_baseline_rendering_code_present",
+          "fullName": "tests/integration/test_frontend.py::test_baseline_rendering_code_present",
+          "state": "passed"
+        },
+        {
+          "name": "test_dual_panel_layout_code_present",
+          "fullName": "tests/integration/test_frontend.py::test_dual_panel_layout_code_present",
+          "state": "passed"
+        },
+        {
+          "name": "test_render_calls_dual_panel_methods",
+          "fullName": "tests/integration/test_frontend.py::test_render_calls_dual_panel_methods",
+          "state": "passed"
+        }
+      ]
+    }
+  ]
+}

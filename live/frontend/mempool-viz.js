@@ -265,11 +265,16 @@ class MempoolVisualizer {
 
         this.marginLeft = 80;
         this.marginRight = 20;
-        this.marginTop = 20;
+        this.marginTop = 40;  // Increased for dual panel labels
         this.marginBottom = 60;
 
         this.plotWidth = this.width - this.marginLeft - this.marginRight;
         this.plotHeight = this.height - this.marginTop - this.marginBottom;
+
+        // T109: Dual panel split (LEFT=baseline 40%, RIGHT=mempool 60%)
+        this.panelSplitRatio = 0.4;
+        this.baselineWidth = this.plotWidth * this.panelSplitRatio;
+        this.mempoolWidth = this.plotWidth * (1 - this.panelSplitRatio);
 
         this.transactions = [];
         this.priceMin = 0;
@@ -393,16 +398,21 @@ class MempoolVisualizer {
     render() {
         this.clear();
         this.drawAxes();
+        this.drawPanelLabels();  // T109: Add panel labels
 
         // T108: Draw baseline price line BEFORE points (so points render on top)
         if (this.baseline) {
             this.drawBaselineLine();
         }
 
+        // T109: Draw baseline points on left panel
+        this.drawBaselinePoints();
+
+        // Draw mempool points on right panel
         this.drawPoints();
 
         if (this.hoveredTransaction) {
-            const x = this.scaleX(this.hoveredTransaction.timestamp);
+            const x = this.scaleXMempool(this.hoveredTransaction.timestamp);
             const y = this.scaleY(this.hoveredTransaction.price);
             this.showTooltip(x, y, this.hoveredTransaction);
         }
@@ -506,7 +516,7 @@ class MempoolVisualizer {
         }
 
         for (const tx of this.transactions) {
-            const x = this.scaleX(tx.timestamp);
+            const x = this.scaleXMempool(tx.timestamp);
             const y = this.scaleY(tx.price);
 
             if (x >= this.marginLeft && x <= this.marginLeft + this.plotWidth &&
@@ -526,6 +536,82 @@ class MempoolVisualizer {
                 this.ctx.fill();
             }
         }
+    }
+
+    // T109: Draw baseline points (cyan) on left panel
+    drawBaselinePoints() {
+        if (!this.baseline || !this.baseline.price) {
+            return;
+        }
+
+        // For MVP: render baseline as horizontal band of points
+        // TODO: Once backend sends baseline.transactions[], render actual tx points
+
+        const baselineY = this.scaleY(this.baseline.price);
+        const priceRange = this.baseline.price_max - this.baseline.price_min;
+
+        // Generate synthetic points along the baseline panel width
+        const numPoints = 50;
+        const baselineStartX = this.marginLeft;
+        const baselineEndX = this.marginLeft + this.baselineWidth;
+
+        for (let i = 0; i < numPoints; i++) {
+            const x = baselineStartX + (i / numPoints) * this.baselineWidth;
+
+            // Add vertical spread based on price range (visualize confidence band)
+            const verticalSpread = ((this.baseline.price_max - this.baseline.price_min) / (this.priceMax - this.priceMin)) * this.plotHeight;
+            const yOffset = (Math.random() - 0.5) * verticalSpread;
+            const y = baselineY + yOffset;
+
+            // Cyan with slight opacity
+            this.ctx.fillStyle = 'rgba(0, 255, 255, 0.7)';
+            this.ctx.beginPath();
+            this.ctx.arc(x, y, 2, 0, 2 * Math.PI);  // Small points
+            this.ctx.fill();
+        }
+    }
+
+    // T109: Scale X for mempool panel (right side)
+    scaleXMempool(timestamp) {
+        const now = Date.now() / 1000;
+        const timeMin = now - this.timeWindowSeconds;
+        const timeMax = now;
+
+        const normalized = (timestamp - timeMin) / (timeMax - timeMin);
+
+        // Map to right panel (mempool side)
+        const mempoolStartX = this.marginLeft + this.baselineWidth;
+        return mempoolStartX + (normalized * this.mempoolWidth);
+    }
+
+    // T109: Draw panel labels (LEFT: confirmed, RIGHT: mempool)
+    drawPanelLabels() {
+        this.ctx.save();
+        this.ctx.font = '14px sans-serif';
+        this.ctx.textBaseline = 'top';
+
+        // LEFT panel label: "Confirmed On-Chain (3hr)" in cyan
+        this.ctx.fillStyle = this.baselineColor;  // #00FFFF (cyan)
+        this.ctx.textAlign = 'left';
+        const leftLabelX = this.marginLeft + 10;
+        const leftLabelY = 10;
+        this.ctx.fillText('Confirmed On-Chain (3hr)', leftLabelX, leftLabelY);
+
+        // RIGHT panel label: "Mempool" in orange
+        this.ctx.fillStyle = this.pointColor;  // #FF8C00 (orange)
+        this.ctx.textAlign = 'right';
+        const rightLabelX = this.marginLeft + this.plotWidth - 10;
+        const rightLabelY = 10;
+        this.ctx.fillText('Mempool', rightLabelX, rightLabelY);
+
+        // RIGHT panel average price (if available)
+        if (this.transactions.length > 0) {
+            const avgPrice = this.transactions.reduce((sum, tx) => sum + tx.price, 0) / this.transactions.length;
+            const avgText = `Avg: $${Math.round(avgPrice).toLocaleString()}`;
+            this.ctx.fillText(avgText, rightLabelX, rightLabelY + 20);
+        }
+
+        this.ctx.restore();
     }
 
     enableTooltips() {
