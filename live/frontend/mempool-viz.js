@@ -310,24 +310,25 @@ class MempoolVisualizer {
             tx.timestamp >= (now - this.timeWindowSeconds)
         );
 
+
         if (this.transactions.length === 0) {
             return;
         }
-
         // T109: Use baseline price range for Y-axis scaling if available
+        // BUGFIX 2025-10-22: Must include BOTH baseline AND mempool transaction prices
+        const prices = this.transactions.map(tx => tx.price);
+        let rawMin = Math.min(...prices);
+        let rawMax = Math.max(...prices);
+        
         if (this.baseline && this.baseline.price_min && this.baseline.price_max) {
-            this.priceMin = this.baseline.price_min;
-            this.priceMax = this.baseline.price_max;
-        } else {
-            // Fallback to transaction-based scaling
-            const prices = this.transactions.map(tx => tx.price);
-            const rawMin = Math.min(...prices);
-            const rawMax = Math.max(...prices);
-            const padding = (rawMax - rawMin) * 0.05;
-
-            this.priceMin = rawMin - padding;
-            this.priceMax = rawMax + padding;
+            // Expand range to include baseline
+            rawMin = Math.min(rawMin, this.baseline.price_min);
+            rawMax = Math.max(rawMax, this.baseline.price_max);
         }
+        
+        const padding = (rawMax - rawMin) * 0.05;
+        this.priceMin = rawMin - padding;
+        this.priceMax = rawMax + padding;
     }
 
     scaleY(price) {
@@ -349,25 +350,11 @@ class MempoolVisualizer {
     }
 
     // T074b: Variable point size based on tx USD value
+    // T074b: Variable point size based on tx USD value
+    // BUGFIX 2025-10-22: TransactionPoint model only has timestamp and price (no btc_amount)
+    // Using constant point size until btc_amount is added to model (see VISUALIZATION_BUG_REPORT.md)
     getPointSize(tx) {
-        if (!this.transactions || this.transactions.length === 0) {
-            return this.pointMinRadius;
-        }
-
-        const values = this.transactions.map(t => t.price * t.btc_amount);
-        const minValue = Math.min(...values);
-        const maxValue = Math.max(...values);
-
-        const txValue = tx.price * tx.btc_amount;
-
-        const normalized = maxValue > minValue
-            ? (txValue - minValue) / (maxValue - minValue)
-            : 0.5;
-
-        // Use sqrt for better visual distribution
-        const sqrtNormalized = Math.sqrt(normalized);
-
-        return this.pointMinRadius + sqrtNormalized * (this.pointMaxRadius - this.pointMinRadius);
+        return 3;  // Constant radius (medium size)
     }
 
     // T074c: Fade-out for old points
@@ -588,7 +575,7 @@ class MempoolVisualizer {
 
         const priceText = `$${transaction.price.toFixed(2)}`;
         const timeText = new Date(transaction.timestamp * 1000).toLocaleTimeString();
-        const btcText = `${transaction.btc_amount.toFixed(8)} BTC`;
+        const btcText = `TX Point`;  // BUGFIX: No btc_amount available
 
         this.ctx.font = '12px monospace';
         const textWidth = Math.max(

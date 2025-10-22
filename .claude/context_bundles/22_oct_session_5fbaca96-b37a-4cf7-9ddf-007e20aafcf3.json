@@ -1,0 +1,141 @@
+{
+  "session_id": "5fbaca96-b37a-4cf7-9ddf-007e20aafcf3",
+  "created_at": "2025-10-22T14:37:51.415140",
+  "operations": [
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-22T14:37:51.415156",
+      "command": "cat /tmp/startup.log | grep -A 3 \"Initial baseline calculated\" | head -10",
+      "description": "Check if baseline shows real price"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-22T14:38:01.615158",
+      "command": "tail -100 /tmp/startup.log | grep -E \"(Baseline calculated|Initial baseline|baseline: \\$|orchestrator - Initialized)\" ",
+      "description": "Check full startup log for baseline price"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-22T14:38:10.435564",
+      "command": "ps aux | grep \"uvicorn.*live.backend.api\" | grep -v grep",
+      "description": "Check if uvicorn is still running"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-22T14:38:39.710924",
+      "command": "sleep 20; tail -50 /tmp/startup.log | grep -E \"(Baseline calculated|Initial baseline|Initialized analyzer)\" | head -10",
+      "description": "Wait for blocks to finish loading and check baseline"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-22T14:38:49.085646",
+      "command": "tail -30 /tmp/startup.log | grep -E \"Initialized analyzer|orchestrator\" | head -5",
+      "description": "Check if orchestrator passed baseline to analyzer"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-22T14:38:58.935681",
+      "command": "grep -n \"Initialized analyzer\" /tmp/startup.log",
+      "description": "Search for analyzer initialization message"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-22T14:40:16.716334",
+      "command": "tail -200 /tmp/startup.log | grep -E \"Initialized analyzer|Orchestrator created|Pipeline orchestrator started\"",
+      "description": "Look for orchestrator messages"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-22T14:40:26.892933",
+      "command": "tail -20 /tmp/startup.log",
+      "description": "Check last lines of startup log"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-22T14:40:40.557706",
+      "command": "sleep 5; tail -30 /tmp/startup.log | grep -v \"^DEBUG\"",
+      "description": "Wait and check for INFO level logs"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-22T14:42:03.379794",
+      "command": "nohup uv run uvicorn live.backend.api:app --host 0.0.0.0 --port 8000 > /tmp/utxoracle.log 2>&1 &\necho $! > /tmp/utxoracle.pid\nsleep 3\necho \"Backend avviato, PID: $(cat /tmp/utxoracle.pid)\"",
+      "description": "Start backend in background"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-22T14:42:17.368022",
+      "command": "sleep 5; curl -s http://localhost:8000/health 2>&1 | head -20",
+      "description": "Test health endpoint"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-22T14:42:26.775750",
+      "command": "tail -10 /tmp/utxoracle.log | grep -E \"(Application startup complete|Initial baseline calculated|Initialized analyzer)\"",
+      "description": "Check if startup is complete"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-22T14:43:05.378828",
+      "command": "sleep 30; tail -50 /tmp/utxoracle.log | grep -E \"(Application startup complete|Initial baseline|Initialized analyzer|startup complete)\"",
+      "description": "Wait for startup to complete"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-22T14:43:18.421698",
+      "command": "curl -s http://localhost:8000/health | python -m json.tool 2>/dev/null || echo \"Health check response received\"",
+      "description": "Test health endpoint response"
+    },
+    {
+      "operation": "grep",
+      "timestamp": "2025-10-22T14:43:35.475281",
+      "pattern": "def estimate_price",
+      "path": "live/backend/mempool_analyzer.py",
+      "output_mode": "content"
+    },
+    {
+      "operation": "grep",
+      "timestamp": "2025-10-22T14:43:46.357515",
+      "pattern": "last_price_estimate.*=",
+      "path": "live/backend/mempool_analyzer.py",
+      "output_mode": "content"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-22T14:45:07.522074",
+      "command": "python3 << 'EOF'\nimport re\n\nwith open('live/backend/mempool_analyzer.py', 'r') as f:\n    content = f.read()\n\n# Fix set_baseline to initialize last_price_estimate\nold_pattern = r'(def set_baseline\\(self, baseline: BaselineResult\\) -> None:\\s+\"\"\"Set baseline price reference from on-chain data \\(T103\\)\"\"\"\\s+self\\.baseline = baseline)'\nnew_code = r'\\1\\n        if baseline and baseline.price > 0:\\n            self.last_price_estimate = baseline.price'\n\ncontent = re.sub(old_pattern, new_code, content)\n\nwith open('live/backend/mempool_analyzer.py', 'w') as f:\n    f.write(content)\n\nprint(\"✅ Fixed set_baseline method\")\nEOF\n",
+      "description": "Fix set_baseline with Python"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-22T14:45:20.301221",
+      "command": "kill $(cat /tmp/utxoracle.pid) 2>/dev/null; sleep 2; nohup uv run uvicorn live.backend.api:app --host 0.0.0.0 --port 8000 > /tmp/utxoracle.log 2>&1 & echo $! > /tmp/utxoracle.pid && echo \"✅ Server riavviato, PID: $(cat /tmp/utxoracle.pid)\"",
+      "description": "Restart backend server"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-22T14:45:26.324631",
+      "command": "kill $(cat /tmp/utxoracle.pid 2>/dev/null) 2>/dev/null; sleep 2; nohup uv run uvicorn live.backend.api:app --host 0.0.0.0 --port 8000 > /tmp/utxoracle.log 2>&1 & echo $! > /tmp/utxoracle.pid && echo \"✅ Backend riavviato, PID: $(cat /tmp/utxoracle.pid)\"",
+      "description": "Restart backend with fix"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-22T14:46:21.400593",
+      "command": "sleep 50; tail -80 /tmp/utxoracle.log | grep -E \"(Initial baseline|Initialized analyzer|Application startup|Broadcasting.*price)\" | tail -10",
+      "description": "Wait for startup and check baseline price"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-22T14:46:21.835945",
+      "command": "sleep 45; tail -100 /tmp/utxoracle.log | grep -E \"(Initial baseline|Initialized analyzer|Broadcasting.*price)\" | head -20",
+      "description": "Wait for startup and check price broadcasts"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-22T14:46:36.487243",
+      "command": "sleep 5; tail -30 /tmp/utxoracle.log | grep \"Broadcasting\" | tail -5",
+      "description": "Check if broadcasting correct price"
+    }
+  ],
+  "last_updated": "2025-10-22T14:46:36.487264"
+}

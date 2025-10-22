@@ -315,6 +315,8 @@ class MempoolAnalyzer:
     def set_baseline(self, baseline: BaselineResult) -> None:
         """Set baseline price reference from on-chain data (T103)"""
         self.baseline = baseline
+        if baseline and baseline.price > 0:
+            self.last_price_estimate = baseline.price
 
     def get_combined_history(self) -> dict:
         """
