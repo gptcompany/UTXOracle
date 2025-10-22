@@ -483,3 +483,43 @@ def test_baseline_uses_real_transaction_data():
     assert uses_tx_timestamp and uses_tx_price, (
         "drawBaselinePoints() must use tx.timestamp and tx.price from baseline transactions"
     )
+
+
+def test_baseline_scaling_to_left_panel():
+    """
+    Test that baseline points are scaled to left panel (not mempool 5-min window).
+
+    Bug identified: Baseline points use scaleX() which is for 5-minute scrolling window.
+    Baseline transactions are 3+ hours old, so they render off-canvas.
+
+    Requirements:
+    - scaleXBaseline() method must exist
+    - Maps baseline timestamps to LEFT panel (0% to panelSplitRatio)
+    - drawBaselinePoints() must use scaleXBaseline() not scaleX()
+
+    Expected code:
+        scaleXBaseline(timestamp) {
+            // Map to left panel based on min/max in baseline.transactions
+            return this.marginLeft + (normalized * this.baselineWidth);
+        }
+
+        drawBaselinePoints() {
+            const x = this.scaleXBaseline(tx.timestamp);  // Not scaleX()
+        }
+
+    Task: T107-T109 scaling bugfix
+    """
+    js_path = Path("live/frontend/mempool-viz.js")
+    js_content = js_path.read_text()
+
+    # Check scaleXBaseline() method exists
+    has_scale_baseline = "scaleXBaseline(" in js_content
+    assert has_scale_baseline, (
+        "scaleXBaseline() method must exist to map baseline timestamps to left panel"
+    )
+
+    # Check drawBaselinePoints() uses scaleXBaseline (not scaleX)
+    uses_baseline_scaling = "this.scaleXBaseline(tx.timestamp)" in js_content
+    assert uses_baseline_scaling, (
+        "drawBaselinePoints() must use scaleXBaseline(tx.timestamp) to map points to left panel"
+    )

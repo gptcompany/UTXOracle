@@ -4,8 +4,8 @@
       "moduleId": "tests/integration/test_frontend.py",
       "tests": [
         {
-          "name": "test_baseline_uses_real_transaction_data",
-          "fullName": "tests/integration/test_frontend.py::test_baseline_uses_real_transaction_data",
+          "name": "test_baseline_scaling_to_left_panel",
+          "fullName": "tests/integration/test_frontend.py::test_baseline_scaling_to_left_panel",
           "state": "passed"
         }
       ]

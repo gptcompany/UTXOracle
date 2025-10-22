@@ -547,7 +547,7 @@ class MempoolVisualizer {
         // BUGFIX 2025-10-22: Backend now sends baseline.transactions (10k points)
         if (this.baseline.transactions && this.baseline.transactions.length > 0) {
             for (const tx of this.baseline.transactions) {
-                const x = this.scaleX(tx.timestamp);
+                const x = this.scaleXBaseline(tx.timestamp);
                 const y = this.scaleY(tx.price);
 
                 // Cyan point
@@ -574,6 +574,27 @@ class MempoolVisualizer {
                 this.ctx.fill();
             }
         }
+    }
+
+    // T109: Scale X for baseline panel (left side)
+    scaleXBaseline(timestamp) {
+        if (!this.baseline || !this.baseline.transactions || this.baseline.transactions.length === 0) {
+            return this.marginLeft;
+        }
+
+        // Find min/max timestamps in baseline transactions
+        const timestamps = this.baseline.transactions.map(tx => tx.timestamp);
+        const minTime = Math.min(...timestamps);
+        const maxTime = Math.max(...timestamps);
+
+        // Avoid division by zero
+        if (maxTime === minTime) {
+            return this.marginLeft + this.baselineWidth / 2;
+        }
+
+        // Map to left panel (0 to baselineWidth)
+        const normalized = (timestamp - minTime) / (maxTime - minTime);
+        return this.marginLeft + (normalized * this.baselineWidth);
     }
 
     // T109: Scale X for mempool panel (right side)
