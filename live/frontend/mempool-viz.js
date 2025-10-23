@@ -417,35 +417,31 @@ class MempoolVisualizer {
         return Math.max(this.pointMinRadius, Math.min(this.pointMaxRadius, size));
     }
 
-    // BUGFIX 2025-10-23: Spatial fade-out (left to right) instead of temporal
-    // Older points (left) fade to 30% opacity, newer points (right) stay at 100%
+    // Temporal absolute fade-out based on fixed 10-minute window
+    // Consistent with scaleX() absolute timeline positioning
+    // Oldest 40% of window (0-4min old): fade from 0.3 to 1.0
+    // Newest 60% of window (4-10min old): full opacity 1.0
     getPointOpacity(timestamp) {
-        if (this.transactions.length === 0) {
+        const now = Date.now() / 1000;
+        const age = now - timestamp; // Age in seconds
+
+        // Full window is timeWindowSeconds (600s = 10min)
+        // Fade the oldest 40% (0-240s) from 0.3 to 1.0
+        const fadeEndAge = this.timeWindowSeconds * 0.4; // 240s = 4min
+
+        if (age <= fadeEndAge) {
+            // Newest 60% (0-4min old): full opacity
             return 1.0;
         }
 
-        // Find min/max timestamps in current window
-        const timestamps = this.transactions.map(tx => tx.timestamp);
-        const minTimestamp = Math.min(...timestamps);
-        const maxTimestamp = Math.max(...timestamps);
-
-        if (maxTimestamp === minTimestamp) {
-            return 1.0; // All same timestamp
+        if (age >= this.timeWindowSeconds) {
+            // Beyond window (should be filtered): minimum opacity
+            return 0.3;
         }
 
-        // Calculate position in time range [0=oldest/left, 1=newest/right]
-        const normalizedPosition = (timestamp - minTimestamp) / (maxTimestamp - minTimestamp);
-
-        // Fade out left 40% of timeline from 0.3 to 1.0
-        const fadeEndPosition = 0.4;
-
-        if (normalizedPosition >= fadeEndPosition) {
-            return 1.0; // Right 60%: full opacity
-        }
-
-        // Left 40%: linear fade from 0.3 (leftmost) to 1.0 (40% mark)
-        const fadeProgress = normalizedPosition / fadeEndPosition;
-        return 0.3 + (fadeProgress * 0.7);
+        // Oldest 40% (4-10min old): linear fade from 1.0 to 0.3
+        const fadeProgress = (age - fadeEndAge) / (this.timeWindowSeconds - fadeEndAge);
+        return 1.0 - (fadeProgress * 0.7); // 1.0 -> 0.3
     }
 
     startRendering() {

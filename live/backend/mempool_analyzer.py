@@ -48,8 +48,8 @@ class MempoolAnalyzer:
 
         # Transaction history for visualization (T067 - User Story 2)
         # Stores (timestamp, price) tuples for Canvas scatter plot
-        # Limited to 500 points for Canvas performance
-        self.transaction_history: deque = deque(maxlen=500)
+        # Limited to 1200 points for 10-minute rolling window (2 tx/sec avg)
+        self.transaction_history: deque = deque(maxlen=1200)
 
         # Stencils (Step 8)
         self.smooth_stencil = self._build_smooth_stencil()
