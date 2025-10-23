@@ -1,35 +1,5 @@
 [
   {
-    "timestamp": "2025-10-22T15:48:31.585372",
-    "tool_name": "Read",
-    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
-    "success": true
-  },
-  {
-    "timestamp": "2025-10-22T15:48:48.911676",
-    "tool_name": "Read",
-    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
-    "success": true
-  },
-  {
-    "timestamp": "2025-10-22T15:49:55.641164",
-    "tool_name": "Write",
-    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
-    "success": true
-  },
-  {
-    "timestamp": "2025-10-22T15:50:01.864731",
-    "tool_name": "Read",
-    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
-    "success": true
-  },
-  {
-    "timestamp": "2025-10-22T15:50:03.198216",
-    "tool_name": "Grep",
-    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
-    "success": true
-  },
-  {
     "timestamp": "2025-10-22T15:50:10.617083",
     "tool_name": "Grep",
     "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
@@ -589,6 +559,42 @@
   },
   {
     "timestamp": "2025-10-22T16:31:19.541419",
+    "tool_name": "Write",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:31:34.820511",
+    "tool_name": "Task",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:31:50.738416",
+    "tool_name": "TodoWrite",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-23T11:09:08.101894",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-23T11:09:24.388743",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-23T11:09:36.906817",
+    "tool_name": "Bash",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-23T11:10:39.372152",
     "tool_name": "Write",
     "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
     "success": true

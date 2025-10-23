@@ -160,6 +160,7 @@ docs/                               # Documentation
 ├── T103_SECURITY_AUDIT_REPORT.md
 ├── VISUALIZATION_FIX_PLAN.md
 ├── VISUALIZATION_GAP_ANALYSIS.md
+├── VISUALIZATION_ISSUES_PLAN.md
 ├── VISUAL_COMPARISON_SUMMARY.md
 ├── algorithm_concepts.md
 ├── mcp-builder-agent.md

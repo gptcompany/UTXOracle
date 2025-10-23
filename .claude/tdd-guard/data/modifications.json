@@ -1,11 +1,11 @@
 {
-  "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
-  "transcript_path": "/home/sam/.claude/projects/-media-sam-1TB-UTXOracle/96e3c61f-3002-427b-becf-0e60192b0317.jsonl",
+  "session_id": "9efdd3da-0fda-4f58-9d9b-08ddbf739aff",
+  "transcript_path": "/home/sam/.claude/projects/-media-sam-1TB-UTXOracle/9efdd3da-0fda-4f58-9d9b-08ddbf739aff.jsonl",
   "hook_event_name": "PreToolUse",
   "tool_name": "Edit",
   "tool_input": {
     "file_path": "/media/sam/1TB/UTXOracle/live/frontend/mempool-viz.js",
-    "old_string": "        // BUGFIX 2025-10-22: Backend now sends baseline.transactions (10k points)\n        if (this.baseline.transactions && this.baseline.transactions.length > 0) {\n            for (const tx of this.baseline.transactions) {\n                const x = this.scaleX(tx.timestamp);\n                const y = this.scaleY(tx.price);",
-    "new_string": "        // BUGFIX 2025-10-22: Backend now sends baseline.transactions (10k points)\n        if (this.baseline.transactions && this.baseline.transactions.length > 0) {\n            for (const tx of this.baseline.transactions) {\n                const x = this.scaleXBaseline(tx.timestamp);\n                const y = this.scaleY(tx.price);"
+    "old_string": "    updateData(transactions, baseline = null) {\n        // T107-T109: Store baseline data if provided\n        if (baseline) {\n            this.baseline = baseline;\n        }\n\n        if (!transactions || transactions.length === 0) {\n            return;\n        }",
+    "new_string": "    updateData(transactions, baseline = null) {\n        // T107-T109: Store baseline data if provided\n        if (baseline) {\n            this.baseline = baseline;\n\n            // BUGFIX 2025-10-23: Cache min/max timestamps for baseline scaling (Fix #1)\n            // Prevents recalculation on every render (was causing jitter + 9M array ops/sec)\n            if (baseline.transactions && baseline.transactions.length > 0) {\n                const timestamps = baseline.transactions.map(tx => tx.timestamp);\n                this.baselineTimeMin = Math.min(...timestamps);\n                this.baselineTimeMax = Math.max(...timestamps);\n            }\n        }\n\n        if (!transactions || transactions.length === 0) {\n            return;\n        }"
   }
 }

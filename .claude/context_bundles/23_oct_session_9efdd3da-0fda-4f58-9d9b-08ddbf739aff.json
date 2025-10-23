@@ -1,0 +1,61 @@
+{
+  "session_id": "9efdd3da-0fda-4f58-9d9b-08ddbf739aff",
+  "created_at": "2025-10-23T11:32:49.410184",
+  "operations": [
+    {
+      "operation": "read",
+      "timestamp": "2025-10-23T11:32:49.410202",
+      "file_path": "/media/sam/1TB/UTXOracle/docs/VISUALIZATION_ISSUES_PLAN.md"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-23T11:32:49.447937",
+      "file_path": "/media/sam/1TB/UTXOracle/live/backend/mempool_analyzer.py"
+    },
+    {
+      "operation": "glob",
+      "timestamp": "2025-10-23T11:32:55.993665",
+      "pattern": "**/render.js",
+      "path": "/media/sam/1TB/UTXOracle/live/frontend"
+    },
+    {
+      "operation": "glob",
+      "timestamp": "2025-10-23T11:32:56.029443",
+      "pattern": "**/*.js",
+      "path": "/media/sam/1TB/UTXOracle/live/frontend"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-23T11:33:00.322218",
+      "file_path": "/media/sam/1TB/UTXOracle/live/frontend/mempool-viz.js"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-23T11:33:04.054915",
+      "file_path": "/media/sam/1TB/UTXOracle/live/frontend/mempool-viz.js"
+    },
+    {
+      "operation": "glob",
+      "timestamp": "2025-10-23T11:33:33.618838",
+      "pattern": "**/test_*frontend*.py",
+      "path": "/media/sam/1TB/UTXOracle/tests"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T11:33:33.773873",
+      "command": "ls -la /media/sam/1TB/UTXOracle/tests/integration/ 2>/dev/null | head -20",
+      "description": "List integration test files"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-23T11:33:41.818209",
+      "file_path": "/media/sam/1TB/UTXOracle/live/frontend/mempool-viz.js"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-23T11:33:46.870464",
+      "file_path": "/media/sam/1TB/UTXOracle/live/frontend/mempool-viz.js"
+    }
+  ],
+  "last_updated": "2025-10-23T11:33:46.870478"
+}
