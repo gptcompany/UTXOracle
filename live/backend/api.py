@@ -168,6 +168,19 @@ class DataStreamer:
 
         self.last_broadcast_time = current_time
 
+    async def send_to_client(self, websocket: WebSocket, state: MempoolState) -> None:
+        """Send initial state to a single client (includes full transaction history)"""
+        try:
+            message = self._create_websocket_message(state)
+            message_json = message.model_dump_json()
+            await websocket.send_text(message_json)
+            logger.info(
+                f"Sent initial sync to client: price=${state.price:,.0f}, txs={state.active_tx_count}"
+            )
+        except Exception as e:
+            logger.error(f"Failed to send initial sync to client: {e}")
+            raise
+
     def _create_websocket_message(self, state: MempoolState) -> WebSocketMessage:
         """Convert MempoolState to WebSocketMessage (T068: includes transaction history, T106: includes baseline)"""
         transactions = []
@@ -294,6 +307,12 @@ async def websocket_endpoint(websocket: WebSocket):
     logger.info(
         f"Client {client_host} registered. Active clients: {len(streamer.active_clients)}"
     )
+
+    # Send initial sync with full history
+    if hasattr(app.state, "orchestrator") and app.state.orchestrator.analyzer:
+        initial_state = app.state.orchestrator.analyzer.get_state()
+        await streamer.send_to_client(websocket, initial_state)
+        logger.info(f"Sent initial sync to {client_host}")
 
     try:
         while True:
