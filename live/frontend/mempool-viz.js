@@ -728,7 +728,20 @@ class MempoolVisualizer {
 
         const priceText = `$${transaction.price.toFixed(2)}`;
         const timeText = new Date(transaction.timestamp * 1000).toLocaleTimeString();
-        const btcText = `TX Point`;  // BUGFIX: No btc_amount available
+
+        // BUGFIX 2025-10-23: Show btc_amount in user-friendly format
+        // If >= 0.01 BTC: show BTC, else show sats for readability
+        let btcText;
+        if (transaction.btc_amount !== undefined && transaction.btc_amount !== null) {
+            if (transaction.btc_amount >= 0.01) {
+                btcText = `${transaction.btc_amount.toFixed(8)} BTC`;
+            } else {
+                const sats = Math.round(transaction.btc_amount * 1e8);
+                btcText = `${sats.toLocaleString()} sats`;
+            }
+        } else {
+            btcText = `TX Point`;  // Fallback if btc_amount is missing
+        }
 
         this.ctx.font = '12px monospace';
         const textWidth = Math.max(
