@@ -535,7 +535,7 @@ class BaselineCalculator:
         logger.info("Generating intraday price points (Step 10)...")
         intraday_points = self._generate_intraday_points(all_transactions, rough_price)
         logger.info(
-            f"Generated {len(intraday_points)} intraday points for visualization"
+            f"Step 10: Generated {len(intraday_points)} intraday points from {len(all_transactions)} transactions"
         )
 
         # Sample transactions for frontend visualization (max 10k for performance)
@@ -545,7 +545,18 @@ class BaselineCalculator:
 
             sampled_transactions = random.sample(all_transactions, 10000)
             logger.info(
-                f"Sampled {len(sampled_transactions)} transactions for visualization"
+                f"Sampled {len(sampled_transactions)} raw transactions for fallback"
+            )
+
+        # BUGFIX 2025-10-23: Sample intraday_points to 10k for WebSocket performance
+        # Without sampling, 186k points cause "Maximum call stack size exceeded" in browser
+        sampled_intraday_points = intraday_points
+        if len(intraday_points) > 10000:
+            import random
+
+            sampled_intraday_points = random.sample(intraday_points, 10000)
+            logger.info(
+                f"Sampled {len(sampled_intraday_points)} intraday points for WebSocket (from {len(intraday_points)})"
             )
 
         return BaselineResult(
@@ -557,7 +568,7 @@ class BaselineCalculator:
             block_height=self.last_block_height,
             num_transactions=len(all_transactions),
             transactions=sampled_transactions,
-            intraday_points=intraday_points,
+            intraday_points=sampled_intraday_points,  # FIXED: Use sampled points
         )
 
     def get_state(self) -> dict:

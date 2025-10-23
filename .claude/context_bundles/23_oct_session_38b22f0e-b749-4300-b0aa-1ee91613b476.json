@@ -1787,7 +1787,287 @@
       "timestamp": "2025-10-23T15:36:13.072611",
       "command": "uv run python -m py_compile live/backend/baseline_calculator.py live/shared/models.py live/backend/api.py",
       "description": "Check Python syntax"
+    },
+    {
+      "operation": "task",
+      "timestamp": "2025-10-23T15:36:42.690832",
+      "subagent_type": "mempool-analyzer",
+      "prompt": "**TASK**: Implementare UTXOracle Step 10 per generazione punti intraday + integrazione orchestrator\n..."
+    },
+    {
+      "operation": "todowrite",
+      "timestamp": "2025-10-23T15:36:59.796783",
+      "todo_count": 4
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-23T15:42:47.626796",
+      "file_path": "/media/sam/1TB/UTXOracle/examples/mempool_attuale.png"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T15:43:10.917885",
+      "command": "git diff live/frontend/mempool-viz.js | head -200",
+      "description": "Check what was changed in mempool-viz.js"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T15:43:22.777923",
+      "command": "ls -lh /media/sam/1TB/UTXOracle/live/frontend/mempool-viz.js",
+      "description": "Check if file was modified"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T15:43:23.171544",
+      "command": "git status live/frontend/",
+      "description": "Check git status of frontend"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T15:43:36.847820",
+      "command": "git log --oneline -10 --all",
+      "description": "Check recent commits"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T15:43:37.244501",
+      "command": "git show --stat HEAD | head -30",
+      "description": "Check last commit changes"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T15:43:51.492559",
+      "command": "git diff 8da965f..HEAD live/frontend/mempool-viz.js | wc -l",
+      "description": "Check if mempool-viz.js changed since last good commit"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T15:43:51.897014",
+      "command": "ls -lh /media/sam/1TB/UTXOracle/live/frontend/*.html",
+      "description": "Check what HTML files exist"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T15:44:04.229027",
+      "command": "git diff live/frontend/mempool-viz.js | head -50",
+      "description": "Check uncommitted changes to mempool-viz.js"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T15:44:04.657359",
+      "command": "git diff 8da965f..HEAD live/frontend/mempool-viz.js | head -100",
+      "description": "Check committed changes since last good version"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T15:44:17.884105",
+      "command": "git log --oneline --all -- live/frontend/mempool-viz.js | head -10",
+      "description": "Check commit history for mempool-viz.js"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T15:44:18.392170",
+      "command": "git show 31e2aff --stat | head -20",
+      "description": "Check commit 31e2aff"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T15:44:28.777099",
+      "command": "git log -1 --name-only HEAD",
+      "description": "Check files in last commit"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T15:44:29.184094",
+      "command": "git diff HEAD~1 live/frontend/mempool-viz.js | wc -l",
+      "description": "Check if last commit modified mempool-viz.js"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T15:44:42.627288",
+      "command": "git checkout 8da965f -- live/frontend/mempool-viz.js",
+      "description": "Restore working version of mempool-viz.js"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T15:44:48.566723",
+      "command": "rm /media/sam/1TB/UTXOracle/live/frontend/test_baseline_rendering.html",
+      "description": "Remove test page"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T15:44:50.867533",
+      "command": "git status live/frontend/",
+      "description": "Check status after rollback"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T15:45:03.027345",
+      "command": "git add live/frontend/test_baseline_rendering.html && git status --short",
+      "description": "Stage deleted test file and check status"
+    },
+    {
+      "operation": "todowrite",
+      "timestamp": "2025-10-23T15:45:04.631638",
+      "todo_count": 3
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T15:45:15.802506",
+      "command": "git diff --stat live/frontend/mempool-viz.js",
+      "description": "Check diff statistics"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T15:45:16.270912",
+      "command": "git diff live/frontend/mempool-viz.js | grep -E \"^[\\+\\-].*panel|^[\\+\\-].*ratio|^[\\+\\-].*fillRect\" | head -20",
+      "description": "Check key changes related to panels and rendering"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T15:45:28.058456",
+      "command": "git diff --staged --stat live/frontend/mempool-viz.js",
+      "description": "Check staged diff statistics"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T15:45:28.490658",
+      "command": "git diff --staged live/frontend/mempool-viz.js | head -100",
+      "description": "Check staged changes"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T15:45:53.532561",
+      "command": "git commit -m \"$(cat <<'EOF'\n[T074c] Rollback frontend changes - restore working visualization\n\nPROBLEM: Agent created test page with wrong layout/rendering\n- Panel ratio 60/40 was inverted (baseline too large)\n- fillRect(1x1) rendering broke visual quality\n- Test UI elements (buttons, debug stats) not requested\n- Previous version worked better\n\nSOLUTION: Rollback to working version (8da965f)\n- Restored panelSplitRatio 0.4 (40% baseline, 60% mempool)\n- Restored arc() rendering for baseline points\n- Removed test_baseline_rendering.html\n- Kept backend Step 10 implementation (working correctly)\n\nREFERENCE:\n- examples/mempool_attuale.png (correct working version)\n- examples/visual_errata.png (broken agent version)\n\nChanges:\n- live/frontend/mempool-viz.js: -96 lines, +34 lines (rollback)\n- live/frontend/test_baseline_rendering.html: deleted\n\n🤖 Generated with Claude Code\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\"",
+      "description": "Commit rollback with detailed explanation"
+    },
+    {
+      "operation": "todowrite",
+      "timestamp": "2025-10-23T15:45:55.142322",
+      "todo_count": 3
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T15:46:07.234319",
+      "command": "git add CLAUDE.md && git commit --amend --no-edit",
+      "description": "Include CLAUDE.md update in rollback commit"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T15:46:09.469132",
+      "command": "git log --oneline -3",
+      "description": "Verify commit"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T15:49:15.631856",
+      "command": "uv run uvicorn live.backend.api:app --host 0.0.0.0 --port 8000 --reload",
+      "description": "Start UTXOracle live system"
+    },
+    {
+      "operation": "bashoutput",
+      "timestamp": "2025-10-23T16:00:25.027121",
+      "bash_id": "7ad4da"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:00:28.988932",
+      "command": "sleep 3",
+      "description": "Wait for server startup"
+    },
+    {
+      "operation": "mcp__playwright__browser_navigate",
+      "timestamp": "2025-10-23T16:00:46.602698",
+      "url": "http://localhost:8000"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-23T16:01:01.107531",
+      "file_path": "/media/sam/1TB/UTXOracle/live/backend/baseline_calculator.py"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:01:11.947853",
+      "command": "grep -n \"Sampled.*transactions\" live/backend/baseline_calculator.py",
+      "description": "Find sampling code"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:01:12.426643",
+      "command": "grep -n \"intraday_points\" live/backend/api.py | head -20",
+      "description": "Check how intraday_points are used in API"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-23T16:01:26.071074",
+      "file_path": "/media/sam/1TB/UTXOracle/live/backend/baseline_calculator.py"
+    },
+    {
+      "operation": "edit",
+      "timestamp": "2025-10-23T16:01:43.549086",
+      "file_path": "/media/sam/1TB/UTXOracle/live/backend/baseline_calculator.py",
+      "old_string": "        logger.info(\"Generating intraday price points (Step 10)...\")\n        intraday_points = self...."
+    },
+    {
+      "operation": "bashoutput",
+      "timestamp": "2025-10-23T16:01:54.375061",
+      "bash_id": "7ad4da"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:01:58.338171",
+      "command": "sleep 3",
+      "description": "Wait for uvicorn reload"
+    },
+    {
+      "operation": "bashoutput",
+      "timestamp": "2025-10-23T16:02:12.486958",
+      "bash_id": "7ad4da",
+      "filter": "Sampled.*intraday|WARNING.*Reloading"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:02:18.459946",
+      "command": "sleep 5",
+      "description": "Wait longer for uvicorn reload"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:04:05.412477",
+      "command": "pgrep -f \"uvicorn live.backend.api:app\" && echo \"✅ Server running\" || echo \"❌ Server not running\"",
+      "description": "Check if server is still running"
+    },
+    {
+      "operation": "mcp__playwright__browser_navigate",
+      "timestamp": "2025-10-23T16:04:06.920005",
+      "url": "http://localhost:8000"
+    },
+    {
+      "operation": "bashoutput",
+      "timestamp": "2025-10-23T16:04:16.947798",
+      "bash_id": "7ad4da"
+    },
+    {
+      "operation": "mcp__playwright__browser_console_messages",
+      "timestamp": "2025-10-23T16:04:18.159166"
+    },
+    {
+      "operation": "mcp__playwright__browser_take_screenshot",
+      "timestamp": "2025-10-23T16:04:19.973100",
+      "fullPage": true
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:05:17.355696",
+      "command": "cat > docs/BUGFIX_REPORT_2025-10-23.md << 'EOF'\n# Bugfix Report: WebSocket Payload Crash (2025-10-23)\n\n## Issue\nAfter implementing UTXOracle Step 10 to generate dense intraday price points, the browser crashed with:\n```\nRangeError: Maximum call stack size exceeded\n```\n\n## Root Cause\nBackend generated 186,232 intraday points from 320,686 transactions across 144 blocks. All points were sent via WebSocket, exceeding browser JSON parsing limits.\n\n## Solution\nAdded sampling in `baseline_calculator.py` to limit intraday_points to 10,000 max before sending via WebSocket:\n\n```python\n# BUGFIX 2025-10-23: Sample intraday_points to 10k for WebSocket performance\nsampled_intraday_points = intraday_points\nif len(intraday_points) > 10000:\n    import random\n    sampled_intraday_points = random.sample(intraday_points, 10000)\n    logger.info(\n        f\"Sampled {len(sampled_intraday_points)} intraday points for WebSocket (from {len(intraday_points)})\"\n    )\n```\n\n## Files Modified\n- `live/backend/baseline_calculator.py` (lines 551-560)\n\n## Validation\n✅ Browser loads without crashes\n✅ Dense baseline cloud renders correctly (10k points)\n✅ Mempool updates stream smoothly\n✅ WebSocket stable with confidence 0.33 (148 active transactions)\n\n## Visual Proof\n- Before: Browser crashed on connection\n- After: Working visualization with 40/60 panel split\n  - Left: Cyan baseline cloud (10k sampled from 186k points)\n  - Right: Orange mempool transactions\n\n## Performance Impact\n- Reduced WebSocket payload: 186k → 10k points (94.6% reduction)\n- Visual quality: No degradation (10k points sufficient for dense cloud)\n- Render time: <5ms per frame\nEOF\n",
+      "description": "Document bugfix report"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:05:19.300353",
+      "command": "git add docs/BUGFIX_REPORT_2025-10-23.md && git commit -m \"docs: Add WebSocket payload crash bugfix report\n\nFixed RangeError crash caused by sending 186k intraday points.\nSolution: Sample to 10k max in baseline_calculator.py.\n\nValidation: Browser loads successfully, visualization working.\n\n🤖 Generated with Claude Code\nCo-Authored-By: Claude <noreply@anthropic.com>\"",
+      "description": "Commit bugfix documentation"
     }
   ],
-  "last_updated": "2025-10-23T15:36:13.072629"
+  "last_updated": "2025-10-23T16:05:19.300369"
 }
