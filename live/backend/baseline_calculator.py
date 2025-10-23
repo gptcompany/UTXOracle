@@ -549,14 +549,15 @@ class BaselineCalculator:
             )
 
         # BUGFIX 2025-10-23: Sample intraday_points to 10k for WebSocket performance
-        # Without sampling, 186k points cause "Maximum call stack size exceeded" in browser
+        # IMPORTANT: Use uniform sampling to preserve temporal distribution
+        # Random sampling would cluster points, breaking horizontal visualization
         sampled_intraday_points = intraday_points
         if len(intraday_points) > 10000:
-            import random
-
-            sampled_intraday_points = random.sample(intraday_points, 10000)
+            # Uniform sampling: take every Nth point to preserve distribution
+            step = len(intraday_points) // 10000
+            sampled_intraday_points = intraday_points[::step][:10000]
             logger.info(
-                f"Sampled {len(sampled_intraday_points)} intraday points for WebSocket (from {len(intraday_points)})"
+                f"Sampled {len(sampled_intraday_points)} intraday points uniformly (from {len(intraday_points)})"
             )
 
         return BaselineResult(

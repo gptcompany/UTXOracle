@@ -295,6 +295,11 @@ class MempoolVisualizer {
 
         this.animationFrameId = null;
 
+        // T109: Baseline points cache with fixed jitter (prevents continuous movement)
+        this.baselinePointsCache = [];
+        this.baselineMinTimestamp = 0;
+        this.baselineMaxTimestamp = 0;
+
         this.enableTooltips();
         this.startRendering();
 
@@ -304,14 +309,15 @@ class MempoolVisualizer {
     updateData(transactions, baseline = null) {
         // T107-T109: Store baseline data if provided
         if (baseline) {
+            const isNewBaseline = !this.baseline ||
+                                  this.baseline.block_height !== baseline.block_height;
+
             this.baseline = baseline;
 
-            // BUGFIX 2025-10-23: Cache min/max timestamps to avoid recalculating every frame
-            // (Bug #1: Performance issue with 10k points × 30 FPS = 9M ops/sec)
-            if (baseline.transactions && baseline.transactions.length > 0) {
-                const timestamps = baseline.transactions.map(tx => tx.timestamp);
-                this.baselineTimeMin = Math.min(...timestamps);
-                this.baselineTimeMax = Math.max(...timestamps);
+            // BUGFIX 2025-10-23: Pre-calculate baseline points with fixed jitter
+            // Only recalculate when baseline changes (new block every ~10 minutes)
+            if (isNewBaseline) {
+                this.cacheBaselinePoints();
             }
         }
 
@@ -571,6 +577,18 @@ class MempoolVisualizer {
         this.ctx.restore();
     }
 
+    // T109: Scale X coordinate for baseline panel (left 40%)
+    // Maps timestamp to left panel using baseline data time range
+    scaleXBaseline(timestamp) {
+        // Use cached min/max timestamps from baseline data
+        if (this.baselineMaxTimestamp === this.baselineMinTimestamp) {
+            return this.marginLeft + this.baselineWidth / 2;
+        }
+
+        const normalized = (timestamp - this.baselineMinTimestamp) / (this.baselineMaxTimestamp - this.baselineMinTimestamp);
+        return this.marginLeft + (normalized * this.baselineWidth);
+    }
+
     // T074b+T074c: Variable size + fade-out
     drawPoints() {
         if (this.transactions.length === 0) {
@@ -610,27 +628,71 @@ class MempoolVisualizer {
         }
     }
 
+    // T109: Pre-calculate baseline points with fixed jitter
+    // Called once when baseline data arrives (prevents continuous movement)
+    cacheBaselinePoints() {
+        this.baselinePointsCache = [];
+
+        if (!this.baseline || !this.baseline.transactions || this.baseline.transactions.length === 0) {
+            return;
+        }
+
+        // Calculate min/max timestamps from baseline data
+        const timestamps = this.baseline.transactions.map(tx => tx.timestamp);
+        this.baselineMinTimestamp = Math.min(...timestamps);
+        this.baselineMaxTimestamp = Math.max(...timestamps);
+
+        // Pre-calculate all points with fixed jitter
+        // BUGFIX 2025-10-23: Reduced jitter from ±15px to ±3px
+        // to preserve temporal distribution (24h = 368px → 1h = 15px)
+        for (const tx of this.baseline.transactions) {
+            const jitter = (Math.random() - 0.5) * 6; // ±3px (was ±15px)
+            this.baselinePointsCache.push({
+                timestamp: tx.timestamp,
+                price: tx.price,
+                jitter: jitter  // Saved for consistent rendering
+            });
+        }
+
+        const timeRangeHours = Math.round((this.baselineMaxTimestamp - this.baselineMinTimestamp) / 3600);
+        const timeRangeMinutes = Math.round((this.baselineMaxTimestamp - this.baselineMinTimestamp) / 60);
+
+        // Sample first 5 points to see distribution
+        const samples = this.baselinePointsCache.slice(0, 5).map(p => ({
+            timestamp: p.timestamp,
+            timestampDate: new Date(p.timestamp * 1000).toISOString(),
+            price: Math.round(p.price),
+            jitter: Math.round(p.jitter * 10) / 10
+        }));
+
+        console.log(`[Baseline] Cached ${this.baselinePointsCache.length} points`);
+        console.log(`[Baseline] Time range: ${timeRangeHours}h ${timeRangeMinutes % 60}m (${this.baselineMinTimestamp} - ${this.baselineMaxTimestamp})`);
+        console.log(`[Baseline] Sample points:`, samples);
+    }
+
     // T109: Draw baseline points (cyan) on left panel
     drawBaselinePoints() {
         if (!this.baseline || !this.baseline.price) {
             return;
         }
 
-        // BUGFIX 2025-10-22: Backend now sends baseline.transactions (10k points)
-        if (this.baseline.transactions && this.baseline.transactions.length > 0) {
-            for (const tx of this.baseline.transactions) {
-                const baseX = this.scaleXBaseline(tx.timestamp);
-                // BUGFIX 2025-10-23: Increased jitter from ±2 to ±15 pixels
-                // to fully distribute vertical stripes into uniform cloud
-                const jitter = (Math.random() - 0.5) * 30; // ±15 pixels
-                const x = baseX + jitter;
-                const y = this.scaleY(tx.price);
+        // BUGFIX 2025-10-23: Use cached points with fixed jitter (no movement)
+        if (this.baselinePointsCache.length > 0) {
+            for (const point of this.baselinePointsCache) {
+                const baseX = this.scaleXBaseline(point.timestamp);
+                const x = baseX + point.jitter; // Use saved jitter
+                const y = this.scaleY(point.price);
 
-                // Cyan point
-                this.ctx.fillStyle = 'rgba(0, 255, 255, 0.7)';
-                this.ctx.beginPath();
-                this.ctx.arc(x, y, 2, 0, 2 * Math.PI);
-                this.ctx.fill();
+                // Bounds check: keep points inside baseline panel
+                if (x >= this.marginLeft && x <= this.marginLeft + this.baselineWidth &&
+                    y >= this.marginTop && y <= this.marginTop + this.plotHeight) {
+
+                    // Cyan point
+                    this.ctx.fillStyle = 'rgba(0, 255, 255, 0.7)';
+                    this.ctx.beginPath();
+                    this.ctx.arc(x, y, 2, 0, 2 * Math.PI);
+                    this.ctx.fill();
+                }
             }
         } else {
             // Synthetic fallback (only if no data)

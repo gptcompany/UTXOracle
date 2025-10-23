@@ -2067,7 +2067,263 @@
       "timestamp": "2025-10-23T16:05:19.300353",
       "command": "git add docs/BUGFIX_REPORT_2025-10-23.md && git commit -m \"docs: Add WebSocket payload crash bugfix report\n\nFixed RangeError crash caused by sending 186k intraday points.\nSolution: Sample to 10k max in baseline_calculator.py.\n\nValidation: Browser loads successfully, visualization working.\n\n🤖 Generated with Claude Code\nCo-Authored-By: Claude <noreply@anthropic.com>\"",
       "description": "Commit bugfix documentation"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:11:24.840760",
+      "command": "git add -A && git commit -m \"fix: WebSocket payload sampling to prevent browser crash\n\nBUGFIX 2025-10-23: Added sampling of intraday_points to 10k max\nto prevent 'Maximum call stack size exceeded' error when sending\n186k points via WebSocket.\n\nChanges:\n- baseline_calculator.py: Sample intraday_points if > 10k\n- Validated: Browser loads successfully, visualization working\n- Performance: 94.6% payload reduction (186k → 10k points)\n\nKnown issues to address:\n- Baseline points render outside canvas bounds\n- Continuous re-rendering (should be static until new block)\n- Gap between baseline and mempool panels\n\n🤖 Generated with Claude Code\nCo-Authored-By: Claude <noreply@anthropic.com>\"",
+      "description": "Commit WebSocket sampling fix"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-23T16:11:26.569744",
+      "file_path": "/media/sam/1TB/UTXOracle/live/frontend/mempool-viz.js"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-23T16:11:44.046992",
+      "file_path": "/media/sam/1TB/UTXOracle/live/frontend/mempool-viz.js"
+    },
+    {
+      "operation": "grep",
+      "timestamp": "2025-10-23T16:11:46.059403",
+      "pattern": "drawBaselinePoints",
+      "path": "/media/sam/1TB/UTXOracle/live/frontend/mempool-viz.js",
+      "output_mode": "content"
+    },
+    {
+      "operation": "todowrite",
+      "timestamp": "2025-10-23T16:12:28.815152",
+      "todo_count": 6
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:12:30.598798",
+      "command": "cat > /tmp/baseline_fix_plan.md << 'EOF'\n# Baseline Rendering Fix Plan\n\n## Problemi Identificati\n\n### 1. Punti in movimento continuo\n**Causa**: Jitter calcolato ad ogni frame con Math.random()\n```javascript\n// linea 625-626 - PROBLEMA\nconst jitter = (Math.random() - 0.5) * 30; // Nuovo jitter ogni frame!\nconst x = baseX + jitter;\n```\n**Soluzione**: Pre-calcolare punti con jitter fisso quando arriva baseline\n\n### 2. scaleXBaseline() mancante\n**Causa**: Funzione chiamata (riga 622) ma non definita\n```javascript\nconst baseX = this.scaleXBaseline(tx.timestamp); // UNDEFINED!\n```\n**Soluzione**: Implementare scaling X corretto per panel baseline\n\n### 3. Punti fuori bounds\n**Causa**: Scaling X errato + jitter casuale spinge punti fuori canvas\n**Soluzione**: Clamp coordinates dentro bounds del panel baseline\n\n### 4. Troppi re-render\n**Causa**: drawBaselinePoints() chiamato ogni frame (60 FPS)\n**Soluzione**: Cache dei punti, render solo quando baseline cambia\n\n### 5. WebSocket broadcast troppo frequente\n**Causa**: Backend invia baseline ogni 0.5s anche se non cambia\n**Soluzione**: Inviare baseline solo su nuovo blocco\n\n### 6. Gap tra panel\n**Causa**: baselineWidth + mempoolWidth < plotWidth\n**Soluzione**: Verificare e aggiustare dimensioni panel\n\n## Implementazione\n\n### Step 1: Cache punti baseline (PRIORITÀ ALTA)\n```javascript\n// In updateData(), quando arriva nuova baseline:\nif (data.baseline) {\n    this.baseline = data.baseline;\n    this.cacheBaselinePoints(); // NEW: Pre-calcola punti con jitter fisso\n}\n\n// Nuova funzione\ncacheBaselinePoints() {\n    this.baselinePointsCache = [];\n    if (!this.baseline.transactions) return;\n    \n    for (const tx of this.baseline.transactions) {\n        const jitter = (Math.random() - 0.5) * 30; // Fisso una volta\n        this.baselinePointsCache.push({\n            timestamp: tx.timestamp,\n            price: tx.price,\n            jitter: jitter  // Salvato!\n        });\n    }\n}\n\n// In drawBaselinePoints(), usa cache:\ndrawBaselinePoints() {\n    for (const point of this.baselinePointsCache || []) {\n        const baseX = this.scaleXBaseline(point.timestamp);\n        const x = baseX + point.jitter; // Usa jitter salvato\n        // ... render\n    }\n}\n```\n\n### Step 2: Implementare scaleXBaseline()\n```javascript\nscaleXBaseline(timestamp) {\n    // Baseline copre 144 blocchi (~24 ore)\n    // Usa il range temporale effettivo dei dati baseline\n    if (!this.baseline || !this.baseline.transactions || this.baseline.transactions.length === 0) {\n        return this.marginLeft;\n    }\n    \n    // Find min/max timestamp in baseline data\n    const timestamps = this.baseline.transactions.map(tx => tx.timestamp);\n    const timeMin = Math.min(...timestamps);\n    const timeMax = Math.max(...timestamps);\n    \n    if (timeMax === timeMin) {\n        return this.marginLeft + this.baselineWidth / 2;\n    }\n    \n    const normalized = (timestamp - timeMin) / (timeMax - timeMin);\n    return this.marginLeft + (normalized * this.baselineWidth);\n}\n```\n\n### Step 3: Bounds checking\n```javascript\ndrawBaselinePoints() {\n    for (const point of this.baselinePointsCache || []) {\n        const baseX = this.scaleXBaseline(point.timestamp);\n        const x = Math.max(this.marginLeft, Math.min(this.marginLeft + this.baselineWidth, baseX + point.jitter));\n        const y = this.scaleY(point.price);\n        \n        // Clamp dentro panel bounds\n        if (x >= this.marginLeft && x <= this.marginLeft + this.baselineWidth &&\n            y >= this.marginTop && y <= this.marginTop + this.plotHeight) {\n            // ... render\n        }\n    }\n}\n```\n\n### Step 4: Broadcast frequency (backend)\n```python\n# In api.py _broadcast_task()\n# Non inviare baseline ad ogni broadcast, ma solo quando cambia\n\nlast_baseline_block = None\n\nasync def _broadcast_task():\n    global last_baseline_block\n    while True:\n        baseline = self.baseline_calculator.get_current_baseline()\n        \n        # Solo se blocco cambiato\n        if baseline.block_height != last_baseline_block:\n            last_baseline_block = baseline.block_height\n            # Invia baseline completa\n        else:\n            # Invia solo mempool\n            pass\n```\n\n## Ordine di implementazione\n\n1. ✅ Fix jitter cache (elimina movimento)\n2. ✅ Implement scaleXBaseline() (fix bounds)\n3. ✅ Add bounds checking (sicurezza)\n4. ⏳ Reduce broadcast frequency (performance backend)\n5. ⏳ Fix gap (polish)\nEOF\ncat /tmp/baseline_fix_plan.md",
+      "description": "Create fix plan document"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-23T16:13:02.045276",
+      "file_path": "/media/sam/1TB/UTXOracle/live/frontend/mempool-viz.js"
+    },
+    {
+      "operation": "edit",
+      "timestamp": "2025-10-23T16:13:04.345893",
+      "file_path": "/media/sam/1TB/UTXOracle/live/frontend/mempool-viz.js",
+      "old_string": "    // T074b+T074c: Variable size + fade-out\n    drawPoints() {"
+    },
+    {
+      "operation": "edit",
+      "timestamp": "2025-10-23T16:13:10.059524",
+      "file_path": "/media/sam/1TB/UTXOracle/live/frontend/mempool-viz.js",
+      "old_string": "    // T109: Draw baseline points (cyan) on left panel\n    drawBaselinePoints() {\n        if (!this...."
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-23T16:13:16.833371",
+      "file_path": "/media/sam/1TB/UTXOracle/live/frontend/mempool-viz.js"
+    },
+    {
+      "operation": "edit",
+      "timestamp": "2025-10-23T16:13:42.534156",
+      "file_path": "/media/sam/1TB/UTXOracle/live/frontend/mempool-viz.js",
+      "old_string": "        this.hoveredTransaction = null;\n        this.tooltipThreshold = 10;\n\n        this.animationF..."
+    },
+    {
+      "operation": "grep",
+      "timestamp": "2025-10-23T16:13:48.914062",
+      "pattern": "updateData\\(",
+      "path": "/media/sam/1TB/UTXOracle/live/frontend/mempool-viz.js",
+      "output_mode": "content"
+    },
+    {
+      "operation": "edit",
+      "timestamp": "2025-10-23T16:14:05.331240",
+      "file_path": "/media/sam/1TB/UTXOracle/live/frontend/mempool-viz.js",
+      "old_string": "    updateData(transactions, baseline = null) {\n        // T107-T109: Store baseline data if provide..."
+    },
+    {
+      "operation": "todowrite",
+      "timestamp": "2025-10-23T16:14:11.316427",
+      "todo_count": 7
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:14:20.805635",
+      "command": "sleep 2 && echo \"✅ Frontend fixes applied, server reloading...\"",
+      "description": "Wait for server reload"
+    },
+    {
+      "operation": "mcp__playwright__browser_navigate",
+      "timestamp": "2025-10-23T16:14:32.513439",
+      "url": "http://localhost:8000"
+    },
+    {
+      "operation": "mcp__playwright__browser_console_messages",
+      "timestamp": "2025-10-23T16:14:35.128963"
+    },
+    {
+      "operation": "mcp__playwright__browser_take_screenshot",
+      "timestamp": "2025-10-23T16:14:39.412275",
+      "fullPage": true
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:14:43.136965",
+      "command": "sleep 5 && echo \"Waiting for data...\"",
+      "description": "Wait for visualization to load data"
+    },
+    {
+      "operation": "mcp__playwright__browser_evaluate",
+      "timestamp": "2025-10-23T16:15:06.699638",
+      "function": "() => {\n    const viz = window.app?.visualizer;\n    if (!viz) return { error: \"Visualizer not found\"..."
+    },
+    {
+      "operation": "bashoutput",
+      "timestamp": "2025-10-23T16:15:08.673864",
+      "bash_id": "7ad4da",
+      "filter": "Using.*intraday.*baseline"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-23T16:15:27.887303",
+      "file_path": "/media/sam/1TB/UTXOracle/live/backend/baseline_calculator.py"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-23T16:15:35.875389",
+      "file_path": "/media/sam/1TB/UTXOracle/live/backend/api.py"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-23T16:15:56.745426",
+      "file_path": "/media/sam/1TB/UTXOracle/live/backend/baseline_calculator.py"
+    },
+    {
+      "operation": "edit",
+      "timestamp": "2025-10-23T16:16:27.155698",
+      "file_path": "/media/sam/1TB/UTXOracle/live/frontend/mempool-viz.js",
+      "old_string": "        console.log(`[Baseline] Cached ${this.baselinePointsCache.length} points (time range: ${Math..."
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:16:36.336371",
+      "command": "sleep 2 && echo \"✅ Debug logging added\"",
+      "description": "Wait for reload"
+    },
+    {
+      "operation": "mcp__playwright__browser_navigate",
+      "timestamp": "2025-10-23T16:16:41.490708",
+      "url": "http://localhost:8000"
+    },
+    {
+      "operation": "mcp__playwright__browser_console_messages",
+      "timestamp": "2025-10-23T16:16:50.443092"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:16:55.276359",
+      "command": "sleep 3 && echo \"Waiting for data...\"",
+      "description": "Wait for data load"
+    },
+    {
+      "operation": "edit",
+      "timestamp": "2025-10-23T16:17:24.548408",
+      "file_path": "/media/sam/1TB/UTXOracle/live/frontend/mempool-viz.js",
+      "old_string": "        // Pre-calculate all points with fixed jitter\n        for (const tx of this.baseline.transac..."
+    },
+    {
+      "operation": "todowrite",
+      "timestamp": "2025-10-23T16:17:26.551567",
+      "todo_count": 7
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:17:33.410521",
+      "command": "sleep 2 && echo \"✅ Jitter reduced to ±3px\"",
+      "description": "Wait for reload"
+    },
+    {
+      "operation": "mcp__playwright__browser_navigate",
+      "timestamp": "2025-10-23T16:17:51.185833",
+      "url": "http://localhost:8000"
+    },
+    {
+      "operation": "mcp__playwright__browser_take_screenshot",
+      "timestamp": "2025-10-23T16:18:00.343157",
+      "fullPage": true
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:18:04.452118",
+      "command": "sleep 4 && echo \"Loading...\"",
+      "description": "Wait for visualization"
+    },
+    {
+      "operation": "edit",
+      "timestamp": "2025-10-23T16:18:38.956303",
+      "file_path": "/media/sam/1TB/UTXOracle/live/backend/baseline_calculator.py",
+      "old_string": "        # BUGFIX 2025-10-23: Sample intraday_points to 10k for WebSocket performance\n        # Witho..."
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:18:48.202641",
+      "command": "sleep 3 && echo \"✅ Uniform sampling applied\"",
+      "description": "Wait for server reload"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:19:12.209059",
+      "command": "sleep 5 && echo \"Loading with uniform sampling...\"",
+      "description": "Wait for data"
+    },
+    {
+      "operation": "bashoutput",
+      "timestamp": "2025-10-23T16:19:23.860376",
+      "bash_id": "7ad4da"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:19:28.128167",
+      "command": "pgrep -f \"uvicorn live.backend.api:app\" && echo \"✅ Server running\" || echo \"❌ Server crashed\"",
+      "description": "Check server status"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:20:03.482146",
+      "command": "sleep 5 && curl -s http://localhost:8000 > /dev/null && echo \"✅ Server responding\" || echo \"❌ Server not responding\"",
+      "description": "Test server health"
+    },
+    {
+      "operation": "mcp__playwright__browser_navigate",
+      "timestamp": "2025-10-23T16:20:05.231409",
+      "url": "http://localhost:8000"
+    },
+    {
+      "operation": "mcp__playwright__browser_take_screenshot",
+      "timestamp": "2025-10-23T16:20:08.490590",
+      "fullPage": true,
+      "timeout": "10000"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:20:14.653893",
+      "command": "sleep 5 && echo \"Data loaded\"",
+      "description": "Wait for load"
+    },
+    {
+      "operation": "grep",
+      "timestamp": "2025-10-23T16:20:34.769788",
+      "pattern": "Step 10|intraday",
+      "path": "/media/sam/1TB/UTXOracle/UTXOracle.py",
+      "output_mode": "content"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-23T16:20:43.829576",
+      "file_path": "/media/sam/1TB/UTXOracle/UTXOracle.py"
     }
   ],
-  "last_updated": "2025-10-23T16:05:19.300369"
+  "last_updated": "2025-10-23T16:20:43.829597"
 }
