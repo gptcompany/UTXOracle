@@ -273,8 +273,8 @@ class MempoolVisualizer {
         this.plotWidth = this.width - this.marginLeft - this.marginRight;
         this.plotHeight = this.height - this.marginTop - this.marginBottom;
 
-        // T109: Dual panel split (LEFT=baseline 40%, RIGHT=mempool 60%)
-        this.panelSplitRatio = 0.4;
+        // T109: Dual panel split (LEFT=baseline 70%, RIGHT=mempool 30%)
+        this.panelSplitRatio = 0.7;
         this.baselineWidth = this.plotWidth * this.panelSplitRatio;
         this.mempoolWidth = this.plotWidth * (1 - this.panelSplitRatio);
 
@@ -287,8 +287,8 @@ class MempoolVisualizer {
         this.baselineColor = '#00FFFF';  // Cyan for baseline points
         this.baselineLineColor = 'rgba(0, 255, 255, 0.5)';  // Cyan with 50% opacity
 
-        // T074a: Fixed 5-minute scrolling window
-        this.timeWindowSeconds = 300;  // 5 minutes
+        // T074a: Fixed 10-minute scrolling window (Bitcoin block time)
+        this.timeWindowSeconds = 600;  // 10 minutes
 
         this.hoveredTransaction = null;
         this.tooltipThreshold = 10;
@@ -466,6 +466,7 @@ class MempoolVisualizer {
     render() {
         this.clear();
         this.drawAxes();
+        this.drawXAxisLabels();  // Draw time labels on X axis
         this.drawPanelLabels();  // T109: Add panel labels
 
         // T108: Draw baseline price line BEFORE points (so points render on top)
@@ -578,14 +579,17 @@ class MempoolVisualizer {
     }
 
     // T109: Scale X coordinate for baseline panel (left 40%)
-    // Maps timestamp to left panel using baseline data time range
+    // Maps timestamp from [first_block, now] to fill entire baseline panel
     scaleXBaseline(timestamp) {
-        // Use cached min/max timestamps from baseline data
-        if (this.baselineMaxTimestamp === this.baselineMinTimestamp) {
+        const now = Date.now() / 1000;
+
+        // Use actual min from baseline data, but extend to "now"
+        if (this.baselineMinTimestamp === 0) {
             return this.marginLeft + this.baselineWidth / 2;
         }
 
-        const normalized = (timestamp - this.baselineMinTimestamp) / (this.baselineMaxTimestamp - this.baselineMinTimestamp);
+        // Map [first_block, now] to full panel width
+        const normalized = (timestamp - this.baselineMinTimestamp) / (now - this.baselineMinTimestamp);
         return this.marginLeft + (normalized * this.baselineWidth);
     }
 
@@ -714,26 +718,6 @@ class MempoolVisualizer {
         }
     }
 
-    // T109: Scale X for baseline panel (left side)
-    scaleXBaseline(timestamp) {
-        if (!this.baseline || !this.baseline.transactions || this.baseline.transactions.length === 0) {
-            return this.marginLeft;
-        }
-
-        // BUGFIX 2025-10-23: Use cached min/max timestamps (calculated once in updateData)
-        // Avoids 9M operations/sec (10k points × 30 FPS × 2 array passes)
-        const minTime = this.baselineTimeMin;
-        const maxTime = this.baselineTimeMax;
-
-        // Avoid division by zero
-        if (maxTime === minTime) {
-            return this.marginLeft + this.baselineWidth / 2;
-        }
-
-        // Map to left panel (0 to baselineWidth)
-        const normalized = (timestamp - minTime) / (maxTime - minTime);
-        return this.marginLeft + (normalized * this.baselineWidth);
-    }
 
     // T109: Scale X for mempool panel (right side)
     scaleXMempool(timestamp) {
@@ -748,18 +732,59 @@ class MempoolVisualizer {
         return mempoolStartX + (normalized * this.mempoolWidth);
     }
 
+    // Draw X-axis time labels (baseline: actual range, mempool: 5min)
+    drawXAxisLabels() {
+        this.ctx.save();
+        this.ctx.font = '10px monospace';
+        this.ctx.fillStyle = '#888';
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'top';
+
+        const labelY = this.marginTop + this.plotHeight + 5;  // Just below X axis
+
+        // BASELINE PANEL: From first block to "now", divide into 5 labels
+        const now = Date.now() / 1000;
+        if (this.baselineMinTimestamp > 0) {
+            const timeRange = now - this.baselineMinTimestamp;
+            const numLabels = 5;
+
+            for (let i = 0; i <= numLabels; i++) {
+                const fraction = i / numLabels;
+                const timestamp = this.baselineMinTimestamp + (fraction * timeRange);
+                const x = this.scaleXBaseline(timestamp);
+
+                const date = new Date(timestamp * 1000);
+                const label = i === numLabels ? 'now' : `${date.getUTCHours().toString().padStart(2, '0')}:${date.getUTCMinutes().toString().padStart(2, '0')} UTC`;
+
+                this.ctx.fillText(label, x, labelY);
+            }
+        }
+
+        // MEMPOOL PANEL: 10min window, label every 2 minutes
+        for (let minutesAgo = 10; minutesAgo >= 0; minutesAgo -= 2) {
+            const timestamp = now - (minutesAgo * 60);
+            const x = this.scaleXMempool(timestamp);
+
+            const label = minutesAgo === 0 ? 'now' : `-${minutesAgo}m`;
+
+            this.ctx.fillText(label, x, labelY);
+        }
+
+        this.ctx.restore();
+    }
+
     // T109: Draw panel labels (LEFT: confirmed, RIGHT: mempool)
     drawPanelLabels() {
         this.ctx.save();
         this.ctx.font = '14px sans-serif';
         this.ctx.textBaseline = 'top';
 
-        // LEFT panel label: "Confirmed On-Chain (3hr)" in cyan
+        // LEFT panel label: "Confirmed On-Chain (24hr)" in cyan
         this.ctx.fillStyle = this.baselineColor;  // #00FFFF (cyan)
         this.ctx.textAlign = 'left';
         const leftLabelX = this.marginLeft + 10;
         const leftLabelY = 10;
-        this.ctx.fillText('Confirmed On-Chain (3hr)', leftLabelX, leftLabelY);
+        this.ctx.fillText('Confirmed On-Chain (24hr)', leftLabelX, leftLabelY);
 
         // RIGHT panel label: "Mempool" in orange
         this.ctx.fillStyle = this.pointColor;  // #FF8C00 (orange)
