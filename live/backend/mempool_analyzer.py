@@ -106,6 +106,7 @@ class MempoolAnalyzer:
         # BUGFIX 2025-10-23: Simple scatter ±8% for mempool visualization
         # (Gemini's round USD heuristic caused clustering - replaced with visible scatter)
         import random
+
         for amount in tx.amounts:
             if self.last_price_estimate > 0:
                 # Random scatter ±8% around baseline price for visible distribution
@@ -113,12 +114,20 @@ class MempoolAnalyzer:
                 tx_price = self.last_price_estimate * scatter_factor
 
                 from live.shared.models import TransactionPoint
+
                 point = TransactionPoint(
-                    timestamp=tx.timestamp,
-                    price=tx_price,
-                    btc_amount=amount
+                    timestamp=tx.timestamp, price=tx_price, btc_amount=amount
                 )
                 self.transaction_history.append(point)
+
+                # DEBUG: Log scatter price generation
+                import logging
+
+                logger = logging.getLogger(__name__)
+                if len(self.transaction_history) % 100 == 0:  # Log every 100 points
+                    logger.debug(
+                        f"TX scatter: baseline=${self.last_price_estimate:.0f}, generated=${tx_price:.0f} (factor={scatter_factor:.3f})"
+                    )
 
     def remove_transaction(self, txid: str) -> None:
         """Remove transaction from histogram (for RBF/drops)"""
@@ -229,7 +238,10 @@ class MempoolAnalyzer:
         histogram_array = self._histogram_to_array()
         rough_price = self._estimate_rough_price(histogram_array)
 
-        self.last_price_estimate = rough_price
+        # BUGFIX 2025-10-23: Don't overwrite baseline price with rough mempool estimate
+        # Only update last_price_estimate if no baseline is set
+        if not (hasattr(self, "baseline") and self.baseline is not None):
+            self.last_price_estimate = rough_price
         return rough_price
 
     def _histogram_to_array(self) -> List[float]:
