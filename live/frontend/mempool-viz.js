@@ -260,8 +260,10 @@ class MempoolVisualizer {
         this.tooltipBorderColor = '#FF8C00';
 
         // T074b: Variable point size
+        // BUGFIX 2025-10-23: Increased maxRadius from 8 to 20 to allow visible size variation
+        // (Most transactions were clamped to 8, making all points look the same)
         this.pointMinRadius = 1;
-        this.pointMaxRadius = 8;
+        this.pointMaxRadius = 20;
 
         this.marginLeft = 80;
         this.marginRight = 20;
@@ -368,6 +370,15 @@ class MempoolVisualizer {
     // Using constant point size until btc_amount is added to model (see VISUALIZATION_BUG_REPORT.md)
     getPointSize(tx) {
         if (!tx.btc_amount) {
+            // DEBUG: Log why sizing failed
+            if (Math.random() < 0.01) { // 1% sampling
+                console.log('[getPointSize] No btc_amount:', {
+                    hasField: 'btc_amount' in tx,
+                    value: tx.btc_amount,
+                    type: typeof tx.btc_amount,
+                    allKeys: Object.keys(tx)
+                });
+            }
             return 2; // Default size if btc_amount is missing
         }
 
@@ -531,6 +542,16 @@ class MempoolVisualizer {
             return;
         }
 
+        // DEBUG: Log first transaction to see btc_amount
+        if (!this._debugLogged && this.transactions.length > 0) {
+            console.log('[drawPoints] First transaction:', {
+                tx: this.transactions[0],
+                btc_amount: this.transactions[0].btc_amount,
+                pointSize: this.getPointSize(this.transactions[0])
+            });
+            this._debugLogged = true;
+        }
+
         for (const tx of this.transactions) {
             const x = this.scaleXMempool(tx.timestamp);
             const y = this.scaleY(tx.price);
@@ -563,7 +584,11 @@ class MempoolVisualizer {
         // BUGFIX 2025-10-22: Backend now sends baseline.transactions (10k points)
         if (this.baseline.transactions && this.baseline.transactions.length > 0) {
             for (const tx of this.baseline.transactions) {
-                const x = this.scaleXBaseline(tx.timestamp);
+                const baseX = this.scaleXBaseline(tx.timestamp);
+                // BUGFIX 2025-10-23: Add horizontal jitter to prevent vertical stripes
+                // (many transactions share same timestamp from same block)
+                const jitter = (Math.random() - 0.5) * 4; // ±2 pixels
+                const x = baseX + jitter;
                 const y = this.scaleY(tx.price);
 
                 // Cyan point
