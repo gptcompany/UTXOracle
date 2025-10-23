@@ -260,10 +260,10 @@ class MempoolVisualizer {
         this.tooltipBorderColor = '#FF8C00';
 
         // T074b: Variable point size
-        // BUGFIX 2025-10-23: Reduced from 20 to 8 - points were too large
-        // Use smaller multiplier (1.0) in getPointSize for better visual scale
+        // BUGFIX 2025-10-23: Reduced from 20 to 8, then to 6 for better density
+        // Rescaling uses percentile 95 to handle outliers
         this.pointMinRadius = 1;
-        this.pointMaxRadius = 8;
+        this.pointMaxRadius = 6;
 
         this.marginLeft = 80;
         this.marginRight = 20;
@@ -367,44 +367,79 @@ class MempoolVisualizer {
     // T074b: Variable point size based on tx USD value
     // T074b: Variable point size based on tx USD value
     // BUGFIX 2025-10-22: TransactionPoint model only has timestamp and price (no btc_amount)
-    // Using constant point size until btc_amount is added to model (see VISUALIZATION_BUG_REPORT.md)
+    // T074b: Calculate 95th percentile for robust max scaling
+    calculatePercentile95() {
+        if (this.transactions.length === 0) {
+            return 0.01; // Default 0.01 BTC if no transactions
+        }
+
+        // Extract btc_amount from all transactions, filter out missing values
+        const amounts = this.transactions
+            .map(tx => tx.btc_amount)
+            .filter(amount => amount !== undefined && amount !== null && amount > 0)
+            .sort((a, b) => a - b);
+
+        if (amounts.length === 0) {
+            return 0.01;
+        }
+
+        // 95th percentile index
+        const p95Index = Math.floor(amounts.length * 0.95);
+        return amounts[p95Index] || amounts[amounts.length - 1];
+    }
+
+    // BUGFIX 2025-10-23: Rescaling with percentile 95 normalization
+    // All points rescaled relative to 95th percentile to handle outliers
     getPointSize(tx) {
         if (!tx.btc_amount) {
-            // DEBUG: Log why sizing failed
-            if (Math.random() < 0.01) { // 1% sampling
-                console.log('[getPointSize] No btc_amount:', {
-                    hasField: 'btc_amount' in tx,
-                    value: tx.btc_amount,
-                    type: typeof tx.btc_amount,
-                    allKeys: Object.keys(tx)
-                });
-            }
             return 2; // Default size if btc_amount is missing
         }
 
-        // Logarithmic scale for better visual distribution
-        // BUGFIX 2025-10-23: Reduced multiplier from 1.5 to 0.8 for smaller points
-        const size = Math.log(tx.btc_amount * 1e8) * 0.8;
+        // Calculate 95th percentile as max reference
+        const p95Amount = this.calculatePercentile95();
+
+        // Normalize to [0, 1] range relative to p95
+        const normalizedAmount = Math.min(tx.btc_amount / p95Amount, 1.0);
+
+        // Apply logarithmic scale for better visual distribution
+        // log(1 + x) to handle small values smoothly
+        const logScale = Math.log(1 + normalizedAmount * 9) / Math.log(10);
+
+        // Scale to [minRadius, maxRadius]
+        const size = this.pointMinRadius + logScale * (this.pointMaxRadius - this.pointMinRadius);
 
         return Math.max(this.pointMinRadius, Math.min(this.pointMaxRadius, size));
     }
 
-    // T074c: Fade-out for old points
+    // BUGFIX 2025-10-23: Spatial fade-out (left to right) instead of temporal
+    // Older points (left) fade to 30% opacity, newer points (right) stay at 100%
     getPointOpacity(timestamp) {
-        const now = Date.now() / 1000;
-        const age = now - timestamp;
-        const maxAge = this.timeWindowSeconds;
-
-        // Fade out over last 20% of time window
-        const fadeStartAge = maxAge * 0.8;
-
-        if (age < fadeStartAge) {
+        if (this.transactions.length === 0) {
             return 1.0;
         }
 
-        // Linear fade from 1.0 to 0.3
-        const fadeProgress = (age - fadeStartAge) / (maxAge - fadeStartAge);
-        return Math.max(0.3, 1.0 - (fadeProgress * 0.7));
+        // Find min/max timestamps in current window
+        const timestamps = this.transactions.map(tx => tx.timestamp);
+        const minTimestamp = Math.min(...timestamps);
+        const maxTimestamp = Math.max(...timestamps);
+
+        if (maxTimestamp === minTimestamp) {
+            return 1.0; // All same timestamp
+        }
+
+        // Calculate position in time range [0=oldest/left, 1=newest/right]
+        const normalizedPosition = (timestamp - minTimestamp) / (maxTimestamp - minTimestamp);
+
+        // Fade out left 40% of timeline from 0.3 to 1.0
+        const fadeEndPosition = 0.4;
+
+        if (normalizedPosition >= fadeEndPosition) {
+            return 1.0; // Right 60%: full opacity
+        }
+
+        // Left 40%: linear fade from 0.3 (leftmost) to 1.0 (40% mark)
+        const fadeProgress = normalizedPosition / fadeEndPosition;
+        return 0.3 + (fadeProgress * 0.7);
     }
 
     startRendering() {
