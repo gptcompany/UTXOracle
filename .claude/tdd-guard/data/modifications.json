@@ -1,11 +1,11 @@
 {
-  "session_id": "9efdd3da-0fda-4f58-9d9b-08ddbf739aff",
-  "transcript_path": "/home/sam/.claude/projects/-media-sam-1TB-UTXOracle/9efdd3da-0fda-4f58-9d9b-08ddbf739aff.jsonl",
+  "session_id": "38b22f0e-b749-4300-b0aa-1ee91613b476",
+  "transcript_path": "/home/sam/.claude/projects/-media-sam-1TB-UTXOracle/38b22f0e-b749-4300-b0aa-1ee91613b476.jsonl",
   "hook_event_name": "PreToolUse",
   "tool_name": "Edit",
   "tool_input": {
-    "file_path": "/media/sam/1TB/UTXOracle/live/backend/api.py",
-    "old_string": "        # T068: Get transaction history from analyzer if available\n        # T106: Get baseline data from analyzer if available\n        if hasattr(self, \"analyzer\") and self.analyzer:\n            history = self.analyzer.get_transaction_history()\n            transactions = [\n                TransactionPoint(timestamp=ts, price=price) for ts, price in history\n            ]",
-    "new_string": "        # T068: Get transaction history from analyzer if available\n        # T106: Get baseline data from analyzer if available\n        if hasattr(self, \"analyzer\") and self.analyzer:\n            history = self.analyzer.get_transaction_history()\n            # History contains TransactionPoint objects, not tuples - use directly\n            transactions = list(history)"
+    "file_path": "/media/sam/1TB/UTXOracle/live/shared/models.py",
+    "old_string": "class TransactionPoint(BaseModel):\n    \"\"\"Single transaction point for visualization\"\"\"\n\n    timestamp: float = Field(..., gt=0, description=\"Unix timestamp (seconds)\")\n    price: float = Field(\n        ..., gt=0, description=\"Estimated price for this transaction (USD)\"\n    )\n    btc_amount: float = Field(..., gt=0, description=\"Transaction value in BTC\")",
+    "new_string": "class TransactionPoint(BaseModel):\n    \"\"\"Single transaction point for visualization\"\"\"\n\n    timestamp: float = Field(..., gt=0, description=\"Unix timestamp (seconds)\")\n    price: float = Field(\n        ..., gt=0, description=\"Estimated price for this transaction (USD)\"\n    )\n    btc_amount: Optional[float] = Field(None, gt=0, description=\"Transaction value in BTC (optional)\")"
   }
 }

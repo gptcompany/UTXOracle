@@ -178,7 +178,7 @@ class DataStreamer:
         if hasattr(self, "analyzer") and self.analyzer:
             history = self.analyzer.get_transaction_history()
             transactions = [
-                TransactionPoint(timestamp=ts, price=price) for ts, price in history
+                point for point in history  # history already contains TransactionPoint objects
             ]
 
             # T106: Get combined history (baseline + mempool)

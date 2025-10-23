@@ -1,0 +1,261 @@
+{
+  "session_id": "38b22f0e-b749-4300-b0aa-1ee91613b476",
+  "created_at": "2025-10-23T12:36:41.727414",
+  "operations": [
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:36:41.727427",
+      "command": "ps aux | grep -E \"(uvicorn|orchestrator)\" | grep -v grep",
+      "description": "Check if FastAPI and orchestrator are running"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:36:45.455954",
+      "command": "netstat -tlnp 2>/dev/null | grep -E \":8000|:28332\" || ss -tlnp 2>/dev/null | grep -E \":8000|:28332\"",
+      "description": "Check if ports 8000 and 28332 are in use"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:36:45.792599",
+      "command": "ls -lh /tmp/*test*.log /tmp/orchestrator*.log 2>/dev/null | head -20",
+      "description": "Find recent orchestrator log files"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:36:51.539240",
+      "command": "tail -50 /tmp/orchestrator.log",
+      "description": "Check recent orchestrator output"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:36:51.608470",
+      "command": "tail -50 /tmp/final_test.log",
+      "description": "Check final test log"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:36:54.602565",
+      "command": "curl -s http://localhost:8000/data | python3 -m json.tool | head -100",
+      "description": "Test FastAPI /data endpoint"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-23T12:37:02.508564",
+      "file_path": "/media/sam/1TB/UTXOracle/live/backend/api.py"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-23T12:37:02.544065",
+      "file_path": "/media/sam/1TB/UTXOracle/live/frontend/index.html"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-23T12:37:02.751733",
+      "file_path": "/media/sam/1TB/UTXOracle/live/frontend/mempool-viz.js"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:37:54.583444",
+      "command": "curl -i -N -H \"Connection: Upgrade\" -H \"Upgrade: websocket\" -H \"Sec-WebSocket-Version: 13\" -H \"Sec-WebSocket-Key: x3JJHMbDL1EzLkh9GBhXDw==\" http://localhost:8000/ws/mempool 2>&1 | head -20",
+      "description": "Test WebSocket endpoint upgrade handshake"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:37:56.355400",
+      "command": "curl -s http://localhost:8000/health | python3 -m json.tool",
+      "description": "Test health endpoint to verify API is responding"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:37:57.777634",
+      "command": "curl -I http://localhost:8000/ 2>&1 | head -10",
+      "description": "Test if index.html is being served"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:38:17.724722",
+      "command": "curl -s http://localhost:8000/ | grep -E \"(script|ws:|WebSocket)\" | head -20",
+      "description": "Check if frontend HTML is correct"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:38:18.028962",
+      "command": "ls -la /media/sam/1TB/UTXOracle/live/frontend/",
+      "description": "List frontend files"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:38:19.222640",
+      "command": "curl -s http://localhost:8000/mempool-viz.js | head -30",
+      "description": "Test if JavaScript is being served"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:38:27.131997",
+      "command": "grep -E \"(Client connected|Client disconnected|Broadcasting to)\" /tmp/orchestrator.log | tail -20",
+      "description": "Check for client connection events in logs"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:38:27.164312",
+      "command": "tail -100 /tmp/orchestrator.log | grep -E \"(INFO|ERROR|WARNING)\" | grep -v \"Broadcast skipped\" | tail -20",
+      "description": "Check for important log messages (excluding broadcast skipped)"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:38:35.914978",
+      "command": "grep -A5 \"async def websocket_endpoint\" /media/sam/1TB/UTXOracle/live/backend/api.py",
+      "description": "Check WebSocket endpoint implementation"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:38:37.230196",
+      "command": "python3 -c \"\n# Simulate what should happen on client count\nactive_clients = []\nprint(f'Initial count: {len(active_clients)}')\n\n# Fake registrations\nactive_clients.append('client1')\nactive_clients.append('client2')\nprint(f'After 2 registrations: {len(active_clients)}')\n\"",
+      "description": "Test basic list counting logic"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:38:47.028892",
+      "command": "ps aux | grep -E \"(uvicorn|orchestrator)\" | grep -v grep | wc -l",
+      "description": "Count running processes"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:38:47.095224",
+      "command": "ps aux | grep -E \"(uvicorn|orchestrator)\" | grep -v grep",
+      "description": "List all uvicorn/orchestrator processes"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:38:49.171999",
+      "command": "lsof -i :8000 2>/dev/null | grep LISTEN",
+      "description": "Check what process is listening on port 8000"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:38:58.950381",
+      "command": "cat /tmp/lifespan_debug.txt 2>/dev/null",
+      "description": "Check lifespan debug output"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:38:59.376455",
+      "command": "grep \"LIFESPAN\\|orchestrator started\\|Pipeline orchestrator\" /tmp/orchestrator.log | head -10",
+      "description": "Check lifespan startup messages in orchestrator.log"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:38:59.432040",
+      "command": "head -50 /tmp/orchestrator.log | grep -E \"(LIFESPAN|orchestrator|Pipeline)\"",
+      "description": "Check startup messages in orchestrator.log"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:39:27.851272",
+      "command": "grep -B5 -A10 \"async def register_client\" /media/sam/1TB/UTXOracle/live/backend/api.py",
+      "description": "Check register_client implementation"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:39:27.911614",
+      "command": "grep -E \"(Exception|Error|Traceback)\" /tmp/orchestrator.log | tail -20",
+      "description": "Check for any exceptions in logs"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:40:05.281169",
+      "command": "nohup uv run uvicorn live.backend.api:app --host 0.0.0.0 --port 8000 > /tmp/uvicorn_clean.log 2>&1 & sleep 5 && echo \"Started\" && ps aux | grep uvicorn | grep -v grep",
+      "description": "Start fresh FastAPI instance"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:40:05.655816",
+      "command": "tail -50 /tmp/uvicorn_clean.log",
+      "description": "Check startup logs"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:40:17.211178",
+      "command": "killall -9 uvicorn python3; sleep 2; ps aux | grep -E \"(uvicorn|orchestrator|python3)\" | grep -v grep | head -10",
+      "description": "Force kill all Python processes"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:40:25.510688",
+      "command": "uv run uvicorn live.backend.api:app --host 0.0.0.0 --port 8000 > /tmp/fresh_start.log 2>&1 & sleep 8 && tail -100 /tmp/fresh_start.log",
+      "description": "Start single clean instance"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:40:43.875734",
+      "command": "sleep 10 && tail -50 /tmp/fresh_start.log | grep -E \"(Application startup complete|orchestrator started|ZMQ|Broadcasting)\"",
+      "description": "Wait for startup to complete"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:40:44.682014",
+      "command": "ps aux | grep -E \"uvicorn|orchestrator\" | grep -v grep | wc -l",
+      "description": "Count running processes"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:40:50.709565",
+      "command": "tail -100 /tmp/fresh_start.log",
+      "description": "Check full startup log"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:40:51.921736",
+      "command": "curl -v http://localhost:8000/ 2>&1 | head -30",
+      "description": "Test if server is responding at all"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:41:04.508493",
+      "command": "ps aux | grep 895724",
+      "description": "Check if process is still running"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:41:04.546362",
+      "command": "wc -l /tmp/fresh_start.log",
+      "description": "Count log lines to see if still writing"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:41:09.502512",
+      "command": "sleep 5 && wc -l /tmp/fresh_start.log",
+      "description": "Check again in 5 seconds"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:41:16.935664",
+      "command": "timeout 60 bash -c 'while ! grep -q \"Application startup complete\" /tmp/fresh_start.log; do sleep 2; done; echo \"STARTUP COMPLETED\"' || echo \"TIMEOUT or COMPLETE\" && tail -20 /tmp/fresh_start.log",
+      "description": "Wait for startup completion (60s timeout)"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:41:24.363957",
+      "command": "curl -s http://localhost:8000/health | python3 -m json.tool",
+      "description": "Test health endpoint now"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:41:24.709113",
+      "command": "curl -I http://localhost:8000/ 2>&1 | head -10",
+      "description": "Test if index.html is accessible"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-23T12:41:34.377817",
+      "file_path": "/media/sam/1TB/UTXOracle/live/shared/models.py"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T12:41:39.368736",
+      "command": "grep -A20 \"class TransactionPoint\" /media/sam/1TB/UTXOracle/live/shared/models.py",
+      "description": "Find TransactionPoint model definition"
+    }
+  ],
+  "last_updated": "2025-10-23T12:41:39.368752"
+}
