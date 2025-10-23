@@ -145,7 +145,10 @@ archive/                            # Previous versions (v7, v8, v9)
 └── v9/
 docs/                               # Documentation
 ├── BASELINE_LIVE_ARCHITECTURE.md
+├── BASELINE_RENDERING_CHECKLIST.md
+├── BASELINE_RENDERING_IMPLEMENTATION.md
 ├── BASELINE_RENDERING_SUCCESS.md
+├── BASELINE_RENDERING_SUMMARY.md
 ├── BUGFIX_REPORT_2025-10-23.md
 ├── CANVAS_IMPLEMENTATION_COMPLETE.md
 ├── GEMINI_FIX_ANALYSIS.md
@@ -176,6 +179,7 @@ examples/                           # Example outputs and screenshots
 ├── mempool2.png
 ├── mempool3.png
 ├── mempool4.png
+├── mempool_attuale.png
 └── mempuul.png
 historical_data/                    # 672 days of historical outputs
 └── html_files/                         # HTML price analysis files
@@ -203,6 +207,7 @@ tests/                              # Test suite (pytest)
 ├── test_orchestrator_stats_bug.py
 ├── test_orchestrator_streamer_integration.py
 ├── test_security.py
+├── test_step10_intraday_points.py
 ├── test_tx_processor.py
 ├── test_zmq_listener.py
 ├── benchmark/                          # Performance benchmarks

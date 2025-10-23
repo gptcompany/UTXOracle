@@ -29,6 +29,9 @@ class BaselineResult:
     block_height: Optional[int] = None
     num_transactions: int = 0
     transactions: List[Tuple[float, float]] = None  # [(amount_btc, timestamp), ...]
+    intraday_points: List[Tuple[float, float, float]] = (
+        None  # [(price, block_height, timestamp), ...] from Step 10
+    )
 
 
 class BaselineCalculator:
@@ -359,6 +362,120 @@ class BaselineCalculator:
         logger.info(f"Rough price: ${rough_price:,.0f}, confidence: {confidence:.2f}")
         return rough_price, confidence
 
+    def _generate_intraday_points(
+        self, all_transactions: List[Tuple[float, float]], rough_price: float
+    ) -> List[Tuple[float, float, float]]:
+        """
+        Generate intraday price points from raw transactions (UTXOracle Step 10).
+
+        For each transaction, if amount matches expected BTC for common USD values
+        ($5, $10, $20, $50, $100, etc.), calculate implied price = usd/btc.
+
+        Args:
+            all_transactions: List of (amount_btc, timestamp) tuples
+            rough_price: Rough price estimate from Step 9
+
+        Returns:
+            List of (price, block_height, timestamp) tuples (500-2000 points expected)
+        """
+        # Common USD amounts (from UTXOracle.py line 1188)
+        USD_AMOUNTS = [5, 10, 15, 20, 25, 30, 40, 50, 100, 150, 200, 300, 500, 1000]
+
+        # ±25% price range for matching (line 1191)
+        PCT_RANGE = 0.25
+
+        # Generate micro-round satoshi exclusion list (lines 1194-1214)
+        micro_remove_list = []
+
+        # 5000-10000 sats range (0.00005-0.0001 BTC)
+        i = 0.00005000
+        while i < 0.0001:
+            micro_remove_list.append(i)
+            i += 0.00001
+
+        # 10k-100k sats range (0.0001-0.001 BTC)
+        i = 0.0001
+        while i < 0.001:
+            micro_remove_list.append(i)
+            i += 0.00001
+
+        # 100k-1M sats range (0.001-0.01 BTC)
+        i = 0.001
+        while i < 0.01:
+            micro_remove_list.append(i)
+            i += 0.0001
+
+        # 1M-10M sats range (0.01-0.1 BTC)
+        i = 0.01
+        while i < 0.1:
+            micro_remove_list.append(i)
+            i += 0.001
+
+        # 10M-100M sats range (0.1-1.0 BTC)
+        i = 0.1
+        while i < 1.0:
+            micro_remove_list.append(i)
+            i += 0.01
+
+        PCT_MICRO_REMOVE = 0.0001
+
+        output_points = []
+
+        # Create timestamp to block height mapping
+        # Sort transactions by timestamp to estimate block progression
+        sorted_txs = sorted(all_transactions, key=lambda x: x[1])
+        if not sorted_txs:
+            return output_points
+
+        # Estimate block heights from timestamps
+        # Assuming ~10 minutes per block
+        min_time = sorted_txs[0][1]
+        max_time = sorted_txs[-1][1]
+        time_span = max_time - min_time if max_time > min_time else 1.0
+
+        # Map to block height range (last 144 blocks)
+        start_block = (
+            self.last_block_height - len(self.blocks) + 1
+            if self.last_block_height
+            else 0
+        )
+
+        # Loop through all outputs (line 1223)
+        for amount_btc, timestamp in all_transactions:
+            # Estimate fractional block height from timestamp
+            time_progress = (timestamp - min_time) / time_span if time_span > 0 else 0.0
+            block_height = start_block + (time_progress * len(self.blocks))
+
+            # Try matching against each USD amount (line 1231)
+            for usd in USD_AMOUNTS:
+                # Calculate expected BTC range (lines 1234-1236)
+                expected_btc = usd / rough_price
+                btc_upper = expected_btc * (1.0 + PCT_RANGE)
+                btc_lower = expected_btc * (1.0 - PCT_RANGE)
+
+                # Check if transaction matches this USD amount (line 1239)
+                if btc_lower < amount_btc < btc_upper:
+                    should_append = True
+
+                    # Exclude micro-round amounts (lines 1242-1248)
+                    for round_amt in micro_remove_list:
+                        rm_lower = round_amt * (1.0 - PCT_MICRO_REMOVE)
+                        rm_upper = round_amt * (1.0 + PCT_MICRO_REMOVE)
+                        if rm_lower < amount_btc < rm_upper:
+                            should_append = False
+                            break
+
+                    # Calculate implied price (line 1252)
+                    if should_append:
+                        price = usd / amount_btc
+                        output_points.append((price, block_height, timestamp))
+                        break  # Found match for this transaction, move to next
+
+        logger.info(
+            f"Step 10: Generated {len(output_points)} intraday points from {len(all_transactions)} transactions"
+        )
+        return output_points
+
     def calculate_baseline(self) -> Optional[BaselineResult]:
         """
         Calculate baseline price using UTXOracle algorithm Steps 7-11.
@@ -414,6 +531,13 @@ class BaselineCalculator:
             f"confidence {confidence:.2f}"
         )
 
+        # Step 10: Generate intraday price points for dense visualization
+        logger.info("Generating intraday price points (Step 10)...")
+        intraday_points = self._generate_intraday_points(all_transactions, rough_price)
+        logger.info(
+            f"Generated {len(intraday_points)} intraday points for visualization"
+        )
+
         # Sample transactions for frontend visualization (max 10k for performance)
         sampled_transactions = all_transactions
         if len(all_transactions) > 10000:
@@ -433,6 +557,7 @@ class BaselineCalculator:
             block_height=self.last_block_height,
             num_transactions=len(all_transactions),
             transactions=sampled_transactions,
+            intraday_points=intraday_points,
         )
 
     def get_state(self) -> dict:

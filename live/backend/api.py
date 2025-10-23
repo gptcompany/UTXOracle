@@ -189,9 +189,24 @@ class DataStreamer:
 
                 bl = combined["baseline"]
 
-                # T107-T109: Convert baseline transactions to TransactionPoint format
+                # T107-T109: Convert baseline intraday_points to TransactionPoint format
                 baseline_transactions = []
-                if hasattr(bl, "transactions") and bl.transactions:
+
+                # Use Step 10 intraday_points if available (dense point cloud)
+                if hasattr(bl, "intraday_points") and bl.intraday_points:
+                    for price, block_height, timestamp in bl.intraday_points:
+                        baseline_transactions.append(
+                            TransactionPoint(
+                                timestamp=timestamp,
+                                price=price,  # Use calculated price from Step 10
+                                btc_amount=None,  # Not needed for baseline visualization
+                            )
+                        )
+                    logger.debug(
+                        f"Using {len(baseline_transactions)} intraday points for baseline visualization"
+                    )
+                # Fallback: use raw transactions with scatter if intraday_points not available
+                elif hasattr(bl, "transactions") and bl.transactions:
                     for amount_btc, timestamp in bl.transactions:
                         baseline_transactions.append(
                             TransactionPoint(
@@ -201,6 +216,9 @@ class DataStreamer:
                                 price=bl.price * (0.98 + random.random() * 0.04),
                             )
                         )
+                    logger.debug(
+                        f"Using {len(baseline_transactions)} raw transactions (fallback)"
+                    )
 
                 baseline_data = BaselineData(
                     price=bl.price,

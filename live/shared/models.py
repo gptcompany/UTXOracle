@@ -23,7 +23,7 @@ Data Flow:
 """
 
 from dataclasses import dataclass
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Tuple
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -222,6 +222,10 @@ class BaselineData(BaseModel):
         default_factory=list,
         description="Baseline transaction points for visualization (T107-T109)",
     )
+    intraday_points: List[Tuple[float, float, float]] = Field(
+        default_factory=list,
+        description="Intraday price points from Step 10: (price, block_height, timestamp)",
+    )
 
 
 class TransactionPoint(BaseModel):
@@ -231,7 +235,9 @@ class TransactionPoint(BaseModel):
     price: float = Field(
         ..., gt=0, description="Estimated price for this transaction (USD)"
     )
-    btc_amount: Optional[float] = Field(None, gt=0, description="Transaction value in BTC (optional for baseline)")
+    btc_amount: Optional[float] = Field(
+        None, gt=0, description="Transaction value in BTC (optional for baseline)"
+    )
 
 
 class SystemStats(BaseModel):

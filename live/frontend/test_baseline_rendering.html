@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Baseline Rendering Test - UTXOracle Live</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .test-controls {
+            padding: 20px;
+            background-color: rgba(255, 255, 255, 0.1);
+            margin: 20px auto;
+            max-width: 1000px;
+            border-radius: 5px;
+        }
+        .test-controls button {
+            background-color: #FF8C00;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            margin: 5px;
+            font-size: 14px;
+        }
+        .test-controls button:hover {
+            background-color: #FFA500;
+        }
+        .test-info {
+            color: #00FFFF;
+            font-family: monospace;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Baseline Rendering Test - Dense Pixel Cloud</h1>
+
+        <div class="test-controls">
+            <button onclick="loadMockBaseline(500)">Load 500 Baseline Points</button>
+            <button onclick="loadMockBaseline(1500)">Load 1,500 Baseline Points</button>
+            <button onclick="loadMockBaseline(5000)">Load 5,000 Baseline Points</button>
+            <button onclick="loadMockBaseline(10000)">Load 10,000 Baseline Points</button>
+            <button onclick="clearBaseline()">Clear Baseline</button>
+            <div class="test-info" id="test-info">
+                Ready to test. Click a button to load mock baseline data.
+            </div>
+        </div>
+
+        <div class="canvas-container">
+            <canvas id="mempool-canvas" width="1000" height="660"></canvas>
+        </div>
+
+        <div class="stats-panel">
+            <div class="stat-item">
+                <span class="stat-label">Baseline Points:</span>
+                <span id="stat-baseline">0</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Mempool Points:</span>
+                <span id="stat-mempool">0</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Render Time:</span>
+                <span id="stat-render">0ms</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">FPS:</span>
+                <span id="stat-fps">0</span>
+            </div>
+        </div>
+    </div>
+
+    <script src="mempool-viz.js"></script>
+    <script>
+        // Test harness for baseline rendering
+        let visualizer;
+        let fpsCounter = 0;
+        let lastFpsUpdate = Date.now();
+        let renderTimes = [];
+
+        // Initialize visualizer
+        document.addEventListener('DOMContentLoaded', () => {
+            visualizer = new MempoolVisualizer('mempool-canvas');
+
+            // Override render to track performance
+            const originalRender = visualizer.render.bind(visualizer);
+            visualizer.render = function() {
+                const startTime = performance.now();
+                originalRender();
+                const endTime = performance.now();
+
+                renderTimes.push(endTime - startTime);
+                if (renderTimes.length > 60) renderTimes.shift();
+
+                fpsCounter++;
+                const now = Date.now();
+                if (now - lastFpsUpdate >= 1000) {
+                    document.getElementById('stat-fps').textContent = fpsCounter;
+                    fpsCounter = 0;
+                    lastFpsUpdate = now;
+
+                    // Update average render time
+                    const avgRenderTime = renderTimes.reduce((a, b) => a + b, 0) / renderTimes.length;
+                    document.getElementById('stat-render').textContent = avgRenderTime.toFixed(2) + 'ms';
+                }
+            };
+
+            // Load initial test data
+            loadMockBaseline(1500);
+        });
+
+        function loadMockBaseline(numPoints) {
+            const startTime = performance.now();
+
+            // Generate mock baseline data
+            const now = Date.now() / 1000;
+            const basePrice = 110000;
+            const priceVariation = 1000;
+
+            // 24 hours of data (86400 seconds)
+            const timeRange = 24 * 60 * 60;
+            const startTime_tx = now - timeRange;
+
+            const mockBaseline = {
+                price: basePrice,
+                price_min: basePrice - priceVariation / 2,
+                price_max: basePrice + priceVariation / 2,
+                transactions: []
+            };
+
+            // Generate evenly distributed points with price variation
+            for (let i = 0; i < numPoints; i++) {
+                const timestamp = startTime_tx + (i / numPoints) * timeRange;
+
+                // Add some realistic price movement (sine wave + noise)
+                const sineComponent = Math.sin(i / numPoints * Math.PI * 4) * (priceVariation / 3);
+                const noiseComponent = (Math.random() - 0.5) * (priceVariation / 2);
+                const price = basePrice + sineComponent + noiseComponent;
+
+                mockBaseline.transactions.push({
+                    timestamp: timestamp,
+                    price: price
+                });
+            }
+
+            // Generate some mock mempool points
+            const mempoolPoints = [];
+            const mempoolTimeWindow = 5 * 60; // 5 minutes
+            const numMempoolPoints = 50;
+
+            for (let i = 0; i < numMempoolPoints; i++) {
+                const timestamp = now - mempoolTimeWindow + (i / numMempoolPoints) * mempoolTimeWindow;
+                const price = basePrice + (Math.random() - 0.5) * priceVariation;
+                const btc_amount = Math.random() * 0.5; // 0 to 0.5 BTC
+
+                mempoolPoints.push({
+                    timestamp: timestamp,
+                    price: price,
+                    btc_amount: btc_amount
+                });
+            }
+
+            // Update visualizer
+            visualizer.updateData(mempoolPoints, mockBaseline);
+
+            // Update stats
+            document.getElementById('stat-baseline').textContent = numPoints;
+            document.getElementById('stat-mempool').textContent = numMempoolPoints;
+
+            const loadTime = performance.now() - startTime;
+            document.getElementById('test-info').innerHTML = `
+                Loaded ${numPoints} baseline points + ${numMempoolPoints} mempool points<br>
+                Load time: ${loadTime.toFixed(2)}ms<br>
+                Price range: $${mockBaseline.price_min.toFixed(0)} - $${mockBaseline.price_max.toFixed(0)}<br>
+                Time range: ${new Date(startTime_tx * 1000).toLocaleTimeString()} - ${new Date(now * 1000).toLocaleTimeString()}
+            `;
+        }
+
+        function clearBaseline() {
+            visualizer.baseline = null;
+            visualizer.transactions = [];
+            document.getElementById('stat-baseline').textContent = '0';
+            document.getElementById('stat-mempool').textContent = '0';
+            document.getElementById('test-info').textContent = 'Cleared all data.';
+        }
+    </script>
+</body>
+</html>

@@ -273,8 +273,9 @@ class MempoolVisualizer {
         this.plotWidth = this.width - this.marginLeft - this.marginRight;
         this.plotHeight = this.height - this.marginTop - this.marginBottom;
 
-        // T109: Dual panel split (LEFT=baseline 40%, RIGHT=mempool 60%)
-        this.panelSplitRatio = 0.4;
+        // T109: Dual panel split (LEFT=baseline 60%, RIGHT=mempool 40%)
+        // CHANGE: Reversed from 40/60 to 60/40 to match UTXOracle.py visual prominence
+        this.panelSplitRatio = 0.6;
         this.baselineWidth = this.plotWidth * this.panelSplitRatio;
         this.mempoolWidth = this.plotWidth * (1 - this.panelSplitRatio);
 
@@ -473,6 +474,9 @@ class MempoolVisualizer {
         // Draw mempool points on right panel
         this.drawPoints();
 
+        // Draw vertical separator line between panels
+        this.drawPanelSeparator();
+
         if (this.hoveredTransaction) {
             const x = this.scaleXMempool(this.hoveredTransaction.timestamp);
             const y = this.scaleY(this.hoveredTransaction.price);
@@ -611,6 +615,7 @@ class MempoolVisualizer {
     }
 
     // T109: Draw baseline points (cyan) on left panel
+    // REWRITE 2025-10-23: Use fillRect(x, y, 1, 1) to match UTXOracle.py style exactly
     drawBaselinePoints() {
         if (!this.baseline || !this.baseline.price) {
             return;
@@ -618,36 +623,82 @@ class MempoolVisualizer {
 
         // BUGFIX 2025-10-22: Backend now sends baseline.transactions (10k points)
         if (this.baseline.transactions && this.baseline.transactions.length > 0) {
-            for (const tx of this.baseline.transactions) {
-                const baseX = this.scaleXBaseline(tx.timestamp);
-                // BUGFIX 2025-10-23: Increased jitter from ±2 to ±15 pixels
-                // to fully distribute vertical stripes into uniform cloud
-                const jitter = (Math.random() - 0.5) * 30; // ±15 pixels
-                const x = baseX + jitter;
-                const y = this.scaleY(tx.price);
+            const transactions = this.baseline.transactions;
 
-                // Cyan point
-                this.ctx.fillStyle = 'rgba(0, 255, 255, 0.7)';
-                this.ctx.beginPath();
-                this.ctx.arc(x, y, 2, 0, 2 * Math.PI);
-                this.ctx.fill();
+            // Calculate time and price ranges (for debug logging)
+            const timestamps = transactions.map(tx => tx.timestamp);
+            const minTime = Math.min(...timestamps);
+            const maxTime = Math.max(...timestamps);
+            const prices = transactions.map(tx => tx.price);
+            const minPrice = Math.min(...prices);
+            const maxPrice = Math.max(...prices);
+
+            // UTXOracle style: cyan color, 1x1 pixel squares
+            this.ctx.fillStyle = 'cyan';
+
+            // Performance optimization for >5k points: direct pixel manipulation
+            if (transactions.length > 5000) {
+                // Use ImageData for maximum performance
+                const imageData = this.ctx.getImageData(
+                    this.marginLeft,
+                    this.marginTop,
+                    Math.floor(this.baselineWidth),
+                    Math.floor(this.plotHeight)
+                );
+                const data = imageData.data;
+                const imgWidth = Math.floor(this.baselineWidth);
+                const imgHeight = Math.floor(this.plotHeight);
+
+                for (const tx of transactions) {
+                    const x = Math.floor(this.scaleXBaseline(tx.timestamp)) - this.marginLeft;
+                    const y = Math.floor(this.scaleY(tx.price)) - this.marginTop;
+
+                    if (x >= 0 && x < imgWidth && y >= 0 && y < imgHeight) {
+                        const index = (y * imgWidth + x) * 4;
+                        data[index] = 0;        // R
+                        data[index + 1] = 255;  // G (cyan)
+                        data[index + 2] = 255;  // B
+                        data[index + 3] = 255;  // A (full opacity)
+                    }
+                }
+
+                this.ctx.putImageData(imageData, this.marginLeft, this.marginTop);
+            } else {
+                // Standard fillRect for <5k points (faster for small datasets)
+                for (const tx of transactions) {
+                    const x = Math.floor(this.scaleXBaseline(tx.timestamp));
+                    const y = Math.floor(this.scaleY(tx.price));
+
+                    // Draw 1x1 pixel square (UTXOracle style)
+                    this.ctx.fillRect(x, y, 1, 1);
+                }
+            }
+
+            // Debug log (only log once per second)
+            if (!this._lastBaselineLog || Date.now() - this._lastBaselineLog > 1000) {
+                console.log(
+                    `[Baseline] Drew ${transactions.length} points, ` +
+                    `time: ${new Date(minTime * 1000).toLocaleTimeString()} - ${new Date(maxTime * 1000).toLocaleTimeString()}, ` +
+                    `price: $${minPrice.toFixed(0)} - $${maxPrice.toFixed(0)}`
+                );
+                this._lastBaselineLog = Date.now();
             }
         } else {
-            // Synthetic fallback (only if no data)
+            // Synthetic fallback (only if no data) - also use fillRect
             const baselineY = this.scaleY(this.baseline.price);
-            const numPoints = 50;
+            const numPoints = 500;  // Increased for denser cloud
             const baselineStartX = this.marginLeft;
 
+            this.ctx.fillStyle = 'cyan';
+
             for (let i = 0; i < numPoints; i++) {
-                const x = baselineStartX + (i / numPoints) * this.baselineWidth;
+                const x = Math.floor(baselineStartX + (i / numPoints) * this.baselineWidth);
                 const verticalSpread = ((this.baseline.price_max - this.baseline.price_min) / (this.priceMax - this.priceMin)) * this.plotHeight;
                 const yOffset = (Math.random() - 0.5) * verticalSpread;
-                const y = baselineY + yOffset;
+                const y = Math.floor(baselineY + yOffset);
 
-                this.ctx.fillStyle = 'rgba(0, 255, 255, 0.7)';
-                this.ctx.beginPath();
-                this.ctx.arc(x, y, 2, 0, 2 * Math.PI);
-                this.ctx.fill();
+                // 1x1 pixel square
+                this.ctx.fillRect(x, y, 1, 1);
             }
         }
     }
@@ -686,32 +737,43 @@ class MempoolVisualizer {
         return mempoolStartX + (normalized * this.mempoolWidth);
     }
 
-    // T109: Draw panel labels (LEFT: confirmed, RIGHT: mempool)
+    // T109: Draw panel labels (LEFT: confirmed 60%, RIGHT: mempool 40%)
     drawPanelLabels() {
         this.ctx.save();
         this.ctx.font = '14px sans-serif';
         this.ctx.textBaseline = 'top';
 
-        // LEFT panel label: "Confirmed On-Chain (3hr)" in cyan
+        // LEFT panel label: "BASELINE (24h)" in cyan
         this.ctx.fillStyle = this.baselineColor;  // #00FFFF (cyan)
         this.ctx.textAlign = 'left';
         const leftLabelX = this.marginLeft + 10;
         const leftLabelY = 10;
-        this.ctx.fillText('Confirmed On-Chain (3hr)', leftLabelX, leftLabelY);
+        this.ctx.fillText('BASELINE (24h)', leftLabelX, leftLabelY);
 
-        // RIGHT panel label: "Mempool" in orange
+        // RIGHT panel label: "MEMPOOL (5min)" in orange
         this.ctx.fillStyle = this.pointColor;  // #FF8C00 (orange)
         this.ctx.textAlign = 'right';
         const rightLabelX = this.marginLeft + this.plotWidth - 10;
         const rightLabelY = 10;
-        this.ctx.fillText('Mempool', rightLabelX, rightLabelY);
+        this.ctx.fillText('MEMPOOL (5min)', rightLabelX, rightLabelY);
 
-        // RIGHT panel average price (if available)
-        if (this.transactions.length > 0) {
-            const avgPrice = this.transactions.reduce((sum, tx) => sum + tx.price, 0) / this.transactions.length;
-            const avgText = `Avg: $${Math.round(avgPrice).toLocaleString()}`;
-            this.ctx.fillText(avgText, rightLabelX, rightLabelY + 20);
-        }
+        this.ctx.restore();
+    }
+
+    // Draw vertical separator line between baseline and mempool panels
+    drawPanelSeparator() {
+        this.ctx.save();
+
+        // Semi-transparent white line
+        this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+        this.ctx.lineWidth = 1;
+
+        const separatorX = this.marginLeft + this.baselineWidth;
+
+        this.ctx.beginPath();
+        this.ctx.moveTo(separatorX, this.marginTop);
+        this.ctx.lineTo(separatorX, this.marginTop + this.plotHeight);
+        this.ctx.stroke();
 
         this.ctx.restore();
     }
