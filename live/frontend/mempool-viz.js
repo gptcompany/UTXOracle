@@ -908,7 +908,7 @@ class UTXOracleLive {
         });
 
         this.wsClient.onMessage((message) => {
-            this.handleMempoolUpdate(message);
+            this.handleWebSocketMessage(message);
         });
     }
 
@@ -925,14 +925,25 @@ class UTXOracleLive {
         }
     }
 
-    handleMempoolUpdate(message) {
-        if (message.type !== 'mempool_update') {
-            console.warn('[App] Unknown message type:', message.type);
+    handleWebSocketMessage(message) {
+        if (!message || !message.type || !message.data) {
+            console.warn('[App] Invalid message received:', message);
             return;
         }
 
-        const data = message.data;
+        switch (message.type) {
+            case 'mempool_update':
+                this.handleMempoolUpdate(message.data);
+                break;
+            case 'baseline_update':
+                this.handleBaselineUpdate(message.data);
+                break;
+            default:
+                console.warn('[App] Unknown message type:', message.type);
+        }
+    }
 
+    handleMempoolUpdate(data) {
         this.uiController.updatePrice(data.price);
         this.uiController.updateConfidence(data.confidence);
         this.uiController.updateStats(data.stats);
@@ -941,16 +952,14 @@ class UTXOracleLive {
         if (data.transactions && data.transactions.length > 0) {
             this.visualizer.updateData(data.transactions, data.baseline || null);
         }
+    }
 
-        if (Math.random() < 0.1) {
-            console.log('[App] Mempool update:', {
-                price: data.price,
-                confidence: data.confidence,
-                active: data.stats?.active_in_window,
-                transactions: data.transactions?.length || 0,
-                baseline: data.baseline ? `$${Math.round(data.baseline.price).toLocaleString()}` : 'none'
-            });
-        }
+    handleBaselineUpdate(data) {
+        console.log('[App] Received baseline update:', {
+            price: data.price,
+            points: data.transactions?.length || 0,
+        });
+        this.visualizer.updateData({ baseline: data });
     }
 }
 

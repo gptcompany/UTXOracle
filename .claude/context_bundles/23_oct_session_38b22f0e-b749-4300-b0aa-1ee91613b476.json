@@ -2323,7 +2323,314 @@
       "operation": "read",
       "timestamp": "2025-10-23T16:20:43.829576",
       "file_path": "/media/sam/1TB/UTXOracle/UTXOracle.py"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:21:16.989432",
+      "command": "git add -A && git commit -m \"wip: Baseline rendering fixes (movement, bounds, sampling)\n\nProgress so far:\n✅ Fixed: Points no longer move (cache with fixed jitter)\n✅ Fixed: Points stay inside bounds (bounds checking)\n✅ Fixed: WebSocket crash (10k sampling)\n✅ Reduced: Jitter from ±15px to ±3px\n✅ Changed: Random sampling → Uniform sampling (preserves distribution)\n\n❌ Still investigating: Points appear in vertical stripe instead\n   of horizontally distributed over 24h time range\n\nNext steps:\n- Debug why scaleXBaseline() returns similar X values\n- Verify uniform sampling is actually being used\n- Compare with UTXOracle.py reference implementation\n\n🤖 Generated with Claude Code\nCo-Authored-By: Claude <noreply@anthropic.com>\"",
+      "description": "Commit work in progress"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:44:41.907544",
+      "command": "pgrep -f \"uvicorn live.backend.api:app\" || echo \"❌ Server not running\"",
+      "description": "Check if server is running"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-23T16:44:44.449552",
+      "file_path": "/media/sam/1TB/UTXOracle/live/backend/api.py"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:44:46.927610",
+      "command": "tail -100 /tmp/utxoracle_server.log 2>/dev/null || ps aux | grep uvicorn | head -5",
+      "description": "Check server logs or processes"
+    },
+    {
+      "operation": "bashoutput",
+      "timestamp": "2025-10-23T16:45:04.207797",
+      "bash_id": "7ad4da"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:45:06.544605",
+      "command": "python -m py_compile live/backend/api.py 2>&1 || echo \"SYNTAX ERROR DETECTED\"",
+      "description": "Check for Python syntax errors in api.py"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-23T16:45:09.198727",
+      "file_path": "/media/sam/1TB/UTXOracle/live/backend/api.py"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:45:12.795259",
+      "command": "wc -l /media/sam/1TB/UTXOracle/live/backend/api.py && grep -n \"class\\|def\\|import\" /media/sam/1TB/UTXOracle/live/backend/api.py | head -40",
+      "description": "Analyze file structure"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:45:37.249925",
+      "command": "git diff HEAD -- live/backend/api.py | head -100",
+      "description": "Check uncommitted changes to api.py"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:45:37.835338",
+      "command": "git show 394caf0:live/backend/api.py | head -50",
+      "description": "Check last working version"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:45:38.395646",
+      "command": "git log --oneline --all -10",
+      "description": "Check recent commits"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:48:12.830227",
+      "command": "git checkout 394caf0 -- live/backend/api.py",
+      "description": "Rollback api.py to last working commit"
+    },
+    {
+      "operation": "bashoutput",
+      "timestamp": "2025-10-23T16:50:32.272260",
+      "bash_id": "7ad4da"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:50:34.215961",
+      "command": "ps aux | grep uvicorn",
+      "description": "Check for running uvicorn processes"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:50:57.287130",
+      "command": "netstat -tulpn 2>/dev/null | grep 8000",
+      "description": "Check if port 8000 is listening"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:50:59.820544",
+      "command": "ps aux | grep \"uvicorn.*8000\" | grep -v grep",
+      "description": "Check uvicorn process status"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:51:08.443701",
+      "command": "tail -50 /tmp/utxoracle_server.log",
+      "description": "Check server log for errors"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:51:12.627400",
+      "command": "curl -v http://127.0.0.1:8000/health 2>&1 | head -20",
+      "description": "Try to connect to server health endpoint"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:51:25.469110",
+      "command": "git diff 394caf0 HEAD -- live/shared/models.py | head -100",
+      "description": "Check changes to models.py after commit 394caf0"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-23T16:51:34.916024",
+      "file_path": "/media/sam/1TB/UTXOracle/live/shared/models.py"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:51:36.827238",
+      "command": "git log --oneline --all -- live/shared/models.py | head -10",
+      "description": "Check git history of models.py"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:51:45.628549",
+      "command": "grep -n \"class WebSocketMessage\" live/shared/models.py",
+      "description": "Search for WebSocketMessage class definition"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:51:46.115017",
+      "command": "grep -n \"class.*Message\" live/shared/models.py",
+      "description": "Search for all Message classes"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:51:59.335298",
+      "command": "git log --oneline --all | grep -B2 -A2 \"394caf0\"",
+      "description": "Check commits around 394caf0"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:51:59.880521",
+      "command": "git show 394caf0:live/shared/models.py | grep -A5 \"class WebSocketMessage\"",
+      "description": "Check if WebSocketMessage exists in commit 394caf0"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:52:11.284949",
+      "command": "git checkout 394caf0 -- live/shared/models.py",
+      "description": "Rollback models.py to commit 394caf0"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:52:16.805920",
+      "command": "sleep 3 && tail -30 /tmp/utxoracle_server.log",
+      "description": "Check if server reloaded successfully"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:52:39.490432",
+      "command": "tail -100 /tmp/utxoracle_server.log | grep -A5 \"Application startup complete\\|ERROR\\|Traceback\"",
+      "description": "Check for server startup completion or errors"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:52:57.694597",
+      "command": "sleep 10 && tail -20 /tmp/utxoracle_server.log",
+      "description": "Wait longer and check latest log output"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:53:21.984685",
+      "command": "sleep 15 && curl -s http://127.0.0.1:8000/health 2>&1 | head -10",
+      "description": "Wait for baseline calculation to complete and test connection"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:53:33.436662",
+      "command": "curl -s http://127.0.0.1:8000/health | python3 -m json.tool 2>&1",
+      "description": "Test health endpoint"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:53:49.112125",
+      "command": "git checkout 394caf0 -- live/backend/orchestrator.py",
+      "description": "Rollback orchestrator.py to working version"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:53:54.732657",
+      "command": "sleep 3 && tail -10 /tmp/utxoracle_server.log | grep -E \"Application startup complete|Broadcasting|ERROR\"",
+      "description": "Wait for reload and check if broadcast errors are fixed"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:54:32.266474",
+      "command": "sleep 25 && tail -15 /tmp/utxoracle_server.log | grep -E \"Application startup complete|Broadcasting|ERROR|Using.*intraday\"",
+      "description": "Wait for baseline calculation to complete"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:54:41.960301",
+      "command": "tail -30 /tmp/utxoracle_server.log | tail -10",
+      "description": "Check latest log output"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:55:00.543376",
+      "command": "sleep 10 && tail -20 /tmp/utxoracle_server.log",
+      "description": "Wait for completion and check final logs"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:55:15.743499",
+      "command": "sleep 5 && curl -s http://127.0.0.1:8000/health | python3 -m json.tool",
+      "description": "Check if server is fully started"
+    },
+    {
+      "operation": "mcp__playwright__browser_navigate",
+      "timestamp": "2025-10-23T16:55:28.010278",
+      "url": "http://localhost:8000"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:55:49.851605",
+      "command": "sleep 5",
+      "description": "Wait for data to populate"
+    },
+    {
+      "operation": "mcp__playwright__browser_take_screenshot",
+      "timestamp": "2025-10-23T16:55:58.858423",
+      "filename": "baseline_rendering_verification.png",
+      "type": "png"
+    },
+    {
+      "operation": "mcp__playwright__browser_console_messages",
+      "timestamp": "2025-10-23T16:56:16.368918",
+      "onlyErrors": true
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-23T16:56:32.732234",
+      "file_path": "/media/sam/1TB/UTXOracle/live/frontend/mempool-viz.js"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:56:36.190184",
+      "command": "curl -s http://127.0.0.1:8000/ws/mempool 2>&1 | head -5",
+      "description": "Check WebSocket endpoint accessibility"
+    },
+    {
+      "operation": "read",
+      "timestamp": "2025-10-23T16:56:48.654072",
+      "file_path": "/media/sam/1TB/UTXOracle/live/frontend/mempool-viz.js"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:57:06.537876",
+      "command": "git show 394caf0:live/frontend/mempool-viz.js | grep -A3 \"handleMempoolUpdate\"",
+      "description": "Check how handleMempoolUpdate was in commit 394caf0"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:57:07.125283",
+      "command": "git log -1 --oneline -- live/frontend/mempool-viz.js",
+      "description": "Check last commit that modified mempool-viz.js"
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:57:18.527296",
+      "command": "git show 394caf0:live/frontend/mempool-viz.js | grep -A15 \"handleMempoolUpdate(message)\"",
+      "description": "Get full handleMempoolUpdate from working version"
+    },
+    {
+      "operation": "edit",
+      "timestamp": "2025-10-23T16:57:30.812579",
+      "file_path": "/media/sam/1TB/UTXOracle/live/frontend/mempool-viz.js",
+      "old_string": "    handleMempoolUpdate(data) {\n        this.uiController.updatePrice(data.price);\n        this.uiCo..."
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:57:48.905541",
+      "command": "sleep 2 && curl -s -I http://127.0.0.1:8000/mempool-viz.js | head -5",
+      "description": "Check if JS file is accessible"
+    },
+    {
+      "operation": "mcp__playwright__browser_navigate",
+      "timestamp": "2025-10-23T16:57:51.055770",
+      "url": "http://localhost:8000"
+    },
+    {
+      "operation": "mcp__playwright__browser_console_messages",
+      "timestamp": "2025-10-23T16:58:03.726849",
+      "onlyErrors": true
+    },
+    {
+      "operation": "bash",
+      "timestamp": "2025-10-23T16:58:06.776589",
+      "command": "sleep 3",
+      "description": "Wait for data to populate"
+    },
+    {
+      "operation": "mcp__playwright__browser_take_screenshot",
+      "timestamp": "2025-10-23T16:58:18.866348",
+      "filename": "baseline_fixed.png",
+      "type": "png"
     }
   ],
-  "last_updated": "2025-10-23T16:20:43.829597"
+  "last_updated": "2025-10-23T16:58:18.866366"
 }
