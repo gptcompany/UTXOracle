@@ -139,6 +139,7 @@ uv.lock                             # Dependency lockfile (commit this!)
 ├── scripts/
 └── templates/
 archive/                            # Previous versions (v7, v8, v9)
+├── contadino_cosmico.md
 ├── start9/
 ├── v7/
 ├── v8/

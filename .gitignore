@@ -255,3 +255,7 @@ playground/
 # Claude Code logs (keep in .claude/logs/ but ignore at root)
 /claude_*.log
 /session_*.log
+
+# Claude Code session data (local only, not for remote)
+.claude/context_bundles/
+.claude/stats/
