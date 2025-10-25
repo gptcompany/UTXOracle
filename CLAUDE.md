@@ -105,12 +105,15 @@ uv.lock                             # Dependency lockfile (commit this!)
 ├── BROWSER_MCP_QUICK_REFERENCE.md
 ├── HOOKS_ANALYSIS.md
 ├── HOOKS_TUTORIAL_ANALYSIS.md
+├── HOOK_CONFIG_SNIPPET.md
 ├── META_LEARNING_README.md
 ├── README.md
 ├── TDD_GUARD_VS_AUTOTEST.md
+├── VERIFICATION_REPORT.md
 ├── config.json
 ├── settings.local copy.json
 ├── settings.local.json
+├── settings.local.json.backup-20251024-175459
 ├── agents/                             # 6 specialized subagents
 ├── commands/                           # Custom slash commands (SpecKit)
 ├── context_bundles/
@@ -139,6 +142,7 @@ uv.lock                             # Dependency lockfile (commit this!)
 ├── scripts/
 └── templates/
 archive/                            # Previous versions (v7, v8, v9)
+├── CHANGELOG_SPEC.md
 ├── contadino_cosmico.md
 ├── start9/
 ├── v7/
@@ -156,6 +160,7 @@ docs/                               # Documentation
 ├── IMPLEMENTATION_CHECKLIST.md
 ├── MANUAL_TEST_US3_CONFIDENCE_WARNING.md
 ├── PHASE7_COMPLETION_REPORT.md
+├── SELFHOSTED_MEMPOOL_INTEGRATION.md
 ├── STEP10_IMPLEMENTATION_REPORT.md
 ├── T093_FINAL_REPORT.md
 ├── T093_FINAL_SUCCESS.png
@@ -195,10 +200,16 @@ live/                               # Modular live system implementation
 └── shared/                             # Shared data models
 scripts/                            # Utilities (batch processing, etc.)
 ├── README.md
-└── utxoracle_batch.py
+├── live_mempool_with_baseline.py
+├── setup_full_mempool_stack.sh
+├── setup_mempool_env.sh
+├── utxoracle_batch.py
+├── utxoracle_mempool_integration.py
+└── verify_mempool_setup.sh
 specs/                              # Feature specifications (SpecKit)
 ├── 001-specify-scripts-bash/
-└── 002-mempool-live-oracle/
+├── 002-mempool-live-oracle/
+└── 003-mempool-integration-refactor/
 tests/                              # Test suite (pytest)
 ├── __init__.py
 ├── conftest.py
@@ -323,6 +334,12 @@ See `.claude/prompts/utxoracle-system.md` for:
 - **No generic solutions**: Specific beats flexible
 - **Delete dead code**: If unused for 2 weeks, remove it
 - **Resist abstraction temptation**: 3 similar things ≠ need for abstraction
+
+#### **Code Reuse First** - Don't Reinvent the Wheel
+- **NEVER write custom code if >80% can be reused**: Use existing libraries, services, or infrastructure
+- **Analyze before automating**: Verify existing solutions don't already solve the problem
+- **Self-host over custom build**: Deploy proven open-source solutions instead of reimplementing
+- **Example**: Use mempool.space (battle-tested) instead of custom ZMQ parser (1,222 lines)
 
 #### **Applied to UTXOracle**
 ✅ **DO**: Use existing 6 subagents + 4 skills

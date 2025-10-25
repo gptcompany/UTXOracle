@@ -5,6 +5,15 @@
 #     "asyncio",
 # ]
 # ///
+"""
+Context Bundle Builder: Pre-tool-use hook for multi-project tracking
+
+Logs tool usage to both file-based context bundles and PostgreSQL database.
+Supports multi-repository deployments via CLAUDE_PROJECT_NAME env variable.
+
+ENV VARIABLES:
+    CLAUDE_PROJECT_NAME: Project identifier (default: "unknown")
+"""
 
 import json
 import os
@@ -14,6 +23,14 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List
+
+# Add .claude/scripts to path to import session_manager
+sys.path.insert(0, str(Path.cwd() / ".claude" / "scripts"))
+try:
+    from session_manager import ClaudeSessionManager
+except ImportError:
+    # Fail gracefully if session_manager not available
+    ClaudeSessionManager = None
 
 def get_session_id(input_data):
     """Get the current session ID from input data or fallback"""
@@ -75,6 +92,42 @@ def save_bundle(bundle, bundle_path):
             json.dump(bundle, f, indent=2, ensure_ascii=False)
     except Exception as e:
         print(f"Error saving context bundle: {e}", file=sys.stderr)
+
+def persist_tool_to_postgresql(session_id, tool_name, tool_details):
+    """
+    Write tool usage to PostgreSQL (in addition to file).
+
+    HYBRID ARCHITECTURE: Data written to both context_bundles/*.json (debugging)
+    and PostgreSQL (n8n workflow queries).
+
+    Args:
+        session_id: Claude session ID
+        tool_name: Tool name (Read, Edit, Bash, etc.)
+        tool_details: Dict of tool parameters (file_path, command, etc.)
+
+    Returns:
+        bool: True if written successfully
+    """
+    if ClaudeSessionManager is None:
+        return False  # Session manager not available
+
+    try:
+        manager = ClaudeSessionManager()
+
+        # Log tool use with tool_params
+        # Note: duration_ms=0 will be updated later by post-tool-use.py
+        manager.log_tool_use(
+            session_id=session_id,
+            tool_name=tool_name,
+            duration_ms=0,  # Placeholder, will be updated by post-tool-use.py
+            success=True,   # Assume success at this point
+            tool_params=tool_details
+        )
+        manager.close()
+        return True
+    except Exception as e:
+        # Fail silently - don't break hook
+        return False
 
 def record_operation():
     """Record the current operation to context bundle"""
@@ -177,7 +230,11 @@ def record_operation():
         
         # Save bundle
         save_bundle(bundle, bundle_path)
-        
+
+        # HYBRID ARCHITECTURE: Write to PostgreSQL as well
+        session_id = get_session_id(input_data)
+        persist_tool_to_postgresql(session_id, tool_name, tool_details)
+
         # Output for debugging (optional)
         if operation_type == "task" and "subagent_type" in tool_details:
             print(f"Subagent invoked: {tool_details['subagent_type']} | Bundle: {bundle_path.name}", file=sys.stderr)
