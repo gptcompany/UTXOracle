@@ -259,3 +259,15 @@ playground/
 # Claude Code session data (local only, not for remote)
 .claude/context_bundles/
 .claude/stats/
+
+# Production data (Phase 1 - mempool.space integration)
+/media/sam/2TB-NVMe/
+*.db
+*.db.wal
+*.db.shm
+*.duckdb
+*.duckdb.wal
+
+# Docker volumes (mempool-stack)
+mempool-stack/data/
+mempool-stack/logs/

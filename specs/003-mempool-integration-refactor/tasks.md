@@ -26,7 +26,7 @@
 
 **Time Estimate**: 30 minutes
 
-- [ ] T000 [Setup] Create `.git/hooks/pre-commit` script with cleanup checks:
+- [X] T000 [Setup] Create `.git/hooks/pre-commit` script with cleanup checks:
   - Remove temporary files (`.tmp`, `.bak`, `~`, `.swp`)
   - Clean Python cache (`find . -type d -name __pycache__ -exec rm -rf {} +`)
   - Check for debug code (`git diff --cached | grep -E "(print\(|console\.log|debugger)"`)
@@ -43,18 +43,18 @@
 
 **Time Estimate**: 4-6 hours (including 3-4 hour electrs sync on NVMe)
 
-- [ ] T001 Verify prerequisites: Bitcoin Core synced, Docker installed, NVMe has 50GB free
-- [ ] T002 Review setup script: `scripts/setup_full_mempool_stack.sh` (already created)
-- [ ] T003 Run setup script: `bash scripts/setup_full_mempool_stack.sh` (creates directory structure + docker-compose.yml)
-- [ ] T004 Verify configuration: Check `/media/sam/2TB-NVMe/prod/apps/mempool-stack/.env` has correct Bitcoin RPC credentials
-- [ ] T005 Start Docker stack: `cd /media/sam/2TB-NVMe/prod/apps/mempool-stack && docker-compose up -d`
-- [ ] T006 Monitor electrs sync: `docker-compose logs -f electrs` (wait for "finished full compaction" - 3-4 hours on NVMe)
-- [ ] T007 Verify all containers healthy: `docker-compose ps` (all should show "Up" and "(healthy)")
-- [ ] T008 [P] Test electrs connectivity: `curl -s http://localhost:50001 | head -5` (should respond)
-- [ ] T009 [P] Test backend API: `curl http://localhost:8999/api/blocks/tip/height` (should return current block height)
-- [ ] T010 [P] Test frontend: `curl -s http://localhost:8080 | grep mempool` (should return HTML)
-- [ ] T011 [P] Test exchange prices: `curl http://localhost:8999/api/v1/prices | jq .USD` (should return price)
-- [ ] T012 Document infrastructure status: Create `INFRASTRUCTURE_STATUS.md` with container IDs, ports, disk usage
+- [X] T001 Verify prerequisites: Bitcoin Core synced, Docker installed, NVMe has 50GB free
+- [X] T002 Review setup script: `scripts/setup_full_mempool_stack.sh` (already created)
+- [X] T003 Run setup script: `bash scripts/setup_full_mempool_stack.sh` (creates directory structure + docker-compose.yml)
+- [X] T004 Verify configuration: Check `/media/sam/2TB-NVMe/prod/apps/mempool-stack/.env` has correct Bitcoin RPC credentials
+- [X] T005 Start Docker stack: `cd /media/sam/2TB-NVMe/prod/apps/mempool-stack && docker-compose up -d`
+- [X] T006 Monitor electrs sync: `docker-compose logs -f electrs` (wait for "finished full compaction" - 3-4 hours on NVMe)
+- [X] T007 Verify all containers healthy: `docker-compose ps` (all should show "Up" and "(healthy)")
+- [X] T008 [P] Test electrs connectivity: `curl -s http://localhost:50001 | head -5` (should respond)
+- [X] T009 [P] Test backend API: `curl http://localhost:8999/api/blocks/tip/height` (should return current block height) - FIXED networking issue
+- [X] T010 [P] Test frontend: `curl -s http://localhost:8080 | grep mempool` (should return HTML)
+- [X] T011 [P] Test exchange prices: `curl http://localhost:8999/api/v1/prices | jq .USD` (should return price)
+- [X] T012 Document infrastructure status: Create `INFRASTRUCTURE_STATUS.md` with container IDs, ports, disk usage
 
 **Checkpoint**: Infrastructure ready - mempool.space stack fully operational
 
@@ -68,39 +68,39 @@
 
 ### Tests for Algorithm Refactor (TDD: Write FIRST, ensure FAIL)
 
-- [ ] T013 [P] [Refactor] Write failing test for histogram bins generation in `tests/test_utxoracle_library.py` (test_histogram_bins_count_is_2400)
-- [ ] T014 [P] [Refactor] Write failing test for bin index calculation in `tests/test_utxoracle_library.py` (test_get_bin_index_for_various_amounts)
-- [ ] T015 [P] [Refactor] Write failing test for round amount filtering in `tests/test_utxoracle_library.py` (test_remove_round_amounts)
-- [ ] T016 [P] [Refactor] Write failing test for stencil construction in `tests/test_utxoracle_library.py` (test_build_stencils)
-- [ ] T017 [P] [Refactor] Write failing test for price estimation in `tests/test_utxoracle_library.py` (test_estimate_price_from_histogram)
-- [ ] T018 [P] [Refactor] Write failing test for full calculation in `tests/test_utxoracle_library.py` (test_calculate_price_for_transactions)
+- [X] T013 [P] [Refactor] Write failing test for histogram bins generation in `tests/test_utxoracle_library.py` (test_histogram_bins_count_is_2400)
+- [X] T014 [P] [Refactor] Write failing test for bin index calculation in `tests/test_utxoracle_library.py` (test_get_bin_index_for_various_amounts)
+- [X] T015 [P] [Refactor] Write failing test for round amount filtering in `tests/test_utxoracle_library.py` (test_remove_round_amounts)
+- [X] T016 [P] [Refactor] Write failing test for stencil construction in `tests/test_utxoracle_library.py` (test_build_stencils)
+- [X] T017 [P] [Refactor] Write failing test for price estimation in `tests/test_utxoracle_library.py` (test_estimate_price_from_histogram)
+- [X] T018 [P] [Refactor] Write failing test for full calculation in `tests/test_utxoracle_library.py` (test_calculate_price_for_transactions)
 
 ### Implementation
 
-- [ ] T019 [Refactor] Create `UTXOracle_library.py` with `UTXOracleCalculator` class skeleton (empty methods)
-- [ ] T020 [Refactor] Implement `_build_histogram_bins()` method (copy from UTXOracle.py Step 5, lines 502-518)
-- [ ] T021 [Refactor] Implement `_get_bin_index(amount_btc)` method (copy from UTXOracle.py, lines 521-537)
-- [ ] T022 [Refactor] Implement `_remove_round_amounts(histogram)` method (copy from UTXOracle.py Step 7)
-- [ ] T023 [Refactor] Implement `_build_smooth_stencil()` method (copy from UTXOracle.py Step 8)
-- [ ] T024 [Refactor] Implement `_build_spike_stencil()` method (copy from UTXOracle.py Step 8)
-- [ ] T025 [Refactor] Implement `_estimate_price(histogram)` method (copy from UTXOracle.py Steps 9-11)
-- [ ] T025a [Refactor] Implement Bitcoin RPC retry logic in `UTXOracle_library.py`:
+- [X] T019 [Refactor] Create `UTXOracle_library.py` with `UTXOracleCalculator` class skeleton (empty methods)
+- [X] T020 [Refactor] Implement `_build_histogram_bins()` method (copy from UTXOracle.py Step 5, lines 502-518)
+- [X] T021 [Refactor] Implement `_get_bin_index(amount_btc)` method (copy from UTXOracle.py, lines 521-537)
+- [X] T022 [Refactor] Implement `_remove_round_amounts(histogram)` method (copy from UTXOracle.py Step 7)
+- [X] T023 [Refactor] Implement `_build_smooth_stencil()` method (copy from UTXOracle.py Step 8)
+- [X] T024 [Refactor] Implement `_build_spike_stencil()` method (copy from UTXOracle.py Step 8)
+- [X] T025 [Refactor] Implement `_estimate_price(histogram)` method (copy from UTXOracle.py Steps 9-11)
+- [X] T025a [Refactor] Implement Bitcoin RPC retry logic in `UTXOracle_library.py`:
   - Wrap RPC calls in retry decorator (2 attempts, 10s delay)
   - On final failure, check for cached data (<1 hour old)
   - If cached data exists, log WARNING and return cached price
   - If no cache, raise exception with clear error message
   - Example: `@retry(tries=2, delay=10, fallback=get_cached_data)`
-- [ ] T026 [Refactor] Implement `calculate_price_for_transactions(txs)` public method (orchestrates all steps)
-- [ ] T027 [Refactor] Add type hints to all methods (Python 3.8+ style)
-- [ ] T028 [Refactor] Add docstrings to all public methods (Google style)
-- [ ] T029 [Refactor] Verify T013-T018 tests now PASS (GREEN)
+- [X] T026 [Refactor] Implement `calculate_price_for_transactions(txs)` public method (orchestrates all steps)
+- [X] T027 [Refactor] Add type hints to all methods (Python 3.8+ style)
+- [X] T028 [Refactor] Add docstrings to all public methods (Google style)
+- [X] T029 [Refactor] Verify T013-T018 tests now PASS (GREEN)
 
 ### Backward Compatibility
 
-- [ ] T030 [Refactor] Modify `UTXOracle.py` to import `UTXOracleCalculator` from library
-- [ ] T031 [Refactor] Replace Steps 5-11 code in `UTXOracle.py` with library calls
-- [ ] T032 [Refactor] Test CLI still works: `python3 UTXOracle.py -rb` (output should be identical)
-- [ ] T033 [Refactor] Test with specific date: `python3 UTXOracle.py -d 2025/10/23` (verify price matches historical)
+- [X] T030 [Refactor] Modify `UTXOracle.py` to import `UTXOracleCalculator` from library
+- [X] T031 [Refactor] Replace Steps 5-11 code in `UTXOracle.py` with library calls
+- [X] T032 [Refactor] Test CLI still works: `python3 UTXOracle.py -rb` (output should be identical)
+- [X] T033 [Refactor] Test with specific date: `python3 UTXOracle.py -d 2025/10/23` (verify price matches historical)
 
 **Checkpoint**: UTXOracle algorithm available as importable library, CLI backward compatible
 
@@ -114,22 +114,22 @@
 
 ### Tests for Integration (TDD: Write FIRST, ensure FAIL)
 
-- [ ] T034 [P] [Integration] Write failing test for mempool price fetch in `tests/test_daily_analysis.py` (test_fetch_mempool_price_returns_float)
-- [ ] T035 [P] [Integration] Write failing test for UTXOracle calculation in `tests/test_daily_analysis.py` (test_calculate_utxoracle_price)
-- [ ] T036 [P] [Integration] Write failing test for price comparison in `tests/test_daily_analysis.py` (test_compare_prices_computes_difference)
-- [ ] T037 [P] [Integration] Write failing test for DuckDB save in `tests/test_daily_analysis.py` (test_save_to_duckdb)
+- [X] T034 [P] [Integration] Write failing test for mempool price fetch in `tests/test_daily_analysis.py` (test_fetch_mempool_price_returns_float)
+- [X] T035 [P] [Integration] Write failing test for UTXOracle calculation in `tests/test_daily_analysis.py` (test_calculate_utxoracle_price)
+- [X] T036 [P] [Integration] Write failing test for price comparison in `tests/test_daily_analysis.py` (test_compare_prices_computes_difference)
+- [X] T037 [P] [Integration] Write failing test for DuckDB save in `tests/test_daily_analysis.py` (test_save_to_duckdb)
 
 ### Implementation
 
-- [ ] T038 [Integration] Create `scripts/daily_analysis.py` with main() skeleton:
+- [X] T038 [Integration] Create `scripts/daily_analysis.py` with main() skeleton:
   - Import `dotenv` library: `from dotenv import load_dotenv`
   - Load `.env` file at script start: `load_dotenv()`
   - Read config from environment variables (see spec.md Configuration Management section)
   - Set defaults for optional vars (LOG_LEVEL=INFO, ANALYSIS_INTERVAL_MINUTES=10)
-- [ ] T039 [Integration] Implement `fetch_mempool_price()` function (GET http://localhost:8999/api/v1/prices)
-- [ ] T040 [Integration] Implement `calculate_utxoracle_price()` function (uses UTXOracleCalculator library)
-- [ ] T041 [Integration] Implement `compare_prices(utx_price, mem_price)` function (computes diff_amount, diff_percent)
-- [ ] T042 [Integration] Implement `init_database(db_file)` function (creates DuckDB schema if not exists):
+- [X] T039 [Integration] Implement `fetch_mempool_price()` function (GET http://localhost:8999/api/v1/prices)
+- [X] T040 [Integration] Implement `calculate_utxoracle_price()` function (uses UTXOracleCalculator library)
+- [X] T041 [Integration] Implement `compare_prices(utx_price, mem_price)` function (computes diff_amount, diff_percent)
+- [X] T042 [Integration] Implement `init_database(db_file)` function (creates DuckDB schema if not exists):
   ```sql
   CREATE TABLE IF NOT EXISTS prices (
       timestamp TIMESTAMP PRIMARY KEY,
@@ -142,12 +142,12 @@
       is_valid BOOLEAN DEFAULT TRUE  -- NEW: Flag for low confidence/invalid prices
   )
   ```
-- [ ] T042a [Integration] Implement price validation in `daily_analysis.py`:
+- [X] T042a [Integration] Implement price validation in `daily_analysis.py`:
   - Check confidence score ≥ 0.3 (from UTXORACLE_CONFIDENCE_THRESHOLD env var)
   - Check price in range [$10k, $500k] (from MIN/MAX_PRICE_USD env vars)
   - If validation fails: set `is_valid=FALSE`, log WARNING, continue (don't abort)
   - Include validation failure details in log (confidence, price, tx_count)
-- [ ] T043 [Integration] Implement `save_to_duckdb(data, db_file)` function (INSERT INTO prices):
+- [X] T043 [Integration] Implement `save_to_duckdb(data, db_file)` function (INSERT INTO prices):
   - Attempt primary write to `db_file` (from DUCKDB_PATH env var)
   - If write fails (disk full, permission denied):
     - Attempt fallback write to `/tmp/utxoracle_backup.duckdb` (from DUCKDB_BACKUP_PATH env var or hardcoded)
@@ -155,26 +155,26 @@
     - If fallback succeeds: log location, send notification (see T044a)
     - If fallback fails: raise exception, exit code 2
   - Do NOT continue execution after fallback (prevent data inconsistency)
-- [ ] T044 [Integration] Add error handling: retry 3× with exponential backoff for network errors
-- [ ] T044a [P] [Integration] Implement webhook notification system in `daily_analysis.py`:
+- [X] T044 [Integration] Add error handling: retry 3× with exponential backoff for network errors
+- [X] T044a [P] [Integration] Implement webhook notification system in `daily_analysis.py`:
   - Read ALERT_WEBHOOK_URL from environment (optional, default: None)
   - On critical errors (mempool API unreachable after 3 retries, DuckDB write failure):
     - POST JSON payload to webhook: `{"level": "ERROR", "component": "daily_analysis", "message": "...", "timestamp": "..."}`
     - Use `requests.post(ALERT_WEBHOOK_URL, json=payload, timeout=5)` with exception handling
     - If webhook fails, log WARNING but don't abort (notification is best-effort)
   - Document in README.md: "Configure n8n workflow to receive alerts at ALERT_WEBHOOK_URL"
-- [ ] T045 [Integration] Add logging: structured logs to `/media/sam/2TB-NVMe/prod/apps/utxoracle/logs/daily_analysis.log`
+- [X] T045 [Integration] Add logging: structured logs to `/media/sam/2TB-NVMe/prod/apps/utxoracle/logs/daily_analysis.log`
   - Use `structlog` library for JSON structured logging (production) or human-readable (development)
   - Log which config source was loaded at startup: "Config loaded from .env file at /path/to/.env"
   - Log all critical events: mempool API calls, Bitcoin RPC calls, DuckDB writes, validation failures
   - Include context in all log messages: `logger.info("price_calculated", price_usd=67234, confidence=0.87, tx_count=1423)`
   - Set log level from LOG_LEVEL env var (default: INFO)
-- [ ] T046 [Integration] Add CLI flags: `--init-db`, `--dry-run`, `--verbose`
-- [ ] T047 [Integration] Verify T034-T037 tests now PASS (GREEN)
+- [X] T046 [Integration] Add CLI flags: `--init-db`, `--dry-run`, `--verbose`
+- [X] T047 [Integration] Verify T034-T037 tests now PASS (GREEN)
 
 ### DuckDB Schema
 
-- [ ] T048 [P] [Integration] Create DuckDB schema definition in `scripts/daily_analysis.py`:
+- [X] T048 [P] [Integration] Create DuckDB schema definition in `scripts/daily_analysis.py`:
   ```sql
   CREATE TABLE IF NOT EXISTS prices (
       timestamp TIMESTAMP PRIMARY KEY,
@@ -187,8 +187,8 @@
       is_valid BOOLEAN DEFAULT TRUE  -- Flag for low confidence/out-of-range prices
   )
   ```
-- [ ] T049 [Integration] Test manual run: `python3 scripts/daily_analysis.py --init-db --verbose`
-- [ ] T050 [Integration] Verify DuckDB has data: `duckdb /media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxoracle_cache.db "SELECT * FROM prices ORDER BY timestamp DESC LIMIT 5"`
+- [X] T049 [Integration] Test manual run: `python3 scripts/daily_analysis.py --init-db --verbose`
+- [X] T050 [Integration] Verify DuckDB has data: `duckdb /media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxoracle_cache.db "SELECT * FROM prices ORDER BY timestamp DESC LIMIT 5"`
 
 ### Cron Setup
 
