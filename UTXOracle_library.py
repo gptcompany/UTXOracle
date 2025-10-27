@@ -19,6 +19,7 @@ Algorithm Overview:
     5. Estimate price using stencil convolution (Steps 9-11)
 """
 
+import bisect
 from typing import Dict, List, Optional
 
 
@@ -92,12 +93,16 @@ class UTXOracleCalculator:
         if amount_btc > self.bins[-1]:  # Larger than maximum
             return None
 
-        # Binary search for bin
-        for i in range(len(self.bins) - 1):
-            if self.bins[i] <= amount_btc < self.bins[i + 1]:
-                return i
+        # Binary search using bisect (O(log n) instead of O(n))
+        # bisect_left returns index where amount_btc would be inserted
+        idx = bisect.bisect_left(self.bins, amount_btc)
 
-        return len(self.bins) - 1  # Last bin
+        # If exact match, return that bin
+        if idx < len(self.bins) and self.bins[idx] == amount_btc:
+            return idx
+
+        # Otherwise return previous bin (amount falls between bins[idx-1] and bins[idx])
+        return idx - 1 if idx > 0 else 0
 
     def _remove_round_amounts(self, histogram: Dict[float, int]) -> Dict[float, int]:
         """
@@ -257,25 +262,152 @@ class UTXOracleCalculator:
         # Get BTC amount at peak
         peak_btc = self.bins[peak_bin]
 
-        # Estimate price using heuristic for round fiat amounts
-        # Common round amounts: $10, $20, $50, $100, $200, $500, $1000, $2000, $5000
-        # This is a simplified heuristic - the real algorithm does convergence
+        # Convergence algorithm (Step 9 from UTXOracle.py lines 1070-1152)
+        # Find best price by sliding stencils and scoring each position
 
-        # Determine likely round fiat amount based on BTC range
-        if peak_btc < 0.0001:  # Very small amounts
-            assumed_fiat_amount = 5.0
-        elif peak_btc < 0.001:  # ~100 sats to 0.001 BTC
-            assumed_fiat_amount = 50.0
-        elif peak_btc < 0.01:  # 0.001 to 0.01 BTC
-            assumed_fiat_amount = 500.0
-        elif peak_btc < 0.1:  # 0.01 to 0.1 BTC
-            assumed_fiat_amount = 5000.0
-        elif peak_btc < 1.0:  # 0.1 to 1.0 BTC
-            assumed_fiat_amount = 50000.0
-        else:  # >= 1.0 BTC
-            assumed_fiat_amount = 100000.0
+        # Convert histogram dict to array for sliding window
+        histogram_array = [histogram.get(i, 0) for i in range(len(self.bins))]
 
-        price_usd = assumed_fiat_amount / peak_btc if peak_btc > 0 else None
+        # Stencil configurations (from Step 8)
+        smooth_stencil_list = [smooth_stencil[k] for k in sorted(smooth_stencil.keys())]
+        spike_stencil_list = [spike_stencil[k] for k in sorted(spike_stencil.keys())]
+        spike_len = len(spike_stencil_list)
+
+        # Establish center position: 0.001 BTC at $100 = $100k price
+        # Find bin index for 0.001 BTC
+        center_p001 = self._get_bin_index(0.001)
+        if center_p001 is None:
+            center_p001 = len(self.bins) // 2  # Fallback to middle
+
+        # Slide range (from UTXOracle.py lines 1085-1086)
+        # min_slide = -141 allows up to ~$500k, max_slide = 201 allows down to ~$5k
+        min_slide = -141
+        max_slide = 201
+
+        # Weights for smooth vs spike (from line 1076-1077)
+        smooth_weight = 0.65
+        spike_weight = 1.0
+
+        # Slide stencils and find best position
+        best_slide = 0
+        best_slide_score = 0
+        total_score = 0
+
+        left_offset = center_p001 - spike_len // 2
+        right_offset = center_p001 + spike_len // 2
+
+        for slide in range(min_slide, max_slide):
+            # Extract histogram window at this slide position
+            start = left_offset + slide
+            end = right_offset + slide
+
+            # Bounds check
+            if start < 0 or end >= len(histogram_array):
+                continue
+
+            shifted_curve = histogram_array[start:end]
+            if len(shifted_curve) != spike_len:
+                continue
+
+            # Score with spike stencil
+            slide_score = sum(
+                shifted_curve[n] * spike_stencil_list[n] for n in range(spike_len)
+            )
+
+            # Add smooth stencil contribution (only for slide < 150, line 1104)
+            if slide < 150 and len(shifted_curve) == len(smooth_stencil_list):
+                slide_score_smooth = sum(
+                    shifted_curve[n] * smooth_stencil_list[n]
+                    for n in range(len(smooth_stencil_list))
+                )
+                slide_score += slide_score_smooth * smooth_weight
+
+            # Track best slide
+            if slide_score > best_slide_score:
+                best_slide_score = slide_score
+                best_slide = slide
+
+            total_score += slide_score
+
+        # Calculate price from best slide position
+        # Best slide bin index
+        best_slide_bin = center_p001 + best_slide
+        if best_slide_bin < 0 or best_slide_bin >= len(self.bins):
+            price_usd = None
+        else:
+            # BTC amount at best slide position
+            usd100_in_btc_best = self.bins[best_slide_bin]
+            # Implied price: $100 / BTC_amount = $/BTC
+            btc_in_usd_best = (
+                100.0 / usd100_in_btc_best if usd100_in_btc_best > 0 else None
+            )
+
+            # Neighbor refinement (lines 1119-1152)
+            # Check neighbor bins up and down
+            neighbor_up_bin = best_slide_bin + 1
+            neighbor_down_bin = best_slide_bin - 1
+
+            neighbor_up_score = 0
+            neighbor_down_score = 0
+
+            # Score neighbor up
+            if neighbor_up_bin < len(self.bins):
+                start = left_offset + best_slide + 1
+                end = right_offset + best_slide + 1
+                if 0 <= start < len(histogram_array) and end <= len(histogram_array):
+                    neighbor_up_curve = histogram_array[start:end]
+                    if len(neighbor_up_curve) == spike_len:
+                        neighbor_up_score = sum(
+                            neighbor_up_curve[n] * spike_stencil_list[n]
+                            for n in range(spike_len)
+                        )
+
+            # Score neighbor down
+            if neighbor_down_bin >= 0:
+                start = left_offset + best_slide - 1
+                end = right_offset + best_slide - 1
+                if 0 <= start < len(histogram_array) and end <= len(histogram_array):
+                    neighbor_down_curve = histogram_array[start:end]
+                    if len(neighbor_down_curve) == spike_len:
+                        neighbor_down_score = sum(
+                            neighbor_down_curve[n] * spike_stencil_list[n]
+                            for n in range(spike_len)
+                        )
+
+            # Get best neighbor and its price
+            if neighbor_up_score > neighbor_down_score:
+                best_neighbor_bin = neighbor_up_bin
+                neighbor_score = neighbor_up_score
+            else:
+                best_neighbor_bin = neighbor_down_bin
+                neighbor_score = neighbor_down_score
+
+            # Weighted average of best and neighbor prices
+            if best_neighbor_bin >= 0 and best_neighbor_bin < len(self.bins):
+                usd100_in_btc_2nd = self.bins[best_neighbor_bin]
+                btc_in_usd_2nd = (
+                    100.0 / usd100_in_btc_2nd
+                    if usd100_in_btc_2nd > 0
+                    else btc_in_usd_best
+                )
+
+                # Weighting based on score difference from average
+                avg_score = (
+                    total_score / (max_slide - min_slide)
+                    if max_slide > min_slide
+                    else 1
+                )
+                a1 = best_slide_score - avg_score
+                a2 = abs(neighbor_score - avg_score)
+
+                if a1 + a2 > 0:
+                    w1 = a1 / (a1 + a2)
+                    w2 = a2 / (a1 + a2)
+                    price_usd = w1 * btc_in_usd_best + w2 * btc_in_usd_2nd
+                else:
+                    price_usd = btc_in_usd_best
+            else:
+                price_usd = btc_in_usd_best
 
         return {
             "price_usd": price_usd,
@@ -348,8 +480,50 @@ class UTXOracleCalculator:
                     histogram[bin_idx] = histogram.get(bin_idx, 0) + 1
                     output_count += 1
 
-        # Step 7: Remove round amounts (optional - can be done on BTC values)
-        # For now, histogram uses bin indices, so we skip this step
+        # Step 7: Smooth round BTC amounts and normalize (lines 889-965)
+        # Remove extreme bins
+        for n in range(0, 201):  # Below 10k sats
+            histogram[n] = 0
+        for n in range(1601, len(self.bins)):  # Above 10 BTC
+            histogram[n] = 0
+
+        # Smooth round BTC bin amounts (don't remove - average with neighbors)
+        round_btc_bins = [
+            201,  # 1k sats
+            401,  # 10k
+            461,  # 20k
+            496,  # 30k
+            540,  # 50k
+            601,  # 100k
+            661,  # 200k
+            696,  # 300k
+            740,  # 500k
+            801,  # 0.01 btc
+            861,  # 0.02
+            896,  # 0.03
+            940,  # 0.04
+            1001,  # 0.1
+            1061,  # 0.2
+            1096,  # 0.3
+            1140,  # 0.5
+            1201,  # 1 btc
+        ]
+
+        for r in round_btc_bins:
+            if r > 0 and r < len(self.bins) - 1:
+                amount_above = histogram.get(r + 1, 0)
+                amount_below = histogram.get(r - 1, 0)
+                histogram[r] = 0.5 * (amount_above + amount_below)
+
+        # Normalize histogram (percentages)
+        curve_sum = sum(histogram.get(n, 0) for n in range(201, 1601))
+        if curve_sum > 0:
+            for n in range(201, 1601):
+                if n in histogram:
+                    histogram[n] /= curve_sum
+                    # Cap extremes (from historical testing)
+                    if histogram[n] > 0.008:
+                        histogram[n] = 0.008
 
         # Steps 9-11: Estimate price from histogram
         result = self._estimate_price(histogram)
