@@ -112,10 +112,22 @@ python3 UTXOracle.py -d 2025/10/17 --no-browser
 - ❌ bitcoin_rpc.py (109 lines) → mempool.space Docker stack
 
 **Net Result**:
-- 40% less custom infrastructure code
+- **48.5% code reduction** (3,102 → 1,598 core lines)
+- **Archived**: `archive/live-spec002/` (all spec-002 code)
+- **Archived**: `archive/scripts-spec002/` (legacy integration scripts)
 - 50% maintenance reduction (no binary parsing complexity)
 - Focus on core algorithm, not infrastructure
 - Battle-tested mempool.space stack
+
+**Spec-003 Core Code** (1,598 lines):
+- `UTXOracle_library.py` (536 lines) - Reusable algorithm library
+- `scripts/daily_analysis.py` (608 lines) - Integration service
+- `api/main.py` (454 lines) - FastAPI REST API
+
+**Temporary Configuration** (during Bitcoin Core re-sync):
+- Using public mempool.space API (`https://mempool.space`)
+- Mock transactions for UTXOracle calculation (placeholder prices)
+- See `specs/003-mempool-integration-refactor/TEMPORARY_CONFIG.md` for migration instructions
 
 ### Future Architecture Plans
 
@@ -247,11 +259,7 @@ scripts/                            # Utilities (batch processing, integration)
 ├── README.md
 ├── daily_analysis.py                   # Integration service (spec-003: T038-T047)
 ├── setup_full_mempool_stack.sh         # Infrastructure deployment (spec-003: T001-T012)
-├── utxoracle_batch.py                  # Batch historical processing
-├── live_mempool_with_baseline.py       # Legacy (archived)
-├── setup_mempool_env.sh                # Legacy (archived)
-├── utxoracle_mempool_integration.py    # Legacy (archived)
-└── verify_mempool_setup.sh             # Legacy (archived)
+└── utxoracle_batch.py                  # Batch historical processing
 specs/                              # Feature specifications (SpecKit)
 ├── 001-specify-scripts-bash/
 ├── 002-mempool-live-oracle/
@@ -323,9 +331,16 @@ tests/                              # Test suite (pytest)
 
 ### Deprecated/Archived (spec-002)
 
-- `archive/live-spec002/` - Old custom infrastructure (ZMQ, tx parsing)
+- `archive/live-spec002/` - Old custom infrastructure (ZMQ, tx parsing, orchestrator)
+  - 3,102 lines of code (backend, frontend, shared models)
+  - Replaced by: mempool.space Docker stack + `scripts/daily_analysis.py`
+- `archive/scripts-spec002/` - Legacy integration scripts
+  - `live_mempool_with_baseline.py` - Old integration approach
+  - `utxoracle_mempool_integration.py` - Deprecated integration
+  - `setup_mempool_env.sh` - Old environment setup
+  - `verify_mempool_setup.sh` - Old verification script
 - `main.py` - Old entry point (replaced by `scripts/daily_analysis.py`)
-- Legacy scripts: `live_mempool_with_baseline.py`, `setup_mempool_env.sh`, etc.
+- `live.backup.*/` - Temporary backups during migration (gitignored)
 
 ## Agent & Skill Architecture
 

@@ -25,11 +25,11 @@ from dotenv import load_dotenv
 # T064: Configuration Management
 # =============================================================================
 
-# Load .env file
+# Load .env file (override=True to prioritize .env over existing env vars)
 env_path = Path(__file__).parent.parent / ".env"
 if env_path.exists():
-    load_dotenv(env_path)
-    logging.info(f"Config loaded from .env file at {env_path}")
+    load_dotenv(env_path, override=True)
+    logging.info(f"Config loaded from .env file at {env_path} (override=True)")
 else:
     logging.info("Config loaded from environment variables (no .env file found)")
 

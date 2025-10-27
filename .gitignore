@@ -271,3 +271,10 @@ playground/
 # Docker volumes (mempool-stack)
 mempool-stack/data/
 mempool-stack/logs/
+
+# Spec-002 archived code (Phase 3 cleanup)
+live.backup.*/
+*.backup-*/
+
+# API server logs
+/tmp/utxoracle_api.log

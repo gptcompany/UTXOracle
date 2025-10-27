@@ -3,7 +3,7 @@ name = "utxoracle"
 version = "0.1.0"
 description = "Bitcoin-native price oracle with real-time mempool analysis"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.104.1",
     "uvicorn[standard]>=0.24.0",

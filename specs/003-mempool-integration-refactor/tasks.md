@@ -212,32 +212,33 @@
 
 ### Tests for API (TDD: Write FIRST, ensure FAIL)
 
-- [ ] T055 [P] [API] Write failing test for latest price endpoint in `tests/test_api.py` (test_get_latest_price_returns_json)
-- [ ] T056 [P] [API] Write failing test for historical prices endpoint in `tests/test_api.py` (test_get_historical_prices_with_days_param)
-- [ ] T057 [P] [API] Write failing test for comparison stats endpoint in `tests/test_api.py` (test_get_comparison_stats_computes_avg_diff)
+- [X] T055 [P] [API] Write failing test for latest price endpoint in `tests/test_api.py` (test_get_latest_price_returns_json)
+- [X] T056 [P] [API] Write failing test for historical prices endpoint in `tests/test_api.py` (test_get_historical_prices_with_days_param)
+- [X] T057 [P] [API] Write failing test for comparison stats endpoint in `tests/test_api.py` (test_get_comparison_stats_computes_avg_diff)
 
 ### FastAPI Backend
 
-- [ ] T058 [API] Create `api/main.py` with FastAPI app initialization
-- [ ] T059 [API] Add CORS middleware for localhost development
-- [ ] T060 [API] Implement `GET /api/prices/latest` endpoint (queries DuckDB, returns most recent row)
-- [ ] T061 [API] Implement `GET /api/prices/historical?days=7` endpoint (queries DuckDB with date filter)
-- [ ] T062 [API] Implement `GET /api/prices/comparison` endpoint (computes avg_diff, max_diff, min_diff, correlation)
-- [ ] T063 [API] Add health check endpoint: `GET /health` (returns uptime, DuckDB status)
-- [ ] T064 [API] Implement environment variable loading in `api/main.py`:
+- [X] T058 [API] Create `api/main.py` with FastAPI app initialization
+- [X] T059 [API] Add CORS middleware for localhost development
+- [X] T060 [API] Implement `GET /api/prices/latest` endpoint (queries DuckDB, returns most recent row)
+- [X] T061 [API] Implement `GET /api/prices/historical?days=7` endpoint (queries DuckDB with date filter)
+- [X] T062 [API] Implement `GET /api/prices/comparison` endpoint (computes avg_diff, max_diff, min_diff, correlation)
+- [X] T063 [API] Add health check endpoint: `GET /health` (returns uptime, DuckDB status)
+- [X] T064 [API] Implement environment variable loading in `api/main.py`:
   - Load environment variables from `.env` file (if exists) using `python-dotenv`
   - Required vars: UTXORACLE_DATA_DIR (or default to './data')
   - Optional vars: FASTAPI_HOST (default: 0.0.0.0), FASTAPI_PORT (default: 8000), LOG_LEVEL (default: INFO)
   - On startup: Log loaded config source (env vars, .env file, or defaults)
   - Example: `logger.info("Config loaded", source="environment", duckdb_path=DUCKDB_PATH)`
-- [ ] T064a [API] Implement config validation on startup in `api/main.py` and `scripts/daily_analysis.py`:
+  - **UPDATE**: Added `override=True` to prioritize .env file over existing environment variables
+- [X] T064a [API] Implement config validation on startup in `api/main.py` and `scripts/daily_analysis.py`:
   - Check required variables exist: BITCOIN_RPC_URL (or BITCOIN_DATADIR for cookie auth), DUCKDB_PATH
   - If critical var missing: Raise `EnvironmentError` with helpful message
     - Example: `raise EnvironmentError("DUCKDB_PATH not set. Export env var or create .env file.")`
   - Fail fast (exit code 1) before any processing begins
   - Log which config file/source was loaded: `logger.info("Config loaded from .env file at /path/to/.env")`
   - Print config summary at startup (with sensitive values redacted): `logger.info("Config", duckdb_path=DUCKDB_PATH, bitcoin_rpc="<redacted>")`
-- [ ] T065 [API] Verify T055-T057 tests now PASS (GREEN)
+- [X] T065 [API] Verify T055-T057 tests now PASS (GREEN) - **14/14 tests passed**
 
 ### Systemd Service
 
@@ -267,18 +268,18 @@
 
 ### Plotly.js Frontend
 
-- [ ] T072 [P] [API] Create `frontend/comparison.html` with basic HTML structure
-- [ ] T073 [API] Add Plotly.js CDN: `<script src="https://cdn.plot.ly/plotly-2.26.0.min.js"></script>`
-- [ ] T074 [API] Implement JavaScript: Fetch data from `http://localhost:8000/api/prices/historical?days=7`
-- [ ] T075 [API] Implement Plotly time series chart:
+- [X] T072 [P] [API] Create `frontend/comparison.html` with basic HTML structure
+- [X] T073 [API] Add Plotly.js CDN: `<script src="https://cdn.plot.ly/plotly-2.26.0.min.js"></script>`
+- [X] T074 [API] Implement JavaScript: Fetch data from `http://localhost:8000/api/prices/historical?days=7`
+- [X] T075 [API] Implement Plotly time series chart:
   - Trace 1: UTXOracle price (green line)
   - Trace 2: Exchange price (red dashed line)
   - Dual Y-axis (optional)
   - Hover tooltips with timestamp + price + diff
-- [ ] T076 [API] Add stats cards: Average diff, Max diff, Correlation coefficient
-- [ ] T077 [API] Add CSS styling: Black background, orange theme (consistent with UTXOracle brand)
-- [ ] T078 [API] Serve frontend via FastAPI: `app.mount("/", StaticFiles(directory="frontend"), name="frontend")`
-- [ ] T079 [API] Test frontend loads: Open `http://localhost:8000/comparison.html` in browser
+- [X] T076 [API] Add stats cards: Average diff, Max diff, Correlation coefficient
+- [X] T077 [API] Add CSS styling: Black background, orange theme (consistent with UTXOracle brand)
+- [X] T078 [API] Serve frontend via FastAPI: `app.mount("/", StaticFiles(directory="frontend"), name="frontend")`
+- [X] T079 [API] Test frontend loads: Open `http://localhost:8000/comparison.html` in browser - **Verified ✅**
 
 **Checkpoint**: API serves data via REST, frontend visualizes comparison with Plotly
 

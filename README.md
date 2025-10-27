@@ -121,9 +121,11 @@ Inspired by the idea that **Bitcoin's price should come from Bitcoin itself.**
 **Prerequisites**:
 - Bitcoin Core 25.0+ (fully synced, RPC enabled)
 - Docker & Docker Compose
-- Python 3.11+
-- UV package manager
-- 50GB free disk space (NVMe recommended)
+- Python 3.10+ (3.11+ recommended)
+- UV package manager ([install guide](https://docs.astral.sh/uv/))
+- 50GB free disk space (NVMe recommended for electrs index)
+
+> **📝 Note**: During Bitcoin Core re-sync, the system can run with **public mempool.space API** temporarily. See `specs/003-mempool-integration-refactor/TEMPORARY_CONFIG.md` for details.
 
 **Installation**:
 
@@ -200,10 +202,15 @@ If upgrading from the old spec-002 implementation (custom ZMQ/transaction parsin
 2. Follow installation steps above
 3. Review [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) for detailed migration path
 
-**Code Reduction**:
-- Eliminated 1,122 lines of custom infrastructure (40% reduction)
+**Code Reduction** (spec-002 → spec-003):
+- **3,102 → 1,598 core lines** (48.5% reduction)
+- Eliminated 1,122 lines of custom ZMQ/transaction parsing
 - Replaced by battle-tested mempool.space Docker stack
 - 50% maintenance reduction (no binary parsing complexity)
+- See [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) for complete details
+
+**Implementation Status**: ✅ **Phase 0-4 Complete** (72% of spec-003)
+- Full documentation: `specs/003-mempool-integration-refactor/IMPLEMENTATION_STATUS.md`
 
 ---
 
