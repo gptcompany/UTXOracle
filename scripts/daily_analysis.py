@@ -574,14 +574,14 @@ def init_database(db_path: str) -> None:
         db_path: Path to DuckDB file
     """
     schema = """
-    CREATE TABLE IF NOT EXISTS prices (
-        timestamp TIMESTAMP PRIMARY KEY,
+    CREATE TABLE IF NOT EXISTS price_analysis (
+        date DATE PRIMARY KEY,
+        exchange_price DECIMAL(12, 2),
         utxoracle_price DECIMAL(12, 2),
-        mempool_price DECIMAL(12, 2),
+        price_difference DECIMAL(12, 2),
+        avg_pct_diff DECIMAL(6, 2),
         confidence DECIMAL(5, 4),
         tx_count INTEGER,
-        diff_amount DECIMAL(12, 2),
-        diff_percent DECIMAL(6, 2),
         is_valid BOOLEAN DEFAULT TRUE
     )
     """
@@ -613,8 +613,8 @@ def detect_gaps(conn, max_days_back: int = 7) -> List[str]:
         )
         SELECT dr.expected_date::VARCHAR
         FROM date_range dr
-        LEFT JOIN prices p ON DATE(p.timestamp) = dr.expected_date
-        WHERE p.timestamp IS NULL
+        LEFT JOIN price_analysis p ON p.date = dr.expected_date
+        WHERE p.date IS NULL
         ORDER BY dr.expected_date DESC
     """
 
@@ -675,20 +675,22 @@ def save_to_duckdb(data: Dict, db_path: str, backup_path: str) -> None:
         Exception: If both primary and fallback fail
     """
     insert_sql = """
-    INSERT INTO prices (
-        timestamp, utxoracle_price, mempool_price, confidence,
-        tx_count, diff_amount, diff_percent, is_valid
+    INSERT OR REPLACE INTO price_analysis (
+        date, exchange_price, utxoracle_price, price_difference,
+        avg_pct_diff, confidence, tx_count, is_valid
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """
 
     values = (
-        data["timestamp"],
-        data["utxoracle_price"],
+        data["timestamp"].date()
+        if hasattr(data["timestamp"], "date")
+        else data["timestamp"],
         data["mempool_price"],
-        data["confidence"],
-        data["tx_count"],
+        data["utxoracle_price"],
         data["diff_amount"],
         data["diff_percent"],
+        data["confidence"],
+        data["tx_count"],
         data["is_valid"],
     )
 
@@ -706,14 +708,14 @@ def save_to_duckdb(data: Dict, db_path: str, backup_path: str) -> None:
             with duckdb.connect(backup_path) as conn:
                 # Ensure table exists in backup
                 conn.execute("""
-                CREATE TABLE IF NOT EXISTS prices (
-                    timestamp TIMESTAMP PRIMARY KEY,
+                CREATE TABLE IF NOT EXISTS price_analysis (
+                    date DATE PRIMARY KEY,
+                    exchange_price DECIMAL(12, 2),
                     utxoracle_price DECIMAL(12, 2),
-                    mempool_price DECIMAL(12, 2),
+                    price_difference DECIMAL(12, 2),
+                    avg_pct_diff DECIMAL(6, 2),
                     confidence DECIMAL(5, 4),
                     tx_count INTEGER,
-                    diff_amount DECIMAL(12, 2),
-                    diff_percent DECIMAL(6, 2),
                     is_valid BOOLEAN DEFAULT TRUE
                 )
                 """)
@@ -854,6 +856,9 @@ def main():
         init_database(config["DUCKDB_PATH"])
         logging.info("Database initialized successfully")
         sys.exit(0)
+
+    # Ensure database exists and has correct schema
+    init_database(config["DUCKDB_PATH"])
 
     # Check for gaps before running analysis
     try:
