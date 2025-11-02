@@ -608,3 +608,473 @@ python3 scripts/daily_analysis.py --auto-backfill --backfill-limit 5 # Custom li
 
 ---
 
+
+---
+
+## Phase 4: Library v2 - Production Improvements (Based on Gemini + Claude Validation)
+
+**Context**: Following comprehensive validation by Gemini CLI Agent (binary testing) and Claude Code (validation suite), library v1 is production-ready with 99.8% confidence. Phase 4 implements high-ROI improvements for v2.
+
+**Reference**: `docs/WORKFLOW_COMPLETE.md` (validation analysis & recommendations)
+
+**Status**: 📋 PLANNED (v2 implementation)
+
+---
+
+### T110 🥇 [P1] Implement Pydantic Models for Type Safety
+**Status**: ⏸️ TODO
+**Priority**: P1 (Highest ROI: ⭐⭐⭐⭐⭐)
+**Effort**: 3 hours
+**Value**: 90% (type safety, autocomplete, validation, self-documenting)
+
+**Goal**: Replace dict-based API with Pydantic models for type safety and developer experience.
+
+**Implementation**:
+
+1. Create `models.py` with Pydantic models:
+```python
+from pydantic import BaseModel, Field, field_validator
+from typing import List, Optional, Dict
+
+class BitcoinTransaction(BaseModel):
+    """Bitcoin transaction from RPC or mempool API."""
+    txid: str
+    vout: List[dict]
+    vin: List[dict]
+    
+    class Config:
+        extra = "allow"  # Allow additional RPC fields
+
+class DiagnosticsInfo(BaseModel):
+    """Transaction filtering diagnostics."""
+    total_txs: int = Field(ge=0, description="Total transactions input")
+    filtered_inputs: int = Field(ge=0, description="Filtered (>5 inputs)")
+    filtered_outputs: int = Field(ge=0, description="Filtered (≠2 outputs)")
+    filtered_coinbase: int = Field(ge=0, description="Coinbase transactions")
+    filtered_op_return: int = Field(ge=0, description="OP_RETURN transactions")
+    filtered_witness: int = Field(ge=0, description="Excessive witness data")
+    filtered_same_day: int = Field(ge=0, description="Same-day spending")
+    passed_filter: int = Field(ge=0, description="Transactions passed filters")
+
+class PriceResult(BaseModel):
+    """UTXOracle price calculation result."""
+    price_usd: Optional[float] = Field(
+        None, 
+        description="Estimated BTC/USD price (None if calculation failed)"
+    )
+    confidence: float = Field(
+        ge=0.0, le=1.0,
+        description="Confidence score (0-1)"
+    )
+    tx_count: int = Field(
+        ge=0,
+        description="Transactions processed after filtering"
+    )
+    output_count: int = Field(
+        ge=0,
+        description="Outputs analyzed in histogram"
+    )
+    diagnostics: Optional[DiagnosticsInfo] = Field(
+        None,
+        description="Filtering diagnostics (if return_diagnostics=True)"
+    )
+
+class IntradayPriceResult(PriceResult):
+    """Price result with intraday evolution data."""
+    intraday_prices: List[float] = Field(
+        description="Intraday price points (convergence evolution)"
+    )
+    intraday_timestamps: List[int] = Field(
+        description="Unix timestamps for each price point"
+    )
+    intraday_heights: List[int] = Field(
+        description="Block heights for each price point"
+    )
+```
+
+2. Update `UTXOracle_library.py` to use models:
+```python
+from .models import PriceResult, IntradayPriceResult, BitcoinTransaction
+
+class UTXOracleCalculator:
+    def calculate_price_for_transactions(
+        self,
+        transactions: List[BitcoinTransaction],  # Type-safe input
+        return_intraday: bool = False,
+        return_diagnostics: bool = True
+    ) -> PriceResult:  # Type-safe output
+        """
+        Calculate BTC/USD price with type safety.
+        
+        Args:
+            transactions: List of Bitcoin transactions (validated by Pydantic)
+            return_intraday: Include intraday price evolution
+            return_diagnostics: Include filtering diagnostics
+        
+        Returns:
+            PriceResult or IntradayPriceResult with validated fields
+        
+        Example:
+            >>> calc = UTXOracleCalculator()
+            >>> result = calc.calculate_price_for_transactions(transactions)
+            >>> print(result.price_usd)  # IDE autocomplete works!
+            110537.54
+            >>> print(result.confidence)
+            0.87
+        """
+        # ... implementation ...
+```
+
+3. Add `pyproject.toml` dependency:
+```toml
+[tool.uv.dependencies]
+pydantic = "^2.0"
+```
+
+4. Update tests to use Pydantic models
+
+**Success Criteria**:
+- ✅ All API inputs/outputs use Pydantic models
+- ✅ IDE provides autocomplete for all result fields
+- ✅ Invalid inputs raise ValidationError at call time
+- ✅ All existing tests pass with new models
+- ✅ Type hints work correctly (`mypy` validation)
+
+**Benefits**:
+- **Type Safety**: Catch bugs at development time (not runtime)
+- **Autocomplete**: IDE knows all fields without docs lookup
+- **Validation**: Automatic input validation (e.g., confidence in [0,1])
+- **Documentation**: Self-documenting API (field descriptions)
+- **JSON Schema**: Auto-generate API docs
+
+**Migration Path** (backward compatibility):
+- Keep dict-based API in v1 branch (deprecated)
+- New v2 API uses Pydantic exclusively
+- Provide migration guide in release notes
+
+---
+
+### T111 🥈 [P2] Expand Documentation with Examples
+**Status**: ⏸️ TODO
+**Priority**: P2 (High ROI: ⭐⭐⭐⭐⭐)
+**Effort**: 2 hours
+**Value**: 95% (usability, onboarding, reduces support burden)
+
+**Goal**: Create comprehensive documentation with algorithm overview, usage examples, and best practices.
+
+**Implementation**:
+
+1. Expand `UTXOracleCalculator` docstring:
+```python
+class UTXOracleCalculator:
+    """
+    Bitcoin on-chain price oracle using statistical clustering.
+    
+    This implementation calculates BTC/USD price directly from blockchain
+    transaction data, without relying on external exchange APIs. It uses
+    histogram analysis and stencil convolution to detect round fiat amounts
+    in transaction outputs.
+    
+    Algorithm Overview:
+        1. Build logarithmic histogram (10^-6 to 10^6 BTC range, 2401 bins)
+        2. Count transaction outputs into bins (with filtering)
+        3. Remove noise (round BTC amounts, extremes, outliers)
+        4. Apply stencil convolution to detect round USD peaks
+        5. Estimate rough price from histogram peak position
+        6. Generate intraday price points ($5, $10, $20, $50, $100, etc.)
+        7. Converge to exact price using geometric median algorithm
+    
+    Filtering Strategy:
+        Transactions are filtered to focus on retail payments:
+        - ≤5 inputs (exclude consolidations)
+        - Exactly 2 outputs (payment + change pattern)
+        - No coinbase transactions
+        - No OP_RETURN outputs
+        - Moderate witness data (<500 bytes)
+        - No same-day spending (exclude hot wallets)
+    
+    Performance:
+        - Processing time: ~2 seconds per day (144 blocks)
+        - Memory usage: <100MB RAM
+        - Accuracy: <0.001% vs reference implementation
+        - Tested: 685 days (Dec 2023 - Oct 2025)
+    
+    Usage Example (Bitcoin Core RPC):
+        >>> from UTXOracle_library import UTXOracleCalculator
+        >>> import subprocess, json
+        >>> 
+        >>> # Fetch block from Bitcoin Core
+        >>> block_hash = subprocess.check_output(
+        ...     ["bitcoin-cli", "getblockhash", "920000"]
+        ... ).decode().strip()
+        >>> 
+        >>> block = json.loads(subprocess.check_output(
+        ...     ["bitcoin-cli", "getblock", block_hash, "2"]
+        ... ).decode())
+        >>> 
+        >>> # Calculate price
+        >>> calc = UTXOracleCalculator()
+        >>> result = calc.calculate_price_for_transactions(block["tx"])
+        >>> 
+        >>> print(f"Price: ${result.price_usd:,.2f}")
+        Price: $110,537.00
+        >>> print(f"Confidence: {result.confidence:.2f}")
+        Confidence: 0.87
+        >>> print(f"Transactions: {result.tx_count:,}/{len(block['tx']):,}")
+        Transactions: 2,345/3,689
+    
+    Usage Example (mempool.space API):
+        >>> import requests
+        >>> from UTXOracle_library import UTXOracleCalculator
+        >>> 
+        >>> # Fetch transactions from mempool.space
+        >>> response = requests.get(
+        ...     "https://mempool.space/api/v1/blocks/920000"
+        ... )
+        >>> transactions = response.json()["tx"]
+        >>> 
+        >>> # Calculate price
+        >>> calc = UTXOracleCalculator()
+        >>> result = calc.calculate_price_for_transactions(transactions)
+    
+    Best Practices:
+        1. **Minimum Data**: Requires ~100 blocks (1 day) for reliable results
+        2. **Confidence Threshold**: Use confidence ≥0.3 for production
+        3. **Price Validation**: Sanity check price_usd in [$10k, $500k] range
+        4. **Diagnostics**: Monitor filtered_same_day count (should be <10%)
+        5. **Testing**: Validate against Bitcoin Core RPC for deterministic results
+    
+    Known Limitations:
+        - Low confidence during extreme volatility (>20% daily moves)
+        - Requires transaction mix (not just Lightning/consolidations)
+        - Assumes round USD amounts exist in mempool
+    
+    References:
+        - Reference Implementation: UTXOracle.py (1400+ lines)
+        - Validation Report: docs/WORKFLOW_COMPLETE.md
+        - Test Suite: tests/validation/
+        - Architecture: specs/003-mempool-integration-refactor/
+    
+    See Also:
+        - calculate_price_for_transactions(): Main API entry point
+        - PriceResult: Return type with all fields
+        - tests/validation/README.md: Testing methodology
+    
+    Version:
+        - v1: Exact replica of reference implementation
+        - v2: Type-safe with Pydantic models (this version)
+    """
+```
+
+2. Add `examples/` directory with runnable scripts:
+```bash
+examples/
+├── 01_basic_usage.py          # Simple Bitcoin Core example
+├── 02_mempool_api.py          # Using mempool.space API
+├── 03_intraday_evolution.py   # Plotting price evolution
+├── 04_diagnostics.py          # Monitoring filtering stats
+└── README.md                  # Examples overview
+```
+
+3. Create `docs/API.md` with full API reference
+
+4. Add migration guide from v1 to v2
+
+**Success Criteria**:
+- ✅ Comprehensive docstring with examples
+- ✅ 4 runnable example scripts
+- ✅ API reference documentation
+- ✅ Migration guide v1→v2
+- ✅ Reduced user questions (measure via GitHub issues)
+
+---
+
+### T112 🥉 [P3] Expose Diagnostics in Public API
+**Status**: ⏸️ TODO
+**Priority**: P3 (Medium-High ROI: ⭐⭐⭐⭐)
+**Effort**: 30 minutes
+**Value**: 70% (debugging, monitoring, transparency)
+
+**Goal**: Make filtering diagnostics visible in public API for debugging and monitoring.
+
+**Current State**:
+```python
+# Diagnostics are calculated but NOT returned
+result["diagnostics"] = {
+    "total_txs": len(transactions),
+    "filtered_inputs": filtered_inputs,
+    "filtered_outputs": filtered_outputs,
+    "filtered_coinbase": filtered_coinbase,
+    "filtered_op_return": filtered_op_return,
+    "filtered_witness": filtered_witness,
+    "filtered_same_day": filtered_same_day,
+    "total_filtered": total_filtered,
+    "passed_filter": tx_count,
+}
+# But diagnostics dict is NOT in public return!
+```
+
+**Implementation**:
+
+1. Update `calculate_price_for_transactions()` signature:
+```python
+def calculate_price_for_transactions(
+    self,
+    transactions: List[dict],
+    return_intraday: bool = False,
+    return_diagnostics: bool = True  # NEW - default True for v2
+) -> Dict:
+    """
+    Returns:
+        dict with keys:
+            - price_usd: Final price or None
+            - confidence: Score 0-1
+            - tx_count: Transactions after filtering
+            - output_count: Outputs analyzed
+            - diagnostics: Dict (if return_diagnostics=True) ← NEW
+                * total_txs: Total input transactions
+                * filtered_inputs: Filtered for >5 inputs
+                * filtered_outputs: Filtered for ≠2 outputs
+                * filtered_coinbase: Coinbase transactions
+                * filtered_op_return: OP_RETURN outputs
+                * filtered_witness: Excessive witness data
+                * filtered_same_day: Same-day spending
+                * passed_filter: Final count
+            - intraday_*: Lists (if return_intraday=True)
+    """
+```
+
+2. Expose diagnostics dict in return:
+```python
+# At end of calculate_price_for_transactions():
+if return_diagnostics:
+    result["diagnostics"] = {
+        "total_txs": len(transactions),
+        "filtered_inputs": filtered_inputs,
+        "filtered_outputs": filtered_outputs,
+        "filtered_coinbase": filtered_coinbase,
+        "filtered_op_return": filtered_op_return,
+        "filtered_witness": filtered_witness,
+        "filtered_same_day": filtered_same_day,
+        "total_filtered": total_filtered,
+        "passed_filter": tx_count,
+    }
+```
+
+3. Update tests to verify diagnostics returned
+
+**Success Criteria**:
+- ✅ Diagnostics dict exposed in return value
+- ✅ `return_diagnostics=True` by default in v2
+- ✅ All tests updated
+- ✅ Documentation updated with diagnostics usage
+
+**Use Cases**:
+```python
+# Monitor filtering effectiveness
+result = calc.calculate_price_for_transactions(txs)
+if result["diagnostics"]["filtered_same_day"] > 0.1 * len(txs):
+    print("WARNING: >10% same-day spending detected!")
+
+# Debug low confidence
+if result["confidence"] < 0.3:
+    print(f"Low confidence, diagnostics:")
+    print(f"  Passed filter: {result['diagnostics']['passed_filter']}")
+    print(f"  Total filtered: {result['diagnostics']['total_filtered']}")
+```
+
+---
+
+### 📋 [P4-P5] Future Considerations (Not Implemented)
+
+**These recommendations are documented for reference but NOT recommended for implementation:**
+
+#### P4: Public Internal Methods
+**Status**: ❌ NOT RECOMMENDED
+**Reason**: Increases API surface (85% maintenance burden) vs low value (35% useful)
+
+**Alternative**: Use `return_intermediate=True` flags instead
+```python
+# Instead of:
+intraday = calc._create_intraday_price_points(outputs, rough_price)  # Bad
+
+# Do this:
+result = calc.calculate_price_for_transactions(
+    txs,
+    return_intraday=True,      # Already exists
+    return_histogram=True,     # Could add if needed
+    return_stencils=True       # Could add if needed
+)
+```
+
+#### P5: Configurable Parameters
+**Status**: ❌ NOT RECOMMENDED (DANGEROUS for production)
+**Reason**: 95% risk of wrong prices, <10% production benefit
+
+**Alternative for Research**: Create `UTXOracleExperimental` subclass
+```python
+class UTXOracleExperimental(UTXOracleCalculator):
+    """
+    ⚠️ WARNING: For academic research only, NOT production use!
+    
+    Research version with configurable parameters.
+    Current parameters tuned on 672 days of data (2+ years).
+    Wrong parameters = Broken prices!
+    """
+    def __init__(
+        self,
+        pct_range_wide: float = 0.25,  # Configurable
+        smooth_mean: int = 411,          # Configurable
+        smooth_std: int = 201,           # Configurable
+        # ... all ~50 other params
+    ):
+        super().__init__()
+        # Override hardcoded values
+```
+
+**Risk Analysis**:
+- P(User knows better values): <5%
+- P(Wrong values → wrong prices): 95%
+- P(Production benefit): <10%
+- **Decision**: Keep hardcoded for production safety
+
+---
+
+## Implementation Plan for v2
+
+### Step 1: Create v2 Branch
+```bash
+git checkout -b library-v2
+```
+
+### Step 2: Implement T110-T112 (Priority Order)
+1. **T112** (30min) - Expose diagnostics (quick win)
+2. **T110** (3h) - Pydantic models (core improvement)
+3. **T111** (2h) - Documentation (usability)
+
+**Total Time**: ~5.5 hours
+
+### Step 3: Testing & Validation
+- Run full validation suite (`tests/validation/`)
+- Verify 5/5 perfect matches still pass
+- Test new Pydantic validation
+- Run mypy for type checking
+
+### Step 4: Release
+- Update CHANGELOG.md
+- Tag release: `v2.0.0`
+- Merge to main branch
+
+### Success Criteria for v2 Release
+- ✅ All v1 tests pass with v2 code
+- ✅ Pydantic models validated
+- ✅ Documentation comprehensive
+- ✅ Diagnostics exposed and tested
+- ✅ Type hints work with IDE
+- ✅ Migration guide available
+
+---
+
+**Phase 4 Status**: 📋 READY TO IMPLEMENT (v2 planned)
+
+**Reference**: `docs/WORKFLOW_COMPLETE.md` for full validation analysis and ROI calculations
