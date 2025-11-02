@@ -385,6 +385,194 @@ class UTXOracleCalculator:
             "peak_btc": peak_btc,
         }
 
+    def _find_central_output(
+        self, prices: List[float], price_min: float, price_max: float
+    ) -> tuple:
+        """
+        T112: Find the most central price point using center-of-mass algorithm.
+
+        This is the core of Step 11 (Find Exact Average Price). Uses geometric median
+        to find the price that minimizes total distance to all other prices.
+
+        Args:
+            prices: List of price points (USD/BTC)
+            price_min: Lower bound for filtering
+            price_max: Upper bound for filtering
+
+        Returns:
+            (central_price, median_absolute_deviation)
+
+        Extracted from UTXOracle.py lines 1274-1314
+        """
+        # Filter prices within range
+        outputs = sorted([p for p in prices if price_min < p < price_max])
+        n = len(outputs)
+
+        if n == 0:
+            return None, None
+
+        # Prefix sums for efficient distance calculation
+        prefix_sum = []
+        total = 0
+        for x in outputs:
+            total += x
+            prefix_sum.append(total)
+
+        # Count points left and right of each position
+        left_counts = list(range(n))
+        right_counts = [n - i - 1 for i in left_counts]
+        left_sums = [0] + prefix_sum[:-1]
+        right_sums = [total - x for x in prefix_sum]
+
+        # Find total distance to other points for each position
+        total_dists = []
+        for i in range(n):
+            dist = (outputs[i] * left_counts[i] - left_sums[i]) + (
+                right_sums[i] - outputs[i] * right_counts[i]
+            )
+            total_dists.append(dist)
+
+        # Find the most central output (minimum total distance)
+        min_index, _ = min(enumerate(total_dists), key=lambda x: x[1])
+        best_output = outputs[min_index]
+
+        # Calculate median absolute deviation
+        deviations = [abs(x - best_output) for x in outputs]
+        deviations.sort()
+        m = len(deviations)
+        if m % 2 == 0:
+            mad = (deviations[m // 2 - 1] + deviations[m // 2]) / 2
+        else:
+            mad = deviations[m // 2]
+
+        return best_output, mad
+
+    def _create_intraday_price_points(
+        self, raw_outputs: List[float], rough_price: float
+    ) -> List[float]:
+        """
+        T111: Create intraday price points from raw outputs (Step 10).
+
+        For each output, calculates the implied USD/BTC price based on common
+        round USD amounts ($5, $10, $20, $50, $100, etc.). Filters out round
+        BTC amounts to avoid false signals.
+
+        Args:
+            raw_outputs: List of BTC output amounts
+            rough_price: Rough price estimate from Step 9
+
+        Returns:
+            List of intraday price points (USD/BTC)
+
+        Extracted from UTXOracle.py lines 1183-1249
+        """
+        # Common round USD amounts
+        usds = [5, 10, 15, 20, 25, 30, 40, 50, 100, 150, 200, 300, 500, 1000]
+
+        # Price range: ±25% of rough estimate
+        pct_range_wide = 0.25
+
+        # Build micro round satoshi amounts list (to filter out)
+        micro_remove_list = []
+        i = 0.00005000
+        while i < 0.0001:
+            micro_remove_list.append(i)
+            i += 0.00001
+        i = 0.0001
+        while i < 0.001:
+            micro_remove_list.append(i)
+            i += 0.00001
+        i = 0.001
+        while i < 0.01:
+            micro_remove_list.append(i)
+            i += 0.0001
+        i = 0.01
+        while i < 0.1:
+            micro_remove_list.append(i)
+            i += 0.001
+        i = 0.1
+        while i < 1:
+            micro_remove_list.append(i)
+            i += 0.01
+        pct_micro_remove = 0.0001
+
+        # Create price points
+        output_prices = []
+
+        for btc_amount in raw_outputs:
+            # Try each USD amount
+            for usd in usds:
+                # Calculate BTC range for this USD amount
+                avg_btc = usd / rough_price
+                btc_up = avg_btc + pct_range_wide * avg_btc
+                btc_dn = avg_btc - pct_range_wide * avg_btc
+
+                # Check if output is within range
+                if btc_dn < btc_amount < btc_up:
+                    append = True
+
+                    # Filter out round BTC amounts
+                    for round_btc in micro_remove_list:
+                        rm_dn = round_btc - pct_micro_remove * round_btc
+                        rm_up = round_btc + pct_micro_remove * round_btc
+                        if rm_dn < btc_amount < rm_up:
+                            append = False
+                            break
+
+                    # Add price point if not round BTC
+                    if append:
+                        output_prices.append(usd / btc_amount)
+
+        return output_prices
+
+    def _iterate_convergence(
+        self, output_prices: List[float], rough_price: float
+    ) -> tuple:
+        """
+        T113: Find exact average price using single central output calculation (Step 11).
+
+        IMPORTANT: The reference implementation has a loop that NEVER executes
+        (bug in lines 1328-1330). It only calls find_central_output() ONCE.
+
+        Uses _find_central_output() to locate the geometric median of price points
+        within ±5% of the rough estimate.
+
+        Args:
+            output_prices: List of intraday price points from Step 10
+            rough_price: Initial rough estimate from Step 9
+
+        Returns:
+            (central_price, deviation_percentage)
+
+        Extracted from UTXOracle.py lines 1317-1347
+        """
+        if not output_prices:
+            return None, None
+
+        # Use tight range: ±5% of rough estimate (reference line 1318)
+        pct_range_tight = 0.05
+        price_up = rough_price + pct_range_tight * rough_price
+        price_dn = rough_price - pct_range_tight * rough_price
+
+        # Find central price ONCE (reference lines 1321, 1328-1330 loop never executes!)
+        central_price, av_dev = self._find_central_output(
+            output_prices, price_dn, price_up
+        )
+
+        if central_price is None:
+            return None, None
+
+        # Calculate deviation using wider range ±10% (reference lines 1342-1347)
+        pct_range_med = 0.1
+        price_up = central_price + pct_range_med * central_price
+        price_dn = central_price - pct_range_med * central_price
+        price_range = price_up - price_dn
+        _, av_dev = self._find_central_output(output_prices, price_dn, price_up)
+
+        dev_pct = av_dev / price_range if av_dev and price_range > 0 else 0.0
+
+        return central_price, dev_pct
+
     def calculate_price_for_transactions(self, transactions: List[dict]) -> Dict:
         """
         T026: Public API - Calculate price from transaction list.
@@ -420,6 +608,7 @@ class UTXOracleCalculator:
 
         # Step 6: Build histogram from transactions
         histogram = {}
+        raw_outputs = []  # NEW: Save raw outputs for Step 10
         tx_count = 0
         output_count = 0
 
@@ -511,16 +700,23 @@ class UTXOracleCalculator:
 
             tx_count += 1
 
-            # Count outputs into histogram
+            # Count outputs into histogram + save raw outputs
+            # IMPORTANT: Only save outputs that get binned (reference lines 867-884)
             for vout in vouts:
                 value_btc = vout.get("value", 0)
                 if value_btc <= 0:
                     continue
 
+                # Try to bin the output
                 bin_idx = self._get_bin_index(value_btc)
                 if bin_idx is not None:
+                    # Add to histogram
                     histogram[bin_idx] = histogram.get(bin_idx, 0) + 1
                     output_count += 1
+
+                    # Save for Step 10 (intraday price points)
+                    # Only binned outputs go to raw_outputs (reference line 875, 882)
+                    raw_outputs.append(value_btc)
 
         # Step 7: Smooth round BTC amounts and normalize (lines 889-965)
         # Remove extreme bins
@@ -567,8 +763,40 @@ class UTXOracleCalculator:
                     if histogram[n] > 0.008:
                         histogram[n] = 0.008
 
-        # Steps 9-11: Estimate price from histogram
-        result = self._estimate_price(histogram)
+        # Step 9: Get rough price estimate from histogram
+        rough_result = self._estimate_price(histogram)
+        rough_price = rough_result.get("price_usd")
+
+        # Steps 10-11: Create intraday price points and converge to exact price
+        if rough_price and len(raw_outputs) > 0:
+            # Step 10: Create intraday price points
+            intraday_prices = self._create_intraday_price_points(
+                raw_outputs, rough_price
+            )
+
+            # Step 11: Iterative convergence to find exact average price
+            if len(intraday_prices) > 0:
+                final_price, dev_pct = self._iterate_convergence(
+                    intraday_prices, rough_price
+                )
+
+                if final_price:
+                    # Use converged price as final result
+                    result = {
+                        "price_usd": final_price,
+                        "confidence": rough_result.get("confidence", 0.0),
+                        "peak_bin": rough_result.get("peak_bin"),
+                        "peak_btc": rough_result.get("peak_btc"),
+                    }
+                else:
+                    # Convergence failed, fall back to rough estimate
+                    result = rough_result
+            else:
+                # No intraday prices generated, use rough estimate
+                result = rough_result
+        else:
+            # No rough price or no outputs, return rough result
+            result = rough_result
 
         # Add transaction statistics
         result["tx_count"] = tx_count
