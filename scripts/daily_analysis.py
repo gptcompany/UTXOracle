@@ -284,48 +284,60 @@ def _convert_satoshi_to_btc(transactions: List[dict]) -> List[dict]:
 
 def _fetch_from_mempool_local(api_url: str) -> List[dict]:
     """
-    Tier 1 (Primary): Fetch from self-hosted mempool.space.
+    Tier 1 (Primary): Fetch from self-hosted electrs HTTP API.
+
+    Note: Self-hosted mempool.space backend (port 8999) does NOT expose block transaction endpoints.
+    We use electrs HTTP API directly (port 3001) instead.
 
     Args:
         api_url: Base URL for mempool.space API (e.g., http://localhost:8999)
+                 This is used only for exchange prices. Transactions come from electrs at localhost:3001.
 
     Returns:
         list: Transaction dictionaries with vout values in BTC
 
     Raises:
-        ValueError: If local mempool unavailable or data incomplete
+        ValueError: If local electrs unavailable or data incomplete
     """
-    # Get best block hash
-    resp = requests.get(f"{api_url}/api/blocks/tip/hash", timeout=10)
+    # Use electrs HTTP API directly (localhost:3001)
+    electrs_url = "http://localhost:3001"
+
+    # Get best block hash from electrs
+    resp = requests.get(f"{electrs_url}/blocks/tip/hash", timeout=10)
     resp.raise_for_status()
-    best_hash = resp.text.strip()
+    best_hash = resp.text.strip().strip('"')  # electrs returns quoted string
 
-    logging.info(f"[Primary API] Fetching block {best_hash[:16]}... (from {api_url})")
+    logging.info(
+        f"[Primary API - electrs] Fetching block {best_hash[:16]}... (from {electrs_url})"
+    )
 
-    # Get block info to know tx_count
-    resp = requests.get(f"{api_url}/api/block/{best_hash}", timeout=10)
+    # Get transaction IDs from block
+    resp = requests.get(f"{electrs_url}/block/{best_hash}/txids", timeout=30)
     resp.raise_for_status()
-    block_info = resp.json()
-    total_tx = block_info["tx_count"]
+    txids = resp.json()
 
-    # Fetch all transactions (paginated: 25 per page)
+    if len(txids) < 1000:
+        raise ValueError(f"Fetched only {len(txids)} tx (expected >=1000)")
+
+    # Fetch full transaction data for each txid
     transactions = []
-    for start_index in range(0, total_tx, 25):
-        resp = requests.get(
-            f"{api_url}/api/block/{best_hash}/txs/{start_index}",
-            timeout=30,
-        )
-        resp.raise_for_status()
-        transactions.extend(resp.json())
+    logging.info(f"[Primary API - electrs] Fetching {len(txids)} full transactions...")
+    for i, txid in enumerate(txids):
+        if i % 500 == 0:
+            logging.info(
+                f"[Primary API - electrs] Progress: {i}/{len(txids)} transactions..."
+            )
 
-    if len(transactions) < 1000:
-        raise ValueError(f"Fetched only {len(transactions)} tx (expected >=1000)")
+        resp = requests.get(f"{electrs_url}/tx/{txid}", timeout=10)
+        resp.raise_for_status()
+        tx = resp.json()
+        transactions.append(tx)
 
     # CRITICAL: Convert satoshi → BTC for UTXOracle_library compatibility
     transactions = _convert_satoshi_to_btc(transactions)
 
     logging.info(
-        f"[Primary API] ✅ Fetched {len(transactions)} transactions from {api_url}"
+        f"[Primary API - electrs] ✅ Fetched {len(transactions)} transactions from {electrs_url}"
     )
     return transactions
 
