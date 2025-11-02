@@ -84,8 +84,10 @@ The library correctly implements what the reference ACTUALLY does (single call t
 - Library:   $111,652
 - Difference: **0.00%**
 
-**5 Random October Dates**:
-- All: **Perfect matches** (<$1 difference)
+**5 Random October Dates** (Oct 24, 23, 01, 25, 09):
+- **5/5 Perfect matches** (<$1 difference)
+- Average difference: $0.67 (0.0006%)
+- Total transactions tested: 2,343,533
 
 ## Running All Validation Tests
 

@@ -23,8 +23,8 @@ from typing import List, Dict, Optional
 
 from dotenv import load_dotenv
 
-# Add parent to path
-sys.path.insert(0, str(Path(__file__).parent))
+# Add project root to path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from UTXOracle_library import UTXOracleCalculator
 
@@ -248,7 +248,8 @@ def main():
     args = parser.parse_args()
 
     # Find HTML files
-    html_dir = Path(__file__).parent / "historical_data" / "html_files"
+    project_root = Path(__file__).parent.parent.parent
+    html_dir = project_root / "historical_data" / "html_files"
     if not html_dir.exists():
         logging.error(f"HTML directory not found: {html_dir}")
         sys.exit(1)
