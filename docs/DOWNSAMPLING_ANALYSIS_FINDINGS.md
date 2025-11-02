@@ -231,3 +231,248 @@ downsampled = downsample_for_visualization(
 **Phase 1 Status**: ✅ COMPLETE
 
 **Next**: Phase 2 Design (T206-T212) - Strategy selection for 2023-2025 series
+
+---
+
+## 🖥️ Rendering Technology Analysis (Nov 2, 2025)
+
+### CheckOnChain Benchmark Study
+
+**Analyzed**: https://charts.checkonchain.com/btconchain/premium/urpd_heatmap_supply_lth/
+
+**Technology Stack**:
+- **Library**: Plotly.js v2.32.0
+- **Rendering**: Automatic SVG/WebGL switching
+- **Data Volume**: ~10 years × 256 price bins = ~935k data points
+- **File Size**: ~10.5 MB HTML (includes embedded data)
+
+**Code Structure**:
+```javascript
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+<div class="plotly-graph-div"></div>
+<script>
+    Plotly.newPlot("div-id", [{
+        "colorbar": {...},
+        "colorscale": [...],
+        "hoverongaps": false,
+        "x": ["2015-01-01", ...],  // Dates array
+        "y": [0, 250, 500, ...],   // Price bins
+        "z": [[...], [...], ...]    // Heatmap values
+    }])
+</script>
+```
+
+**Rendering Strategy**:
+- Uses `heatmap` trace type (likely `heatmapgl` for WebGL acceleration)
+- Automatic backend selection based on data size
+- Built-in interactivity (zoom, pan, hover tooltips)
+
+---
+
+## 🎨 Rendering Options for UTXOracle (2023-2025 Series)
+
+### Option A: Canvas 2D (Current Approach - KISS)
+
+**Stack**:
+- Vanilla JavaScript + Canvas 2D API
+- Zero external dependencies
+- Manual pixel painting
+
+**Pros**:
+- ✅ **KISS principle**: No library dependencies
+- ✅ **Small bundle**: ~0KB (native browser API)
+- ✅ **Full control**: Custom rendering logic
+- ✅ **Privacy-first**: No CDN dependencies
+- ✅ **Already implemented**: UTXOracle.py uses this
+
+**Cons**:
+- ❌ **Performance limit**: ~1M points max
+- ❌ **Manual interactivity**: Must implement zoom/pan/hover from scratch
+- ❌ **Development time**: Higher (no built-in features)
+
+**Data Requirements**:
+```
+Target: <1M points total
+Strategy: Hybrid downsampling (ax_range + temporal aggregation)
+Result: 730 dates × 1,370 points = 1.0M points ✅
+```
+
+**Best For**:
+- Static visualization (no complex interactions)
+- Keeping project simple and dependency-free
+- When downsampling is acceptable
+
+---
+
+### Option B: Plotly.js (High-Level Library)
+
+**Stack**:
+- Plotly.js 2.x (~3MB minified)
+- Automatic SVG/WebGL rendering
+- Built-in interactivity
+
+**Pros**:
+- ✅ **Fast development**: Built-in zoom, pan, hover, export
+- ✅ **Auto-optimization**: WebGL for large datasets
+- ✅ **Battle-tested**: Used by CheckOnChain, heavily maintained
+- ✅ **Rich features**: Annotations, legends, multiple plot types
+- ✅ **Handles millions**: `scattergl` and `heatmapgl` modes
+
+**Cons**:
+- ❌ **Large bundle**: ~3MB (10× increase in page size)
+- ❌ **External dependency**: CDN or local hosting required
+- ❌ **Less control**: Black box rendering logic
+- ❌ **Complexity**: Large API surface to learn
+- ❌ **Overkill**: For simple time series visualization
+
+**Data Requirements**:
+```
+Target: Can handle 17.5M points with scattergl
+Strategy: Minimal downsampling needed
+Result: 730 dates × 24k points = 17.5M points ✅ (with WebGL)
+```
+
+**Best For**:
+- Complex interactive dashboards
+- When you want professional features without development time
+- Datasets >1M points (WebGL mode)
+
+**Example Implementation**:
+```javascript
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+<div id="utxoracle-chart"></div>
+<script>
+Plotly.newPlot('utxoracle-chart', [{
+    type: 'scattergl',  // WebGL mode for performance
+    mode: 'lines',
+    x: dates,           // 730 dates
+    y: prices,          // 17.5M points
+    line: {color: 'rgb(255, 127, 14)', width: 1}
+}], {
+    title: 'UTXOracle 2023-2025',
+    xaxis: {title: 'Date'},
+    yaxis: {title: 'Price (USD)'}
+});
+</script>
+```
+
+---
+
+### Option C: Three.js WebGL (Low-Level Control)
+
+**Stack**:
+- Three.js (~600KB minified)
+- Manual WebGL shader programming
+- Full GPU control
+
+**Pros**:
+- ✅ **Maximum performance**: Direct GPU access
+- ✅ **Custom shaders**: Complete visual control
+- ✅ **Handles billions**: Limited only by GPU memory
+- ✅ **Smaller than Plotly**: ~600KB vs ~3MB
+- ✅ **Flexibility**: Can implement exactly what you need
+
+**Cons**:
+- ❌ **High complexity**: Must implement everything from scratch
+- ❌ **Development time**: Weeks for basic interactivity
+- ❌ **Steep learning curve**: WebGL/shader knowledge required
+- ❌ **Maintenance burden**: More code to maintain
+- ❌ **Overkill**: For 2D time series
+
+**Data Requirements**:
+```
+Target: Can handle >10M points easily
+Strategy: Moderate downsampling for readability
+Result: 730 dates × 5-10k points recommended
+```
+
+**Best For**:
+- 3D visualizations (not applicable here)
+- When you need absolute maximum performance
+- Custom visual effects (particles, animations)
+- When you're already using Three.js for other features
+
+---
+
+## 📊 Decision Matrix
+
+| Criteria | Canvas 2D | Plotly.js | Three.js |
+|----------|-----------|-----------|----------|
+| **Complexity** | Low | Medium | High |
+| **Bundle Size** | 0KB | ~3MB | ~600KB |
+| **Dev Time** | High | Low | Very High |
+| **Performance** | 1M points | 10M+ points | 100M+ points |
+| **Interactivity** | Manual | Built-in | Manual |
+| **Maintainability** | High | High | Medium |
+| **KISS Score** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐ |
+| **Dependencies** | 0 | 1 (large) | 1 (medium) |
+| **Browser Support** | ✅ All | ✅ All | ✅ Modern only |
+
+---
+
+## 🎯 Recommendation
+
+### For UTXOracle 2023-2025 Series:
+
+**Primary Recommendation: Option A (Canvas 2D + Hybrid Downsampling)**
+
+**Rationale**:
+1. ✅ **Aligns with project philosophy**: KISS, zero dependencies, privacy-first
+2. ✅ **Sufficient performance**: 1M points is enough with smart downsampling
+3. ✅ **Already implemented**: UTXOracle.py uses Canvas 2D successfully
+4. ✅ **Small footprint**: Keeps HTML files lightweight (~2-5MB vs 10MB+)
+5. ✅ **Predictable**: No black box library behavior
+
+**Implementation Strategy**:
+```
+Step 1: Per-date ax_range filtering (76% reduction)
+        100k → 24k points per date
+
+Step 2: Temporal aggregation (94% additional reduction)
+        24k → 1.4k points per date
+
+Result: 730 dates × 1.4k = 1.02M points ✅
+```
+
+**When to Upgrade to Plotly.js**:
+- ❌ Current data doesn't justify it (1M points is manageable)
+- ✅ Consider if future features require:
+  * Multiple chart types in same dashboard
+  * Advanced zoom/pan/hover interactions
+  * Data export features (CSV, PNG, SVG)
+  * Real-time updates with >5M data points
+
+**Three.js**: ❌ Not recommended (overkill for 2D time series)
+
+---
+
+## 🚀 Implementation Plan (Recommended)
+
+**Phase 2 (T206-T212)**: Design hybrid downsampling
+- Target: 1.4k points/date
+- Method: Temporal aggregation (min/max/avg buckets)
+- API: Library method or separate utility
+
+**Phase 3 (T213-T216)**: Proof of Concept
+- Implement temporal aggregation
+- Test on 5 dates
+- Measure performance & visual quality
+
+**Phase 4 (T217-T220)**: Integration
+- FastAPI endpoint: `/api/prices/historical-series`
+- Canvas 2D frontend (extend current implementation)
+- Optional: Add basic zoom/pan if needed
+
+**Future (Optional)**: Plotly.js migration
+- Only if Canvas 2D proves insufficient
+- Only if interactive features become requirement
+- Can be done incrementally (side-by-side comparison)
+
+---
+
+## 📝 Updated References
+
+- **CheckOnChain Analysis**: https://charts.checkonchain.com (Plotly.js 2.32.0)
+- **Canvas 2D Docs**: https://developer.mozilla.org/en-US/docs/Web/API/Canvas_API
+- **Plotly.js Docs**: https://plotly.com/javascript/
+- **Three.js Docs**: https://threejs.org/docs/
