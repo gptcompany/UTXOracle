@@ -154,7 +154,7 @@ class TestDuckDBSave:
             # Should execute INSERT statement
             assert mock_conn.execute.called
             call_args = mock_conn.execute.call_args[0][0]
-            assert "INSERT INTO prices" in call_args
+            assert "INSERT" in call_args and "price_analysis" in call_args
 
     def test_save_to_duckdb_creates_table_if_not_exists(self):
         """Should auto-create table schema on first run"""
@@ -169,7 +169,7 @@ class TestDuckDBSave:
             # Should execute CREATE TABLE IF NOT EXISTS
             assert mock_conn.execute.called
             call_args = mock_conn.execute.call_args[0][0]
-            assert "CREATE TABLE IF NOT EXISTS prices" in call_args
+            assert "CREATE TABLE IF NOT EXISTS price_analysis" in call_args
 
 
 # Summary comment for documentation

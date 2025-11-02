@@ -1,0 +1,49 @@
+{
+  "testModules": [
+    {
+      "moduleId": "tests/test_daily_analysis.py",
+      "tests": [
+        {
+          "name": "test_fetch_mempool_price_returns_float",
+          "fullName": "tests/test_daily_analysis.py::TestMempoolPriceFetch::test_fetch_mempool_price_returns_float",
+          "state": "passed"
+        },
+        {
+          "name": "test_fetch_mempool_price_handles_network_error",
+          "fullName": "tests/test_daily_analysis.py::TestMempoolPriceFetch::test_fetch_mempool_price_handles_network_error",
+          "state": "passed"
+        },
+        {
+          "name": "test_calculate_utxoracle_price",
+          "fullName": "tests/test_daily_analysis.py::TestUTXOraclePriceCalculation::test_calculate_utxoracle_price",
+          "state": "passed"
+        },
+        {
+          "name": "test_calculate_utxoracle_price_handles_no_transactions",
+          "fullName": "tests/test_daily_analysis.py::TestUTXOraclePriceCalculation::test_calculate_utxoracle_price_handles_no_transactions",
+          "state": "passed"
+        },
+        {
+          "name": "test_compare_prices_computes_difference",
+          "fullName": "tests/test_daily_analysis.py::TestPriceComparison::test_compare_prices_computes_difference",
+          "state": "passed"
+        },
+        {
+          "name": "test_compare_prices_handles_zero_utx_price",
+          "fullName": "tests/test_daily_analysis.py::TestPriceComparison::test_compare_prices_handles_zero_utx_price",
+          "state": "passed"
+        },
+        {
+          "name": "test_save_to_duckdb",
+          "fullName": "tests/test_daily_analysis.py::TestDuckDBSave::test_save_to_duckdb",
+          "state": "passed"
+        },
+        {
+          "name": "test_save_to_duckdb_creates_table_if_not_exists",
+          "fullName": "tests/test_daily_analysis.py::TestDuckDBSave::test_save_to_duckdb_creates_table_if_not_exists",
+          "state": "passed"
+        }
+      ]
+    }
+  ]
+}

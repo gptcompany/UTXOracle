@@ -138,65 +138,75 @@ class UTXOracleCalculator:
         """
         T023: Create smooth detection stencil (Step 8).
 
-        A wider Gaussian-like stencil for detecting broad peaks in the histogram.
-        This represents the expected distribution of round fiat amounts.
+        EXACT MATCH to UTXOracle.py lines 998-1007.
 
         Returns:
-            dict: Stencil weights by bin offset
-
-        Extracted from UTXOracle.py lines 971-1048 (Step 8 - smooth stencil)
+            dict: Stencil weights (803 elements)
         """
-        stencil = {}
+        # Parameters (EXACT MATCH to lines 998-1001)
+        num_elements = 803
+        mean = 411  # (num_elements - 1) / 2  # Center of the array
+        std_dev = 201
 
-        # Create Gaussian-like weights centered at 0
-        # Width of ~40 bins (covers ~1% price range on log scale)
-        sigma = 15  # Standard deviation in bins
-        center = 0
-
-        for offset in range(-40, 41):
-            # Gaussian weight
-            weight = (1.0 / (sigma * (2 * 3.14159) ** 0.5)) * 2.71828 ** (
-                -0.5 * ((offset - center) / sigma) ** 2
+        # Construct the smooth stencil (EXACT MATCH to lines 1003-1007)
+        smooth_stencil = []
+        for x in range(num_elements):
+            exp_part = -((x - mean) ** 2) / (2 * (std_dev**2))
+            smooth_stencil.append(
+                (0.00150 * 2.718281828459045**exp_part) + (0.0000005 * x)
             )
-            stencil[offset] = weight
 
-        # Normalize so weights sum to 1
-        total_weight = sum(stencil.values())
-        for offset in stencil:
-            stencil[offset] /= total_weight
-
-        return stencil
+        # Convert list to dict for consistency with library API
+        return {i: smooth_stencil[i] for i in range(len(smooth_stencil))}
 
     def _build_spike_stencil(self) -> Dict[int, float]:
         """
         T024: Create spike detection stencil (Step 8).
 
-        A narrower stencil for detecting sharp peaks in the histogram.
-        This helps identify strong price signals.
+        EXACT MATCH to UTXOracle.py lines 1010-1044.
 
         Returns:
-            dict: Stencil weights by bin offset
-
-        Extracted from UTXOracle.py lines 971-1048 (Step 8 - spike stencil)
+            dict: Stencil weights (803 elements with hardcoded USD amounts)
         """
-        stencil = {}
+        # Load the spike stencil that fine tunes the alignment on popular usd amounts
+        # EXACT MATCH to lines 1011-1044
+        spike_stencil = []
+        for n in range(0, 803):
+            spike_stencil.append(0.0)
 
-        # Create narrower Gaussian weights
-        sigma = 5  # Smaller standard deviation = sharper peak
-        center = 0
+        # round usd bin location   #popularity    #usd amount
+        spike_stencil[40] = 0.001300198324984352  # $1
+        spike_stencil[141] = 0.001676746949820743  # $5
+        spike_stencil[201] = 0.003468805546942046  # $10
+        spike_stencil[202] = 0.001991977522512513  #
+        spike_stencil[236] = 0.001905066647961839  # $15
+        spike_stencil[261] = 0.003341772718156079  # $20
+        spike_stencil[262] = 0.002588902624584287  #
+        spike_stencil[296] = 0.002577893841190244  # $30
+        spike_stencil[297] = 0.002733728814200412  #
+        spike_stencil[340] = 0.003076117748975647  # $50
+        spike_stencil[341] = 0.005613067550103145  #
+        spike_stencil[342] = 0.003088253178535568  #
+        spike_stencil[400] = 0.002918457489366139  # $100
+        spike_stencil[401] = 0.006174500465286022  #
+        spike_stencil[402] = 0.004417068070043504  #
+        spike_stencil[403] = 0.002628663628020371  #
+        spike_stencil[436] = 0.002858828161543839  # $150
+        spike_stencil[461] = 0.004097463611984264  # $200
+        spike_stencil[462] = 0.003345917406120509  #
+        spike_stencil[496] = 0.002521467726855856  # $300
+        spike_stencil[497] = 0.002784125730361008  #
+        spike_stencil[541] = 0.003792850444811335  # $500
+        spike_stencil[601] = 0.003688240815848247  # $1000
+        spike_stencil[602] = 0.002392400117402263  #
+        spike_stencil[636] = 0.001280993059008106  # $1500
+        spike_stencil[661] = 0.001654665137536031  # $2000
+        spike_stencil[662] = 0.001395501347054946  #
+        spike_stencil[741] = 0.001154279140906312  # $5000
+        spike_stencil[801] = 0.000832244504868709  # $10000
 
-        for offset in range(-15, 16):
-            weight = (1.0 / (sigma * (2 * 3.14159) ** 0.5)) * 2.71828 ** (
-                -0.5 * ((offset - center) / sigma) ** 2
-            )
-            stencil[offset] = weight
-
-        # Normalize
-        total_weight = sum(stencil.values())
-        for offset in stencil:
-            stencil[offset] /= total_weight
-
-        return stencil
+        # Convert list to dict for consistency with library API
+        return {i: spike_stencil[i] for i in range(len(spike_stencil))}
 
     def _estimate_price(self, histogram: Dict[int, int]) -> Dict:
         """
@@ -274,10 +284,8 @@ class UTXOracleCalculator:
         spike_len = len(spike_stencil_list)
 
         # Establish center position: 0.001 BTC at $100 = $100k price
-        # Find bin index for 0.001 BTC
-        center_p001 = self._get_bin_index(0.001)
-        if center_p001 is None:
-            center_p001 = len(self.bins) // 2  # Fallback to middle
+        # EXACT MATCH to UTXOracle.py line 1080
+        center_p001 = 601  # 601 is where 0.001 btc is in the output bell curve
 
         # Slide range (from UTXOracle.py lines 1085-1086)
         # min_slide = -141 allows up to ~$500k, max_slide = 201 allows down to ~$5k
@@ -293,155 +301,82 @@ class UTXOracleCalculator:
         best_slide_score = 0
         total_score = 0
 
-        left_offset = center_p001 - spike_len // 2
-        right_offset = center_p001 + spike_len // 2
+        # EXACT MATCH to UTXOracle.py lines 1081-1082
+        left_p001 = center_p001 - int((spike_len + 1) / 2)
+        right_p001 = center_p001 + int((spike_len + 1) / 2)
 
+        # EXACT MATCH to UTXOracle.py lines 1089-1113
         for slide in range(min_slide, max_slide):
-            # Extract histogram window at this slide position
-            start = left_offset + slide
-            end = right_offset + slide
+            # shift the bell curve by the slide
+            shifted_curve = histogram_array[left_p001 + slide : right_p001 + slide]
 
-            # Bounds check
-            if start < 0 or end >= len(histogram_array):
-                continue
+            # score the smooth slide by multiplying the curve by the stencil
+            slide_score_smooth = 0.0
+            for n in range(0, len(smooth_stencil_list)):
+                slide_score_smooth += shifted_curve[n] * smooth_stencil_list[n]
 
-            shifted_curve = histogram_array[start:end]
-            if len(shifted_curve) != spike_len:
-                continue
+            # score the spiky slide by multiplying the curve by the stencil
+            slide_score = 0.0
+            for n in range(0, len(spike_stencil_list)):
+                slide_score += shifted_curve[n] * spike_stencil_list[n]
 
-            # Score with spike stencil
-            slide_score = sum(
-                shifted_curve[n] * spike_stencil_list[n] for n in range(spike_len)
-            )
+            # add the spike and smooth slide scores, neglect smooth slide over wrong regions
+            if slide < 150:
+                slide_score = slide_score + slide_score_smooth * 0.65
 
-            # Add smooth stencil contribution (only for slide < 150, line 1104)
-            if slide < 150 and len(shifted_curve) == len(smooth_stencil_list):
-                slide_score_smooth = sum(
-                    shifted_curve[n] * smooth_stencil_list[n]
-                    for n in range(len(smooth_stencil_list))
-                )
-                slide_score += slide_score_smooth * smooth_weight
-
-            # Track best slide
+            # see if this score is the best so far
             if slide_score > best_slide_score:
                 best_slide_score = slide_score
                 best_slide = slide
 
+            # increment the total score
             total_score += slide_score
 
-        # Calculate price from best slide position
-        # Best slide bin index
+        # Calculate price from best slide position (EXACT MATCH to lines 1115-1117)
         best_slide_bin = center_p001 + best_slide
-
-        # DEBUG: Log convergence details
-        import sys
-
-        print("\n=== CONVERGENCE DEBUG ===", file=sys.stderr)
-        print(f"center_p001: {center_p001}", file=sys.stderr)
-        print(f"best_slide: {best_slide}", file=sys.stderr)
-        print(f"best_slide_bin: {best_slide_bin}", file=sys.stderr)
-        print(f"best_slide_score: {best_slide_score}", file=sys.stderr)
 
         if best_slide_bin < 0 or best_slide_bin >= len(self.bins):
             price_usd = None
-            print("ERROR: best_slide_bin out of range!", file=sys.stderr)
         else:
-            # BTC amount at best slide position
+            # estimate the usd price of the best slide
             usd100_in_btc_best = self.bins[best_slide_bin]
-            print(
-                f"bins[{best_slide_bin}]: {usd100_in_btc_best:.10f} BTC",
-                file=sys.stderr,
-            )
+            btc_in_usd_best = 100 / (usd100_in_btc_best)
 
-            # Implied price: $100 / BTC_amount = $/BTC
-            btc_in_usd_best = (
-                100.0 / usd100_in_btc_best if usd100_in_btc_best > 0 else None
-            )
-            print(
-                f"Calculated price (BEFORE neighbor): ${btc_in_usd_best:,.2f}"
-                if btc_in_usd_best
-                else "Price: None",
-                file=sys.stderr,
-            )
+            # Neighbor refinement (EXACT MATCH to lines 1119-1133)
+            # find best slide neighbor up
+            neighbor_up = histogram_array[
+                left_p001 + best_slide + 1 : right_p001 + best_slide + 1
+            ]
+            neighbor_up_score = 0.0
+            for n in range(0, spike_len):
+                neighbor_up_score += neighbor_up[n] * spike_stencil_list[n]
 
-            # Neighbor refinement (lines 1119-1152)
-            # Check neighbor bins up and down
-            neighbor_up_bin = best_slide_bin + 1
-            neighbor_down_bin = best_slide_bin - 1
+            # find best slide neighbor down
+            neighbor_down = histogram_array[
+                left_p001 + best_slide - 1 : right_p001 + best_slide - 1
+            ]
+            neighbor_down_score = 0.0
+            for n in range(0, spike_len):
+                neighbor_down_score += neighbor_down[n] * spike_stencil_list[n]
 
-            neighbor_up_score = 0
-            neighbor_down_score = 0
-
-            # Score neighbor up
-            if neighbor_up_bin < len(self.bins):
-                start = left_offset + best_slide + 1
-                end = right_offset + best_slide + 1
-                if 0 <= start < len(histogram_array) and end <= len(histogram_array):
-                    neighbor_up_curve = histogram_array[start:end]
-                    if len(neighbor_up_curve) == spike_len:
-                        neighbor_up_score = sum(
-                            neighbor_up_curve[n] * spike_stencil_list[n]
-                            for n in range(spike_len)
-                        )
-
-            # Score neighbor down
-            if neighbor_down_bin >= 0:
-                start = left_offset + best_slide - 1
-                end = right_offset + best_slide - 1
-                if 0 <= start < len(histogram_array) and end <= len(histogram_array):
-                    neighbor_down_curve = histogram_array[start:end]
-                    if len(neighbor_down_curve) == spike_len:
-                        neighbor_down_score = sum(
-                            neighbor_down_curve[n] * spike_stencil_list[n]
-                            for n in range(spike_len)
-                        )
-
-            # Get best neighbor and its price
-            if neighbor_up_score > neighbor_down_score:
-                best_neighbor_bin = neighbor_up_bin
-                neighbor_score = neighbor_up_score
-            else:
-                best_neighbor_bin = neighbor_down_bin
+            # get best neighbor (EXACT MATCH to lines 1136-1140)
+            best_neighbor = +1
+            neighbor_score = neighbor_up_score
+            if neighbor_down_score > neighbor_up_score:
+                best_neighbor = -1
                 neighbor_score = neighbor_down_score
 
-            # Weighted average of best and neighbor prices
-            if best_neighbor_bin >= 0 and best_neighbor_bin < len(self.bins):
-                usd100_in_btc_2nd = self.bins[best_neighbor_bin]
-                btc_in_usd_2nd = (
-                    100.0 / usd100_in_btc_2nd
-                    if usd100_in_btc_2nd > 0
-                    else btc_in_usd_best
-                )
+            # get best neighbor usd price (EXACT MATCH to lines 1143-1144)
+            usd100_in_btc_2nd = self.bins[center_p001 + best_slide + best_neighbor]
+            btc_in_usd_2nd = 100 / (usd100_in_btc_2nd)
 
-                # Weighting based on score difference from average
-                avg_score = (
-                    total_score / (max_slide - min_slide)
-                    if max_slide > min_slide
-                    else 1
-                )
-                a1 = best_slide_score - avg_score
-                a2 = abs(neighbor_score - avg_score)
-
-                if a1 + a2 > 0:
-                    w1 = a1 / (a1 + a2)
-                    w2 = a2 / (a1 + a2)
-                    price_usd = w1 * btc_in_usd_best + w2 * btc_in_usd_2nd
-                else:
-                    price_usd = btc_in_usd_best
-            else:
-                price_usd = btc_in_usd_best
-
-        # DEBUG: Final result
-        print("\n=== FINAL RESULT ===", file=sys.stderr)
-        print(
-            f"Final price_usd: ${price_usd:,.2f}"
-            if price_usd
-            else "Final price_usd: None",
-            file=sys.stderr,
-        )
-        print(f"Confidence: {confidence}", file=sys.stderr)
-        print(f"Peak bin: {peak_bin}, Peak BTC: {peak_btc}", file=sys.stderr)
-        print("=" * 50 + "\n", file=sys.stderr)
+            # weight average the two usd price estimates (EXACT MATCH to lines 1147-1152)
+            avg_score = total_score / len(range(min_slide, max_slide))
+            a1 = best_slide_score - avg_score
+            a2 = abs(neighbor_score - avg_score)
+            w1 = a1 / (a1 + a2)
+            w2 = a2 / (a1 + a2)
+            price_usd = w1 * btc_in_usd_best + w2 * btc_in_usd_2nd
 
         return {
             "price_usd": price_usd,
@@ -488,17 +423,90 @@ class UTXOracleCalculator:
         tx_count = 0
         output_count = 0
 
+        # Diagnostic counters
+        filtered_inputs = 0
+        filtered_outputs = 0
+        filtered_coinbase = 0
+        filtered_op_return = 0
+        filtered_witness = 0
+        filtered_same_day = 0
+
+        # Build set of TXIDs for same-day check (reference line 856)
+        todays_txids = {tx.get("txid", "") for tx in transactions}
+
         for tx in transactions:
             # Basic filtering (from UTXOracle.py Step 6 filters)
             vouts = tx.get("vout", [])
             vins = tx.get("vin", [])
 
             # Filter: Skip transactions with too many inputs (likely consolidations)
+            # Reference: input_count <= 5
             if len(vins) > 5:
+                filtered_inputs += 1
                 continue
 
-            # Filter: Skip transactions with too many outputs (likely batch payments)
-            if len(vouts) > 2:
+            # Filter: EXACTLY 2 outputs (not 1, not 3+)
+            # Reference: output_count == 2 (line 861 in UTXOracle.py)
+            # ✓ FIX: Changed from "> 2" to "!= 2" for exact match
+            if len(vouts) != 2:
+                filtered_outputs += 1
+                continue
+
+            # Filter: Skip coinbase transactions
+            # Reference: not is_coinbase (line 862)
+            if any("coinbase" in vin for vin in vins):
+                filtered_coinbase += 1
+                continue
+
+            # Filter: Skip OP_RETURN outputs
+            # Reference: not has_op_return (line 863)
+            has_op_return = False
+            for vout in vouts:
+                script = vout.get("scriptPubKey", {})
+                asm = script.get("asm", "")
+                if asm and asm.startswith("OP_RETURN"):
+                    has_op_return = True
+                    break
+            if has_op_return:
+                filtered_op_return += 1
+                continue
+
+            # Filter: Skip transactions with excessive witness data
+            # Reference: witness_exceeds check (line 836-845)
+            witness_exceeds = False
+            for vin in vins:
+                # Check if tx has witness data (SegWit)
+                txinwitness = vin.get("txinwitness", [])
+                if txinwitness:
+                    total_witness_len = 0
+                    for witness_item in txinwitness:
+                        # witness_item is hex string, length in bytes = len(hex)/2
+                        item_len = len(witness_item) // 2
+                        total_witness_len += item_len
+                        if item_len > 500 or total_witness_len > 500:
+                            witness_exceeds = True
+                            break
+                if witness_exceeds:
+                    break
+
+            if witness_exceeds:
+                filtered_witness += 1
+                continue
+
+            # Filter: Skip same-day transactions
+            # Reference: is_same_day_tx check (line 856)
+            # A transaction is "same-day" if any of its inputs spend outputs
+            # created earlier in the same day (same block set)
+            is_same_day_tx = False
+            for vin in vins:
+                # Check if input spends output from same day
+                input_txid = vin.get("txid", "")
+                if input_txid in todays_txids:
+                    is_same_day_tx = True
+                    break
+
+            if is_same_day_tx:
+                filtered_same_day += 1
                 continue
 
             tx_count += 1
@@ -566,5 +574,26 @@ class UTXOracleCalculator:
         result["tx_count"] = tx_count
         result["output_count"] = output_count
         result["histogram"] = histogram
+
+        # Diagnostic logging
+        total_filtered = (
+            filtered_inputs
+            + filtered_outputs
+            + filtered_coinbase
+            + filtered_op_return
+            + filtered_witness
+            + filtered_same_day
+        )
+        result["diagnostics"] = {
+            "total_txs": len(transactions),
+            "filtered_inputs": filtered_inputs,
+            "filtered_outputs": filtered_outputs,
+            "filtered_coinbase": filtered_coinbase,
+            "filtered_op_return": filtered_op_return,
+            "filtered_witness": filtered_witness,
+            "filtered_same_day": filtered_same_day,
+            "total_filtered": total_filtered,
+            "passed_filter": tx_count,
+        }
 
         return result

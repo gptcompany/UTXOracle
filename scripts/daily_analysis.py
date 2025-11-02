@@ -595,21 +595,37 @@ def init_database(db_path: str) -> None:
         raise
 
 
-def detect_gaps(conn, max_days_back: int = 7) -> List[str]:
+def detect_gaps(conn, max_days_back: int = None) -> List[str]:
     """
-    Detect missing dates in the last N days.
+    Detect missing dates in the entire historical series.
 
     Args:
         conn: DuckDB connection
-        max_days_back: How many days back to check
+        max_days_back: DEPRECATED - now scans entire history. If provided, checks from first_date to today.
 
     Returns:
         list: Missing dates as strings (YYYY-MM-DD)
     """
+    # Find first date in database (start of historical series)
+    first_date_result = conn.execute("""
+        SELECT MIN(date) FROM price_analysis
+    """).fetchone()
+
+    if not first_date_result or not first_date_result[0]:
+        logging.info("No data in database yet - no gaps to detect")
+        return []
+
+    first_date = first_date_result[0]
+
+    # Generate complete date range from first_date to today
     query = """
         WITH date_range AS (
-            SELECT (CURRENT_DATE - INTERVAL (n) DAY)::DATE as expected_date
-            FROM generate_series(0, ?) as t(n)
+            SELECT date_seq::DATE as expected_date
+            FROM generate_series(
+                ?::DATE,
+                CURRENT_DATE,
+                INTERVAL '1 day'
+            ) as t(date_seq)
         )
         SELECT dr.expected_date::VARCHAR
         FROM date_range dr
@@ -618,20 +634,25 @@ def detect_gaps(conn, max_days_back: int = 7) -> List[str]:
         ORDER BY dr.expected_date DESC
     """
 
-    result = conn.execute(query, [max_days_back - 1]).fetchall()
+    result = conn.execute(query, [first_date]).fetchall()
     gaps = [row[0] for row in result]
 
     if gaps:
-        logging.warning(f"Detected {len(gaps)} missing dates: {gaps}")
+        logging.warning(
+            f"Detected {len(gaps)} missing dates in historical series (first: {first_date})"
+        )
+        logging.warning(f"Gap dates: {gaps[:10]}{'...' if len(gaps) > 10 else ''}")
     else:
-        logging.info(f"No gaps detected in last {max_days_back} days")
+        logging.info(
+            f"✅ No gaps detected (complete series from {first_date} to today)"
+        )
 
     return gaps
 
 
 def backfill_gap(date_str: str, config: Dict) -> bool:
     """
-    Backfill a single missing date with UTXOracle + mempool prices.
+    Backfill a single missing date using UTXOracle.py reference implementation.
 
     Args:
         date_str: Date to backfill (YYYY-MM-DD format)
@@ -640,23 +661,81 @@ def backfill_gap(date_str: str, config: Dict) -> bool:
     Returns:
         bool: True if successful, False otherwise
     """
+    import subprocess
+
     logging.info(f"[Backfill] Processing {date_str}...")
 
     try:
-        # Fetch mempool exchange price for that date
-        # NOTE: mempool.space API doesn't have historical prices per date
-        # We can only get current price, so skip mempool_price for historical
-        mem_price = None
-        logging.info("[Backfill] Mempool price: N/A (historical data)")
+        # Convert YYYY-MM-DD to YYYY/MM/DD (UTXOracle.py format)
+        date_utx_format = date_str.replace("-", "/")
 
-        # Calculate UTXOracle price for that date
-        # This would require fetching historical block data for that date
-        # For now, skip backfill (too complex without date-based block API)
-        logging.warning(
-            f"[Backfill] Skipping {date_str} - historical backfill not yet implemented"
+        # Get UTXOracle.py path (parent directory)
+        script_dir = Path(__file__).parent
+        utxoracle_path = script_dir.parent / "UTXOracle.py"
+
+        if not utxoracle_path.exists():
+            logging.error(f"[Backfill] UTXOracle.py not found at {utxoracle_path}")
+            return False
+
+        # Run UTXOracle.py for this date (with --no-browser)
+        cmd = [
+            "python3",
+            str(utxoracle_path),
+            "-d",
+            date_utx_format,
+            "--no-browser",
+            "-p",
+            config["BITCOIN_DATADIR"],
+        ]
+
+        logging.info(f"[Backfill] Running: {' '.join(cmd)}")
+
+        # Disable browser opening by removing DISPLAY (Linux) or setting env
+        env = os.environ.copy()
+        env["DISPLAY"] = ""  # Prevent X11 browser opening on Linux
+
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5 minute timeout
+            env=env,
         )
-        return False
 
+        if result.returncode != 0:
+            logging.error(f"[Backfill] UTXOracle.py failed: {result.stderr}")
+            return False
+
+        logging.info(f"[Backfill] UTXOracle.py completed for {date_str}")
+
+        # Now run import_historical_data.py to import the new HTML to DuckDB
+        import_script = script_dir / "import_historical_data.py"
+
+        if not import_script.exists():
+            logging.warning(
+                "[Backfill] import_historical_data.py not found - HTML generated but not imported to DB"
+            )
+            return True  # Partial success
+
+        # Run import with --limit 1 to import just this new date
+        import_cmd = ["python3", str(import_script), "--limit", "1"]
+
+        logging.info("[Backfill] Importing to DuckDB...")
+
+        import_result = subprocess.run(
+            import_cmd, capture_output=True, text=True, timeout=60
+        )
+
+        if import_result.returncode != 0:
+            logging.error(f"[Backfill] Import failed: {import_result.stderr}")
+            return False
+
+        logging.info(f"[Backfill] ✅ Successfully backfilled {date_str}")
+        return True
+
+    except subprocess.TimeoutExpired:
+        logging.error(f"[Backfill] Timeout while processing {date_str}")
+        return False
     except Exception as e:
         logging.error(f"[Backfill] Failed to backfill {date_str}: {e}")
         return False
@@ -839,6 +918,17 @@ def main():
         "--dry-run", action="store_true", help="Run without saving to DB"
     )
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
+    parser.add_argument(
+        "--auto-backfill",
+        action="store_true",
+        help="Automatically backfill detected gaps (max 10 per run)",
+    )
+    parser.add_argument(
+        "--backfill-limit",
+        type=int,
+        default=10,
+        help="Maximum gaps to backfill per run (default: 10)",
+    )
     args = parser.parse_args()
 
     # Load and validate configuration
@@ -860,16 +950,52 @@ def main():
     # Ensure database exists and has correct schema
     init_database(config["DUCKDB_PATH"])
 
-    # Check for gaps before running analysis
+    # Check for gaps in entire historical series before running analysis
     try:
         with duckdb.connect(config["DUCKDB_PATH"]) as conn:
-            gaps = detect_gaps(conn, max_days_back=7)
+            gaps = detect_gaps(conn)  # Scans entire history
             if gaps:
                 logging.warning(
-                    f"Found {len(gaps)} missing dates in last 7 days: {gaps[:5]}"
+                    f"⚠️  {len(gaps)} total gaps in historical series. Recent: {gaps[:5]}"
                 )
-                # Note: Backfill not yet implemented for historical dates
-                # Will be logged and reported via /health endpoint
+
+                # Auto-backfill if flag enabled
+                if args.auto_backfill:
+                    logging.info(
+                        f"🔄 Auto-backfill enabled - processing up to {args.backfill_limit} gaps..."
+                    )
+                    gaps_to_fill = gaps[
+                        : args.backfill_limit
+                    ]  # Limit to prevent overwhelming system
+
+                    success_count = 0
+                    fail_count = 0
+
+                    for gap_date in gaps_to_fill:
+                        if backfill_gap(gap_date, config):
+                            success_count += 1
+                        else:
+                            fail_count += 1
+
+                    logging.info(
+                        f"✅ Backfill complete: {success_count} successful, {fail_count} failed"
+                    )
+
+                    # Re-check gaps after backfill
+                    with duckdb.connect(config["DUCKDB_PATH"]) as conn:
+                        remaining_gaps = detect_gaps(conn)
+                        if remaining_gaps:
+                            logging.warning(
+                                f"⚠️  {len(remaining_gaps)} gaps remaining after backfill"
+                            )
+                        else:
+                            logging.info(
+                                "✅ All gaps filled - historical series now complete!"
+                            )
+                else:
+                    logging.info(
+                        "💡 Tip: Run with --auto-backfill to automatically fill gaps"
+                    )
     except Exception as e:
         logging.warning(f"Gap detection failed: {e}")
 
