@@ -349,9 +349,9 @@
 
 ## Summary
 
-### Total Tasks: 110
-### Estimated Time: 10-12 days
-### Phases: 6
+### Total Tasks: 123 (110 core + 9 library + 4 v2 improvements)
+### Estimated Time: 10-12 days (core) + 6.5 hours (v2 with regression tests)
+### Phases: 6 core + Phase 4 (v2)
 
 ### Key Milestones:
 1. **Day 2**: Infrastructure deployed (mempool.space + electrs running)
@@ -621,13 +621,15 @@ python3 scripts/daily_analysis.py --auto-backfill --backfill-limit 5 # Custom li
 
 ---
 
-### T110 🥇 [P1] Implement Pydantic Models for Type Safety
+### T120 🥇 [P1] Implement Pydantic Models for Type Safety
 **Status**: ⏸️ TODO
 **Priority**: P1 (Highest ROI: ⭐⭐⭐⭐⭐)
 **Effort**: 3 hours
 **Value**: 90% (type safety, autocomplete, validation, self-documenting)
 
 **Goal**: Replace dict-based API with Pydantic models for type safety and developer experience.
+
+**⚠️ CRITICAL**: Regression testing required (see T123 below)
 
 **Implementation**:
 
@@ -754,7 +756,7 @@ pydantic = "^2.0"
 
 ---
 
-### T111 🥈 [P2] Expand Documentation with Examples
+### T121 🥈 [P2] Expand Documentation with Examples
 **Status**: ⏸️ TODO
 **Priority**: P2 (High ROI: ⭐⭐⭐⭐⭐)
 **Effort**: 2 hours
@@ -848,6 +850,10 @@ class UTXOracleCalculator:
         - Low confidence during extreme volatility (>20% daily moves)
         - Requires transaction mix (not just Lightning/consolidations)
         - Assumes round USD amounts exist in mempool
+        - Data Source Discrepancy: Library uses Bitcoin Core JSON-RPC by default,
+          which may produce minimal differences (<$1) compared to binary parsing
+          due to RPC serialization. For deterministic results, use Bitcoin Core RPC
+          consistently. See docs/WORKFLOW_COMPLETE.md for validation analysis.
     
     References:
         - Reference Implementation: UTXOracle.py (1400+ lines)
@@ -889,7 +895,7 @@ examples/
 
 ---
 
-### T112 🥉 [P3] Expose Diagnostics in Public API
+### T122 🥉 [P3] Expose Diagnostics in Public API
 **Status**: ⏸️ TODO
 **Priority**: P3 (Medium-High ROI: ⭐⭐⭐⭐)
 **Effort**: 30 minutes
@@ -985,6 +991,143 @@ if result["confidence"] < 0.3:
 
 ---
 
+### T123 🔴 [P1] Regression Test Suite for Pydantic Migration
+**Status**: ⏸️ TODO
+**Priority**: P1 (CRITICAL - Blocks T120)
+**Effort**: 1 hour
+**Value**: 100% (prevents production bugs)
+
+**Goal**: Comprehensive regression tests to ensure Pydantic migration (T120) doesn't break calculation logic.
+
+**Implementation**:
+
+1. **Baseline Validation Tests** (MUST pass before AND after T120):
+```python
+# tests/test_regression_pydantic.py
+import pytest
+from UTXOracle_library import UTXOracleCalculator
+
+class TestPydanticMigrationRegression:
+    """
+    Regression tests for Pydantic migration (T120).
+
+    These tests MUST pass with both:
+    - v1 (dict-based API)
+    - v2 (Pydantic-based API)
+
+    If any test fails after T120, the migration introduced a bug.
+    """
+
+    def test_existing_validation_suite_still_passes(self):
+        """All 5/5 October validation tests must still pass."""
+        # Run tests/validation/test_october_validation.py
+        # Verify: 5/5 matches with <$1 difference
+        pass
+
+    def test_dict_based_api_backward_compatible(self):
+        """v2 still accepts dict input (backward compatibility)."""
+        calc = UTXOracleCalculator()
+
+        # Old dict-based input should still work
+        transactions = [{"txid": "abc", "vout": [], "vin": []}]
+        result = calc.calculate_price_for_transactions(transactions)
+
+        # Result should have same structure as v1
+        assert "price_usd" in result
+        assert "confidence" in result
+        assert "tx_count" in result
+
+    def test_calculation_logic_unchanged(self):
+        """Core algorithm produces identical results (v1 vs v2)."""
+        # Load historical test case (Oct 15, 2025)
+        # Expected: $111,652
+        # Run with v2 → Should get $111,652 (0% diff)
+        pass
+
+    def test_diagnostics_values_unchanged(self):
+        """Filtering diagnostics match v1 exactly."""
+        # Same input → Same filtered counts
+        # Before: filtered_inputs=X, filtered_outputs=Y
+        # After:  filtered_inputs=X, filtered_outputs=Y (must match)
+        pass
+
+    def test_intraday_evolution_unchanged(self):
+        """Intraday price points match v1 exactly."""
+        # return_intraday=True → Same price array
+        pass
+```
+
+2. **Integration Tests** (verify end-to-end):
+```python
+def test_daily_analysis_integration_works(self):
+    """scripts/daily_analysis.py still works with v2 library."""
+    # Mock mempool API response
+    # Call calculate_price_for_transactions
+    # Verify: No crashes, valid result
+    pass
+
+def test_api_endpoints_still_work(self):
+    """api/main.py endpoints still return correct data."""
+    # GET /api/prices/latest → Should return Pydantic JSON
+    # GET /api/prices/historical → Should work
+    pass
+```
+
+3. **Type Safety Tests** (NEW - v2 only):
+```python
+def test_pydantic_validation_rejects_invalid_input(self):
+    """Invalid transactions raise ValidationError."""
+    calc = UTXOracleCalculator()
+
+    # Missing required fields → ValidationError
+    with pytest.raises(ValidationError):
+        calc.calculate_price_for_transactions([{"invalid": "data"}])
+
+def test_pydantic_validation_accepts_valid_input(self):
+    """Valid Pydantic models pass through."""
+    from models import BitcoinTransaction
+
+    tx = BitcoinTransaction(txid="abc", vout=[], vin=[])
+    calc = UTXOracleCalculator()
+    result = calc.calculate_price_for_transactions([tx])
+
+    # Should work without errors
+    assert result is not None
+```
+
+**Success Criteria**:
+- ✅ All v1 validation tests pass with v2 code (5/5 October matches)
+- ✅ Calculation logic produces IDENTICAL results (0% difference)
+- ✅ Diagnostics counts unchanged
+- ✅ Intraday evolution unchanged
+- ✅ Integration tests pass (daily_analysis.py, api/main.py)
+- ✅ NEW: Pydantic validation works (rejects invalid, accepts valid)
+
+**Testing Workflow**:
+```bash
+# BEFORE implementing T120 (baseline):
+uv run pytest tests/validation/ -v          # 5/5 pass
+uv run pytest tests/test_regression_pydantic.py -v  # All pass (with v1 dict API)
+
+# AFTER implementing T120:
+uv run pytest tests/validation/ -v          # MUST still be 5/5 pass
+uv run pytest tests/test_regression_pydantic.py -v  # MUST all pass (with v2 Pydantic API)
+
+# If ANY test fails → Roll back T120 changes, debug
+```
+
+**⚠️ CRITICAL**:
+- Run this test suite BEFORE starting T120 (establish baseline)
+- Run again AFTER completing T120 (verify no regression)
+- If any test fails after T120 → Calculation logic was broken → ROLLBACK
+
+**References**:
+- Validation methodology: `tests/validation/README.md`
+- Historical baselines: `tests/validation/test_october_validation.py`
+- Gemini validation: `docs/WORKFLOW_COMPLETE.md`
+
+---
+
 ### 📋 [P4-P5] Future Considerations (Not Implemented)
 
 **These recommendations are documented for reference but NOT recommended for implementation:**
@@ -1047,12 +1190,15 @@ class UTXOracleExperimental(UTXOracleCalculator):
 git checkout -b library-v2
 ```
 
-### Step 2: Implement T110-T112 (Priority Order)
-1. **T112** (30min) - Expose diagnostics (quick win)
-2. **T110** (3h) - Pydantic models (core improvement)
-3. **T111** (2h) - Documentation (usability)
+### Step 2: Implement T120-T123 (Priority Order)
+1. **T123** (1h) - Regression test suite (MUST run FIRST - establish baseline)
+2. **T122** (30min) - Expose diagnostics (quick win)
+3. **T120** (3h) - Pydantic models (core improvement - requires T123 baseline)
+4. **T121** (2h) - Documentation (usability)
 
-**Total Time**: ~5.5 hours
+**Total Time**: ~6.5 hours
+
+**⚠️ CRITICAL**: T123 MUST be run BEFORE T120 to establish baseline validation!
 
 ### Step 3: Testing & Validation
 - Run full validation suite (`tests/validation/`)
@@ -1066,12 +1212,14 @@ git checkout -b library-v2
 - Merge to main branch
 
 ### Success Criteria for v2 Release
-- ✅ All v1 tests pass with v2 code
-- ✅ Pydantic models validated
-- ✅ Documentation comprehensive
-- ✅ Diagnostics exposed and tested
+- ✅ **Regression tests pass** (T123 - CRITICAL)
+- ✅ All v1 validation tests pass with v2 code (5/5 October matches)
+- ✅ Pydantic models validated (T120)
+- ✅ Documentation comprehensive (T121)
+- ✅ Diagnostics exposed and tested (T122)
 - ✅ Type hints work with IDE
 - ✅ Migration guide available
+- ✅ **0% difference in calculation logic** (exact replica of v1)
 
 ---
 

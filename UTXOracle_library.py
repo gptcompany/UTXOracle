@@ -517,7 +517,6 @@ class UTXOracleCalculator:
                         rm_up = round_btc + pct_micro_remove * round_btc
                         if rm_dn < btc_amount < rm_up:
                             append = False
-                            break
 
                     # Add price point if not round BTC
                     if append:
@@ -639,8 +638,8 @@ class UTXOracleCalculator:
         filtered_witness = 0
         filtered_same_day = 0
 
-        # Build set of TXIDs for same-day check (reference line 856)
-        todays_txids = {tx.get("txid", "") for tx in transactions}
+        # Build set of TXIDs for same-day check dynamically to match reference script
+        todays_txids = set()
 
         for tx in transactions:
             # Basic filtering (from UTXOracle.py Step 6 filters)
@@ -701,17 +700,19 @@ class UTXOracleCalculator:
                 filtered_witness += 1
                 continue
 
-            # Filter: Skip same-day transactions
-            # Reference: is_same_day_tx check (line 856)
+            # Filter: Skip same-day transactions (Corrected Logic)
             # A transaction is "same-day" if any of its inputs spend outputs
-            # created earlier in the same day (same block set)
+            # from a transaction *already processed* in this batch.
             is_same_day_tx = False
             for vin in vins:
-                # Check if input spends output from same day
                 input_txid = vin.get("txid", "")
                 if input_txid in todays_txids:
                     is_same_day_tx = True
                     break
+            
+            # Add the current transaction's ID to the set *after* checking its inputs.
+            # This correctly mimics the behavior of the original script.
+            todays_txids.add(tx.get("txid", ""))
 
             if is_same_day_tx:
                 filtered_same_day += 1
@@ -723,7 +724,10 @@ class UTXOracleCalculator:
             # IMPORTANT: Only save outputs that get binned (reference lines 867-884)
             for vout in vouts:
                 value_btc = vout.get("value", 0)
-                if value_btc <= 0:
+                
+                # CRITICAL FIX: This filter exists in the reference script (line 817)
+                # but was missing from the library implementation.
+                if not (1e-5 < value_btc < 1e5):
                     continue
 
                 # Try to bin the output
