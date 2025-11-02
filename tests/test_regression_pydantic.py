@@ -365,17 +365,99 @@ class TestIntegrationAfterMigration:
 class TestTypeSafetyAfterMigration:
     """Type safety tests (NEW - v2 only)."""
 
-    @pytest.mark.skip(reason="Requires Pydantic models - will be enabled after T120")
-    def test_pydantic_validation_rejects_invalid_input(self):
-        """Invalid transactions raise ValidationError."""
-        # Will be implemented after T120 (Pydantic migration)
-        pass
+    def test_to_pydantic_conversion_works(self):
+        """T120: Verify to_pydantic() converts dict to PriceResult model."""
+        from models import PriceResult, DiagnosticsInfo
 
-    @pytest.mark.skip(reason="Requires Pydantic models - will be enabled after T120")
-    def test_pydantic_validation_accepts_valid_input(self):
-        """Valid Pydantic models pass through."""
-        # Will be implemented after T120 (Pydantic migration)
-        pass
+        calc = UTXOracleCalculator()
+
+        # Create test transactions
+        transactions = []
+        for i in range(100):
+            transactions.append(
+                {
+                    "txid": f"tx{i}",
+                    "vin": [{"txid": f"input{i}"}],
+                    "vout": [
+                        {
+                            "value": 0.001 * (i + 1),
+                            "scriptPubKey": {"hex": "76a914..."},
+                        },
+                        {
+                            "value": 0.0005 * (i + 1),
+                            "scriptPubKey": {"hex": "76a914..."},
+                        },
+                    ],
+                    "time": 1234567890 + i * 600,
+                }
+            )
+
+        # Get dict result
+        result_dict = calc.calculate_price_for_transactions(transactions)
+
+        # Convert to Pydantic
+        result_pydantic = calc.to_pydantic(result_dict)
+
+        # Verify it's a Pydantic model
+        assert isinstance(result_pydantic, PriceResult), (
+            "Should be PriceResult instance"
+        )
+
+        # Verify fields match
+        assert result_pydantic.price_usd == result_dict["price_usd"]
+        assert result_pydantic.confidence == result_dict["confidence"]
+        assert result_pydantic.tx_count == result_dict["tx_count"]
+        assert result_pydantic.output_count == result_dict["output_count"]
+
+        # Verify diagnostics converted
+        if "diagnostics" in result_dict:
+            assert result_pydantic.diagnostics is not None
+            assert isinstance(result_pydantic.diagnostics, DiagnosticsInfo)
+            assert (
+                result_pydantic.diagnostics.total_txs
+                == result_dict["diagnostics"]["total_txs"]
+            )
+
+        # Verify IDE autocomplete would work (accessing attributes)
+        _ = result_pydantic.price_usd  # This would autocomplete in IDE
+        _ = result_pydantic.confidence  # This too
+
+    def test_pydantic_validation_catches_invalid_price(self):
+        """T120: Pydantic model validates price range."""
+        from models import PriceResult
+        from pydantic import ValidationError
+
+        # Valid price should work
+        valid_result = PriceResult(
+            price_usd=110537.54,
+            confidence=0.87,
+            tx_count=100,
+            output_count=200,
+            histogram={},
+        )
+        assert valid_result.price_usd == 110537.54
+
+        # Price too low should raise ValidationError
+        with pytest.raises(ValidationError) as exc_info:
+            PriceResult(
+                price_usd=5000,  # Too low (< $10k)
+                confidence=0.87,
+                tx_count=100,
+                output_count=200,
+                histogram={},
+            )
+        assert "suspiciously low" in str(exc_info.value)
+
+        # Price too high should raise ValidationError
+        with pytest.raises(ValidationError) as exc_info:
+            PriceResult(
+                price_usd=600000,  # Too high (> $500k)
+                confidence=0.87,
+                tx_count=100,
+                output_count=200,
+                histogram={},
+            )
+        assert "suspiciously high" in str(exc_info.value)
 
 
 if __name__ == "__main__":

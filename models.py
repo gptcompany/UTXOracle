@@ -68,9 +68,9 @@ class PriceResult(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0, description="Confidence score (0-1)")
     tx_count: int = Field(ge=0, description="Transactions processed after filtering")
     output_count: int = Field(ge=0, description="Outputs analyzed in histogram")
-    histogram: Dict[int, int] = Field(
+    histogram: Dict = Field(
         default_factory=dict,
-        description="Histogram of transaction outputs (bin_index -> count)",
+        description="Histogram of transaction outputs (flexible schema for compatibility)",
     )
     diagnostics: Optional[DiagnosticsInfo] = Field(
         None,

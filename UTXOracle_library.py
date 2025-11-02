@@ -20,7 +20,25 @@ Algorithm Overview:
 """
 
 import bisect
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
+
+# T120: Pydantic models for type safety (v2)
+try:
+    from models import (
+        BitcoinTransaction,
+        DiagnosticsInfo,
+        PriceResult,
+        IntradayPriceResult,
+    )
+
+    PYDANTIC_AVAILABLE = True
+except ImportError:
+    # Graceful degradation if models.py not available
+    PYDANTIC_AVAILABLE = False
+    BitcoinTransaction = None
+    DiagnosticsInfo = None
+    PriceResult = None
+    IntradayPriceResult = None
 
 
 class UTXOracleCalculator:
@@ -865,3 +883,42 @@ class UTXOracleCalculator:
             }
 
         return result
+
+    # T120: Pydantic conversion helpers (v2 API)
+    def to_pydantic(self, result: Dict) -> Union["PriceResult", Dict]:
+        """
+        Convert dict result to Pydantic PriceResult model.
+
+        This provides type-safe access with IDE autocomplete and validation.
+        Falls back to dict if Pydantic is not available.
+
+        Args:
+            result: Dict result from calculate_price_for_transactions()
+
+        Returns:
+            PriceResult model (if Pydantic available) or dict (fallback)
+
+        Example:
+            >>> calc = UTXOracleCalculator()
+            >>> result_dict = calc.calculate_price_for_transactions(txs)
+            >>> result_typed = calc.to_pydantic(result_dict)
+            >>> print(result_typed.price_usd)  # IDE autocomplete works!
+            110537.54
+        """
+        if not PYDANTIC_AVAILABLE:
+            return result  # Graceful degradation
+
+        # Convert diagnostics if present
+        diagnostics = None
+        if "diagnostics" in result:
+            diagnostics = DiagnosticsInfo(**result["diagnostics"])
+
+        # Create PriceResult
+        return PriceResult(
+            price_usd=result.get("price_usd"),
+            confidence=result.get("confidence", 0.0),
+            tx_count=result.get("tx_count", 0),
+            output_count=result.get("output_count", 0),
+            histogram=result.get("histogram", {}),
+            diagnostics=diagnostics,
+        )
