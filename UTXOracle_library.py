@@ -591,7 +591,9 @@ class UTXOracleCalculator:
 
         return central_price, dev_pct
 
-    def calculate_price_for_transactions(self, transactions: List[dict]) -> Dict:
+    def calculate_price_for_transactions(
+        self, transactions: List[dict], return_diagnostics: bool = True
+    ) -> Dict:
         """
         T026: Public API - Calculate price from transaction list.
 
@@ -603,6 +605,8 @@ class UTXOracleCalculator:
                 Each transaction should have:
                 - 'vout': List of outputs with 'value' (BTC)
                 - 'vin': List of inputs
+            return_diagnostics: If True, include filtering diagnostics in result
+                (default: True for v2)
 
         Returns:
             dict: {
@@ -610,10 +614,22 @@ class UTXOracleCalculator:
                 'confidence': float (0-1),
                 'tx_count': int,
                 'output_count': int,
-                'histogram': dict
+                'histogram': dict,
+                'diagnostics': dict (if return_diagnostics=True) {
+                    'total_txs': int,
+                    'filtered_inputs': int,
+                    'filtered_outputs': int,
+                    'filtered_coinbase': int,
+                    'filtered_op_return': int,
+                    'filtered_witness': int,
+                    'filtered_same_day': int,
+                    'total_filtered': int,
+                    'passed_filter': int
+                }
             }
 
         T026: Orchestrates all steps (Step 6 + existing methods)
+        T122: Added return_diagnostics parameter for monitoring and debugging
         """
         if not transactions:
             return {
@@ -709,7 +725,7 @@ class UTXOracleCalculator:
                 if input_txid in todays_txids:
                     is_same_day_tx = True
                     break
-            
+
             # Add the current transaction's ID to the set *after* checking its inputs.
             # This correctly mimics the behavior of the original script.
             todays_txids.add(tx.get("txid", ""))
@@ -724,7 +740,7 @@ class UTXOracleCalculator:
             # IMPORTANT: Only save outputs that get binned (reference lines 867-884)
             for vout in vouts:
                 value_btc = vout.get("value", 0)
-                
+
                 # CRITICAL FIX: This filter exists in the reference script (line 817)
                 # but was missing from the library implementation.
                 if not (1e-5 < value_btc < 1e5):
@@ -826,25 +842,26 @@ class UTXOracleCalculator:
         result["output_count"] = output_count
         result["histogram"] = histogram
 
-        # Diagnostic logging
-        total_filtered = (
-            filtered_inputs
-            + filtered_outputs
-            + filtered_coinbase
-            + filtered_op_return
-            + filtered_witness
-            + filtered_same_day
-        )
-        result["diagnostics"] = {
-            "total_txs": len(transactions),
-            "filtered_inputs": filtered_inputs,
-            "filtered_outputs": filtered_outputs,
-            "filtered_coinbase": filtered_coinbase,
-            "filtered_op_return": filtered_op_return,
-            "filtered_witness": filtered_witness,
-            "filtered_same_day": filtered_same_day,
-            "total_filtered": total_filtered,
-            "passed_filter": tx_count,
-        }
+        # T122: Diagnostic logging (conditionally included)
+        if return_diagnostics:
+            total_filtered = (
+                filtered_inputs
+                + filtered_outputs
+                + filtered_coinbase
+                + filtered_op_return
+                + filtered_witness
+                + filtered_same_day
+            )
+            result["diagnostics"] = {
+                "total_txs": len(transactions),
+                "filtered_inputs": filtered_inputs,
+                "filtered_outputs": filtered_outputs,
+                "filtered_coinbase": filtered_coinbase,
+                "filtered_op_return": filtered_op_return,
+                "filtered_witness": filtered_witness,
+                "filtered_same_day": filtered_same_day,
+                "total_filtered": total_filtered,
+                "passed_filter": tx_count,
+            }
 
         return result
