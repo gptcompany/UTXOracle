@@ -11,6 +11,8 @@ References:
 
 import csv
 import logging
+import asyncio
+import aiohttp
 from typing import Tuple, List, Dict, Set
 from pathlib import Path
 
@@ -23,7 +25,7 @@ contracts_path = (
 if str(contracts_path) not in sys.path:
     sys.path.insert(0, str(contracts_path))
 
-from whale_flow_detector_interface import WhaleFlowSignal, WhaleFlowDetectorInterface
+from whale_flow_detector_interface import WhaleFlowSignal
 
 
 # Configuration
@@ -34,12 +36,14 @@ WHALE_DISTRIBUTION_THRESHOLD_BTC = 100  # Net inflow > 100 BTC
 logger = logging.getLogger(__name__)
 
 
-class WhaleFlowDetector(WhaleFlowDetectorInterface):
+class WhaleFlowDetector:
     """
-    Synchronous whale flow detector using electrs HTTP API.
+    Async whale flow detector using electrs HTTP API with aiohttp + batching.
 
-    MVP implementation: Simple, sequential processing.
-    Optimizations (asyncio, ThreadPoolExecutor) deferred until measurements show necessity.
+    Performance:
+    - Batched async processing (100 tx/batch, 50 concurrent per batch)
+    - ~84 seconds for 3190 tx block (vs ~180 seconds sequential)
+    - Rust-aligned: async/await pattern maps directly to Tokio
     """
 
     def __init__(self, exchange_addresses_path: str):
@@ -241,70 +245,89 @@ class WhaleFlowDetector(WhaleFlowDetectorInterface):
             return "NEUTRAL"
 
     async def _fetch_transactions_from_electrs(
-        self, block_hash: str, max_concurrent: int = 50
+        self,
+        session: "aiohttp.ClientSession",
+        block_hash: str,
+        batch_size: int = 100,
+        concurrent_per_batch: int = 50,
     ) -> List[Dict]:
         """
-        Fetch all transactions for a block from electrs HTTP API (ASYNC: aiohttp).
+        Fetch all transactions for a block from electrs HTTP API (ASYNC with batching).
 
         Args:
+            session: aiohttp ClientSession (must be created by caller)
             block_hash: Bitcoin block hash
-            max_concurrent: Max concurrent HTTP requests (default: 50)
+            batch_size: Number of transactions per batch (default: 100)
+            concurrent_per_batch: Max concurrent requests per batch (default: 50)
 
         Returns:
             List of transaction dicts
 
         Raises:
             ConnectionError: If electrs API is unavailable
-            RuntimeError: If API returns unexpected data
 
         Performance:
-            - Sequential (MVP): ~180 seconds for 3,000 tx block
-            - Async (50 concurrent): ~3-5 seconds for 3,000 tx block
-            - Rust-aligned: async/await pattern maps directly to Tokio
+            - 3190 tx block: ~84 seconds (vs ~180 seconds sequential)
+            - Batching prevents event loop overload from too many simultaneous tasks
         """
-        import asyncio
-        import aiohttp
-
-        async def fetch_single_tx(session: aiohttp.ClientSession, txid: str) -> Dict:
-            """Helper to fetch a single transaction."""
-            tx_url = f"{ELECTRS_API_URL}/tx/{txid}"
+        try:
+            # Get transaction IDs for block
+            url = f"{ELECTRS_API_URL}/block/{block_hash}/txids"
             async with session.get(
-                tx_url, timeout=aiohttp.ClientTimeout(total=10)
+                url, timeout=aiohttp.ClientTimeout(total=10)
             ) as response:
                 response.raise_for_status()
-                return await response.json()
+                txids = await response.json()
 
-        try:
-            # Get transaction IDs for block (synchronous first call)
-            url = f"{ELECTRS_API_URL}/block/{block_hash}/txids"
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    url, timeout=aiohttp.ClientTimeout(total=10)
-                ) as response:
-                    response.raise_for_status()
-                    txids = await response.json()
+            logger.info(
+                f"Fetching {len(txids)} transactions in batches of {batch_size}..."
+            )
 
-                # Fetch transactions in parallel with semaphore to limit concurrency
-                semaphore = asyncio.Semaphore(max_concurrent)
+            all_transactions = []
 
-                async def fetch_with_semaphore(txid: str):
+            # Process in batches to avoid overwhelming asyncio.gather()
+            for i in range(0, len(txids), batch_size):
+                batch = txids[i : i + batch_size]
+                batch_num = i // batch_size + 1
+                total_batches = (len(txids) - 1) // batch_size + 1
+
+                logger.debug(f"  Batch {batch_num}/{total_batches}: {len(batch)} txids")
+
+                # Fetch batch with semaphore limiting concurrency
+                semaphore = asyncio.Semaphore(concurrent_per_batch)
+
+                async def fetch_one(txid: str):
                     async with semaphore:
                         try:
-                            return await fetch_single_tx(session, txid)
+                            tx_url = f"{ELECTRS_API_URL}/tx/{txid}"
+                            async with session.get(
+                                tx_url, timeout=aiohttp.ClientTimeout(total=10)
+                            ) as resp:
+                                resp.raise_for_status()
+                                return await resp.json()
                         except Exception as e:
-                            logger.warning(
-                                f"Failed to fetch transaction {txid}: {e}. Skipping..."
-                            )
+                            logger.warning(f"Failed to fetch tx {txid}: {e}")
                             return None
 
-                # Create tasks for all transactions
-                tasks = [fetch_with_semaphore(txid) for txid in txids]
-                results = await asyncio.gather(*tasks, return_exceptions=False)
+                tasks = [fetch_one(txid) for txid in batch]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
 
-                # Filter out None results (failed fetches)
-                transactions = [tx for tx in results if tx is not None]
+                # Filter successful results
+                transactions = [
+                    tx
+                    for tx in results
+                    if tx is not None and not isinstance(tx, Exception)
+                ]
+                all_transactions.extend(transactions)
 
-                return transactions
+                logger.debug(
+                    f"    Batch complete: {len(transactions)}/{len(batch)} successful"
+                )
+
+            logger.info(
+                f"Successfully fetched {len(all_transactions)}/{len(txids)} transactions"
+            )
+            return all_transactions
 
         except aiohttp.ClientError as e:
             raise ConnectionError(f"Failed to fetch transactions from electrs: {e}")
@@ -374,8 +397,6 @@ class WhaleFlowDetector(WhaleFlowDetectorInterface):
             ValueError: If block_height invalid
             RuntimeError: If analysis fails
         """
-        import aiohttp
-
         try:
             async with aiohttp.ClientSession() as session:
                 # Get block hash from height
@@ -390,13 +411,17 @@ class WhaleFlowDetector(WhaleFlowDetectorInterface):
                 block_url = f"{ELECTRS_API_URL}/block/{block_hash}"
                 async with session.get(
                     block_url, timeout=aiohttp.ClientTimeout(total=10)
-                ) as response:
-                    response.raise_for_status()
-                    block_data = await response.json()
+                ) as block_response:
+                    block_response.raise_for_status()
+                    block_data = await block_response.json()
                     timestamp = block_data.get("timestamp", 0)
 
-            # Fetch and analyze transactions (uses separate session internally)
-            transactions = await self._fetch_transactions_from_electrs(block_hash)
+                # Fetch transactions (uses same session, async with batching)
+                transactions = await self._fetch_transactions_from_electrs(
+                    session, block_hash
+                )
+
+            # Analyze transactions (synchronous analysis)
             return self._analyze_transactions(transactions, block_height, timestamp)
 
         except aiohttp.ClientError as e:
@@ -415,18 +440,17 @@ class WhaleFlowDetector(WhaleFlowDetectorInterface):
             ConnectionError: If unable to fetch latest block
             RuntimeError: If analysis fails
         """
-        import aiohttp
-
         try:
-            # Get latest block height
-            url = f"{ELECTRS_API_URL}/blocks/tip/height"
             async with aiohttp.ClientSession() as session:
+                # Get latest block height
+                url = f"{ELECTRS_API_URL}/blocks/tip/height"
                 async with session.get(
                     url, timeout=aiohttp.ClientTimeout(total=10)
                 ) as response:
                     response.raise_for_status()
                     latest_height = int((await response.text()).strip())
 
+            # Analyze using the async analyze_block method
             return await self.analyze_block(latest_height)
 
         except aiohttp.ClientError as e:
@@ -445,7 +469,6 @@ class WhaleFlowDetector(WhaleFlowDetectorInterface):
 # CLI for standalone testing
 if __name__ == "__main__":
     import argparse
-    import asyncio
 
     logging.basicConfig(level=logging.INFO)
 
