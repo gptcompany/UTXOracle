@@ -1,0 +1,36 @@
+# UTXOracle Mempool Whale Detection System
+# Python 3.8+ required
+
+# Core WebSocket support
+websockets>=12.0
+aiohttp>=3.9.0
+
+# Authentication & Security
+PyJWT>=2.8.0
+
+# Database
+duckdb>=0.9.0
+
+# Data validation & models
+pydantic>=2.5.0
+
+# REST API
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# System monitoring
+psutil>=5.9.0
+
+# Resilience & Retry Logic
+tenacity>=8.2.0
+
+# Structured Logging
+structlog>=23.2.0
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+
+# Development
+ruff>=0.1.0  # Linting and formatting

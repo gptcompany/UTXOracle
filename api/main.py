@@ -7,10 +7,14 @@ REST API serving price comparison data from DuckDB.
 Spec: 003-mempool-integration-refactor
 Phase: 4 - API & Visualization
 Tasks: T058-T065
+
+Security: T036a/b - JWT Authentication Required
 """
 
 import os
 import logging
+import time
+import asyncio
 from datetime import datetime, timedelta, date
 from typing import Optional, List, Dict
 from pathlib import Path
@@ -18,8 +22,86 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-import duckdb
 from dotenv import load_dotenv
+import aiohttp
+
+# =============================================================================
+# P2: Structured Logging Configuration
+# =============================================================================
+
+import sys
+
+sys.path.insert(0, str(Path(__file__).parent))
+
+try:
+    from logging_config import (
+        configure_structured_logging,
+        CorrelationIDMiddleware,
+        get_logger,
+    )
+
+    configure_structured_logging()
+    LOGGING_CONFIGURED = True
+    logging.info("✅ Structured logging (structlog) configured successfully")
+except ImportError as e:
+    LOGGING_CONFIGURED = False
+    logging.warning(f"⚠️ Structured logging not available: {e}")
+    logging.warning("   Using standard Python logging")
+
+# =============================================================================
+# T036a: Security - JWT Authentication Middleware
+# =============================================================================
+
+try:
+    from auth_middleware import require_auth, optional_auth, AuthToken
+
+    AUTH_AVAILABLE = True
+    logging.info("✅ JWT authentication middleware loaded successfully")
+except ImportError as e:
+    AUTH_AVAILABLE = False
+    logging.warning(f"⚠️ Auth middleware not available: {e}")
+    logging.warning("   All endpoints will be unprotected (development mode)")
+
+    # Fallback no-op dependency for development
+    class AuthToken:
+        def __init__(self):
+            self.client_id = "dev-client"
+            self.permissions = {"read", "write"}
+
+    async def require_auth() -> AuthToken:
+        return AuthToken()
+
+    async def optional_auth() -> Optional[AuthToken]:
+        return AuthToken()
+
+
+# =============================================================================
+# P1: Database Retry Logic
+# =============================================================================
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+try:
+    from scripts.utils.db_retry import with_db_retry, connect_with_retry
+
+    RETRY_AVAILABLE = True
+    logging.info("✅ Database retry decorator loaded successfully")
+except ImportError as e:
+    RETRY_AVAILABLE = False
+    logging.warning(f"⚠️ Database retry not available: {e}")
+
+    # Fallback no-op decorator
+    def with_db_retry(*args, **kwargs):
+        def decorator(func):
+            return func
+
+        return decorator
+
+    def connect_with_retry(db_path, **kwargs):
+        import duckdb
+
+        return duckdb.connect(db_path, read_only=kwargs.get("read_only", True))
+
 
 # =============================================================================
 # T064: Configuration Management
@@ -95,6 +177,14 @@ app.add_middleware(
 )
 
 # =============================================================================
+# P2: Correlation ID Middleware (Structured Logging)
+# =============================================================================
+
+if LOGGING_CONFIGURED:
+    app.add_middleware(CorrelationIDMiddleware)
+    logging.info("✅ Correlation ID middleware registered")
+
+# =============================================================================
 # T078: Serve Frontend Static Files
 # =============================================================================
 
@@ -136,13 +226,32 @@ class ComparisonStats(BaseModel):
     timeframe_days: int = 7
 
 
+class ServiceCheck(BaseModel):
+    """Individual service health check result"""
+
+    status: str = Field(description="ok, error, or timeout")
+    latency_ms: Optional[float] = Field(
+        default=None, description="Service response time in milliseconds"
+    )
+    error: Optional[str] = Field(default=None, description="Error message if failed")
+    last_success: Optional[str] = Field(
+        default=None, description="ISO timestamp of last successful check"
+    )
+
+
 class HealthStatus(BaseModel):
-    """API health check response"""
+    """API health check response with service connectivity checks"""
 
     status: str = Field(description="healthy, degraded, or unhealthy")
-    database: str
+    timestamp: datetime = Field(description="Current timestamp")
     uptime_seconds: float
     started_at: str
+    checks: Dict[str, ServiceCheck] = Field(
+        default_factory=dict, description="Individual service health checks"
+    )
+
+    # Backward compatibility fields
+    database: str
     gaps_detected: Optional[int] = Field(
         default=None, description="Number of missing dates in last 7 days"
     )
@@ -177,13 +286,14 @@ class WhaleFlowData(BaseModel):
 # =============================================================================
 
 
+@with_db_retry(max_attempts=3, initial_delay=1.0)
 def get_db_connection():
-    """Get DuckDB connection"""
+    """Get DuckDB connection with automatic retry on transient errors"""
     try:
-        conn = duckdb.connect(DUCKDB_PATH, read_only=True)
+        conn = connect_with_retry(DUCKDB_PATH, max_attempts=3, read_only=True)
         return conn
     except Exception as e:
-        logging.error(f"Failed to connect to DuckDB: {e}")
+        logging.error(f"Failed to connect to DuckDB after retries: {e}")
         raise HTTPException(
             status_code=503, detail=f"Database connection failed: {str(e)}"
         )
@@ -200,12 +310,18 @@ def row_to_dict(row, columns) -> Dict:
 
 
 @app.get("/api/prices/latest", response_model=PriceEntry)
-async def get_latest_price():
+async def get_latest_price(auth: AuthToken = Depends(require_auth)):
     """
     Get the most recent price comparison entry.
 
+    **Authentication Required:** JWT token with 'read' permission
+
     Returns:
         PriceEntry: Latest price data from database
+
+    Raises:
+        401: Missing or invalid authentication token
+        429: Rate limit exceeded
     """
     conn = get_db_connection()
 
@@ -253,6 +369,7 @@ async def get_latest_price():
 
 @app.get("/api/prices/historical", response_model=List[PriceEntry])
 async def get_historical_prices(
+    auth: AuthToken = Depends(require_auth),
     days: int = Query(
         default=7,
         ge=1,
@@ -318,6 +435,7 @@ async def get_historical_prices(
 
 @app.get("/api/prices/comparison", response_model=ComparisonStats)
 async def get_comparison_stats(
+    auth: AuthToken = Depends(require_auth),
     days: int = Query(
         default=7, ge=1, le=365, description="Number of days for statistics calculation"
     ),
@@ -383,12 +501,18 @@ async def get_comparison_stats(
 
 
 @app.get("/api/whale/latest", response_model=WhaleFlowData)
-async def get_latest_whale_flow():
+async def get_latest_whale_flow(auth: AuthToken = Depends(require_auth)):
     """
     Get the most recent whale flow signal data.
 
+    **Authentication Required:** JWT token with 'read' permission
+
     Returns:
         WhaleFlowData: Latest whale flow metrics (net_flow, direction, action, combined_signal)
+
+    Raises:
+        401: Missing or invalid authentication token
+        429: Rate limit exceeded
     """
     conn = get_db_connection()
 
@@ -421,17 +545,87 @@ async def get_latest_whale_flow():
 
 
 # =============================================================================
-# T063: GET /health
+# Service Connectivity Helper Functions
+# =============================================================================
+
+
+async def check_electrs_connectivity() -> ServiceCheck:
+    """
+    Check electrs HTTP API connectivity with timeout.
+
+    Returns:
+        ServiceCheck: Status, latency, and error details
+    """
+    url = "http://localhost:3001/blocks/tip/height"
+    try:
+        start = time.time()
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                url, timeout=aiohttp.ClientTimeout(total=2.0)
+            ) as response:
+                latency_ms = round((time.time() - start) * 1000, 2)
+
+                if response.status == 200:
+                    return ServiceCheck(
+                        status="ok",
+                        latency_ms=latency_ms,
+                        last_success=datetime.utcnow().isoformat(),
+                    )
+                else:
+                    return ServiceCheck(status="error", error=f"HTTP {response.status}")
+    except asyncio.TimeoutError:
+        return ServiceCheck(status="timeout", error="Request timeout (>2s)")
+    except Exception as e:
+        return ServiceCheck(status="error", error=str(e))
+
+
+async def check_mempool_backend() -> ServiceCheck:
+    """
+    Check mempool.space backend API connectivity with timeout.
+
+    Returns:
+        ServiceCheck: Status, latency, and error details
+    """
+    url = "http://localhost:8999/api/v1/prices"
+    try:
+        start = time.time()
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                url, timeout=aiohttp.ClientTimeout(total=2.0)
+            ) as response:
+                latency_ms = round((time.time() - start) * 1000, 2)
+
+                if response.status == 200:
+                    return ServiceCheck(
+                        status="ok",
+                        latency_ms=latency_ms,
+                        last_success=datetime.utcnow().isoformat(),
+                    )
+                else:
+                    return ServiceCheck(status="error", error=f"HTTP {response.status}")
+    except asyncio.TimeoutError:
+        return ServiceCheck(status="timeout", error="Request timeout (>2s)")
+    except Exception as e:
+        return ServiceCheck(status="error", error=str(e))
+
+
+# =============================================================================
+# T063: GET /health (Enhanced with Service Connectivity Checks)
 # =============================================================================
 
 
 @app.get("/health", response_model=HealthStatus)
 async def health_check():
     """
-    API health check endpoint with gap detection.
+    Comprehensive health check with service connectivity.
+
+    Checks:
+    - Database (DuckDB) connectivity and gap detection
+    - electrs HTTP API availability
+    - mempool.space backend API availability
 
     Returns:
-        HealthStatus: Health status with database, uptime, and gap info
+        HealthStatus: Detailed health status with service checks
     """
     # Calculate uptime
     uptime = (datetime.now() - STARTUP_TIME).total_seconds()
@@ -442,11 +636,12 @@ async def health_check():
     gaps_count = 0
 
     try:
+        start = time.time()
         conn = get_db_connection()
 
         # Try a simple query
         conn.execute("SELECT 1").fetchone()
-        db_status = "connected"
+        latency_ms = round((time.time() - start) * 1000, 2)
 
         # Detect gaps in last 7 days
         gap_query = """
@@ -467,26 +662,51 @@ async def health_check():
 
         conn.close()
 
+        # Create successful database check
+        db_check = ServiceCheck(
+            status="ok",
+            latency_ms=latency_ms,
+            last_success=datetime.utcnow().isoformat(),
+        )
+        db_status = "connected"
+
     except Exception as e:
         logging.error(f"Health check database error: {e}")
+        db_check = ServiceCheck(status="error", error=str(e))
         db_status = f"error: {str(e)}"
 
+    # Run connectivity checks in parallel
+    electrs_check, mempool_check = await asyncio.gather(
+        check_electrs_connectivity(), check_mempool_backend()
+    )
+
+    # Build checks dictionary
+    checks = {
+        "database": db_check,
+        "electrs": electrs_check,
+        "mempool_backend": mempool_check,
+    }
+
     # Determine overall status
-    if db_status == "connected":
+    if all(c.status == "ok" for c in checks.values()):
+        # All services OK
         if gaps_count > 0:
-            status = "warning"  # Data gaps detected
+            overall_status = "degraded"  # Services OK but data gaps
         else:
-            status = "healthy"
-    elif "error" in db_status:
-        status = "unhealthy"
+            overall_status = "healthy"  # Perfect health
+    elif checks["database"].status != "ok":
+        overall_status = "unhealthy"  # Critical service down
     else:
-        status = "degraded"
+        overall_status = "degraded"  # Non-critical service issues
 
     return HealthStatus(
-        status=status,
-        database=db_status,
+        status=overall_status,
+        timestamp=datetime.utcnow(),
         uptime_seconds=uptime,
         started_at=STARTUP_TIME.isoformat(),
+        checks=checks,
+        # Backward compatibility
+        database=db_status,
         gaps_detected=gaps_count if gaps_count > 0 else None,
         missing_dates=gaps if gaps else None,
     )
