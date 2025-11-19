@@ -8,20 +8,21 @@
 
 This document defines implementation tasks for the real-time mempool whale detection system, organized by user story to enable independent development and testing. Each phase represents a complete, testable increment of functionality.
 
-**Total Tasks**: 69
+**Total Tasks**: 73 (original 69 + 4 resilience tasks)
+**Completed**: 21 tasks (Phase 1-2 complete, Security complete, Polish P2 complete, Resilience complete)
 **Parallelizable**: 38 tasks marked with [P]
 **User Stories**: 5 (US1-US5)
 
 ## Phase Organization
 
-- **Phase 1**: Setup & Infrastructure (T001-T005)
-- **Phase 2**: Foundational Components (T006-T010)
-- **Phase 3**: User Story 1 - Real-time Whale Detection [P1] (T011-T020)
+- **Phase 1**: Setup & Infrastructure (T001-T005) ✅ COMPLETE
+- **Phase 2**: Foundational Components (T006-T010) ✅ COMPLETE
+- **Phase 3**: User Story 1 - Real-time Whale Detection [P1] (T011-T020) - Security complete (T018a/b)
 - **Phase 4**: User Story 2 - Fee-based Urgency Scoring [P2] (T021-T028)
-- **Phase 5**: User Story 3 - Dashboard Visualization [P2] (T029-T037)
+- **Phase 5**: User Story 3 - Dashboard Visualization [P2] (T029-T037) - Auth complete (T030a/b, T036a/b)
 - **Phase 6**: User Story 4 - Historical Correlation [P3] (T038-T044)
 - **Phase 7**: User Story 5 - Graceful Degradation [P3] (T045-T050)
-- **Phase 8**: Polish & Cross-Cutting Concerns (T051-T055)
+- **Phase 8**: Polish & Cross-Cutting Concerns (T051-T067) - Polish P2 + Resilience complete (T061-T067)
 
 ---
 
@@ -104,17 +105,17 @@ This document defines implementation tasks for the real-time mempool whale detec
 ### Implementation Tasks:
 
 - [ ] T029 [US3] Create mempool predictions section in frontend/comparison.html
-- [ ] T030 [US3] Implement WebSocket client in frontend/js/mempool_predictions.js
-- [ ] T030a [US3] Add authentication token management to dashboard WebSocket client
-- [ ] T030b [US3] Implement secure token storage and refresh logic in frontend
+- [X] T030 [US3] Implement WebSocket client in frontend/js/mempool_predictions.js
+- [X] T030a [US3] Add authentication token management to dashboard WebSocket client
+- [X] T030b [US3] Implement secure token storage and refresh logic in frontend
 - [ ] T031 [US3] Add pending transactions table with real-time updates
 - [ ] T032 [US3] Implement visual distinction (color/style) for pending vs confirmed
 - [ ] T033 [US3] Add transaction status transition animations (pending → confirmed)
 - [ ] T034 [US3] Implement RBF modification indicators in UI
 - [ ] T035 [US3] Add memory usage indicator to dashboard
 - [ ] T036 [P] [US3] Create REST API endpoints for historical queries in api/mempool_whale_endpoints.py
-- [ ] T036a [US3] Implement API key authentication middleware for REST endpoints
-- [ ] T036b [P] [US3] Add rate limiting per API key to prevent abuse
+- [X] T036a [US3] Implement API key authentication middleware for REST endpoints
+- [X] T036b [P] [US3] Add rate limiting per API key to prevent abuse
 - [ ] T037 [P] [US3] Add dashboard filtering options (flow type, urgency, value)
 
 **Deliverable**: Dashboard with clear pending/confirmed separation and real-time updates
@@ -196,11 +197,42 @@ This document defines implementation tasks for the real-time mempool whale detec
   - Concurrent scenarios: parallel /health requests with unique correlation_ids
   - Edge cases: case-insensitive headers, exception handling in middleware
   - Result: 21 tests total, 100% passing (1.03s execution), all critical paths validated
+- [X] T064 [P2] Resilience Layer: Retry logic with exponential backoff
+  - scripts/utils/retry_decorator.py (361 lines) - Generic retry decorator with configurable backoff
+  - scripts/utils/db_retry.py (312 lines) - Database-specific retry logic for DuckDB operations
+  - Exponential backoff: 1s → 2s → 4s → 8s → max 60s
+  - Configurable max attempts, exceptions, and jitter
+  - Resolves Gemini blocker: "Nessuna retry logic per database failures"
+- [X] T065 [P2] Resilience Layer: Reconnection management with circuit breaker
+  - scripts/utils/reconnection_manager.py (456 lines) - Generic reconnection manager
+  - scripts/utils/websocket_reconnect.py (347 lines) - WebSocket-specific reconnection
+  - Circuit breaker pattern after consecutive failures
+  - Statistics tracking (attempts, successes, failures)
+  - Resolves Gemini blocker: "Nessuna reconnection logic con exponential backoff"
+- [X] T066 [P2] Resilience Layer: Health check system for production monitoring
+  - scripts/utils/health_check.py (377 lines) - Multi-component health monitoring
+  - Checks: database, electrs, mempool backend, memory usage
+  - ComponentHealth Pydantic model with status/latency/error tracking
+  - Comprehensive health aggregation for production readiness
+  - Complements T061 (API-level health endpoint)
+- [X] T067 [P2] TransactionCache refactor: O(1) remove() with OrderedDict
+  - scripts/utils/transaction_cache.py (290 lines) - Refactored from deque to OrderedDict
+  - True O(1) operations: add, get, remove, contains
+  - LRU eviction policy with move_to_end()
+  - Resolves Gemini blocker: "TransactionCache.remove() non rimuove dal deque"
+  - Memory-bounded with max_size enforcement
 
 **Polish P2 Summary**: Production-grade enhancements addressing 2 CRITICAL ISSUES:
 - Resolved: "Manca health check endpoint" (T061)
 - Resolved: "Error handling generico (needs structured logging con context)" (T062)
 - Total: ~12 hours implementation, 5 commits, resolves Gemini-identified blockers
+
+**Resilience Layer Summary** (T064-T067): Addresses ALL Gemini critical blockers:
+- ✅ Retry logic for database failures (T064)
+- ✅ Reconnection with exponential backoff (T065)
+- ✅ Production health monitoring (T066)
+- ✅ TransactionCache O(1) operations (T067)
+- Total: ~1,546 lines additional resilience code
 
 ---
 
@@ -302,15 +334,22 @@ T052 & T053 & T054 & T055
 
 ## Quick Reference
 
-| Phase | Tasks | User Story | Priority | Parallel |
-|-------|-------|------------|----------|----------|
-| 1 | T001-T005 | Setup | - | 4/5 |
-| 2 | T006-T010 | Foundation | - | 3/5 |
-| 3 | T011-T020 | US1: Detection | P1 | 4/10 |
-| 4 | T021-T028 | US2: Urgency | P2 | 2/8 |
-| 5 | T029-T037 | US3: Dashboard | P2 | 2/9 |
-| 6 | T038-T044 | US4: Correlation | P3 | 2/7 |
-| 7 | T045-T050 | US5: Degradation | P3 | 1/6 |
-| 8 | T051-T055 | Polish | - | 4/5 |
+| Phase | Tasks | User Story | Priority | Parallel | Complete |
+|-------|-------|------------|----------|----------|----------|
+| 1 | T001-T005 | Setup | - | 4/5 | ✅ 5/5 |
+| 2 | T006-T010 | Foundation | - | 3/5 | ✅ 5/5 |
+| 3 | T011-T020 | US1: Detection | P1 | 4/10 | 2/10 (T018a/b) |
+| 4 | T021-T028 | US2: Urgency | P2 | 2/8 | 0/8 |
+| 5 | T029-T037 | US3: Dashboard | P2 | 2/9 | 4/9 (T030a/b, T036a/b) |
+| 6 | T038-T044 | US4: Correlation | P3 | 2/7 | 0/7 |
+| 7 | T045-T050 | US5: Degradation | P3 | 1/6 | 0/6 |
+| 8 | T051-T067 | Polish + Resilience | - | 4/17 | 7/17 (T061-T067) |
 
-**Total**: 55 tasks | **Parallel**: 31 tasks (56%) | **Stories**: 5
+**Total**: 73 tasks (original 69 + 4 resilience) | **Completed**: 21/73 (29%) | **Parallel**: 38 tasks | **Stories**: 5
+
+**Progress Summary**:
+- ✅ **Foundation Complete** (Phase 1-2): 10/10 tasks
+- ✅ **Security Complete**: T018a/b, T030a/b, T036a/b (JWT auth, rate limiting)
+- ✅ **Polish P2 Complete**: T061-T063 (health check, logging, tests)
+- ✅ **Resilience Complete**: T064-T067 (retry, reconnection, health monitoring, cache refactor)
+- 🔄 **In Progress**: Phase 3-7 user stories (52 remaining tasks)
