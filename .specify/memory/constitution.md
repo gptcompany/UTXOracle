@@ -1,26 +1,33 @@
 <!--
 Sync Impact Report - Constitution Update
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Version Change: Initial → 1.0.0
-Bump Rationale: MINOR - Initial constitution establishment for UTXOracle project
+Version Change: 1.0.0 → 1.1.0
+Bump Rationale: MINOR - Added Principle V (Data Privacy & Security) for real-time financial signals
 
-Principles Established:
-  I.   Code Quality & Simplicity
-  II.  Test-First Discipline (TDD)
-  III. User Experience Consistency
-  IV.  Performance Standards
+Principles Modified:
+  None
+
+Principles Added:
+  V. Data Privacy & Security (NEW)
 
 Added Sections:
-  - Development Workflow
-  - Governance
+  - Principle V with privacy-first architecture requirements
+  - Security standards for predictive financial data
+  - Local-first processing mandate
 
 Templates Status:
-  ✅ .specify/templates/spec-template.md (no changes needed - constitutional principles apply)
-  ✅ .specify/templates/plan-template.md (no changes needed - constitutional principles apply)
-  ✅ .specify/templates/tasks-template.md (no changes needed - constitutional principles apply)
-  ✅ .specify/templates/checklist-template.md (no changes needed - constitutional principles apply)
+  ✅ .specify/templates/spec-template.md (no changes needed - principles compatible)
+  ✅ .specify/templates/plan-template.md (Constitution Check will include new principle)
+  ✅ .specify/templates/tasks-template.md (no changes needed - principles compatible)
+  ✅ .specify/templates/checklist-template.md (no changes needed - principles compatible)
 
-Follow-up TODOs: None
+Runtime Guidance Updates:
+  ⚠️ CLAUDE.md - May need update to reference privacy principle for mempool monitoring
+  ⚠️ .claude/prompts/utxoracle-system.md - Should reference new principle
+
+Follow-up TODOs:
+  - Update CLAUDE.md to reference Principle V for mempool whale detection
+  - Review privacy implications of whale alert broadcasting
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -->
 
@@ -123,6 +130,36 @@ creates confusion and technical debt.
 limitations. The reference implementation proves the algorithm works; production modules must
 maintain this efficiency while adding real-time capabilities.
 
+### V. Data Privacy & Security
+
+**MUST prioritize user privacy and data security:**
+
+**Privacy-First Architecture:**
+- Process all blockchain data locally: no external API dependencies for price calculation
+- Self-host all infrastructure (mempool.space, electrs, Bitcoin Core)
+- Never transmit user queries or analysis results to third parties
+- Cookie authentication preferred over password-based RPC
+- Optional features (webhooks, public APIs) MUST be opt-in with explicit consent
+
+**Predictive Data Protection:**
+- Whale detection signals are sensitive financial intelligence
+- WebSocket connections MUST use authentication tokens in production
+- Historical predictions stored locally with configurable retention (90-day default)
+- Alert broadcasting limited to authenticated clients only
+- Redis pub/sub channels MUST use namespace isolation
+
+**Security Standards:**
+- Input validation on all external data (transaction IDs, addresses, amounts)
+- Rate limiting on API endpoints to prevent abuse
+- Sanitize all user inputs before database queries (SQL injection prevention)
+- Use Pydantic models for automatic validation and type safety
+- Regular security audits of WebSocket message handling
+
+**Rationale:** UTXOracle's evolution into real-time predictive analysis (mempool whale detection)
+creates valuable financial signals that could be exploited if not properly secured. The principle
+of local-first processing that made UTXOracle trustworthy for historical analysis must extend
+to real-time systems. Users trust us because we don't leak their data.
+
 ## Development Workflow
 
 **Black Box Architecture (Vibe Coding Principles):**
@@ -173,9 +210,10 @@ maintain this efficiency while adding real-time capabilities.
 5. Propagate changes to dependent templates (`.specify/templates/*.md`)
 
 **Compliance Review:**
-- Every PR checked against principles I-IV
+- Every PR checked against principles I-V
 - `tdd-guard` agent validates TDD compliance (Principle II)
 - Performance benchmarks validated against Principle IV baselines
 - UX consistency verified against historical outputs (Principle III)
+- Security review for any code handling predictive signals (Principle V)
 
-**Version**: 1.0.0 | **Ratified**: 2025-10-19 | **Last Amended**: 2025-10-19
+**Version**: 1.1.0 | **Ratified**: 2025-10-19 | **Last Amended**: 2025-11-07
