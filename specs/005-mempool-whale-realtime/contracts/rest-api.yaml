@@ -1,0 +1,501 @@
+openapi: 3.1.0
+info:
+  title: Mempool Whale Detection REST API
+  description: REST API extensions for historical whale prediction queries
+  version: 1.0.0
+  contact:
+    name: UTXOracle Team
+
+servers:
+  - url: http://localhost:8000/api
+    description: Local development server
+
+paths:
+  /whale/predictions:
+    get:
+      summary: Get historical whale predictions
+      description: Retrieve whale predictions from mempool with filtering options
+      operationId: getWhalePredictions
+      tags:
+        - Whale Detection
+      parameters:
+        - name: status
+          in: query
+          description: Filter by prediction status
+          schema:
+            type: string
+            enum: [pending, confirmed, dropped, all]
+            default: all
+        - name: flow_type
+          in: query
+          description: Filter by flow type
+          schema:
+            type: string
+            enum: [inflow, outflow, internal, unknown]
+        - name: min_btc_value
+          in: query
+          description: Minimum BTC value
+          schema:
+            type: number
+            minimum: 100
+            default: 100
+        - name: start_date
+          in: query
+          description: Start date for time range (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+        - name: end_date
+          in: query
+          description: End date for time range (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          description: Maximum number of results
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+        - name: offset
+          in: query
+          description: Pagination offset
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - predictions
+                  - total_count
+                  - page_info
+                properties:
+                  predictions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WhalePrediction'
+                  total_count:
+                    type: integer
+                  page_info:
+                    $ref: '#/components/schemas/PageInfo'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /whale/predictions/{transaction_id}:
+    get:
+      summary: Get specific whale prediction
+      description: Retrieve details of a specific whale prediction by transaction ID
+      operationId: getWhalePredictionById
+      tags:
+        - Whale Detection
+      parameters:
+        - name: transaction_id
+          in: path
+          required: true
+          description: Bitcoin transaction hash
+          schema:
+            type: string
+            pattern: '^[0-9a-f]{64}$'
+
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WhalePredictionDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /whale/statistics:
+    get:
+      summary: Get whale detection statistics
+      description: Retrieve aggregated statistics for whale detection accuracy
+      operationId: getWhaleStatistics
+      tags:
+        - Whale Detection
+      parameters:
+        - name: period
+          in: query
+          description: Time period for statistics
+          schema:
+            type: string
+            enum: [daily, weekly, monthly, quarterly]
+            default: daily
+        - name: start_date
+          in: query
+          description: Start date for statistics (ISO 8601)
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          description: End date for statistics (ISO 8601)
+          schema:
+            type: string
+            format: date
+
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WhaleStatistics'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /whale/urgency-metrics:
+    get:
+      summary: Get current urgency metrics
+      description: Retrieve current fee market conditions and urgency thresholds
+      operationId: getUrgencyMetrics
+      tags:
+        - Whale Detection
+
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UrgencyMetrics'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /whale/correlation:
+    get:
+      summary: Get prediction correlation analysis
+      description: Retrieve correlation between predictions and actual outcomes
+      operationId: getCorrelationAnalysis
+      tags:
+        - Whale Detection
+      parameters:
+        - name: days
+          in: query
+          description: Number of days to analyze
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 90
+            default: 7
+
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CorrelationAnalysis'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  schemas:
+    WhalePrediction:
+      type: object
+      required:
+        - prediction_id
+        - transaction_id
+        - flow_type
+        - btc_value
+        - urgency_score
+        - detection_timestamp
+        - status
+      properties:
+        prediction_id:
+          type: string
+          format: uuid
+        transaction_id:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        flow_type:
+          type: string
+          enum: [inflow, outflow, internal, unknown]
+        btc_value:
+          type: number
+        fee_rate:
+          type: number
+        urgency_score:
+          type: number
+          minimum: 0
+          maximum: 1
+        detection_timestamp:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [pending, confirmed, dropped, replaced]
+        confirmation_time:
+          type: string
+          format: date-time
+        was_modified:
+          type: boolean
+
+    WhalePredictionDetail:
+      allOf:
+        - $ref: '#/components/schemas/WhalePrediction'
+        - type: object
+          properties:
+            exchange_addresses:
+              type: array
+              items:
+                type: string
+            confidence_score:
+              type: number
+              minimum: 0
+              maximum: 1
+            predicted_confirmation_block:
+              type: integer
+            actual_confirmation_block:
+              type: integer
+            outcome:
+              $ref: '#/components/schemas/PredictionOutcome'
+            modifications:
+              type: array
+              items:
+                $ref: '#/components/schemas/Modification'
+
+    PredictionOutcome:
+      type: object
+      properties:
+        actual_outcome:
+          type: string
+          enum: [confirmed, dropped, replaced]
+        accuracy_score:
+          type: number
+          minimum: 0
+          maximum: 1
+        time_to_confirmation:
+          type: integer
+          description: Minutes from prediction to confirmation
+        final_fee_rate:
+          type: number
+
+    Modification:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        old_fee_rate:
+          type: number
+        new_fee_rate:
+          type: number
+        old_urgency_score:
+          type: number
+        new_urgency_score:
+          type: number
+
+    WhaleStatistics:
+      type: object
+      required:
+        - period
+        - start_date
+        - end_date
+        - total_predictions
+        - accuracy_percentage
+      properties:
+        period:
+          type: string
+          enum: [daily, weekly, monthly, quarterly]
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        total_predictions:
+          type: integer
+        confirmed_as_predicted:
+          type: integer
+        false_positives:
+          type: integer
+        false_negatives:
+          type: integer
+        average_lead_time:
+          type: number
+          description: Average minutes before confirmation
+        accuracy_percentage:
+          type: number
+          minimum: 0
+          maximum: 100
+        rbf_modification_rate:
+          type: number
+          minimum: 0
+          maximum: 100
+        flow_breakdown:
+          type: object
+          properties:
+            inflow:
+              type: integer
+            outflow:
+              type: integer
+            internal:
+              type: integer
+            unknown:
+              type: integer
+
+    UrgencyMetrics:
+      type: object
+      required:
+        - current_block_height
+        - fee_percentiles
+        - congestion_level
+        - last_update
+      properties:
+        current_block_height:
+          type: integer
+        fee_percentiles:
+          type: object
+          properties:
+            p10:
+              type: number
+            p25:
+              type: number
+            p50:
+              type: number
+            p75:
+              type: number
+            p90:
+              type: number
+        estimated_blocks_to_confirmation:
+          type: object
+          properties:
+            low_fee:
+              type: integer
+            medium_fee:
+              type: integer
+            high_fee:
+              type: integer
+        mempool_size_mb:
+          type: number
+        congestion_level:
+          type: string
+          enum: [low, medium, high, extreme]
+        last_update:
+          type: string
+          format: date-time
+
+    CorrelationAnalysis:
+      type: object
+      required:
+        - analysis_period
+        - correlation_coefficient
+        - predictions_analyzed
+      properties:
+        analysis_period:
+          type: object
+          properties:
+            start:
+              type: string
+              format: date-time
+            end:
+              type: string
+              format: date-time
+            days:
+              type: integer
+        correlation_coefficient:
+          type: number
+          minimum: -1
+          maximum: 1
+        predictions_analyzed:
+          type: integer
+        accuracy_by_urgency:
+          type: object
+          properties:
+            low:
+              type: number
+            medium:
+              type: number
+            high:
+              type: number
+        accuracy_by_flow_type:
+          type: object
+          properties:
+            inflow:
+              type: number
+            outflow:
+              type: number
+            internal:
+              type: number
+        confidence_calibration:
+          type: object
+          properties:
+            mean_confidence:
+              type: number
+            mean_accuracy:
+              type: number
+            calibration_error:
+              type: number
+
+    PageInfo:
+      type: object
+      required:
+        - has_next
+        - has_previous
+        - page_size
+        - current_offset
+      properties:
+        has_next:
+          type: boolean
+        has_previous:
+          type: boolean
+        page_size:
+          type: integer
+        current_offset:
+          type: integer
+        total_pages:
+          type: integer
+
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

@@ -1,0 +1,291 @@
+openapi: 3.1.0
+info:
+  title: Mempool Whale Detection WebSocket API
+  description: Real-time WebSocket API for mempool whale transaction alerts
+  version: 1.0.0
+
+servers:
+  - url: ws://localhost:8765
+    description: Local WebSocket server
+    protocol: ws
+
+channels:
+  /whale-alerts:
+    description: Real-time whale transaction alerts
+
+    subscribe:
+      summary: Receive whale transaction alerts
+      description: Subscribe to real-time whale transaction alerts from mempool
+
+      message:
+        oneOf:
+          - $ref: '#/components/messages/WhaleAlert'
+          - $ref: '#/components/messages/StatusUpdate'
+          - $ref: '#/components/messages/ConnectionStatus'
+          - $ref: '#/components/messages/Error'
+
+    publish:
+      summary: Send commands to server
+      description: Send subscription requests and control commands
+
+      message:
+        oneOf:
+          - $ref: '#/components/messages/Subscribe'
+          - $ref: '#/components/messages/Unsubscribe'
+          - $ref: '#/components/messages/Ping'
+
+components:
+  messages:
+    WhaleAlert:
+      name: WhaleAlert
+      title: Whale Transaction Alert
+      summary: New whale transaction detected in mempool
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - type
+          - data
+          - timestamp
+        properties:
+          type:
+            type: string
+            const: whale_alert
+          data:
+            $ref: '#/components/schemas/MempoolWhaleSignal'
+          timestamp:
+            type: string
+            format: date-time
+
+    StatusUpdate:
+      name: StatusUpdate
+      title: Transaction Status Update
+      summary: Update on previously detected whale transaction
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - type
+          - data
+          - timestamp
+        properties:
+          type:
+            type: string
+            const: status_update
+          data:
+            type: object
+            required:
+              - transaction_id
+              - new_status
+            properties:
+              transaction_id:
+                type: string
+                pattern: '^[0-9a-f]{64}$'
+              new_status:
+                type: string
+                enum: [confirmed, dropped, replaced]
+              confirmation_block:
+                type: integer
+                minimum: 0
+              confirmation_time:
+                type: string
+                format: date-time
+              replacement_txid:
+                type: string
+                pattern: '^[0-9a-f]{64}$'
+          timestamp:
+            type: string
+            format: date-time
+
+    ConnectionStatus:
+      name: ConnectionStatus
+      title: Connection Status
+      summary: WebSocket connection status update
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - type
+          - status
+          - timestamp
+        properties:
+          type:
+            type: string
+            const: connection
+          status:
+            type: string
+            enum: [connected, disconnected, degraded]
+          mempool_available:
+            type: boolean
+          message:
+            type: string
+          timestamp:
+            type: string
+            format: date-time
+
+    Error:
+      name: Error
+      title: Error Message
+      summary: Error notification
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - type
+          - error
+          - timestamp
+        properties:
+          type:
+            type: string
+            const: error
+          error:
+            type: object
+            required:
+              - code
+              - message
+            properties:
+              code:
+                type: string
+              message:
+                type: string
+              details:
+                type: object
+          timestamp:
+            type: string
+            format: date-time
+
+    Subscribe:
+      name: Subscribe
+      title: Subscribe Request
+      summary: Subscribe to filtered whale alerts
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - type
+        properties:
+          type:
+            type: string
+            const: subscribe
+          filters:
+            type: object
+            properties:
+              min_btc_value:
+                type: number
+                minimum: 100
+                default: 100
+              flow_types:
+                type: array
+                items:
+                  type: string
+                  enum: [inflow, outflow, internal, unknown]
+                default: [inflow, outflow]
+              min_urgency:
+                type: number
+                minimum: 0
+                maximum: 1
+                default: 0
+              min_confidence:
+                type: number
+                minimum: 0
+                maximum: 1
+                default: 0.3
+              exchange_filter:
+                type: array
+                items:
+                  type: string
+                description: Filter by specific exchange addresses
+
+    Unsubscribe:
+      name: Unsubscribe
+      title: Unsubscribe Request
+      summary: Unsubscribe from alerts
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - type
+        properties:
+          type:
+            type: string
+            const: unsubscribe
+
+    Ping:
+      name: Ping
+      title: Heartbeat Ping
+      summary: Keep connection alive
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - type
+          - timestamp
+        properties:
+          type:
+            type: string
+            const: ping
+          timestamp:
+            type: string
+            format: date-time
+
+  schemas:
+    MempoolWhaleSignal:
+      type: object
+      required:
+        - transaction_id
+        - flow_type
+        - btc_value
+        - fee_rate
+        - urgency_score
+        - rbf_enabled
+        - detection_timestamp
+        - exchange_addresses
+        - confidence_score
+      properties:
+        transaction_id:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          description: Bitcoin transaction hash
+        flow_type:
+          type: string
+          enum: [inflow, outflow, internal, unknown]
+          description: Direction of whale movement
+        btc_value:
+          type: number
+          minimum: 100
+          description: Total BTC value of transaction
+        fee_rate:
+          type: number
+          minimum: 0
+          description: Fee rate in satoshis per vByte
+        urgency_score:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Urgency based on fee rate (0.0-1.0)
+        rbf_enabled:
+          type: boolean
+          description: Whether Replace-By-Fee is signaled
+        detection_timestamp:
+          type: string
+          format: date-time
+          description: When transaction was detected
+        predicted_confirmation_block:
+          type: integer
+          minimum: 0
+          description: Estimated block height for confirmation
+        exchange_addresses:
+          type: array
+          items:
+            type: string
+          minItems: 1
+          description: Exchange addresses involved
+        confidence_score:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Combined confidence score
+        was_modified:
+          type: boolean
+          default: false
+          description: Whether transaction was RBF modified
