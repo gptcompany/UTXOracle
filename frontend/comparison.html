@@ -406,6 +406,76 @@
             padding: 30px;
         }
 
+        /* T037: Dashboard Filters */
+        .whale-filters {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 15px 20px;
+            margin-bottom: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .filter-group label {
+            color: #ff9500;
+            font-weight: 500;
+            font-size: 0.9rem;
+        }
+
+        .filter-group select,
+        .filter-group input {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+
+        .filter-group input[type="number"] {
+            width: 100px;
+        }
+
+        .filter-button {
+            background: #ff9500;
+            color: #000;
+            border: none;
+            padding: 6px 16px;
+            border-radius: 4px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .filter-button:hover {
+            background: #ffaa00;
+        }
+
+        #resetFilters {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+        }
+
+        #resetFilters:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        .filter-status {
+            margin-left: auto;
+            color: #888;
+            font-size: 0.85rem;
+            font-style: italic;
+        }
+
         /* T032: Visual Distinction for Pending/Confirmed */
         .tx-row.pending {
             background: rgba(255, 170, 0, 0.05);
@@ -579,6 +649,35 @@
             <div class="connection-status" id="wsStatus">Connecting...</div>
         </div>
 
+        <!-- T037: Dashboard Filters -->
+        <div class="whale-filters">
+            <div class="filter-group">
+                <label for="urgencyFilter">Urgency:</label>
+                <select id="urgencyFilter">
+                    <option value="all">All</option>
+                    <option value="LOW">Low</option>
+                    <option value="MEDIUM">Medium</option>
+                    <option value="HIGH">High</option>
+                    <option value="CRITICAL">Critical</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label for="minValue">Min BTC:</label>
+                <input type="number" id="minValue" placeholder="0" min="0" step="0.1">
+            </div>
+            <div class="filter-group">
+                <label for="maxValue">Max BTC:</label>
+                <input type="number" id="maxValue" placeholder="1000" min="0" step="0.1">
+            </div>
+            <div class="filter-group">
+                <button id="applyFilters" class="filter-button">Apply Filters</button>
+                <button id="resetFilters" class="filter-button">Reset</button>
+            </div>
+            <div class="filter-status">
+                <span id="filterStatus">Showing all transactions</span>
+            </div>
+        </div>
+
         <!-- T031: Pending Transactions Table -->
         <div class="whale-transactions-table">
             <table id="whaleTransactionsTable">
@@ -623,6 +722,11 @@
         <div class="stat-card">
             <div class="stat-label">Memory Usage</div>
             <div class="stat-value" id="memoryUsage">Loading...</div>
+        </div>
+        <!-- T043: Correlation Metrics Display -->
+        <div class="stat-card">
+            <div class="stat-label">Prediction Accuracy</div>
+            <div class="stat-value" id="predictionAccuracy">Loading...</div>
         </div>
     </div>
 
@@ -1038,6 +1142,52 @@
             }
         }
 
+        // T043: Load prediction accuracy metrics
+        async function loadPredictionAccuracy() {
+            try {
+                const timestamp = new Date().getTime();
+                const response = await authManager.authenticatedFetch(
+                    `${API_BASE_URL}/api/whale/latest?_=${timestamp}`
+                );
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const whaleData = await response.json();
+                updatePredictionAccuracyDisplay(whaleData);
+
+            } catch (error) {
+                console.error('Failed to load prediction accuracy:', error);
+                document.getElementById('predictionAccuracy').textContent = 'N/A';
+                document.getElementById('predictionAccuracy').className = 'stat-value';
+            }
+        }
+
+        // T043: Update prediction accuracy display with color coding
+        function updatePredictionAccuracyDisplay(whaleData) {
+            const accuracyEl = document.getElementById('predictionAccuracy');
+
+            // If whale data has accuracy metrics, display them
+            if (whaleData && whaleData.prediction_accuracy !== null && whaleData.prediction_accuracy !== undefined) {
+                const accuracy = whaleData.prediction_accuracy;
+                accuracyEl.textContent = `${accuracy.toFixed(1)}%`;
+
+                // Color code based on accuracy threshold
+                if (accuracy >= 90) {
+                    accuracyEl.className = 'stat-value positive'; // Green for excellent
+                } else if (accuracy >= 80) {
+                    accuracyEl.className = 'stat-value'; // Orange (default) for good
+                } else {
+                    accuracyEl.className = 'stat-value negative'; // Red for poor
+                }
+            } else {
+                // Fallback: Display "Tracking" if no data yet
+                accuracyEl.textContent = 'Tracking...';
+                accuracyEl.className = 'stat-value';
+            }
+        }
+
         // Main data loading function
         async function loadData(days, eventTarget = null) {
             currentDays = days;
@@ -1300,6 +1450,124 @@
             }
         }
 
+        // T037: Dashboard Filtering Logic
+        class TransactionFilter {
+            constructor() {
+                this.filters = {
+                    urgency: 'all',
+                    minValue: null,
+                    maxValue: null
+                };
+                this.initializeEventListeners();
+            }
+
+            initializeEventListeners() {
+                const applyBtn = document.getElementById('applyFilters');
+                const resetBtn = document.getElementById('resetFilters');
+                const urgencySelect = document.getElementById('urgencyFilter');
+                const minInput = document.getElementById('minValue');
+                const maxInput = document.getElementById('maxValue');
+
+                if (applyBtn) {
+                    applyBtn.addEventListener('click', () => {
+                        this.filters.urgency = urgencySelect.value;
+                        this.filters.minValue = minInput.value ? parseFloat(minInput.value) : null;
+                        this.filters.maxValue = maxInput.value ? parseFloat(maxInput.value) : null;
+                        this.applyFilters();
+                    });
+                }
+
+                if (resetBtn) {
+                    resetBtn.addEventListener('click', () => {
+                        this.filters = { urgency: 'all', minValue: null, maxValue: null };
+                        urgencySelect.value = 'all';
+                        minInput.value = '';
+                        maxInput.value = '';
+                        this.applyFilters();
+                    });
+                }
+
+                // Apply filters on Enter key
+                [minInput, maxInput].forEach(input => {
+                    if (input) {
+                        input.addEventListener('keypress', (e) => {
+                            if (e.key === 'Enter') applyBtn.click();
+                        });
+                    }
+                });
+            }
+
+            applyFilters() {
+                const tbody = document.getElementById('whaleTransactionsBody');
+                if (!tbody) return;
+
+                const rows = tbody.getElementsByTagName('tr');
+                let visibleCount = 0;
+                let totalCount = 0;
+
+                for (let row of rows) {
+                    // Skip empty state row
+                    if (row.classList.contains('empty-state')) continue;
+
+                    totalCount++;
+                    let visible = true;
+
+                    // Filter by urgency
+                    if (this.filters.urgency !== 'all') {
+                        const urgencyCell = row.cells[4]; // Urgency column
+                        const urgencyText = urgencyCell ? urgencyCell.textContent.trim() : '';
+                        if (!urgencyText.includes(this.filters.urgency)) {
+                            visible = false;
+                        }
+                    }
+
+                    // Filter by BTC value
+                    const valueCell = row.cells[2]; // BTC Value column
+                    if (valueCell && (this.filters.minValue !== null || this.filters.maxValue !== null)) {
+                        const valueText = valueCell.textContent.trim();
+                        const value = parseFloat(valueText.replace(/[^\d.]/g, ''));
+
+                        if (this.filters.minValue !== null && value < this.filters.minValue) {
+                            visible = false;
+                        }
+                        if (this.filters.maxValue !== null && value > this.filters.maxValue) {
+                            visible = false;
+                        }
+                    }
+
+                    row.style.display = visible ? '' : 'none';
+                    if (visible) visibleCount++;
+                }
+
+                // Update filter status
+                this.updateFilterStatus(visibleCount, totalCount);
+            }
+
+            updateFilterStatus(visible, total) {
+                const statusEl = document.getElementById('filterStatus');
+                if (!statusEl) return;
+
+                if (visible === total) {
+                    statusEl.textContent = `Showing all ${total} transactions`;
+                } else {
+                    const filterDesc = [];
+                    if (this.filters.urgency !== 'all') {
+                        filterDesc.push(`urgency: ${this.filters.urgency}`);
+                    }
+                    if (this.filters.minValue !== null) {
+                        filterDesc.push(`min: ${this.filters.minValue} BTC`);
+                    }
+                    if (this.filters.maxValue !== null) {
+                        filterDesc.push(`max: ${this.filters.maxValue} BTC`);
+                    }
+                    statusEl.textContent = `Showing ${visible}/${total} transactions (${filterDesc.join(', ')})`;
+                }
+            }
+        }
+
+        // Initialize filter system
+        const transactionFilter = new TransactionFilter();
+
         // Initialize whale transaction manager
         const whaleManager = new WhaleTransactionManager();
 
@@ -1308,6 +1576,7 @@
             loadData(7);
             loadWhaleFlowData();  // spec-004: Load whale flow indicator
             loadMemoryUsage();    // T035: Load memory usage indicator
+            loadPredictionAccuracy();  // T043: Load prediction accuracy metrics
             whaleManager.connect(); // T029: Connect to whale alerts WebSocket
         });
 

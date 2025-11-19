@@ -189,6 +189,22 @@ if LOGGING_CONFIGURED:
     logging.info("✅ Correlation ID middleware registered")
 
 # =============================================================================
+# T053: Performance Metrics Collection
+# =============================================================================
+
+try:
+    from metrics_collector import MetricsCollector, metrics_middleware
+
+    metrics_collector = MetricsCollector(max_history=1000)
+    app.middleware("http")(metrics_middleware(metrics_collector))
+    METRICS_AVAILABLE = True
+    logging.info("✅ Performance metrics collector enabled")
+except ImportError as e:
+    METRICS_AVAILABLE = False
+    metrics_collector = None
+    logging.warning(f"⚠️ Performance metrics not available: {e}")
+
+# =============================================================================
 # T078: Serve Frontend Static Files
 # =============================================================================
 
@@ -754,6 +770,40 @@ async def health_check():
 
 
 # =============================================================================
+# T053: GET /metrics (Performance Metrics)
+# =============================================================================
+
+
+@app.get("/metrics")
+async def performance_metrics(
+    window: int = Query(
+        60, description="Time window in seconds for throughput calculation"
+    ),
+):
+    """
+    Get performance metrics for API endpoints.
+
+    Returns:
+        dict: Aggregated metrics including:
+            - total_requests: Total requests processed
+            - total_errors: Total error responses
+            - error_rate_percent: Percentage of failed requests
+            - uptime_seconds: Time since metrics collection started
+            - avg_latency_ms: Average request latency
+            - min_latency_ms: Minimum request latency
+            - max_latency_ms: Maximum request latency
+            - throughput_rps: Requests per second in recent window
+            - endpoints: Per-endpoint statistics
+    """
+    if not METRICS_AVAILABLE or metrics_collector is None:
+        raise HTTPException(
+            status_code=503, detail="Performance metrics collection is not enabled"
+        )
+
+    return metrics_collector.get_metrics(window_seconds=window)
+
+
+# =============================================================================
 # Root Endpoint
 # =============================================================================
 
@@ -764,13 +814,14 @@ async def root():
     return {
         "name": "UTXOracle API",
         "version": "1.0.0",
-        "spec": "003-mempool-integration-refactor, 004-whale-flow-detection",
+        "spec": "003-mempool-integration-refactor, 004-whale-flow-detection, 005-mempool-whale-realtime",
         "endpoints": {
             "latest": "/api/prices/latest",
             "historical": "/api/prices/historical?days=7",
             "comparison": "/api/prices/comparison?days=7",
             "whale_latest": "/api/whale/latest",
             "health": "/health",
+            "metrics": "/metrics?window=60",
             "docs": "/docs",
         },
     }
