@@ -1097,8 +1097,8 @@
                         return;
                     }
 
-                    // WebSocket URL (adjust port if needed)
-                    const wsUrl = 'ws://localhost:8001/ws/whale-alerts';
+                    // WebSocket URL - connects to whale_alert_broadcaster.py (port 8765)
+                    const wsUrl = 'ws://localhost:8765';
 
                     this.updateStatus('connecting');
                     console.log('Connecting to whale alerts WebSocket...');
