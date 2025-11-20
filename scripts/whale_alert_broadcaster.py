@@ -107,8 +107,13 @@ class WhaleAlertBroadcaster:
                 f"Unregistered unauthenticated client from {websocket.remote_address}"
             )
 
-    async def handle_client_with_auth(self, websocket, path):
-        """Handle authenticated client connections"""
+    async def handle_client_with_auth(self, websocket, path=None):
+        """Handle authenticated client connections
+
+        Args:
+            websocket: WebSocket connection
+            path: Optional URL path (for compatibility with old websockets versions)
+        """
         auth_token = None
 
         try:

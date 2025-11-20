@@ -194,8 +194,18 @@ class WebSocketAuthenticator:
         # Generate new token with same permissions
         return self.generate_token(token.client_id, token.permissions)
 
-    async def authenticate_websocket(self, websocket, path: str) -> Optional[AuthToken]:
-        """Authenticate a WebSocket connection"""
+    async def authenticate_websocket(
+        self, websocket, path: str = None
+    ) -> Optional[AuthToken]:
+        """Authenticate a WebSocket connection
+
+        Args:
+            websocket: WebSocket connection
+            path: Optional URL path (unused, for compatibility with old websockets versions)
+
+        Returns:
+            AuthToken if authentication succeeds, None otherwise
+        """
         if not self.config.enabled:
             # Authentication disabled
             return AuthToken(
