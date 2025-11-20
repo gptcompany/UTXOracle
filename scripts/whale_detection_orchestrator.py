@@ -74,7 +74,7 @@ class WhaleDetectionOrchestrator:
         """
         # Load config
         config = get_config()
-        self.db_path = db_path or config.database.db_path
+        self.db_path = db_path or config.database_path
         self.ws_host = ws_host
         self.ws_port = ws_port
         self.mempool_ws_url = mempool_ws_url
@@ -127,7 +127,7 @@ class WhaleDetectionOrchestrator:
 
         # Start broadcaster in background task
         broadcaster_task = asyncio.create_task(
-            self.broadcaster.start(), name="broadcaster"
+            self.broadcaster.start_server(), name="broadcaster"
         )
 
         # Give broadcaster time to start
@@ -181,14 +181,9 @@ class WhaleDetectionOrchestrator:
             except asyncio.TimeoutError:
                 logger.warning("⚠️ Monitor stop timeout")
 
-        # Stop broadcaster
+        # Broadcaster will be stopped by task cancellation
         if self.broadcaster:
-            logger.info("Stopping broadcaster...")
-            try:
-                await asyncio.wait_for(self.broadcaster.stop(), timeout=5.0)
-                logger.info("✅ Broadcaster stopped")
-            except asyncio.TimeoutError:
-                logger.warning("⚠️ Broadcaster stop timeout")
+            logger.info("✅ Broadcaster task will be cancelled")
 
         # Print final statistics
         await self.print_statistics()
@@ -206,49 +201,16 @@ class WhaleDetectionOrchestrator:
         logger.info("=" * 60)
         logger.info(f"Uptime: {uptime:.1f} seconds ({uptime / 60:.1f} minutes)")
 
-        # Monitor stats
+        # Monitor stats (get_stats() not implemented yet)
         if self.monitor:
-            monitor_stats = self.monitor.get_stats()
-            logger.info("\n🐋 Monitor Statistics:")
-            logger.info(
-                f"  Total Transactions Processed: {monitor_stats.get('total_transactions', 0):,}"
-            )
-            logger.info(
-                f"  Whale Transactions Detected: {monitor_stats.get('whale_transactions', 0):,}"
-            )
-            logger.info(
-                f"  Alerts Broadcasted: {monitor_stats.get('alerts_broadcasted', 0):,}"
-            )
-            logger.info(f"  Database Writes: {monitor_stats.get('db_writes', 0):,}")
-            logger.info(f"  Parse Errors: {monitor_stats.get('parse_errors', 0):,}")
+            logger.info("\n🐋 Monitor: Active")
+            # TODO: Implement get_stats() in MempoolWhaleMonitor
+            # monitor_stats = self.monitor.get_stats()
 
-            # Cache stats
-            cache_stats = monitor_stats.get("cache_stats", {})
-            if cache_stats:
-                logger.info("\n💾 Cache Statistics:")
-                logger.info(f"  Total Added: {cache_stats.get('total_added', 0):,}")
-                logger.info(f"  Cache Hits: {cache_stats.get('cache_hits', 0):,}")
-                logger.info(f"  Hit Rate: {cache_stats.get('hit_rate', 0):.1f}%")
-
-        # Broadcaster stats
+        # Broadcaster stats (get_stats() not implemented yet)
         if self.broadcaster:
-            broadcaster_stats = self.broadcaster.get_stats()
-            logger.info("\n📡 Broadcaster Statistics:")
-            logger.info(
-                f"  Total Connections: {broadcaster_stats.get('total_connections', 0):,}"
-            )
-            logger.info(
-                f"  Active Connections: {broadcaster_stats.get('active_connections', 0):,}"
-            )
-            logger.info(
-                f"  Authenticated Clients: {broadcaster_stats.get('authenticated_clients', 0):,}"
-            )
-            logger.info(
-                f"  Messages Sent: {broadcaster_stats.get('messages_sent', 0):,}"
-            )
-            logger.info(
-                f"  Auth Failures: {broadcaster_stats.get('auth_failures', 0):,}"
-            )
+            logger.info("\n📡 Broadcaster: Active")
+            # TODO: Implement get_stats() in WhaleAlertBroadcaster
 
         logger.info("=" * 60 + "\n")
 

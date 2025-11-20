@@ -104,7 +104,7 @@ class MempoolWhaleMonitor:
 
         # Urgency scorer (for fee-based urgency calculation)
         self.urgency_scorer = WhaleUrgencyScorer(
-            mempool_api_url=config.infrastructure.mempool_api_url,
+            mempool_api_url=config.mempool_http_url,
             update_interval_seconds=60,
         )
 
