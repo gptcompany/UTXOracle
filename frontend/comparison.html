@@ -8,8 +8,8 @@
     <!-- T073: Plotly.js CDN -->
     <script src="https://cdn.plot.ly/plotly-2.26.0.min.js"></script>
 
-    <!-- T030a: Authentication Module -->
-    <script src="/static/js/auth.js"></script>
+    <!-- T030a: Authentication Module - DISABLED (Dashboard is public) -->
+    <!-- <script src="/static/js/auth.js"></script> -->
 
     <!-- T077: CSS Styling - Black background, orange theme -->
     <style>
@@ -613,9 +613,7 @@
                 <h1>UTXOracle Price Comparison</h1>
                 <div class="subtitle">On-Chain vs Exchange Price Analysis</div>
             </div>
-            <button id="logoutBtn" class="logout-btn" onclick="authManager.logout()" title="Logout">
-                🔓 Logout
-            </button>
+            <!-- Logout button removed - Dashboard is public (no authentication) -->
         </div>
     </header>
 
@@ -1240,31 +1238,32 @@
 
             async connect() {
                 try {
-                    // Get JWT token for authentication
-                    const token = authManager.getToken();
-                    if (!token) {
-                        console.error('No authentication token available');
-                        this.updateStatus('disconnected');
-                        return;
-                    }
+                    // Authentication disabled - WebSocket server running in no-auth mode
+                    // const token = authManager.getToken();
+                    // if (!token) {
+                    //     console.error('No authentication token available');
+                    //     this.updateStatus('disconnected');
+                    //     return;
+                    // }
 
                     // WebSocket URL - connects to whale_alert_broadcaster.py (port 8765)
                     const wsUrl = 'ws://localhost:8765';
 
                     this.updateStatus('connecting');
-                    console.log('Connecting to whale alerts WebSocket...');
+                    console.log('Connecting to whale alerts WebSocket (no-auth mode)...');
 
                     this.ws = new WebSocket(wsUrl);
 
                     this.ws.onopen = () => {
-                        console.log('✅ WebSocket connected - sending auth');
-                        // Send authentication token
-                        this.ws.send(JSON.stringify({
-                            type: 'auth',
-                            token: token
-                        }));
+                        console.log('✅ WebSocket connected (no authentication required)');
+                        // Authentication disabled - server running with --no-auth
+                        // this.ws.send(JSON.stringify({
+                        //     type: 'auth',
+                        //     token: token
+                        // }));
                         this.reconnectAttempts = 0;
                         this.reconnectDelay = 1000;
+                        // Update status after receiving welcome message
                     };
 
                     this.ws.onmessage = (event) => {

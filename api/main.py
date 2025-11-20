@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, date
 from typing import Optional, List, Dict
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query, Depends
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
@@ -543,11 +543,11 @@ async def get_comparison_stats(
 
 
 @app.get("/api/whale/latest", response_model=WhaleFlowData)
-async def get_latest_whale_flow(auth: AuthToken = Depends(require_auth)):
+async def get_latest_whale_flow():
     """
     Get the most recent whale flow signal data.
 
-    **Authentication Required:** JWT token with 'read' permission
+    **Public Endpoint:** No authentication required
 
     Returns:
         WhaleFlowData: Latest whale flow metrics (net_flow, direction, action, combined_signal)
