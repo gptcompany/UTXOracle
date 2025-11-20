@@ -754,15 +754,16 @@
         // T030b: Authentication Check - Protect Dashboard
         // =================================================================
 
-        // Check authentication before loading dashboard
-        if (!authManager.isAuthenticated() || authManager.isTokenExpired()) {
-            console.warn('Not authenticated - redirecting to login');
-            authManager.redirectToLogin();
-            // Stop execution - page will redirect
-            throw new Error('Authentication required');
-        }
+        // Authentication disabled - Dashboard uses public API endpoints
+        // if (!authManager.isAuthenticated() || authManager.isTokenExpired()) {
+        //     console.warn('Not authenticated - redirecting to login');
+        //     authManager.redirectToLogin();
+        //     // Stop execution - page will redirect
+        //     throw new Error('Authentication required');
+        // }
 
-        console.log('✅ User authenticated:', authManager.getTokenInfo());
+        // console.log('✅ User authenticated:', authManager.getTokenInfo());
+        console.log('✅ Dashboard loading (public mode - no authentication required)');
 
         // API Configuration
         const API_BASE_URL = 'http://localhost:8001';
@@ -773,7 +774,7 @@
             try {
                 // Add timestamp to prevent caching
                 const timestamp = new Date().getTime();
-                const response = await authManager.authenticatedFetch(
+                const response = await fetch(
                     `${API_BASE_URL}/api/prices/historical?days=${days}&_=${timestamp}`
                 );
                 if (!response.ok) {
@@ -790,7 +791,7 @@
             try {
                 // Add timestamp to prevent caching
                 const timestamp = new Date().getTime();
-                const response = await authManager.authenticatedFetch(
+                const response = await fetch(
                     `${API_BASE_URL}/api/prices/comparison?days=${days}&_=${timestamp}`
                 );
                 if (!response.ok) {
@@ -1093,7 +1094,7 @@
         async function loadMemoryUsage() {
             try {
                 const timestamp = new Date().getTime();
-                const response = await authManager.authenticatedFetch(
+                const response = await fetch(
                     `${API_BASE_URL}/health?_=${timestamp}`
                 );
 
@@ -1146,7 +1147,7 @@
         async function loadPredictionAccuracy() {
             try {
                 const timestamp = new Date().getTime();
-                const response = await authManager.authenticatedFetch(
+                const response = await fetch(
                     `${API_BASE_URL}/api/whale/latest?_=${timestamp}`
                 );
 
