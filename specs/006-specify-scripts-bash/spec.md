@@ -109,7 +109,7 @@ As a user, I want to receive visual alerts for extreme whale movements so I don'
 - **FR-009**: Historical chart MUST differentiate accumulation (positive flow) from distribution (negative flow) periods
 - **FR-010**: Dashboard MUST handle connection interruptions gracefully with clear status indicators
 - **FR-011**: System MUST aggregate net flow by 5-minute intervals for real-time display (with 1-minute updates for live ticker)
-- **FR-012**: System MUST retain transaction history for 24 hours in the UI (with 7 days available via API for historical analysis)
+- **FR-012**: System MUST retain transaction history for 30 days in both UI and API for comprehensive historical analysis
 - **FR-013**: System MUST provide multi-channel alert notifications for extreme whale movements (>500 BTC critical threshold)
 
 ### Key Entities *(include if feature involves data)*
