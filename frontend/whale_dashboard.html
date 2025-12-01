@@ -14,6 +14,12 @@
             <span class="status-text">Connecting...</span>
         </span>
         <span class="last-update" id="last-update">No data yet</span>
+        <button class="audio-toggle muted" id="audio-toggle" title="Enable sound notifications for large transactions">
+            <span class="audio-icon">🔇</span>
+        </button>
+        <button class="alert-settings-toggle" id="alert-settings-toggle" title="Alert settings">
+            <span class="alert-icon">🔔</span>
+        </button>
     </div>
 
     <!-- Header -->
@@ -79,6 +85,14 @@
             <div class="section-header">
                 <h2>Recent Whale Transactions</h2>
                 <div class="feed-controls">
+                    <button class="control-button" id="toggle-filters" title="Show/hide filters">
+                        <span class="control-icon">🔍</span>
+                        <span class="control-label">Filters</span>
+                    </button>
+                    <button class="control-button" id="filter-high-urgency" title="Show only high urgency (≥80)">
+                        <span class="control-icon">🔥</span>
+                        <span class="control-label">High Urgency</span>
+                    </button>
                     <button class="control-button" id="pause-feed" title="Pause auto-scroll">
                         <span class="control-icon">⏸</span>
                         <span class="control-label">Pause</span>
@@ -90,6 +104,58 @@
                 </div>
             </div>
 
+            <!-- Filter Panel -->
+            <div class="filter-panel hidden" id="filter-panel">
+                <div class="filter-row">
+                    <div class="filter-group">
+                        <label class="filter-label">Min Amount (BTC)</label>
+                        <input
+                            type="number"
+                            id="filter-min-amount"
+                            class="filter-input"
+                            placeholder="0"
+                            min="0"
+                            step="10"
+                        />
+                    </div>
+                    <div class="filter-group">
+                        <label class="filter-label">Direction</label>
+                        <div class="filter-checkboxes">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="filter-buy" checked />
+                                <span>↑ BUY</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="filter-sell" checked />
+                                <span>↓ SELL</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="filter-neutral" checked />
+                                <span>→ NEUTRAL</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="filter-group">
+                        <label class="filter-label">Min Urgency</label>
+                        <input
+                            type="range"
+                            id="filter-urgency"
+                            class="filter-slider"
+                            min="0"
+                            max="100"
+                            value="0"
+                            step="10"
+                        />
+                        <span id="filter-urgency-value" class="filter-value">0</span>
+                    </div>
+                </div>
+                <div class="filter-actions">
+                    <button class="filter-button" id="apply-filters">Apply Filters</button>
+                    <button class="filter-button filter-button-secondary" id="reset-filters">Reset</button>
+                    <span class="filter-count" id="filter-count"></span>
+                </div>
+            </div>
+
             <div class="transaction-feed" id="transaction-feed">
                 <div class="feed-empty-state" id="feed-empty">
                     <p>Waiting for whale transactions...</p>
@@ -98,7 +164,7 @@
             </div>
         </section>
 
-        <!-- Historical Chart Section (placeholder for Phase 7) -->
+        <!-- Historical Chart Section -->
         <section class="chart-section">
             <div class="section-header">
                 <h2>Net Flow History (24h)</h2>
@@ -113,14 +179,171 @@
             </div>
 
             <div class="chart-container" id="chart-container">
-                <div class="chart-placeholder">
-                    <p>📊 Chart will load when data is available</p>
-                    <small>Plotly.js interactive chart with zoom/pan</small>
+                <!-- Loading State -->
+                <div class="chart-loading" id="chart-loading">
+                    <div class="spinner"></div>
+                    <p>Loading chart data...</p>
+                </div>
+
+                <!-- Plotly Chart (will be rendered here) -->
+                <div id="whale-chart" class="whale-chart"></div>
+
+                <!-- Error State -->
+                <div class="chart-error hidden" id="chart-error">
+                    <p class="error-message">⚠️ Unable to load chart</p>
+                    <button class="retry-button" id="chart-retry">Retry</button>
                 </div>
             </div>
         </section>
 
     </main>
+
+    <!-- Alert Configuration Panel (T084) -->
+    <div class="alert-config-overlay hidden" id="alert-config-overlay">
+        <div class="alert-config-panel">
+            <div class="alert-config-header">
+                <h3>Alert Settings</h3>
+                <button class="alert-config-close" id="alert-config-close">×</button>
+            </div>
+
+            <div class="alert-config-body">
+                <!-- Sound Notifications -->
+                <div class="alert-config-section">
+                    <h4>Sound Notifications</h4>
+                    <div class="alert-config-row">
+                        <label class="alert-toggle-label">
+                            <input type="checkbox" id="alert-sound-enabled" checked />
+                            <span>Enable sound alerts for critical transactions (≥500 BTC)</span>
+                        </label>
+                    </div>
+                    <div class="alert-config-row">
+                        <label class="alert-slider-label">
+                            <span>Volume</span>
+                            <input
+                                type="range"
+                                id="alert-sound-volume"
+                                min="0"
+                                max="100"
+                                value="50"
+                                class="alert-slider"
+                            />
+                            <span id="alert-volume-value" class="alert-value">50%</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Browser Notifications -->
+                <div class="alert-config-section">
+                    <h4>Browser Notifications</h4>
+                    <div class="alert-config-row">
+                        <label class="alert-toggle-label">
+                            <input type="checkbox" id="alert-browser-enabled" checked />
+                            <span>Enable browser notifications</span>
+                        </label>
+                    </div>
+                    <div class="alert-config-row">
+                        <button class="alert-permission-button" id="alert-request-permission">
+                            Request Permission
+                        </button>
+                        <span id="alert-permission-status" class="alert-status">Not granted</span>
+                    </div>
+                    <p class="alert-help-text">
+                        Browser notifications work even when this tab is inactive.
+                        You must grant permission first.
+                    </p>
+                </div>
+
+                <!-- Alert Thresholds -->
+                <div class="alert-config-section">
+                    <h4>Alert Thresholds (BTC)</h4>
+                    <div class="alert-config-row">
+                        <label class="alert-input-label">
+                            <span>Critical (🔴 Red)</span>
+                            <input
+                                type="number"
+                                id="alert-threshold-critical"
+                                min="100"
+                                step="50"
+                                value="500"
+                                class="alert-input"
+                            />
+                            <span class="alert-unit">BTC</span>
+                        </label>
+                    </div>
+                    <div class="alert-config-row">
+                        <label class="alert-input-label">
+                            <span>High (🟠 Orange)</span>
+                            <input
+                                type="number"
+                                id="alert-threshold-high"
+                                min="50"
+                                step="25"
+                                value="200"
+                                class="alert-input"
+                            />
+                            <span class="alert-unit">BTC</span>
+                        </label>
+                    </div>
+                    <div class="alert-config-row">
+                        <label class="alert-input-label">
+                            <span>Medium (🟢 Green)</span>
+                            <input
+                                type="number"
+                                id="alert-threshold-medium"
+                                min="10"
+                                step="10"
+                                value="100"
+                                class="alert-input"
+                            />
+                            <span class="alert-unit">BTC</span>
+                        </label>
+                    </div>
+                    <p class="alert-help-text">
+                        Only transactions above these thresholds will trigger alerts.
+                    </p>
+                </div>
+
+                <!-- Test Alert -->
+                <div class="alert-config-section">
+                    <h4>Test Alerts</h4>
+                    <div class="alert-config-row alert-test-buttons">
+                        <button class="alert-test-button alert-test-critical" id="alert-test-critical">
+                            Test Critical
+                        </button>
+                        <button class="alert-test-button alert-test-high" id="alert-test-high">
+                            Test High
+                        </button>
+                        <button class="alert-test-button alert-test-medium" id="alert-test-medium">
+                            Test Medium
+                        </button>
+                    </div>
+                    <p class="alert-help-text">
+                        Click to test each alert level.
+                    </p>
+                </div>
+
+                <!-- Alert History (T087) -->
+                <div class="alert-config-section">
+                    <div class="alert-history-header">
+                        <h4>Recent Alerts (Last 10)</h4>
+                        <button class="alert-history-clear" id="alert-history-clear" title="Clear history">
+                            Clear
+                        </button>
+                    </div>
+                    <div class="alert-history-list" id="alert-history-list">
+                        <div class="alert-history-empty">
+                            No alerts yet
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="alert-config-footer">
+                <button class="alert-save-button" id="alert-save-settings">Save Settings</button>
+                <button class="alert-cancel-button" id="alert-cancel-settings">Cancel</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Footer -->
     <footer class="dashboard-footer">
@@ -134,6 +357,8 @@
     </footer>
 
     <!-- Scripts -->
+    <!-- Plotly.js Basic Bundle (lightweight, ~800KB) -->
+    <script src="https://cdn.plot.ly/plotly-basic-2.27.0.min.js" charset="utf-8"></script>
     <script type="module" src="/static/js/whale_dashboard.js"></script>
 </body>
 </html>

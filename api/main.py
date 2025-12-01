@@ -588,6 +588,103 @@ async def get_latest_whale_flow():
 
 
 # =============================================================================
+# GET /api/whale/historical - Historical Whale Flow Data (spec-004, T064)
+# =============================================================================
+
+
+@app.get("/api/whale/historical")
+async def get_historical_whale_flow(
+    start: int = Query(None, description="Start timestamp (milliseconds)"),
+    end: int = Query(None, description="End timestamp (milliseconds)"),
+    timeframe: str = Query("24h", description="Timeframe (1h, 6h, 24h, 7d)"),
+):
+    """
+    Get historical whale flow data for the specified time range.
+
+    **Public Endpoint:** No authentication required
+
+    Args:
+        start: Start timestamp in milliseconds (optional, derived from timeframe if not provided)
+        end: End timestamp in milliseconds (optional, defaults to now)
+        timeframe: Time range (1h, 6h, 24h, 7d) - used if start/end not provided
+
+    Returns:
+        dict: { success: bool, data: [...], count: int }
+
+    Example:
+        GET /api/whale/historical?timeframe=24h
+        GET /api/whale/historical?start=1700000000000&end=1700086400000
+    """
+    conn = get_db_connection()
+
+    try:
+        # Calculate time range
+        if end is None:
+            end_time = datetime.utcnow()
+        else:
+            end_time = datetime.fromtimestamp(end / 1000)  # Convert ms to seconds
+
+        if start is None:
+            # Derive from timeframe
+            duration_map = {
+                "1h": timedelta(hours=1),
+                "6h": timedelta(hours=6),
+                "24h": timedelta(hours=24),
+                "7d": timedelta(days=7),
+            }
+            duration = duration_map.get(timeframe, timedelta(hours=24))
+            start_time = end_time - duration
+        else:
+            start_time = datetime.fromtimestamp(start / 1000)
+
+        # Query database for whale flow data in time range
+        results = conn.execute(
+            """
+            SELECT
+                date AS timestamp,
+                whale_net_flow,
+                whale_direction
+            FROM price_analysis
+            WHERE whale_net_flow IS NOT NULL
+              AND date >= ?
+              AND date <= ?
+            ORDER BY date ASC
+        """,
+            (start_time.isoformat(), end_time.isoformat()),
+        ).fetchall()
+
+        # Transform to expected format
+        data = [
+            {
+                "timestamp": row[0],
+                "net_flow_btc": float(row[1]) if row[1] is not None else 0.0,
+                "direction": row[2] if row[2] else "NEUTRAL",
+            }
+            for row in results
+        ]
+
+        return {"success": True, "data": data, "count": len(data)}
+
+    except Exception as e:
+        logger.error(f"Error fetching historical whale data: {e}")
+        return {"success": False, "error": str(e), "data": [], "count": 0}
+
+    finally:
+        conn.close()
+
+
+# Alias: /api/whale/history -> /api/whale/historical (for backward compatibility)
+@app.get("/api/whale/history")
+async def whale_history_alias(
+    start: int = Query(None),
+    end: int = Query(None),
+    timeframe: str = Query("24h"),
+):
+    """Alias for /api/whale/historical endpoint (backward compatibility)."""
+    return await get_historical_whale_flow(start=start, end=end, timeframe=timeframe)
+
+
+# =============================================================================
 # Service Connectivity Helper Functions
 # =============================================================================
 
@@ -823,6 +920,7 @@ async def root():
             "comparison": "/api/prices/comparison?days=7",
             "whale_latest": "/api/whale/latest",
             "whale_dashboard": "/whale",
+            "performance_monitor": "/monitor",
             "health": "/health",
             "metrics": "/metrics?window=60",
             "docs": "/docs",
@@ -855,6 +953,46 @@ async def whale_dashboard():
 
     return FileResponse(
         path=str(dashboard_path),
+        media_type="text/html",
+        headers={
+            "Cache-Control": "no-cache",  # Always fetch latest version
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+# Alias: /dashboard -> /whale (for backward compatibility)
+@app.get("/dashboard")
+async def dashboard_alias():
+    """Alias for /whale endpoint (backward compatibility)."""
+    return await whale_dashboard()
+
+
+# =============================================================================
+# GET /monitor - Performance Monitor Dashboard (T095)
+# =============================================================================
+
+
+@app.get("/monitor")
+async def performance_monitor():
+    """
+    Serve the performance monitoring dashboard HTML page.
+
+    **Public Endpoint:** No authentication required
+
+    Returns:
+        HTML page with real-time API and system performance metrics
+    """
+    monitor_path = FRONTEND_DIR / "performance_monitor.html"
+
+    if not monitor_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Performance monitor not found. Please ensure frontend files are present.",
+        )
+
+    return FileResponse(
+        path=str(monitor_path),
         media_type="text/html",
         headers={
             "Cache-Control": "no-cache",  # Always fetch latest version

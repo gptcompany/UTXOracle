@@ -151,18 +151,18 @@
 - [ ] T048d [P1] [TDD-RED] Write failing tests for auto-scroll and pause-on-hover functionality
 
 #### Implementation Phase
-- [ ] T049 [P1] [US2] Create WebSocket client in `frontend/js/whale_client.js`
-- [ ] T050 [P1] [US2] [FR-002] Implement WebSocket connection with JWT auth
-- [ ] T051 [P1] [US2] [FR-002] Handle subscription to 'transactions' channel
-- [ ] T052 [P1] [US2] [FR-003] Create transaction feed table in `frontend/js/whale_feed.js`
-- [ ] T053 [P1] [US2] [FR-003] Display: time, amount, direction, urgency, fee rate
-- [ ] T054 [P1] [US2] [FR-003] Implement ring buffer (max 50 transactions)
-- [ ] T055 [P1] [US2] [FR-003] Add auto-scroll with pause on hover
-- [ ] T056 [P2] [US2] Add transaction details modal on row click
-- [ ] T057 [P2] [US2] Implement transaction filtering (min amount, direction)
-- [ ] T058 [P2] [TEST] Write WebSocket client integration test
-- [ ] T059 [P3] [US2] Add CSV export for visible transactions
-- [ ] T060 [P3] [US2] Add sound notification for large transactions (>500 BTC)
+- [X] T049 [P1] [US2] Create WebSocket client in `frontend/js/whale_client.js`
+- [X] T050 [P1] [US2] [FR-002] Implement WebSocket connection with JWT auth
+- [X] T051 [P1] [US2] [FR-002] Handle subscription to 'transactions' channel
+- [X] T052 [P1] [US2] [FR-003] Create transaction feed table in `frontend/js/whale_feed.js`
+- [X] T053 [P1] [US2] [FR-003] Display: time, amount, direction, urgency, fee rate
+- [X] T054 [P1] [US2] [FR-003] Implement ring buffer (max 50 transactions)
+- [X] T055 [P1] [US2] [FR-003] Add auto-scroll with pause on hover
+- [X] T056 [P2] [US2] Add transaction details modal on row click
+- [X] T057 [P2] [US2] Implement transaction filtering (min amount, direction)
+- [X] T058 [P2] [TEST] Write WebSocket client integration test
+- [X] T059 [P3] [US2] Add CSV export for visible transactions
+- [X] T060 [P3] [US2] Add sound notification for large transactions (>500 BTC)
 
 **Verification**: Connect WebSocket, verify transactions appear in real-time
 
@@ -178,13 +178,13 @@
 
 ### Tasks
 
-- [ ] T061 [P2] [US3] [FR-009] Load Plotly.js basic bundle via CDN in dashboard.html
-- [ ] T062 [P2] [US3] [FR-009] Create chart container with responsive sizing
-- [ ] T063 [P2] [US3] [FR-009] Implement line chart in `frontend/js/whale_charts.js`
-- [ ] T064 [P2] [US3] [FR-006] Add `/api/whale/historical` endpoint with time range
-- [ ] T065 [P2] [US3] [FR-006] Fetch and display 24-hour data by default
-- [ ] T066 [P2] [US3] [FR-009] Enable zoom and pan interactions
-- [ ] T067 [P2] [US3] Add timeframe selector (1h, 6h, 24h, 7d)
+- [X] T061 [P2] [US3] [FR-009] Load Plotly.js basic bundle via CDN in dashboard.html
+- [X] T062 [P2] [US3] [FR-009] Create chart container with responsive sizing
+- [X] T063 [P2] [US3] [FR-009] Implement line chart in `frontend/js/whale_charts.js`
+- [X] T064 [P2] [US3] [FR-006] Add `/api/whale/historical` endpoint with time range
+- [X] T065 [P2] [US3] [FR-006] Fetch and display 24-hour data by default
+- [X] T066 [P2] [US3] [FR-009] Enable zoom and pan interactions
+- [X] T067 [P2] [US3] Add timeframe selector (1h, 6h, 24h, 7d)
 - [ ] T068 [P2] [TEST] Test chart performance with 10,000 data points
 - [ ] T069 [P3] [US3] Add chart annotations for significant events
 - [ ] T070 [P3] [US3] Implement data aggregation for >1000 points

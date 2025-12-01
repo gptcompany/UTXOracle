@@ -19,6 +19,10 @@
 
 import { WhaleWebSocketClient, ConnectionState, EventType } from './whale_client.js';
 import { TransactionFeed } from './whale_feed.js';
+import { TransactionModal } from './whale_modal.js';
+import { WhaleAudioNotifier } from './whale_audio.js';
+import { WhaleChart } from './whale_charts.js';
+import { WhaleAlertSystem } from './whale_alerts.js';
 
 // ============================================
 // Configuration
@@ -323,6 +327,30 @@ class WhaleDashboard {
             this.transactionFeed = null;
         }
 
+        // Transaction modal
+        this.transactionModal = new TransactionModal();
+
+        // Audio notifications (T060)
+        this.audioNotifier = new WhaleAudioNotifier({ largeTransactionThreshold: 500 });
+        this.audioNotifier.init();
+
+        // Historical chart (T063-T067)
+        try {
+            this.whaleChart = new WhaleChart('whale-chart');
+        } catch (error) {
+            console.warn('Whale chart initialization failed:', error);
+            this.whaleChart = null;
+        }
+
+        // Alert system (T079-T085)
+        try {
+            this.alertSystem = new WhaleAlertSystem();
+            console.log('Alert system initialized successfully');
+        } catch (error) {
+            console.warn('Alert system initialization failed:', error);
+            this.alertSystem = null;
+        }
+
         this.setupEventListeners();
         this.initialize();
     }
@@ -374,6 +402,414 @@ class WhaleDashboard {
                 this.transactionFeed.clear();
             });
         }
+
+        // High urgency filter toggle (T075)
+        const highUrgencyButton = document.getElementById('filter-high-urgency');
+        if (highUrgencyButton && this.transactionFeed) {
+            let highUrgencyActive = false;
+
+            highUrgencyButton.addEventListener('click', () => {
+                highUrgencyActive = !highUrgencyActive;
+
+                if (highUrgencyActive) {
+                    // Apply high urgency filter (>= 80)
+                    this.transactionFeed.setFilters({
+                        minAmount: 0,
+                        directions: ['BUY', 'SELL', 'NEUTRAL', 'ACCUMULATION', 'DISTRIBUTION'],
+                        minUrgency: 80
+                    });
+                    highUrgencyButton.classList.add('active');
+                } else {
+                    // Clear filter
+                    this.transactionFeed.clearFilters();
+                    highUrgencyButton.classList.remove('active');
+                }
+            });
+        }
+
+        // Filter controls (T057)
+        this.setupFilterControls();
+
+        // Audio toggle (T060)
+        this.setupAudioToggle();
+
+        // Transaction modal trigger (listen for custom event from feed)
+        const feedContainer = document.getElementById('transaction-feed');
+        if (feedContainer) {
+            feedContainer.addEventListener('transaction-selected', (event) => {
+                if (this.transactionModal) {
+                    this.transactionModal.show(event.detail);
+                }
+            });
+
+            // Listen for filter count updates from feed
+            feedContainer.addEventListener('filter-count-updated', (event) => {
+                const { visible, total } = event.detail;
+                const filterCount = document.getElementById('filter-count');
+                if (filterCount) {
+                    if (visible === total) {
+                        filterCount.textContent = '';
+                    } else {
+                        filterCount.textContent = `Showing ${visible} of ${total}`;
+                    }
+                }
+            });
+        }
+    }
+
+    setupFilterControls() {
+        // Filter panel toggle
+        const toggleFiltersBtn = document.getElementById('toggle-filters');
+        const filterPanel = document.getElementById('filter-panel');
+
+        if (toggleFiltersBtn && filterPanel) {
+            toggleFiltersBtn.addEventListener('click', () => {
+                filterPanel.classList.toggle('hidden');
+
+                // Update button state
+                if (filterPanel.classList.contains('hidden')) {
+                    toggleFiltersBtn.classList.remove('active');
+                } else {
+                    toggleFiltersBtn.classList.add('active');
+                }
+            });
+        }
+
+        // Urgency slider value display
+        const urgencySlider = document.getElementById('filter-urgency');
+        const urgencyValue = document.getElementById('filter-urgency-value');
+
+        if (urgencySlider && urgencyValue) {
+            urgencySlider.addEventListener('input', (e) => {
+                urgencyValue.textContent = e.target.value;
+            });
+        }
+
+        // Apply filters button
+        const applyFiltersBtn = document.getElementById('apply-filters');
+        if (applyFiltersBtn && this.transactionFeed) {
+            applyFiltersBtn.addEventListener('click', () => {
+                const filters = this.getFilterValues();
+                this.transactionFeed.setFilters(filters);
+            });
+        }
+
+        // Reset filters button
+        const resetFiltersBtn = document.getElementById('reset-filters');
+        if (resetFiltersBtn && this.transactionFeed) {
+            resetFiltersBtn.addEventListener('click', () => {
+                this.resetFilterValues();
+                this.transactionFeed.clearFilters();
+            });
+        }
+    }
+
+    getFilterValues() {
+        // Get current filter values from UI
+        const minAmount = parseFloat(document.getElementById('filter-min-amount')?.value || '0');
+        const minUrgency = parseInt(document.getElementById('filter-urgency')?.value || '0');
+
+        // Get checked directions
+        const directions = [];
+        if (document.getElementById('filter-buy')?.checked) directions.push('BUY');
+        if (document.getElementById('filter-sell')?.checked) directions.push('SELL');
+        if (document.getElementById('filter-neutral')?.checked) directions.push('NEUTRAL');
+
+        return {
+            minAmount,
+            minUrgency,
+            directions
+        };
+    }
+
+    resetFilterValues() {
+        // Reset filter UI to defaults
+        const minAmountInput = document.getElementById('filter-min-amount');
+        const urgencySlider = document.getElementById('filter-urgency');
+        const urgencyValue = document.getElementById('filter-urgency-value');
+        const buyCheckbox = document.getElementById('filter-buy');
+        const sellCheckbox = document.getElementById('filter-sell');
+        const neutralCheckbox = document.getElementById('filter-neutral');
+        const filterCount = document.getElementById('filter-count');
+
+        if (minAmountInput) minAmountInput.value = '';
+        if (urgencySlider) urgencySlider.value = '0';
+        if (urgencyValue) urgencyValue.textContent = '0';
+        if (buyCheckbox) buyCheckbox.checked = true;
+        if (sellCheckbox) sellCheckbox.checked = true;
+        if (neutralCheckbox) neutralCheckbox.checked = true;
+        if (filterCount) filterCount.textContent = '';
+    }
+
+    setupAudioToggle() {
+        const audioToggleBtn = document.getElementById('audio-toggle');
+        const audioIcon = audioToggleBtn?.querySelector('.audio-icon');
+
+        if (!audioToggleBtn || !audioIcon) return;
+
+        audioToggleBtn.addEventListener('click', () => {
+            const enabled = this.audioNotifier.toggle();
+
+            if (enabled) {
+                audioToggleBtn.classList.remove('muted');
+                audioIcon.textContent = '🔊';
+                audioToggleBtn.title = 'Mute sound notifications';
+            } else {
+                audioToggleBtn.classList.add('muted');
+                audioIcon.textContent = '🔇';
+                audioToggleBtn.title = 'Enable sound notifications for large transactions';
+            }
+        });
+
+        // Timeframe selector for historical chart (T067)
+        const timeframeSelector = document.getElementById('timeframe-selector');
+        if (timeframeSelector && this.whaleChart) {
+            timeframeSelector.addEventListener('change', (e) => {
+                const timeframe = e.target.value;
+                console.log(`Loading chart for timeframe: ${timeframe}`);
+                this.whaleChart.loadChart(timeframe);
+            });
+        }
+
+        // Alert configuration panel (T084)
+        this.setupAlertConfigPanel();
+    }
+
+    setupAlertConfigPanel() {
+        if (!this.alertSystem) {
+            console.warn('Alert system not available, skipping config panel setup');
+            return;
+        }
+
+        // Get DOM elements
+        const alertSettingsBtn = document.getElementById('alert-settings-toggle');
+        const alertOverlay = document.getElementById('alert-config-overlay');
+        const alertCloseBtn = document.getElementById('alert-config-close');
+        const alertCancelBtn = document.getElementById('alert-cancel-settings');
+        const alertSaveBtn = document.getElementById('alert-save-settings');
+
+        const soundEnabledCheckbox = document.getElementById('alert-sound-enabled');
+        const soundVolumeSlider = document.getElementById('alert-sound-volume');
+        const volumeValue = document.getElementById('alert-volume-value');
+
+        const browserEnabledCheckbox = document.getElementById('alert-browser-enabled');
+        const requestPermissionBtn = document.getElementById('alert-request-permission');
+        const permissionStatus = document.getElementById('alert-permission-status');
+
+        const thresholdCritical = document.getElementById('alert-threshold-critical');
+        const thresholdHigh = document.getElementById('alert-threshold-high');
+        const thresholdMedium = document.getElementById('alert-threshold-medium');
+
+        const testCriticalBtn = document.getElementById('alert-test-critical');
+        const testHighBtn = document.getElementById('alert-test-high');
+        const testMediumBtn = document.getElementById('alert-test-medium');
+
+        const alertHistoryList = document.getElementById('alert-history-list');
+        const alertHistoryClear = document.getElementById('alert-history-clear');
+
+        if (!alertSettingsBtn || !alertOverlay) {
+            console.warn('Alert config panel elements not found');
+            return;
+        }
+
+        // Open panel
+        const openPanel = () => {
+            alertOverlay.classList.remove('hidden');
+            loadCurrentSettings();
+        };
+
+        // Close panel
+        const closePanel = () => {
+            alertOverlay.classList.add('hidden');
+        };
+
+        // Load current settings from alert system
+        const loadCurrentSettings = () => {
+            const prefs = this.alertSystem.getPreferences();
+
+            if (soundEnabledCheckbox) soundEnabledCheckbox.checked = prefs.soundEnabled;
+            if (soundVolumeSlider) soundVolumeSlider.value = prefs.soundVolume * 100;
+            if (volumeValue) volumeValue.textContent = Math.round(prefs.soundVolume * 100) + '%';
+
+            if (browserEnabledCheckbox) browserEnabledCheckbox.checked = prefs.browserEnabled;
+            updatePermissionStatus();
+
+            if (thresholdCritical) thresholdCritical.value = prefs.thresholds.critical;
+            if (thresholdHigh) thresholdHigh.value = prefs.thresholds.high;
+            if (thresholdMedium) thresholdMedium.value = prefs.thresholds.medium;
+
+            // Update alert history
+            updateAlertHistory();
+        };
+
+        // Update alert history display (T087)
+        const updateAlertHistory = () => {
+            if (!alertHistoryList) return;
+
+            const history = this.alertSystem.getAlertHistory();
+
+            if (history.length === 0) {
+                alertHistoryList.innerHTML = '<div class="alert-history-empty">No alerts yet</div>';
+                return;
+            }
+
+            // Build HTML for history items
+            const historyHTML = history.map(alert => {
+                const time = formatAlertTime(alert.timestamp);
+                return `
+                    <div class="alert-history-item">
+                        <div class="alert-history-item-header">
+                            <span class="alert-history-severity ${alert.severity}">
+                                ${alert.severity.toUpperCase()}
+                            </span>
+                            <span class="alert-history-time">${time}</span>
+                        </div>
+                        <div class="alert-history-message">${alert.message}</div>
+                        <div class="alert-history-details">
+                            <span>Fee: ${alert.transaction.fee_rate.toFixed(1)} sat/vB</span>
+                            <span>Urgency: ${alert.transaction.urgency_score}/100</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            alertHistoryList.innerHTML = historyHTML;
+        };
+
+        // Format alert timestamp
+        const formatAlertTime = (timestamp) => {
+            const date = new Date(timestamp);
+            const now = new Date();
+            const diff = now - date;
+
+            // Less than 1 minute
+            if (diff < 60000) {
+                return 'Just now';
+            }
+
+            // Less than 1 hour
+            if (diff < 3600000) {
+                const minutes = Math.floor(diff / 60000);
+                return `${minutes}m ago`;
+            }
+
+            // Less than 24 hours
+            if (diff < 86400000) {
+                const hours = Math.floor(diff / 3600000);
+                return `${hours}h ago`;
+            }
+
+            // Format as date
+            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+        };
+
+        // Update permission status display
+        const updatePermissionStatus = () => {
+            if (!permissionStatus) return;
+
+            const permission = this.alertSystem.notificationPermission;
+            if (permission === 'granted') {
+                permissionStatus.textContent = '✅ Granted';
+                permissionStatus.style.color = 'var(--color-accent-buy)';
+            } else if (permission === 'denied') {
+                permissionStatus.textContent = '❌ Denied';
+                permissionStatus.style.color = 'var(--color-accent-sell)';
+            } else {
+                permissionStatus.textContent = '⚠️ Not granted';
+                permissionStatus.style.color = 'var(--color-text-muted)';
+            }
+        };
+
+        // Save settings
+        const saveSettings = () => {
+            const newPrefs = {
+                soundEnabled: soundEnabledCheckbox?.checked ?? true,
+                soundVolume: soundVolumeSlider ? parseFloat(soundVolumeSlider.value) / 100 : 0.5,
+                browserEnabled: browserEnabledCheckbox?.checked ?? true,
+                thresholds: {
+                    critical: thresholdCritical ? parseFloat(thresholdCritical.value) : 500,
+                    high: thresholdHigh ? parseFloat(thresholdHigh.value) : 200,
+                    medium: thresholdMedium ? parseFloat(thresholdMedium.value) : 100
+                }
+            };
+
+            this.alertSystem.updatePreferences(newPrefs);
+            closePanel();
+
+            console.log('Alert settings saved:', newPrefs);
+        };
+
+        // Event listeners
+        alertSettingsBtn.addEventListener('click', openPanel);
+        if (alertCloseBtn) alertCloseBtn.addEventListener('click', closePanel);
+        if (alertCancelBtn) alertCancelBtn.addEventListener('click', closePanel);
+        if (alertSaveBtn) alertSaveBtn.addEventListener('click', saveSettings);
+
+        // Close on overlay click (but not panel click)
+        alertOverlay.addEventListener('click', (e) => {
+            if (e.target === alertOverlay) {
+                closePanel();
+            }
+        });
+
+        // Volume slider update
+        if (soundVolumeSlider && volumeValue) {
+            soundVolumeSlider.addEventListener('input', (e) => {
+                volumeValue.textContent = Math.round(e.target.value) + '%';
+            });
+        }
+
+        // Request browser permission
+        if (requestPermissionBtn) {
+            requestPermissionBtn.addEventListener('click', async () => {
+                const granted = await this.alertSystem.requestNotificationPermission();
+                updatePermissionStatus();
+
+                if (granted) {
+                    console.log('Browser notification permission granted');
+                } else {
+                    console.warn('Browser notification permission denied');
+                }
+            });
+        }
+
+        // Test alert buttons
+        if (testCriticalBtn) {
+            testCriticalBtn.addEventListener('click', () => {
+                this.alertSystem.testAlert('critical');
+            });
+        }
+
+        if (testHighBtn) {
+            testHighBtn.addEventListener('click', () => {
+                this.alertSystem.testAlert('high');
+            });
+        }
+
+        if (testMediumBtn) {
+            testMediumBtn.addEventListener('click', () => {
+                this.alertSystem.testAlert('medium');
+            });
+        }
+
+        // Clear alert history (T087)
+        if (alertHistoryClear) {
+            alertHistoryClear.addEventListener('click', () => {
+                this.alertSystem.clearHistory();
+                updateAlertHistory();
+                console.log('Alert history cleared');
+            });
+        }
+
+        // Listen for whale-alert events to update history automatically
+        window.addEventListener('whale-alert', () => {
+            // If panel is open, update history in real-time
+            if (!alertOverlay.classList.contains('hidden')) {
+                updateAlertHistory();
+            }
+        });
+
+        console.log('Alert configuration panel setup complete');
     }
 
     async initialize() {
@@ -399,6 +835,16 @@ class WhaleDashboard {
             }
         } else {
             this.handleError(result.error);
+        }
+
+        // Initialize historical chart (T065)
+        if (this.whaleChart) {
+            try {
+                await this.whaleChart.init('24h'); // Default 24h timeframe
+                console.log('Historical chart loaded successfully');
+            } catch (error) {
+                console.error('Failed to initialize historical chart:', error);
+            }
         }
     }
 
@@ -449,6 +895,14 @@ class WhaleDashboard {
             console.log('New transaction received:', tx);
             if (this.transactionFeed) {
                 this.transactionFeed.addTransaction(tx);
+            }
+            // Audio notification for large transactions (T060)
+            if (this.audioNotifier) {
+                this.audioNotifier.notifyTransaction(tx);
+            }
+            // Alert system processing (T079-T083)
+            if (this.alertSystem) {
+                this.alertSystem.processTransaction(tx);
             }
         });
 
