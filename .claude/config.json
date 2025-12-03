@@ -1,0 +1,31 @@
+{
+  "tdd": {
+    "enabled": false,
+    "ignorePatterns": [
+      "*.md",
+      "*.json",
+      "*.yml",
+      "*.yaml",
+      "*.txt",
+      "*.log",
+      "tests/**",
+      "docs/**",
+      "specs/**",
+      ".claude/**",
+      ".env*",
+      "**/*.config.*"
+    ],
+    "autoGenerateTests": false,
+    "coverageThreshold": 80,
+    "phases": {
+      "red": { "enforceFailure": false },
+      "green": { "minimalCode": false },
+      "refactor": { "maintainCoverage": false }
+    }
+  },
+  "project": {
+    "name": "UTXOracle",
+    "description": "Bitcoin-native price oracle using mempool analysis",
+    "workflow_type": "spec_driven_tdd"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "context7": {
+      "args": [
+        "-y",
+        "@upstash/context7-mcp"
+      ],
+      "command": "npx",
+      "env": {}
+    },
+
+    "claude-self-reflect": {
+      "command": "bash",
+      "args": [
+        "/home/sam/.npm-global/lib/node_modules/claude-self-reflect/mcp-server/run-mcp-docker.sh"
+      ]
+    }
+  }
+}

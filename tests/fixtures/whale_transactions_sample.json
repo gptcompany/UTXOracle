@@ -1,0 +1,444 @@
+[
+  {
+    "description": "INFLOW - Personal wallet to Binance (50.1 BTC)",
+    "txid": "abc123def456...",
+    "vin": [
+      {
+        "prevout": {
+          "scriptpubkey_address": "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
+          "value": 5010000000
+        }
+      }
+    ],
+    "vout": [
+      {
+        "scriptpubkey_address": "1F1tAaz5x1HUXrCNLbtMDqcw6o5GNn4xqX",
+        "value": 5010000000
+      }
+    ],
+    "expected_flow": "inflow",
+    "expected_direction_multiplier": 1
+  },
+  {
+    "description": "OUTFLOW - Binance to personal wallet (25.5 BTC)",
+    "txid": "def456ghi789...",
+    "vin": [
+      {
+        "prevout": {
+          "scriptpubkey_address": "1F1tAaz5x1HUXrCNLbtMDqcw6o5GNn4xqX",
+          "value": 2550000000
+        }
+      }
+    ],
+    "vout": [
+      {
+        "scriptpubkey_address": "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2",
+        "value": 2550000000
+      }
+    ],
+    "expected_flow": "outflow",
+    "expected_direction_multiplier": -1
+  },
+  {
+    "description": "INTERNAL - Binance hot wallet to cold wallet (100 BTC)",
+    "txid": "ghi789jkl012...",
+    "vin": [
+      {
+        "prevout": {
+          "scriptpubkey_address": "1F1tAaz5x1HUXrCNLbtMDqcw6o5GNn4xqX",
+          "value": 10000000000
+        }
+      }
+    ],
+    "vout": [
+      {
+        "scriptpubkey_address": "3P14159f73E4gFrCh2HRze1k41v22b2p7g",
+        "value": 10000000000
+      }
+    ],
+    "expected_flow": "internal",
+    "expected_direction_multiplier": 0
+  },
+  {
+    "description": "UNRELATED - Personal wallet to personal wallet (2.3 BTC)",
+    "txid": "jkl012mno345...",
+    "vin": [
+      {
+        "prevout": {
+          "scriptpubkey_address": "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
+          "value": 230000000
+        }
+      }
+    ],
+    "vout": [
+      {
+        "scriptpubkey_address": "3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy",
+        "value": 230000000
+      }
+    ],
+    "expected_flow": "unrelated",
+    "expected_direction_multiplier": 0
+  },
+  {
+    "description": "INFLOW - Multiple inputs to Kraken (15.7 BTC)",
+    "txid": "mno345pqr678...",
+    "vin": [
+      {
+        "prevout": {
+          "scriptpubkey_address": "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
+          "value": 570000000
+        }
+      },
+      {
+        "prevout": {
+          "scriptpubkey_address": "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2",
+          "value": 1000000000
+        }
+      }
+    ],
+    "vout": [
+      {
+        "scriptpubkey_address": "3FupZp77ySr7jwoLYEJ9mwzJpvoNBXsBnE",
+        "value": 1570000000
+      }
+    ],
+    "expected_flow": "inflow",
+    "expected_direction_multiplier": 1
+  },
+  {
+    "description": "OUTFLOW - Kraken to multiple personal wallets (8.2 BTC)",
+    "txid": "pqr678stu901...",
+    "vin": [
+      {
+        "prevout": {
+          "scriptpubkey_address": "bc1qgdjqv0av3q56jvd82tkdjpy7gdp9ut8tlqmgrpmv24sq90ecnvqqjwvw97",
+          "value": 820000000
+        }
+      }
+    ],
+    "vout": [
+      {
+        "scriptpubkey_address": "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
+        "value": 320000000
+      },
+      {
+        "scriptpubkey_address": "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2",
+        "value": 500000000
+      }
+    ],
+    "expected_flow": "outflow",
+    "expected_direction_multiplier": -1
+  },
+  {
+    "description": "MIXED - Personal to Coinbase + change (3.5 BTC to exchange, 1.0 BTC change)",
+    "txid": "stu901vwx234...",
+    "vin": [
+      {
+        "prevout": {
+          "scriptpubkey_address": "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
+          "value": 450000000
+        }
+      }
+    ],
+    "vout": [
+      {
+        "scriptpubkey_address": "3Cbq7aT1tY8kMxWLbitaG7yT6bPbKChq64",
+        "value": 350000000
+      },
+      {
+        "scriptpubkey_address": "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
+        "value": 100000000
+      }
+    ],
+    "expected_flow": "inflow",
+    "expected_direction_multiplier": 1
+  },
+  {
+    "description": "ACCUMULATION SIGNAL - Large outflow from Bitfinex (120 BTC)",
+    "txid": "vwx234yza567...",
+    "vin": [
+      {
+        "prevout": {
+          "scriptpubkey_address": "1Kr6QSydW9bFQG1mXiPNNu6WpJGmUa9i1g",
+          "value": 12000000000
+        }
+      }
+    ],
+    "vout": [
+      {
+        "scriptpubkey_address": "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
+        "value": 6000000000
+      },
+      {
+        "scriptpubkey_address": "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2",
+        "value": 6000000000
+      }
+    ],
+    "expected_flow": "outflow",
+    "expected_direction_multiplier": -1,
+    "note": "Should trigger ACCUMULATION direction (threshold: 100 BTC)"
+  },
+  {
+    "description": "DISTRIBUTION SIGNAL - Large inflow to Binance (150 BTC)",
+    "txid": "yza567bcd890...",
+    "vin": [
+      {
+        "prevout": {
+          "scriptpubkey_address": "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
+          "value": 7500000000
+        }
+      },
+      {
+        "prevout": {
+          "scriptpubkey_address": "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2",
+          "value": 7500000000
+        }
+      }
+    ],
+    "vout": [
+      {
+        "scriptpubkey_address": "1F1tAaz5x1HUXrCNLbtMDqcw6o5GNn4xqX",
+        "value": 15000000000
+      }
+    ],
+    "expected_flow": "inflow",
+    "expected_direction_multiplier": 1,
+    "note": "Should trigger DISTRIBUTION direction (threshold: 100 BTC)"
+  },
+  {
+    "description": "SMALL TRANSACTION - 0.1 BTC to exchange (below whale threshold)",
+    "txid": "bcd890efg123...",
+    "vin": [
+      {
+        "prevout": {
+          "scriptpubkey_address": "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
+          "value": 10000000
+        }
+      }
+    ],
+    "vout": [
+      {
+        "scriptpubkey_address": "1F1tAaz5x1HUXrCNLbtMDqcw6o5GNn4xqX",
+        "value": 10000000
+      }
+    ],
+    "expected_flow": "inflow",
+    "expected_direction_multiplier": 1,
+    "note": "Small transaction, contributes to net flow but shouldn't trigger strong signal alone"
+  },
+  {
+    "description": "COMPLEX - Multiple exchanges involved (routing through intermediary)",
+    "txid": "efg123hij456...",
+    "vin": [
+      {
+        "prevout": {
+          "scriptpubkey_address": "1F1tAaz5x1HUXrCNLbtMDqcw6o5GNn4xqX",
+          "value": 5000000000
+        }
+      }
+    ],
+    "vout": [
+      {
+        "scriptpubkey_address": "3FupZp77ySr7jwoLYEJ9mwzJpvoNBXsBnE",
+        "value": 4900000000
+      },
+      {
+        "scriptpubkey_address": "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
+        "value": 100000000
+      }
+    ],
+    "expected_flow": "internal",
+    "expected_direction_multiplier": 0,
+    "note": "Binance to Kraken with change - should be classified as internal"
+  },
+  {
+    "description": "SEGWIT NATIVE - bc1 address inflow to Coinbase (12.5 BTC)",
+    "txid": "hij456klm789...",
+    "vin": [
+      {
+        "prevout": {
+          "scriptpubkey_address": "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq",
+          "value": 1250000000
+        }
+      }
+    ],
+    "vout": [
+      {
+        "scriptpubkey_address": "3Cbq7aT1tY8kMxWLbitaG7yT6bPbKChq64",
+        "value": 1250000000
+      }
+    ],
+    "expected_flow": "inflow",
+    "expected_direction_multiplier": 1,
+    "note": "Tests segwit native (bc1) address parsing"
+  },
+  {
+    "description": "P2SH - Script hash address outflow from Bitfinex (7.8 BTC)",
+    "txid": "klm789nop012...",
+    "vin": [
+      {
+        "prevout": {
+          "scriptpubkey_address": "3D2oetdNuZUqQHPJmcMDDHYoqkyNVsFk9r",
+          "value": 780000000
+        }
+      }
+    ],
+    "vout": [
+      {
+        "scriptpubkey_address": "3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy",
+        "value": 780000000
+      }
+    ],
+    "expected_flow": "outflow",
+    "expected_direction_multiplier": -1,
+    "note": "Tests P2SH (3...) address parsing"
+  },
+  {
+    "description": "NULL - Transaction with non-standard output (OP_RETURN)",
+    "txid": "nop012qrs345...",
+    "vin": [
+      {
+        "prevout": {
+          "scriptpubkey_address": "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
+          "value": 1000000
+        }
+      }
+    ],
+    "vout": [
+      {
+        "scriptpubkey": "6a24aa21a9ede2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf9",
+        "value": 0
+      },
+      {
+        "scriptpubkey_address": "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2",
+        "value": 1000000
+      }
+    ],
+    "expected_flow": "unrelated",
+    "expected_direction_multiplier": 0,
+    "note": "OP_RETURN output has no address, should handle gracefully"
+  },
+  {
+    "description": "EDGE CASE - Coinbase transaction (no inputs)",
+    "txid": "qrs345tuv678...",
+    "vin": [
+      {
+        "coinbase": "03c7410904062f503253482f",
+        "sequence": 4294967295
+      }
+    ],
+    "vout": [
+      {
+        "scriptpubkey_address": "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
+        "value": 625000000
+      }
+    ],
+    "expected_flow": "unrelated",
+    "expected_direction_multiplier": 0,
+    "note": "Coinbase tx (mining reward) has no prevout, should skip"
+  },
+  {
+    "description": "MULTI-EXCHANGE - Funds split between Binance and Kraken",
+    "txid": "tuv678wxy901...",
+    "vin": [
+      {
+        "prevout": {
+          "scriptpubkey_address": "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
+          "value": 10000000000
+        }
+      }
+    ],
+    "vout": [
+      {
+        "scriptpubkey_address": "1F1tAaz5x1HUXrCNLbtMDqcw6o5GNn4xqX",
+        "value": 5000000000
+      },
+      {
+        "scriptpubkey_address": "3FupZp77ySr7jwoLYEJ9mwzJpvoNBXsBnE",
+        "value": 5000000000
+      }
+    ],
+    "expected_flow": "inflow",
+    "expected_direction_multiplier": 1,
+    "note": "Personal wallet sending to multiple exchanges, still counts as inflow"
+  },
+  {
+    "description": "ZERO VALUE - Edge case with 0 satoshi output",
+    "txid": "wxy901zab234...",
+    "vin": [
+      {
+        "prevout": {
+          "scriptpubkey_address": "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
+          "value": 1000000
+        }
+      }
+    ],
+    "vout": [
+      {
+        "scriptpubkey_address": "1F1tAaz5x1HUXrCNLbtMDqcw6o5GNn4xqX",
+        "value": 0
+      },
+      {
+        "scriptpubkey_address": "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2",
+        "value": 1000000
+      }
+    ],
+    "expected_flow": "unrelated",
+    "expected_direction_multiplier": 0,
+    "note": "Zero-value output to exchange, should not count as inflow"
+  },
+  {
+    "description": "HIGH VALUE - Whale-size transaction (500 BTC from personal to Binance)",
+    "txid": "zab234cde567...",
+    "vin": [
+      {
+        "prevout": {
+          "scriptpubkey_address": "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
+          "value": 25000000000
+        }
+      },
+      {
+        "prevout": {
+          "scriptpubkey_address": "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2",
+          "value": 25000000000
+        }
+      }
+    ],
+    "vout": [
+      {
+        "scriptpubkey_address": "1F1tAaz5x1HUXrCNLbtMDqcw6o5GNn4xqX",
+        "value": 50000000000
+      }
+    ],
+    "expected_flow": "inflow",
+    "expected_direction_multiplier": 1,
+    "note": "Large single transaction, should significantly impact confidence score"
+  },
+  {
+    "description": "BATCHED PAYOUT - Exchange (Coinbase) paying out to 10 users",
+    "txid": "cde567fgh890...",
+    "vin": [
+      {
+        "prevout": {
+          "scriptpubkey_address": "3Cbq7aT1tY8kMxWLbitaG7yT6bPbKChq64",
+          "value": 10000000000
+        }
+      }
+    ],
+    "vout": [
+      {"scriptpubkey_address": "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", "value": 1000000000},
+      {"scriptpubkey_address": "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2", "value": 1000000000},
+      {"scriptpubkey_address": "1C1zP1eP5QGefi2DMPTfTL5SLmv7DivfNb", "value": 1000000000},
+      {"scriptpubkey_address": "1D1zP1eP5QGefi2DMPTfTL5SLmv7DivfNc", "value": 1000000000},
+      {"scriptpubkey_address": "1E1zP1eP5QGefi2DMPTfTL5SLmv7DivfNd", "value": 1000000000},
+      {"scriptpubkey_address": "1F1zP1eP5QGefi2DMPTfTL5SLmv7DivfNe", "value": 1000000000},
+      {"scriptpubkey_address": "1G1zP1eP5QGefi2DMPTfTL5SLmv7DivfNf", "value": 1000000000},
+      {"scriptpubkey_address": "1H1zP1eP5QGefi2DMPTfTL5SLmv7DivfNg", "value": 1000000000},
+      {"scriptpubkey_address": "1I1zP1eP5QGefi2DMPTfTL5SLmv7DivfNh", "value": 1000000000},
+      {"scriptpubkey_address": "1J1zP1eP5QGefi2DMPTfTL5SLmv7DivfNi", "value": 1000000000}
+    ],
+    "expected_flow": "outflow",
+    "expected_direction_multiplier": -1,
+    "note": "Typical exchange batched withdrawal pattern"
+  }
+]

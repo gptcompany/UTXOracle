@@ -1,0 +1,46 @@
+{
+  "mcpServers": {
+    "git-mcp": {
+      "args": [
+        "@modelcontextprotocol/server-remote",
+        "https://gitmcp.io/docs"
+      ],
+      "command": "npx",
+      "env": {}
+    },
+
+    "context7": {
+      "args": [
+        "-y",
+        "@upstash/context7-mcp"
+      ],
+      "command": "npx",
+      "env": {}
+    },
+
+    "gemini-cli": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "gemini-mcp-tool"
+      ],
+      "env": {}
+    },
+
+    "github": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${GITHUB_PAT}"
+      }
+    },
+    "microsandbox": {
+      "command": "npx",
+      "args": [
+        "@modelcontextprotocol/server-remote",
+        "http://127.0.0.1:5555/mcp"
+      ],
+      "env": {}
+    }
+  }
+}

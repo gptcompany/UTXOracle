@@ -1,0 +1,24 @@
+{
+  "guardEnabled": false,
+  "ignorePatterns": [
+    "*.md",
+    "*.json",
+    "*.yml",
+    "*.yaml",
+    "*.txt",
+    "*.log",
+    "*.html",
+    "*.css",
+    "tests/**",
+    "test/**",
+    "docs/**",
+    "specs/**",
+    ".claude/**",
+    ".specify/**",
+    ".serena/**",
+    ".env*",
+    "**/*.config.*",
+    "**/conftest.py",
+    "**/__init__.py"
+  ]
+}

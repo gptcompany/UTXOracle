@@ -1,0 +1,42 @@
+"""
+Tests for {{MODULE_NAME}}
+Task: {{TASK_NUMBER}}
+Coverage target: >80%
+"""
+import pytest
+from live.backend.{{MODULE_FILE}} import {{CLASS_NAME}}
+
+
+# Fixtures
+@pytest.fixture
+async def {{FIXTURE_NAME}}():
+    """Fixture for {{CLASS_NAME}}"""
+    instance = {{CLASS_NAME}}()
+    yield instance
+    await instance.cleanup()
+
+
+# Unit Tests (RED phase - should fail initially)
+@pytest.mark.asyncio
+async def test_{{FUNCTION_1}}({{FIXTURE_NAME}}):
+    """Test {{DESCRIPTION_1}}"""
+    result = await {{FIXTURE_NAME}}.{{METHOD_1}}()
+    assert result is not None
+    # RED: Not implemented yet
+
+
+@pytest.mark.asyncio
+async def test_{{FUNCTION_2}}({{FIXTURE_NAME}}):
+    """Test {{DESCRIPTION_2}}"""
+    result = await {{FIXTURE_NAME}}.{{METHOD_2}}()
+    assert result is not None
+    # RED: Not implemented yet
+
+
+# Integration Tests
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_integration_{{MODULE_NAME}}():
+    """Test {{MODULE_NAME}} integration with pipeline"""
+    # TODO: Add integration test
+    pass

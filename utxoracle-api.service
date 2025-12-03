@@ -1,0 +1,59 @@
+[Unit]
+Description=UTXOracle FastAPI Dashboard Service
+Documentation=file:///media/sam/1TB/UTXOracle/docs/MEMPOOL_WHALE_OPERATIONS.md
+After=network.target utxoracle-whale-detection.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sam
+Group=sam
+WorkingDirectory=/media/sam/1TB/UTXOracle
+
+# Environment
+Environment="PATH=/home/sam/.local/bin:/usr/local/bin:/usr/bin:/bin"
+EnvironmentFile=-/media/sam/1TB/UTXOracle/.env
+
+# Main process (using uv for proper venv activation)
+ExecStart=/home/sam/.local/bin/uv run uvicorn api.main:app \
+  --host 0.0.0.0 \
+  --port 8001 \
+  --workers 2 \
+  --log-level info
+
+# Restart policy
+Restart=on-failure
+RestartSec=5s
+StartLimitInterval=5min
+StartLimitBurst=3
+
+# Resource limits
+LimitNOFILE=65536
+MemoryMax=400M
+MemoryHigh=350M
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=utxoracle-api
+
+# Security hardening
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/media/sam/1TB/UTXOracle/data /media/sam/1TB/UTXOracle/logs
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+
+# Graceful shutdown
+TimeoutStopSec=15s
+KillMode=mixed
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target

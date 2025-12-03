@@ -1,0 +1,59 @@
+[Unit]
+Description=UTXOracle Whale Detection Service
+Documentation=file:///media/sam/1TB/UTXOracle/docs/MEMPOOL_WHALE_OPERATIONS.md
+After=network.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=sam
+Group=sam
+WorkingDirectory=/media/sam/1TB/UTXOracle
+
+# Environment
+Environment="PATH=/home/sam/.local/bin:/usr/local/bin:/usr/bin:/bin"
+EnvironmentFile=-/media/sam/1TB/UTXOracle/.env
+
+# Main process
+ExecStart=/usr/bin/python3 /media/sam/1TB/UTXOracle/scripts/whale_detection_orchestrator.py \
+  --ws-host 0.0.0.0 \
+  --ws-port 8765 \
+  --whale-threshold 100.0
+
+# Restart policy
+Restart=on-failure
+RestartSec=10s
+StartLimitInterval=5min
+StartLimitBurst=3
+
+# Resource limits
+LimitNOFILE=65536
+MemoryMax=600M
+MemoryHigh=500M
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=utxoracle-whale
+
+# Security hardening
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/media/sam/1TB/UTXOracle/data /media/sam/1TB/UTXOracle/logs
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+
+# Graceful shutdown
+TimeoutStopSec=30s
+KillMode=mixed
+KillSignal=SIGINT
+
+[Install]
+WantedBy=multi-user.target

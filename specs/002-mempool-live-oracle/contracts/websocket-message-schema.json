@@ -1,0 +1,148 @@
+{
+  "$defs": {
+    "MempoolUpdateData": {
+      "description": "Mempool update payload",
+      "properties": {
+        "price": {
+          "description": "Current BTC/USD price estimate",
+          "exclusiveMinimum": 0,
+          "title": "Price",
+          "type": "number"
+        },
+        "confidence": {
+          "description": "Confidence score [0.0-1.0]",
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "transactions": {
+          "description": "Recent transactions for visualization",
+          "items": {
+            "$ref": "#/$defs/TransactionPoint"
+          },
+          "title": "Transactions",
+          "type": "array"
+        },
+        "stats": {
+          "$ref": "#/$defs/SystemStats"
+        },
+        "timestamp": {
+          "description": "Message timestamp (seconds)",
+          "exclusiveMinimum": 0,
+          "title": "Timestamp",
+          "type": "number"
+        }
+      },
+      "required": [
+        "price",
+        "confidence",
+        "stats",
+        "timestamp"
+      ],
+      "title": "MempoolUpdateData",
+      "type": "object"
+    },
+    "SystemStats": {
+      "description": "Operational statistics",
+      "properties": {
+        "total_received": {
+          "description": "Total transactions received",
+          "minimum": 0,
+          "title": "Total Received",
+          "type": "integer"
+        },
+        "total_filtered": {
+          "description": "Total transactions filtered out",
+          "minimum": 0,
+          "title": "Total Filtered",
+          "type": "integer"
+        },
+        "active_in_window": {
+          "description": "Active transactions in 3-hour window",
+          "minimum": 0,
+          "title": "Active In Window",
+          "type": "integer"
+        },
+        "uptime_seconds": {
+          "description": "System uptime (seconds)",
+          "exclusiveMinimum": 0,
+          "title": "Uptime Seconds",
+          "type": "number"
+        }
+      },
+      "required": [
+        "total_received",
+        "total_filtered",
+        "active_in_window",
+        "uptime_seconds"
+      ],
+      "title": "SystemStats",
+      "type": "object"
+    },
+    "TransactionPoint": {
+      "description": "Single transaction point for visualization",
+      "properties": {
+        "timestamp": {
+          "description": "Unix timestamp (seconds)",
+          "exclusiveMinimum": 0,
+          "title": "Timestamp",
+          "type": "number"
+        },
+        "price": {
+          "description": "Estimated price for this transaction (USD)",
+          "exclusiveMinimum": 0,
+          "title": "Price",
+          "type": "number"
+        }
+      },
+      "required": [
+        "timestamp",
+        "price"
+      ],
+      "title": "TransactionPoint",
+      "type": "object"
+    }
+  },
+  "description": "Complete WebSocket message sent to browser clients.\n\nThis is the black box interface between Module 4 (Data Streamer) and Module 5 (Visualization).",
+  "example": {
+    "data": {
+      "confidence": 0.87,
+      "price": 113600.5,
+      "stats": {
+        "active_in_window": 4309,
+        "total_filtered": 8234,
+        "total_received": 12543,
+        "uptime_seconds": 3600.5
+      },
+      "timestamp": 1678901234.567,
+      "transactions": [
+        {
+          "price": 113500.0,
+          "timestamp": 1678901234.1
+        },
+        {
+          "price": 113700.0,
+          "timestamp": 1678901234.2
+        }
+      ]
+    },
+    "type": "mempool_update"
+  },
+  "properties": {
+    "type": {
+      "default": "mempool_update",
+      "description": "Message type identifier",
+      "title": "Type",
+      "type": "string"
+    },
+    "data": {
+      "$ref": "#/$defs/MempoolUpdateData"
+    }
+  },
+  "required": [
+    "data"
+  ],
+  "title": "WebSocketMessage",
+  "type": "object"
+}

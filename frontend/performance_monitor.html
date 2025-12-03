@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UTXOracle - Performance Monitor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --color-bg: #0a0a0a;
+            --color-bg-secondary: #1a1a1a;
+            --color-text: #e0e0e0;
+            --color-text-secondary: #a0a0a0;
+            --color-primary: #ff8c00;
+            --color-success: #00ff00;
+            --color-warning: #ffaa00;
+            --color-danger: #ff0000;
+            --color-border: #333;
+            --spacing: 20px;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: var(--color-bg);
+            color: var(--color-text);
+            line-height: 1.6;
+        }
+
+        header {
+            background: var(--color-bg-secondary);
+            border-bottom: 2px solid var(--color-primary);
+            padding: var(--spacing);
+            margin-bottom: var(--spacing);
+        }
+
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle {
+            color: var(--color-text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 0 var(--spacing);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: var(--spacing);
+            margin-bottom: var(--spacing);
+        }
+
+        .metric-card {
+            background: var(--color-bg-secondary);
+            border: 1px solid var(--color-border);
+            border-radius: 8px;
+            padding: var(--spacing);
+        }
+
+        .metric-card h2 {
+            font-size: 1rem;
+            color: var(--color-text-secondary);
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .metric-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: var(--color-primary);
+            margin: 0.5rem 0;
+        }
+
+        .metric-value.success {
+            color: var(--color-success);
+        }
+
+        .metric-value.warning {
+            color: var(--color-warning);
+        }
+
+        .metric-value.danger {
+            color: var(--color-danger);
+        }
+
+        .metric-label {
+            font-size: 0.85rem;
+            color: var(--color-text-secondary);
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+
+        .status-indicator.healthy {
+            background: var(--color-success);
+        }
+
+        .status-indicator.degraded {
+            background: var(--color-warning);
+        }
+
+        .status-indicator.unhealthy {
+            background: var(--color-danger);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .chart-container {
+            background: var(--color-bg-secondary);
+            border: 1px solid var(--color-border);
+            border-radius: 8px;
+            padding: var(--spacing);
+            margin-bottom: var(--spacing);
+            height: 400px;
+        }
+
+        .service-list {
+            list-style: none;
+        }
+
+        .service-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+        }
+
+        .service-name {
+            font-weight: 600;
+        }
+
+        .service-status {
+            display: flex;
+            align-items: center;
+            font-size: 0.85rem;
+        }
+
+        .endpoint-stats {
+            margin-top: 1rem;
+        }
+
+        .endpoint-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem;
+            border-bottom: 1px solid var(--color-border);
+        }
+
+        .endpoint-row:last-child {
+            border-bottom: none;
+        }
+
+        .endpoint-path {
+            font-family: monospace;
+            color: var(--color-primary);
+        }
+
+        .endpoint-metric {
+            color: var(--color-text-secondary);
+            font-size: 0.85rem;
+        }
+
+        .refresh-indicator {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: var(--color-bg-secondary);
+            border: 1px solid var(--color-border);
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            font-size: 0.85rem;
+        }
+
+        .loading {
+            opacity: 0.6;
+        }
+
+        .error-banner {
+            background: var(--color-danger);
+            color: white;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            border-radius: 4px;
+            display: none;
+        }
+
+        .error-banner.show {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>⚡ Performance Monitor</h1>
+            <p class="subtitle">Real-time API and system metrics for UTXOracle</p>
+        </div>
+    </header>
+
+    <div class="refresh-indicator" id="refresh-indicator">
+        Last updated: <span id="last-update">Never</span>
+    </div>
+
+    <div class="container">
+        <div class="error-banner" id="error-banner">
+            Unable to fetch metrics. Please check that the API is running.
+        </div>
+
+        <!-- Health Status -->
+        <div class="grid">
+            <div class="metric-card">
+                <h2>System Status</h2>
+                <div id="system-status">
+                    <div class="metric-value">
+                        <span class="status-indicator" id="status-indicator"></span>
+                        <span id="status-text">Loading...</span>
+                    </div>
+                    <div class="metric-label">Overall Health</div>
+                </div>
+            </div>
+
+            <div class="metric-card">
+                <h2>Uptime</h2>
+                <div class="metric-value" id="uptime">--</div>
+                <div class="metric-label">Server uptime</div>
+            </div>
+
+            <div class="metric-card">
+                <h2>Total Requests</h2>
+                <div class="metric-value" id="total-requests">--</div>
+                <div class="metric-label">Since startup</div>
+            </div>
+
+            <div class="metric-card">
+                <h2>Error Rate</h2>
+                <div class="metric-value" id="error-rate">--</div>
+                <div class="metric-label">Percentage of failed requests</div>
+            </div>
+        </div>
+
+        <!-- Performance Metrics -->
+        <div class="grid">
+            <div class="metric-card">
+                <h2>Avg Latency</h2>
+                <div class="metric-value" id="avg-latency">--</div>
+                <div class="metric-label">Average response time</div>
+            </div>
+
+            <div class="metric-card">
+                <h2>Min/Max Latency</h2>
+                <div class="metric-value" style="font-size: 1.5rem;">
+                    <span id="min-latency">--</span> / <span id="max-latency">--</span>
+                </div>
+                <div class="metric-label">Min / Max response time</div>
+            </div>
+
+            <div class="metric-card">
+                <h2>Throughput</h2>
+                <div class="metric-value" id="throughput">--</div>
+                <div class="metric-label">Requests per second (60s window)</div>
+            </div>
+
+            <div class="metric-card">
+                <h2>Active Connections</h2>
+                <div class="metric-value" id="connections">--</div>
+                <div class="metric-label">WebSocket connections</div>
+            </div>
+        </div>
+
+        <!-- Service Health Checks -->
+        <div class="chart-container">
+            <h2 style="margin-bottom: 1rem;">Service Health</h2>
+            <ul class="service-list" id="service-list">
+                <li class="service-item">Loading service health...</li>
+            </ul>
+        </div>
+
+        <!-- Latency Chart -->
+        <div class="chart-container">
+            <h2 style="margin-bottom: 1rem;">Response Time History (Last 60 seconds)</h2>
+            <canvas id="latency-chart"></canvas>
+        </div>
+
+        <!-- Endpoint Statistics -->
+        <div class="chart-container">
+            <h2 style="margin-bottom: 1rem;">Endpoint Statistics</h2>
+            <div id="endpoint-stats" class="endpoint-stats">
+                <p class="metric-label">Loading endpoint data...</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script>
+        // Configuration
+        const REFRESH_INTERVAL = 2000; // 2 seconds
+        const CHART_MAX_POINTS = 30;
+
+        // Data stores
+        let latencyHistory = [];
+        let timestampHistory = [];
+        let latencyChart = null;
+
+        // Initialize latency chart
+        function initCharts() {
+            const ctx = document.getElementById('latency-chart').getContext('2d');
+
+            latencyChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: timestampHistory,
+                    datasets: [{
+                        label: 'Avg Latency (ms)',
+                        data: latencyHistory,
+                        borderColor: '#ff8c00',
+                        backgroundColor: 'rgba(255, 140, 0, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: {
+                                color: '#333'
+                            },
+                            ticks: {
+                                color: '#a0a0a0'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                color: '#333'
+                            },
+                            ticks: {
+                                color: '#a0a0a0',
+                                maxRotation: 45,
+                                minRotation: 45
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: '#e0e0e0'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Format uptime
+        function formatUptime(seconds) {
+            const days = Math.floor(seconds / 86400);
+            const hours = Math.floor((seconds % 86400) / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            const secs = Math.floor(seconds % 60);
+
+            if (days > 0) {
+                return `${days}d ${hours}h ${minutes}m`;
+            } else if (hours > 0) {
+                return `${hours}h ${minutes}m ${secs}s`;
+            } else if (minutes > 0) {
+                return `${minutes}m ${secs}s`;
+            } else {
+                return `${secs}s`;
+            }
+        }
+
+        // Update metrics display
+        async function updateMetrics() {
+            try {
+                // Fetch health
+                const healthResponse = await fetch('/health');
+                const health = await healthResponse.json();
+
+                // Fetch metrics
+                const metricsResponse = await fetch('/metrics?window=60');
+                const metrics = await metricsResponse.json();
+
+                // Update system status
+                const statusIndicator = document.getElementById('status-indicator');
+                const statusText = document.getElementById('status-text');
+
+                statusIndicator.className = `status-indicator ${health.status}`;
+                statusText.textContent = health.status.toUpperCase();
+
+                // Update uptime
+                document.getElementById('uptime').textContent = formatUptime(metrics.uptime_seconds);
+
+                // Update request metrics
+                document.getElementById('total-requests').textContent = metrics.total_requests.toLocaleString();
+
+                const errorRate = metrics.error_rate_percent;
+                const errorRateElem = document.getElementById('error-rate');
+                errorRateElem.textContent = `${errorRate.toFixed(2)}%`;
+                errorRateElem.className = 'metric-value';
+                if (errorRate === 0) {
+                    errorRateElem.classList.add('success');
+                } else if (errorRate < 5) {
+                    errorRateElem.classList.add('warning');
+                } else {
+                    errorRateElem.classList.add('danger');
+                }
+
+                // Update latency
+                document.getElementById('avg-latency').textContent = `${metrics.avg_latency_ms.toFixed(2)} ms`;
+                document.getElementById('min-latency').textContent = `${metrics.min_latency_ms.toFixed(2)} ms`;
+                document.getElementById('max-latency').textContent = `${metrics.max_latency_ms.toFixed(2)} ms`;
+
+                // Update throughput
+                document.getElementById('throughput').textContent = `${metrics.throughput_rps.toFixed(2)} req/s`;
+
+                // Update connections (from health data)
+                const connections = health.services?.websocket?.details?.active_connections || 0;
+                document.getElementById('connections').textContent = connections;
+
+                // Update latency chart
+                const timestamp = new Date().toLocaleTimeString();
+                timestampHistory.push(timestamp);
+                latencyHistory.push(metrics.avg_latency_ms);
+
+                if (timestampHistory.length > CHART_MAX_POINTS) {
+                    timestampHistory.shift();
+                    latencyHistory.shift();
+                }
+
+                latencyChart.data.labels = timestampHistory;
+                latencyChart.data.datasets[0].data = latencyHistory;
+                latencyChart.update('none'); // No animation for real-time updates
+
+                // Update service health
+                if (health.services) {
+                    const serviceList = document.getElementById('service-list');
+                    serviceList.innerHTML = '';
+
+                    for (const [serviceName, serviceData] of Object.entries(health.services)) {
+                        const li = document.createElement('li');
+                        li.className = 'service-item';
+
+                        const statusIndicator = document.createElement('span');
+                        statusIndicator.className = `status-indicator ${serviceData.status}`;
+
+                        const nameSpan = document.createElement('span');
+                        nameSpan.className = 'service-name';
+                        nameSpan.textContent = serviceName;
+
+                        const statusSpan = document.createElement('span');
+                        statusSpan.className = 'service-status';
+                        statusSpan.appendChild(statusIndicator.cloneNode());
+                        statusSpan.appendChild(document.createTextNode(serviceData.status.toUpperCase()));
+
+                        const leftDiv = document.createElement('div');
+                        leftDiv.appendChild(nameSpan);
+
+                        li.appendChild(leftDiv);
+                        li.appendChild(statusSpan);
+                        serviceList.appendChild(li);
+                    }
+                }
+
+                // Update endpoint statistics
+                if (metrics.endpoints) {
+                    const endpointStats = document.getElementById('endpoint-stats');
+                    endpointStats.innerHTML = '';
+
+                    // Sort endpoints by request count
+                    const sortedEndpoints = Object.entries(metrics.endpoints)
+                        .sort((a, b) => b[1].count - a[1].count)
+                        .slice(0, 10); // Top 10
+
+                    sortedEndpoints.forEach(([path, stats]) => {
+                        const row = document.createElement('div');
+                        row.className = 'endpoint-row';
+
+                        const pathSpan = document.createElement('span');
+                        pathSpan.className = 'endpoint-path';
+                        pathSpan.textContent = path;
+
+                        const statsSpan = document.createElement('span');
+                        statsSpan.className = 'endpoint-metric';
+                        statsSpan.textContent = `${stats.count} req | ${stats.avg_latency_ms.toFixed(2)} ms avg | ${stats.error_count} errors`;
+
+                        row.appendChild(pathSpan);
+                        row.appendChild(statsSpan);
+                        endpointStats.appendChild(row);
+                    });
+                }
+
+                // Update last refresh time
+                document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+
+                // Hide error banner
+                document.getElementById('error-banner').classList.remove('show');
+
+            } catch (error) {
+                console.error('Failed to update metrics:', error);
+                document.getElementById('error-banner').classList.add('show');
+            }
+        }
+
+        // Initialize on load
+        window.addEventListener('DOMContentLoaded', () => {
+            initCharts();
+            updateMetrics();
+            setInterval(updateMetrics, REFRESH_INTERVAL);
+        });
+    </script>
+</body>
+</html>

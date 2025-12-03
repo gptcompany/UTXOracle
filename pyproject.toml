@@ -1,0 +1,54 @@
+[project]
+name = "utxoracle"
+version = "0.1.0"
+description = "Bitcoin-native price oracle with real-time mempool analysis"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.104.1",
+    "uvicorn[standard]>=0.24.0",
+    "pyzmq>=25.1.1",
+    "pydantic>=2.12.3",
+    "duckdb>=0.9.0",
+    "requests>=2.31.0",
+    "python-dotenv>=1.0.0",
+    "structlog>=23.2.0",
+    "tenacity>=8.2.0",
+    "bitcoinlib>=0.6.0",
+    "aiohttp>=3.13.2",
+    "websockets>=15.0.1",
+    "pyjwt>=2.10.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-watch>=4.2.0",
+    "pytest-testmon>=2.1.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.1.6",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = []  # No packages yet (modules will be in live/ folder later)
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=8.4.2",
+    "pytest-asyncio>=1.2.0",
+    "pytest-cov>=7.0.0",
+    "pytest-testmon>=2.1.3",
+    "pytest-watch>=4.2.0",
+    "ruff>=0.14.1",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+tdd_guard_project_root = "/media/sam/1TB/UTXOracle"

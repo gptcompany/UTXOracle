@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "chrome-mcp-server": {
+      "type": "http",
+      "url": "http://127.0.0.1:12306/mcp"
+    },
+    "chrome-devtools": {
+      "command": "npx",
+      "args": ["chrome-devtools-mcp@latest"],
+      "env": {}
+    },
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "@playwright/mcp@latest"
+      ],
+      "env": {}
+      }
+  }
+}

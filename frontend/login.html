@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UTXOracle - Login</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            color: #f5f5f5;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .login-container {
+            background: #2a2a2a;
+            border-radius: 12px;
+            padding: 40px;
+            max-width: 480px;
+            width: 100%;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            border: 1px solid #3a3a3a;
+        }
+
+        .logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .logo h1 {
+            color: #ff9500;
+            font-size: 32px;
+            margin-bottom: 8px;
+        }
+
+        .logo p {
+            color: #888;
+            font-size: 14px;
+        }
+
+        .form-group {
+            margin-bottom: 24px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #ccc;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        input[type="text"],
+        input[type="password"] {
+            width: 100%;
+            padding: 12px 16px;
+            background: #1a1a1a;
+            border: 1px solid #3a3a3a;
+            border-radius: 6px;
+            color: #f5f5f5;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus,
+        input[type="password"]:focus {
+            outline: none;
+            border-color: #ff9500;
+        }
+
+        input[type="text"]::placeholder,
+        input[type="password"]::placeholder {
+            color: #666;
+        }
+
+        .btn-login {
+            width: 100%;
+            padding: 14px;
+            background: #ff9500;
+            color: #1a1a1a;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .btn-login:hover {
+            background: #ffaa33;
+        }
+
+        .btn-login:active {
+            background: #e68600;
+        }
+
+        .btn-login:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+
+        .alert {
+            padding: 12px 16px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .alert-error {
+            background: rgba(255, 59, 48, 0.1);
+            border: 1px solid rgba(255, 59, 48, 0.3);
+            color: #ff3b30;
+        }
+
+        .alert-success {
+            background: rgba(52, 199, 89, 0.1);
+            border: 1px solid rgba(52, 199, 89, 0.3);
+            color: #34c759;
+        }
+
+        .help-text {
+            margin-top: 20px;
+            padding: 16px;
+            background: #1a1a1a;
+            border-radius: 6px;
+            border-left: 3px solid #ff9500;
+        }
+
+        .help-text h3 {
+            color: #ff9500;
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+
+        .help-text p {
+            color: #aaa;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .help-text code {
+            background: #2a2a2a;
+            padding: 2px 6px;
+            border-radius: 3px;
+            color: #ff9500;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #1a1a1a;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+            margin-left: 8px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="logo">
+            <h1>🔐 UTXOracle</h1>
+            <p>Mempool Whale Detection System</p>
+        </div>
+
+        <div id="alert" class="alert"></div>
+
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="token">JWT Token</label>
+                <input
+                    type="password"
+                    id="token"
+                    name="token"
+                    placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    required
+                    autocomplete="off"
+                    spellcheck="false"
+                >
+            </div>
+
+            <button type="submit" class="btn-login" id="loginBtn">
+                Login
+            </button>
+        </form>
+
+        <div class="help-text">
+            <h3>How to get a token:</h3>
+            <p>
+                Generate a JWT token using the CLI utility:<br>
+                <code>python3 api/auth_middleware.py your-client-id --permissions read --hours 24</code>
+            </p>
+            <p style="margin-top: 8px;">
+                The token will be displayed in the terminal. Copy and paste it here.
+            </p>
+        </div>
+    </div>
+
+    <script src="/static/js/auth.js"></script>
+    <script>
+        const form = document.getElementById('loginForm');
+        const tokenInput = document.getElementById('token');
+        const loginBtn = document.getElementById('loginBtn');
+        const alert = document.getElementById('alert');
+
+        // Check if already authenticated
+        if (authManager.isAuthenticated() && !authManager.isTokenExpired()) {
+            showAlert('You are already logged in. Redirecting...', 'success');
+            setTimeout(() => {
+                redirectAfterLogin();
+            }, 1000);
+        }
+
+        // Handle form submission
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            hideAlert();
+
+            const token = tokenInput.value.trim();
+
+            if (!token) {
+                showAlert('Please enter a JWT token', 'error');
+                return;
+            }
+
+            // Show loading state
+            loginBtn.disabled = true;
+            loginBtn.innerHTML = 'Validating...<span class="spinner"></span>';
+
+            try {
+                // Store token
+                authManager.setToken(token);
+
+                // Validate token by making a test API call
+                const isValid = await validateToken();
+
+                if (isValid) {
+                    showAlert('✅ Login successful! Redirecting...', 'success');
+
+                    setTimeout(() => {
+                        redirectAfterLogin();
+                    }, 1000);
+                } else {
+                    throw new Error('Token validation failed');
+                }
+            } catch (error) {
+                console.error('Login error:', error);
+                authManager.clearToken();
+                showAlert(`Login failed: ${error.message}`, 'error');
+
+                loginBtn.disabled = false;
+                loginBtn.innerHTML = 'Login';
+            }
+        });
+
+        /**
+         * Validate token by making a test API call
+         */
+        async function validateToken() {
+            try {
+                const response = await authManager.authenticatedFetch('/health');
+
+                if (response.ok) {
+                    const tokenInfo = authManager.getTokenInfo();
+                    console.log('✅ Token validated:', tokenInfo);
+                    return true;
+                }
+
+                return false;
+            } catch (error) {
+                console.error('Token validation error:', error);
+                return false;
+            }
+        }
+
+        /**
+         * Redirect after successful login
+         */
+        function redirectAfterLogin() {
+            // Check for return URL in query params
+            const params = new URLSearchParams(window.location.search);
+            const returnUrl = params.get('return') || '/static/comparison.html';
+
+            console.log('Redirecting to:', returnUrl);
+            window.location.href = returnUrl;
+        }
+
+        /**
+         * Show alert message
+         */
+        function showAlert(message, type = 'error') {
+            alert.textContent = message;
+            alert.className = `alert alert-${type}`;
+            alert.style.display = 'block';
+        }
+
+        /**
+         * Hide alert message
+         */
+        function hideAlert() {
+            alert.style.display = 'none';
+        }
+
+        // Allow pasting token
+        tokenInput.addEventListener('paste', () => {
+            setTimeout(() => {
+                tokenInput.value = tokenInput.value.trim();
+            }, 10);
+        });
+    </script>
+</body>
+</html>

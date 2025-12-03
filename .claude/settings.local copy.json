@@ -1,0 +1,239 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//home/sam/claude-code-hooks-mastery/**)",
+      "Edit(//home/sam/**)",
+      "Edit(//media/sam/1TB1/**)",
+      "MultiEdit(//home/sam/**)",
+      "MultiEdit(//media/sam/1TB1/**)",
+      "Write(//media/sam/1TB1/**)",
+      "mcp__gemini-cli__ask-gemini",
+      "WebSearch",
+      "mcp__archon__list_projects",
+      "mcp__archon__create_project",
+      "mcp__archon__delete_project",
+      "Read(//home/sam/**)",
+      "mcp__context7__get-library-docs",
+      "Bash(docker-compose:*)",
+      "Bash(/home/sam/.local/bin/uv run --from git+https://github.com/oraios/serena serena --help)",
+      "Bash(/home/sam/.local/bin/uvx:*)",
+      "Bash(uv tool install:*)",
+      "Bash(serena:*)",
+      "Bash(ssh:*)",
+      "Bash(diskutil:*)",
+      "Bash(sudo dd:*)",
+      "Read(//dev/**)",
+      "Bash(sync)",
+      "Bash(chmod:*)",
+      "Bash(rsync:*)",
+      "Bash(sudo sed:*)",
+      "Bash(sudo update-grub:*)",
+      "Read(//usr/share/fonts/X11/**)",
+      "Read(//boot/grub/**)",
+      "Bash(dpkg:*)",
+      "Read(//sys/devices/system/clocksource/clocksource0/**)",
+      "Bash(systemctl:*)",
+      "Bash(pkill:*)",
+      "Bash(xev:*)",
+      "Bash(solaar:*)",
+      "Bash(sudo add-apt-repository:*)",
+      "Bash(sudo apt:*)",
+      "Bash(sudo apt upgrade:*)",
+      "Read(//home/sam/RAG-Anything/**)",
+      "Bash(source:*)",
+      "Bash(python:*)",
+      "Bash(uv pip:*)",
+      "Bash(echo:*)",
+      "Bash(mineru:*)",
+      "Bash(uv venv:*)",
+      "Bash(ln:*)",
+      "Bash(/home/sam/EVO/rag_cli info)",
+      "Bash(git add:*)",
+      "Bash(git config:*)",
+      "Bash(git push:*)",
+      "Read(//home/sam/.rag_databases/**)",
+      "Bash(git commit:*)",
+      "Bash(uv run pytest:*)",
+      "Bash(git rebase:*)",
+      "Bash(git stash show:*)",
+      "mcp__serena__list_dir",
+      "WebFetch(domain:bybit-exchange.github.io)",
+      "Bash(ccundo:*)",
+      "Read(//media/sam/1TB1/ccundo/**)",
+      "Bash(mkdir:*)",
+      "Bash(for cmd in list preview language rollback redo checkpoint sessions setup cleanup export)",
+      "Bash(do echo \"\")",
+      "Bash(echo \"📋 Checking: /undo:$cmd\")",
+      "Bash(head:*)",
+      "Bash(done)",
+      "Bash(for:*)",
+      "Bash(bash:*)",
+      "Bash(echo \"• ccundo preview <operation-id>\")",
+      "Bash(echo \"• ccundo language <lang>\")",
+      "WebFetch(domain:data.binance.vision)",
+      "WebFetch(domain:github.com)",
+      "Read(//media/sam/3TB-WDC/progetti/downloads/BTCUSDT/bookDepth/**)",
+      "Read(//media/sam/3TB-WDC/progetti/downloads/**)",
+      "mcp__git-mcp__search_generic_documentation",
+      "WebFetch(domain:bitcoincounterflow.com)",
+      "WebFetch(domain:www.coinglass.com)",
+      "WebFetch(domain:docs.coinglass.com)",
+      "WebFetch(domain:alternative.me)",
+      "WebFetch(domain:s.apifox.cn)",
+      "WebFetch(domain:coinank.com)",
+      "Read(//media/sam/**)",
+      "Bash(zcat:*)",
+      "WebFetch(domain:docs.nautilustrader.io)",
+      "WebFetch(domain:nautilustrader.io)",
+      "WebFetch(domain:www.youtube.com)",
+      "WebFetch(domain:www.maxitect.blog)"
+    ],
+    "deny": [
+      "Read(.claude/tdd-guard/**)"
+    ],
+    "ask": [],
+    "defaultMode": "bypassPermissions",
+    "additionalDirectories": [
+      "/media/sam/1TB1"
+    ]
+  },
+  "model": "sonnet",
+  "enableAllProjectMcpServers": true,
+  "statusLine": {
+    "type": "command",
+    "command": "python3 .claude/scripts/context-monitor.py"
+  },
+  "env": {
+    "USE_BUILTIN_RIPGREP": "1",
+    "CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR": "1",
+    "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "0",
+    "DISABLE_NON_ESSENTIAL_MODEL_CALLS": "1",
+    "DISABLE_COST_WARNINGS": "1"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|TodoWrite",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "tdd-guard"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/media/sam/1TB/UTXOracle/.claude/hooks/smart-safety-check.py",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "/media/sam/1TB/UTXOracle/.claude/hooks/git-safety-check.py",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "WebSearch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import json, sys, re; from datetime import datetime; input_data = json.load(sys.stdin); tool_input = input_data.get('tool_input', {}); query = tool_input.get('query', ''); current_year = str(datetime.now().year); has_year = re.search(r'\\\\b20\\\\d{2}\\\\b', query); has_temporal = any(word in query.lower() for word in ['latest', 'recent', 'current', 'new', 'now', 'today']); should_add_year = not has_year and not has_temporal; modified_query = f'{query} {current_year}' if should_add_year else query; output = {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'modifiedToolInput': {'query': modified_query}}}; print(json.dumps(output)); sys.exit(0)\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/media/sam/1TB/UTXOracle/.claude/hooks/post-tool-use.py"
+          },
+          {
+            "type": "command",
+            "command": "/media/sam/1TB/UTXOracle/.claude/hooks/context_bundle_builder.py"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/media/sam/1TB/UTXOracle/.claude/hooks/auto-format.py",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v osascript >/dev/null 2>&1; then osascript -e 'display notification \"Tool: $CLAUDE_TOOL_NAME completed\" with title \"Claude Code\"'; elif command -v notify-send >/dev/null 2>&1; then notify-send 'Claude Code' \"Tool: $CLAUDE_TOOL_NAME completed\"; fi"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "tdd-guard"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "tdd-guard"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/media/sam/1TB/UTXOracle/.claude/hooks/notification.py"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/media/sam/1TB/UTXOracle/.claude/hooks/stop.py"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/media/sam/1TB/UTXOracle/.claude/hooks/subagent-checkpoint.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

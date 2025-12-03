@@ -1,0 +1,602 @@
+[
+  {
+    "timestamp": "2025-10-22T15:50:10.617083",
+    "tool_name": "Grep",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T15:50:14.918948",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T15:50:20.987222",
+    "tool_name": "Grep",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T15:51:31.687901",
+    "tool_name": "Write",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T15:52:12.284518",
+    "tool_name": "Write",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T15:52:56.197916",
+    "tool_name": "Write",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T15:53:16.936690",
+    "tool_name": "Task",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T15:53:31.235565",
+    "tool_name": "TodoWrite",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T15:53:39.366969",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T15:53:47.177620",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T15:53:57.311981",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T15:54:09.410676",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T15:54:51.440002",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T15:54:59.752902",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T15:55:07.601177",
+    "tool_name": "Bash",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T15:55:13.908152",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T15:55:59.342489",
+    "tool_name": "Edit",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T15:56:47.782436",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T15:57:20.154663",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T15:57:28.393572",
+    "tool_name": "Bash",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T15:57:35.294390",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T15:58:05.767839",
+    "tool_name": "Edit",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T15:59:15.721959",
+    "tool_name": "Bash",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T15:59:40.672769",
+    "tool_name": "Edit",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T15:59:52.101206",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:00:01.129280",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:00:30.798490",
+    "tool_name": "Edit",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:01:41.445745",
+    "tool_name": "Bash",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:01:52.707712",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:02:01.921828",
+    "tool_name": "Bash",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:02:09.700447",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:02:41.508513",
+    "tool_name": "Edit",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:02:50.609699",
+    "tool_name": "Bash",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:03:15.382187",
+    "tool_name": "Edit",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:03:25.540752",
+    "tool_name": "Bash",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:03:36.681503",
+    "tool_name": "Bash",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:03:44.453220",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:05:31.563890",
+    "tool_name": "Bash",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:06:01.098805",
+    "tool_name": "Edit",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:07:13.803905",
+    "tool_name": "Bash",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:07:27.483289",
+    "tool_name": "TodoWrite",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:07:52.729188",
+    "tool_name": "Bash",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:08:04.919144",
+    "tool_name": "Bash",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:08:13.275165",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:08:35.382688",
+    "tool_name": "Glob",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:08:39.732294",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:08:45.827705",
+    "tool_name": "Grep",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:08:58.430470",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:09:04.618883",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:09:12.047177",
+    "tool_name": "Grep",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:09:17.941495",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:09:56.931302",
+    "tool_name": "Glob",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:10:01.502224",
+    "tool_name": "Glob",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:10:05.692700",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:10:14.157891",
+    "tool_name": "Bash",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:10:38.730179",
+    "tool_name": "Task",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:10:51.850044",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:20:48.618017",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:20:56.824229",
+    "tool_name": "Bash",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:21:04.751534",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:21:45.230957",
+    "tool_name": "Edit",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:21:56.579067",
+    "tool_name": "Bash",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:22:32.532443",
+    "tool_name": "Edit",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:22:41.650536",
+    "tool_name": "Bash",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:23:23.180184",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:23:41.919723",
+    "tool_name": "Bash",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:23:56.341003",
+    "tool_name": "Bash",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:24:01.266982",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:24:04.852127",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:24:11.175531",
+    "tool_name": "Bash",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:24:28.638720",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:25:04.737661",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:25:11.315176",
+    "tool_name": "Grep",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:25:16.846424",
+    "tool_name": "Grep",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:25:23.791922",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:25:28.510250",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:25:33.925785",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:25:42.628125",
+    "tool_name": "Grep",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:25:53.683864",
+    "tool_name": "Grep",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:26:02.688626",
+    "tool_name": "Bash",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:26:09.301209",
+    "tool_name": "Grep",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:26:28.164567",
+    "tool_name": "Task",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:26:45.041739",
+    "tool_name": "TodoWrite",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:27:17.756751",
+    "tool_name": "Edit",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:27:28.832072",
+    "tool_name": "Bash",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:27:55.756014",
+    "tool_name": "Edit",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:28:32.151119",
+    "tool_name": "Bash",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:28:56.845544",
+    "tool_name": "Edit",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:29:06.638122",
+    "tool_name": "Bash",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:29:18.462711",
+    "tool_name": "TodoWrite",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:29:50.050393",
+    "tool_name": "Bash",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:30:04.241981",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:30:10.308377",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:31:19.541419",
+    "tool_name": "Write",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:31:34.820511",
+    "tool_name": "Task",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-22T16:31:50.738416",
+    "tool_name": "TodoWrite",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-23T11:09:08.101894",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-23T11:09:24.388743",
+    "tool_name": "Read",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-23T11:09:36.906817",
+    "tool_name": "Bash",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  },
+  {
+    "timestamp": "2025-10-23T11:10:39.372152",
+    "tool_name": "Write",
+    "session_id": "96e3c61f-3002-427b-becf-0e60192b0317",
+    "success": true
+  }
+]

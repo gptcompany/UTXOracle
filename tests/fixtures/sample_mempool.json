@@ -1,0 +1,38 @@
+{
+  "timestamp": 1678901234.567,
+  "price": 113600.50,
+  "confidence": 0.87,
+  "active_transactions": [
+    {
+      "txid": "a1b2c3d4e5f6789012345678901234567890123456789012345678901234567",
+      "amounts": [0.00123456, 0.00654321],
+      "timestamp": 1678901234.1,
+      "fee_rate": 25.5,
+      "input_count": 2,
+      "output_count": 2
+    },
+    {
+      "txid": "b2c3d4e5f6789012345678901234567890123456789012345678901234567890",
+      "amounts": [0.001, 0.002],
+      "timestamp": 1678901234.2,
+      "fee_rate": 30.0,
+      "input_count": 1,
+      "output_count": 2
+    },
+    {
+      "txid": "c3d4e5f6789012345678901234567890123456789012345678901234567890ab",
+      "amounts": [0.005, 0.010],
+      "timestamp": 1678901234.3,
+      "fee_rate": 20.5,
+      "input_count": 3,
+      "output_count": 2
+    }
+  ],
+  "stats": {
+    "total_received": 12543,
+    "total_filtered": 8234,
+    "active_in_window": 4309,
+    "uptime_seconds": 3600.5
+  },
+  "description": "Mock mempool state for testing with 3 sample transactions matching UTXOracle filters"
+}

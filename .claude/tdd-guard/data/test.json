@@ -1,0 +1,69 @@
+{
+  "testModules": [
+    {
+      "moduleId": "tests/integration/test_orchestrator_startup.py",
+      "tests": [
+        {
+          "name": "test_orchestrator_initialization",
+          "fullName": "tests/integration/test_orchestrator_startup.py::TestOrchestratorStartup::test_orchestrator_initialization",
+          "state": "passed"
+        },
+        {
+          "name": "test_database_initialization",
+          "fullName": "tests/integration/test_orchestrator_startup.py::TestOrchestratorStartup::test_database_initialization",
+          "state": "passed"
+        },
+        {
+          "name": "test_database_initialization_failure",
+          "fullName": "tests/integration/test_orchestrator_startup.py::TestOrchestratorStartup::test_database_initialization_failure",
+          "state": "passed"
+        },
+        {
+          "name": "test_orchestrator_start_creates_components",
+          "fullName": "tests/integration/test_orchestrator_startup.py::TestOrchestratorStartup::test_orchestrator_start_creates_components",
+          "state": "passed"
+        },
+        {
+          "name": "test_orchestrator_stop_gracefully_shuts_down",
+          "fullName": "tests/integration/test_orchestrator_startup.py::TestOrchestratorStartup::test_orchestrator_stop_gracefully_shuts_down",
+          "state": "passed"
+        },
+        {
+          "name": "test_orchestrator_stop_timeout_handling",
+          "fullName": "tests/integration/test_orchestrator_startup.py::TestOrchestratorStartup::test_orchestrator_stop_timeout_handling",
+          "state": "passed"
+        },
+        {
+          "name": "test_orchestrator_double_stop_ignored",
+          "fullName": "tests/integration/test_orchestrator_startup.py::TestOrchestratorStartup::test_orchestrator_double_stop_ignored",
+          "state": "passed"
+        },
+        {
+          "name": "test_orchestrator_start_aborts_on_db_failure",
+          "fullName": "tests/integration/test_orchestrator_startup.py::TestOrchestratorStartup::test_orchestrator_start_aborts_on_db_failure",
+          "state": "passed"
+        },
+        {
+          "name": "test_statistics_reporting",
+          "fullName": "tests/integration/test_orchestrator_startup.py::TestOrchestratorStartup::test_statistics_reporting",
+          "state": "passed"
+        },
+        {
+          "name": "test_orchestrator_config_from_defaults",
+          "fullName": "tests/integration/test_orchestrator_startup.py::TestOrchestratorStartup::test_orchestrator_config_from_defaults",
+          "state": "passed"
+        },
+        {
+          "name": "test_orchestrator_config_override",
+          "fullName": "tests/integration/test_orchestrator_startup.py::TestOrchestratorStartup::test_orchestrator_config_override",
+          "state": "passed"
+        },
+        {
+          "name": "test_main_creates_orchestrator_with_args",
+          "fullName": "tests/integration/test_orchestrator_startup.py::TestOrchestratorCLI::test_main_creates_orchestrator_with_args",
+          "state": "passed"
+        }
+      ]
+    }
+  ]
+}

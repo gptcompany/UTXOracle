@@ -1,0 +1,135 @@
+#!/bin/bash
+# UTXOracle Pre-Commit Hook (Optional Automation)
+#
+# To install:
+#   cp .github/pre-commit.hook .git/hooks/pre-commit
+#   chmod +x .git/hooks/pre-commit
+#
+# To bypass for emergency commits:
+#   git commit --no-verify
+
+set -e
+
+echo "🧹 Running UTXOracle pre-commit cleanup..."
+
+# ======================================
+# 1. Auto-cleanup Python cache
+# ======================================
+echo "  Removing Python cache..."
+find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+find . -type d -name ".pytest_cache" -exec rm -rf {} + 2>/dev/null || true
+find . -type f -name "*.pyc" -delete 2>/dev/null || true
+
+# ======================================
+# 2. Check for temporary files
+# ======================================
+echo "  Checking for temporary files..."
+TEMP_FILES=$(find . -type f \( -name "*.tmp" -o -name "*.bak" -o -name "*~" \) 2>/dev/null | grep -v ".git" || true)
+
+if [ -n "$TEMP_FILES" ]; then
+    echo ""
+    echo "❌ COMMIT BLOCKED: Temporary files detected:"
+    echo "$TEMP_FILES"
+    echo ""
+    echo "Please remove temporary files before committing:"
+    echo "  find . -name '*.tmp' -delete"
+    echo "  find . -name '*.bak' -delete"
+    echo ""
+    echo "Or bypass this check with: git commit --no-verify"
+    exit 1
+fi
+
+# ======================================
+# 3. Warn about debug code
+# ======================================
+echo "  Checking for debug code..."
+DEBUG_CODE=$(git diff --cached | grep -E "^\+.*(print\(|console\.log|debugger|import pdb)" || true)
+
+if [ -n "$DEBUG_CODE" ]; then
+    echo ""
+    echo "⚠️  WARNING: Debug code detected in staged changes:"
+    echo "$DEBUG_CODE" | head -10
+    echo ""
+    echo "Consider removing debug statements before committing."
+    echo "Press Ctrl+C to cancel, or wait 3 seconds to continue..."
+    sleep 3
+fi
+
+# ======================================
+# 4. Check file count
+# ======================================
+CHANGED=$(git diff --cached --name-only | wc -l)
+if [ "$CHANGED" -gt 30 ]; then
+    echo ""
+    echo "⚠️  WARNING: Large commit ($CHANGED files changed)"
+    echo "Consider splitting into smaller commits for better review."
+    echo "Press Ctrl+C to cancel, or wait 3 seconds to continue..."
+    sleep 3
+fi
+
+# ======================================
+# 5. Check for large files
+# ======================================
+echo "  Checking for large files..."
+LARGE_FILES=$(git diff --cached --name-only | xargs -I {} find {} -type f -size +5M 2>/dev/null || true)
+
+if [ -n "$LARGE_FILES" ]; then
+    echo ""
+    echo "⚠️  WARNING: Large files detected (>5MB):"
+    echo "$LARGE_FILES"
+    echo ""
+    echo "Consider using Git LFS for large files."
+    echo "Press Ctrl+C to cancel, or wait 5 seconds to continue..."
+    sleep 5
+fi
+
+# ======================================
+# 6. Optional: Run tests (commented out by default)
+# ======================================
+# Uncomment to run tests before every commit
+# echo "  Running tests..."
+# if ! uv run pytest tests/ -q; then
+#     echo ""
+#     echo "❌ COMMIT BLOCKED: Tests failed"
+#     echo "Fix failing tests or use: git commit --no-verify"
+#     exit 1
+# fi
+
+# ======================================
+# 7. Auto-update CLAUDE.md structure
+# ======================================
+echo "  Checking if repository structure changed..."
+STRUCTURE_CHANGED=$(git diff --cached --name-only | grep -E "^(live|tests|docs|\.claude|scripts|specs)/" || true)
+
+if [ -n "$STRUCTURE_CHANGED" ]; then
+    echo "  → Structure changes detected, updating CLAUDE.md..."
+
+    if python3 .claude/hooks/update-claude-structure.py; then
+        # If CLAUDE.md was updated, stage it
+        if [ -n "$(git diff CLAUDE.md)" ]; then
+            git add CLAUDE.md
+            echo "  ✅ CLAUDE.md updated and staged"
+        fi
+    else
+        echo "  ⚠️  Failed to update CLAUDE.md (continuing anyway)"
+    fi
+fi
+
+# ======================================
+# 8. Optional: Run linter (commented out by default)
+# ======================================
+# Uncomment to run linter before every commit
+# echo "  Running linter..."
+# if ! ruff check . --quiet; then
+#     echo ""
+#     echo "⚠️  WARNING: Linting errors detected"
+#     echo "Run 'ruff check .' to see details"
+#     echo "Press Ctrl+C to cancel, or wait 3 seconds to continue..."
+#     sleep 3
+# fi
+
+echo ""
+echo "✅ Pre-commit checks passed"
+echo ""
+
+exit 0

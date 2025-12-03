@@ -1,0 +1,120 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "UTXOracle Live Data Models",
+  "description": "Shared data structures for black box module interfaces",
+  "definitions": {
+    "RawTransaction": {
+      "type": "object",
+      "description": "Raw transaction from Bitcoin Core ZMQ (Module 1 → Module 2)",
+      "properties": {
+        "raw_bytes": {
+          "type": "string",
+          "format": "byte",
+          "description": "Base64-encoded binary transaction data"
+        },
+        "timestamp": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true,
+          "description": "Unix timestamp (seconds) when transaction was received"
+        },
+        "topic": {
+          "type": "string",
+          "enum": ["rawtx"],
+          "description": "ZMQ topic identifier (always 'rawtx' for mempool transactions)"
+        }
+      },
+      "required": ["raw_bytes", "timestamp", "topic"],
+      "additionalProperties": false
+    },
+    "ProcessedTransaction": {
+      "type": "object",
+      "description": "Filtered transaction with extracted data (Module 2 → Module 3)",
+      "properties": {
+        "txid": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Transaction ID (64-character hex string)"
+        },
+        "amounts": {
+          "type": "array",
+          "description": "BTC amounts from qualifying outputs",
+          "items": {
+            "type": "number",
+            "minimum": 0.00001,
+            "maximum": 100000,
+            "description": "BTC amount in range [1e-5, 1e5]"
+          },
+          "minItems": 1,
+          "maxItems": 2
+        },
+        "timestamp": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true,
+          "description": "Unix timestamp (seconds) when transaction was received"
+        },
+        "fee_rate": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "exclusiveMinimum": true,
+          "description": "Fee rate in sat/vB (optional)"
+        },
+        "input_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5,
+          "description": "Number of inputs (UTXOracle filter: ≤5)"
+        },
+        "output_count": {
+          "type": "integer",
+          "enum": [2],
+          "description": "Number of outputs (UTXOracle filter: exactly 2)"
+        }
+      },
+      "required": ["txid", "amounts", "timestamp", "input_count", "output_count"],
+      "additionalProperties": false
+    },
+    "MempoolState": {
+      "type": "object",
+      "description": "Current mempool analysis state (Module 3 → Module 4)",
+      "properties": {
+        "price": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true,
+          "description": "Estimated BTC/USD price from mempool analysis"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Confidence score [0.0-1.0] based on transaction count"
+        },
+        "active_tx_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of transactions in 3-hour rolling window"
+        },
+        "total_received": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total transactions received since startup"
+        },
+        "total_filtered": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total transactions filtered out"
+        },
+        "uptime_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true,
+          "description": "Analyzer uptime (seconds)"
+        }
+      },
+      "required": ["price", "confidence", "active_tx_count", "total_received", "total_filtered", "uptime_seconds"],
+      "additionalProperties": false
+    }
+  }
+}

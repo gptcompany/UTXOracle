@@ -1,0 +1,68 @@
+{
+  "timestamp": "2025-10-20T11:23:50.964984",
+  "sessions_analyzed": 13,
+  "total_tool_calls": 680,
+  "top_10_tools": [
+    {
+      "tool": "Bash",
+      "count": 208,
+      "percentage": "30.6%",
+      "success_rate": "100%"
+    },
+    {
+      "tool": "Read",
+      "count": 151,
+      "percentage": "22.2%",
+      "success_rate": "100%"
+    },
+    {
+      "tool": "TodoWrite",
+      "count": 90,
+      "percentage": "13.2%",
+      "success_rate": "100%"
+    },
+    {
+      "tool": "Write",
+      "count": 77,
+      "percentage": "11.3%",
+      "success_rate": "100%"
+    },
+    {
+      "tool": "Edit",
+      "count": 65,
+      "percentage": "9.6%",
+      "success_rate": "100%"
+    },
+    {
+      "tool": "WebSearch",
+      "count": 36,
+      "percentage": "5.3%",
+      "success_rate": "100%"
+    },
+    {
+      "tool": "WebFetch",
+      "count": 22,
+      "percentage": "3.2%",
+      "success_rate": "100%"
+    },
+    {
+      "tool": "Task",
+      "count": 14,
+      "percentage": "2.1%",
+      "success_rate": "100%"
+    },
+    {
+      "tool": "Glob",
+      "count": 12,
+      "percentage": "1.8%",
+      "success_rate": "100%"
+    },
+    {
+      "tool": "SlashCommand",
+      "count": 3,
+      "percentage": "0.4%",
+      "success_rate": "100%"
+    }
+  ],
+  "mcp_servers": {}
+}

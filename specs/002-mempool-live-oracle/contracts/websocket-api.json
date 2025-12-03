@@ -1,0 +1,124 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "WebSocket API Contract - UTXOracle Live",
+  "description": "Message format for WebSocket streaming from backend to frontend (Module 4 → Module 5)",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": ["mempool_update"],
+      "description": "Message type identifier"
+    },
+    "data": {
+      "type": "object",
+      "properties": {
+        "price": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true,
+          "description": "Current BTC/USD price estimate from mempool analysis",
+          "examples": [113600.50]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Confidence score [0.0-1.0] based on transaction count and distribution",
+          "examples": [0.87]
+        },
+        "transactions": {
+          "type": "array",
+          "description": "Recent transactions for scatter plot visualization (limited to 300-500 points)",
+          "items": {
+            "type": "object",
+            "properties": {
+              "timestamp": {
+                "type": "number",
+                "minimum": 0,
+                "exclusiveMinimum": true,
+                "description": "Unix timestamp (seconds) when transaction was received",
+                "examples": [1678901234.1]
+              },
+              "price": {
+                "type": "number",
+                "minimum": 0,
+                "exclusiveMinimum": true,
+                "description": "Estimated price for this specific transaction (USD)",
+                "examples": [113500.0]
+              }
+            },
+            "required": ["timestamp", "price"],
+            "additionalProperties": false
+          },
+          "maxItems": 500,
+          "minItems": 0
+        },
+        "stats": {
+          "type": "object",
+          "description": "Operational statistics for system health monitoring",
+          "properties": {
+            "total_received": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Total transactions received since system startup",
+              "examples": [12543]
+            },
+            "total_filtered": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Total transactions filtered out (didn't pass UTXOracle criteria)",
+              "examples": [8234]
+            },
+            "active_in_window": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of transactions currently in 3-hour rolling window",
+              "examples": [4309]
+            },
+            "uptime_seconds": {
+              "type": "number",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "description": "System uptime in seconds since analyzer started",
+              "examples": [3600.5]
+            }
+          },
+          "required": ["total_received", "total_filtered", "active_in_window", "uptime_seconds"],
+          "additionalProperties": false
+        },
+        "timestamp": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true,
+          "description": "Message generation timestamp (Unix seconds)",
+          "examples": [1678901234.567]
+        }
+      },
+      "required": ["price", "confidence", "transactions", "stats", "timestamp"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["type", "data"],
+  "additionalProperties": false,
+  "examples": [
+    {
+      "type": "mempool_update",
+      "data": {
+        "price": 113600.50,
+        "confidence": 0.87,
+        "transactions": [
+          {"timestamp": 1678901234.1, "price": 113500.0},
+          {"timestamp": 1678901234.2, "price": 113700.0},
+          {"timestamp": 1678901234.3, "price": 113550.0}
+        ],
+        "stats": {
+          "total_received": 12543,
+          "total_filtered": 8234,
+          "active_in_window": 4309,
+          "uptime_seconds": 3600.5
+        },
+        "timestamp": 1678901234.567
+      }
+    }
+  ]
+}

@@ -1,0 +1,120 @@
+{
+  "metadata": {
+    "start_block": 922506,
+    "end_block": 922516,
+    "blocks_analyzed": 10,
+    "timestamp": "2025-11-06T22:08:30.573373"
+  },
+  "signals": [
+    {
+      "block_height": 922506,
+      "net_flow_btc": 646.3411160200001,
+      "direction": "DISTRIBUTION",
+      "confidence": 0.25,
+      "inflow_btc": 646.3411160200001,
+      "outflow_btc": 0.0,
+      "internal_btc": 570.8799349100001,
+      "tx_count_total": 3448,
+      "tx_count_relevant": 25
+    },
+    {
+      "block_height": 922507,
+      "net_flow_btc": 23.7873714,
+      "direction": "NEUTRAL",
+      "confidence": 0.38,
+      "inflow_btc": 23.7873714,
+      "outflow_btc": 0.0,
+      "internal_btc": 767.9723820300002,
+      "tx_count_total": 2483,
+      "tx_count_relevant": 38
+    },
+    {
+      "block_height": 922508,
+      "net_flow_btc": 0.0,
+      "direction": "NEUTRAL",
+      "confidence": 0.15,
+      "inflow_btc": 0.0,
+      "outflow_btc": 0.0,
+      "internal_btc": 43.320910330000004,
+      "tx_count_total": 2639,
+      "tx_count_relevant": 15
+    },
+    {
+      "block_height": 922509,
+      "net_flow_btc": 0.0,
+      "direction": "NEUTRAL",
+      "confidence": 0.82,
+      "inflow_btc": 0.0,
+      "outflow_btc": 0.0,
+      "internal_btc": 2830.3708179600007,
+      "tx_count_total": 3287,
+      "tx_count_relevant": 82
+    },
+    {
+      "block_height": 922510,
+      "net_flow_btc": 0.0,
+      "direction": "NEUTRAL",
+      "confidence": 0.85,
+      "inflow_btc": 0.0,
+      "outflow_btc": 0.0,
+      "internal_btc": 3015.26508378,
+      "tx_count_total": 4011,
+      "tx_count_relevant": 85
+    },
+    {
+      "block_height": 922511,
+      "net_flow_btc": 6.16208329,
+      "direction": "NEUTRAL",
+      "confidence": 0.28,
+      "inflow_btc": 6.16208329,
+      "outflow_btc": 0.0,
+      "internal_btc": 370.28354098,
+      "tx_count_total": 3893,
+      "tx_count_relevant": 28
+    },
+    {
+      "block_height": 922512,
+      "net_flow_btc": 0.0,
+      "direction": "NEUTRAL",
+      "confidence": 0.37,
+      "inflow_btc": 0.0,
+      "outflow_btc": 0.0,
+      "internal_btc": 750.2359027199999,
+      "tx_count_total": 4310,
+      "tx_count_relevant": 37
+    },
+    {
+      "block_height": 922513,
+      "net_flow_btc": 738.80205396,
+      "direction": "DISTRIBUTION",
+      "confidence": 0.37,
+      "inflow_btc": 738.80205396,
+      "outflow_btc": 0.0,
+      "internal_btc": 362.20674374,
+      "tx_count_total": 3645,
+      "tx_count_relevant": 37
+    },
+    {
+      "block_height": 922514,
+      "net_flow_btc": 4.50338698,
+      "direction": "NEUTRAL",
+      "confidence": 0.83,
+      "inflow_btc": 4.50338698,
+      "outflow_btc": 0.0,
+      "internal_btc": 2421.1613019599995,
+      "tx_count_total": 3714,
+      "tx_count_relevant": 83
+    },
+    {
+      "block_height": 922515,
+      "net_flow_btc": 0.0,
+      "direction": "NEUTRAL",
+      "confidence": 0.1,
+      "inflow_btc": 0.0,
+      "outflow_btc": 0.0,
+      "internal_btc": 389.79275253,
+      "tx_count_total": 3655,
+      "tx_count_relevant": 10
+    }
+  ]
+}
