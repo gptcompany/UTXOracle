@@ -41,6 +41,18 @@ except ImportError:
     # Whale detection will be disabled if import fails
     WhaleFlowDetector = None
 
+# On-Chain Metrics (spec-007) - Monte Carlo Fusion, Active Addresses, TX Volume
+try:
+    from scripts.metrics.monte_carlo_fusion import monte_carlo_fusion
+    from scripts.metrics.active_addresses import count_active_addresses
+    from scripts.metrics.tx_volume import calculate_tx_volume
+    from scripts.metrics import save_metrics_to_db
+
+    METRICS_ENABLED = True
+except ImportError:
+    METRICS_ENABLED = False
+    logging.warning("spec-007 metrics not available - run scripts/init_metrics_db.py")
+
 
 # =============================================================================
 # Configuration Management (T038)
@@ -1525,6 +1537,78 @@ def main():
             action = "HOLD"  # Conservative: HOLD when missing whale data
             combined_signal = 0.0  # Neutral signal
 
+        # Step 2.7: Spec-007 On-Chain Metrics (Monte Carlo Fusion, Active Addresses, TX Volume)
+        mc_result = None
+        active_addr_result = None
+        tx_vol_result = None
+
+        if METRICS_ENABLED:
+            try:
+                # Get transactions for metrics calculation
+                transactions = utx_result.get("transactions", [])
+                current_time = datetime.now()
+
+                # Monte Carlo Signal Fusion (replaces linear fusion when whale data available)
+                if whale_signal:
+                    whale_vote = _calculate_whale_vote(
+                        net_flow_btc=whale_signal.net_flow_btc,
+                        direction=whale_signal.direction,
+                    )
+                    utxo_vote = _calculate_utxo_vote(
+                        confidence=utx_result["confidence"]
+                    )
+
+                    mc_result = monte_carlo_fusion(
+                        whale_vote=whale_vote,
+                        whale_confidence=whale_signal.confidence,
+                        utxo_vote=utxo_vote,
+                        utxo_confidence=utx_result["confidence"],
+                        n_samples=1000,
+                    )
+
+                    # Override action with Monte Carlo result
+                    action = mc_result.action
+                    combined_signal = mc_result.signal_mean
+
+                    logging.info(
+                        f"📈 Monte Carlo Fusion: "
+                        f"signal={mc_result.signal_mean:+.3f} "
+                        f"(95% CI: [{mc_result.ci_lower:+.3f}, {mc_result.ci_upper:+.3f}]), "
+                        f"action={mc_result.action} "
+                        f"(conf: {mc_result.action_confidence:.1%}), "
+                        f"distribution: {mc_result.distribution_type}"
+                    )
+
+                # Active Addresses
+                if transactions:
+                    active_addr_result = count_active_addresses(
+                        transactions=transactions,
+                        block_height=utx_result.get("block_height", 0),
+                        timestamp=current_time,
+                    )
+                    logging.info(
+                        f"👥 Active Addresses: {active_addr_result.active_addresses_block} "
+                        f"(senders: {active_addr_result.unique_senders}, "
+                        f"receivers: {active_addr_result.unique_receivers})"
+                    )
+
+                # TX Volume USD
+                if transactions and utx_result["price_usd"]:
+                    tx_vol_result = calculate_tx_volume(
+                        transactions=transactions,
+                        utxoracle_price=utx_result["price_usd"],
+                        confidence=utx_result["confidence"],
+                        timestamp=current_time,
+                    )
+                    logging.info(
+                        f"💰 TX Volume: {tx_vol_result.tx_volume_btc:.2f} BTC "
+                        f"(${tx_vol_result.tx_volume_usd:,.0f} USD), "
+                        f"{tx_vol_result.tx_count} transactions"
+                    )
+
+            except Exception as e:
+                logging.warning(f"Spec-007 metrics calculation failed: {e}")
+
         # Step 3: Compare prices (T041)
         comparison = compare_prices(utx_result["price_usd"], mempool_price)
 
@@ -1551,6 +1635,28 @@ def main():
         # Step 5: Save to database (T042, T043)
         if not args.dry_run:
             save_to_duckdb(data, config["DUCKDB_PATH"], config["DUCKDB_BACKUP_PATH"])
+
+            # Step 5.5: Save spec-007 metrics to metrics table
+            if METRICS_ENABLED:
+                try:
+                    mc_dict = mc_result.to_dict() if mc_result else None
+                    aa_dict = (
+                        active_addr_result.to_dict() if active_addr_result else None
+                    )
+                    tv_dict = tx_vol_result.to_dict() if tx_vol_result else None
+
+                    if save_metrics_to_db(
+                        timestamp=current_time,
+                        monte_carlo=mc_dict,
+                        active_addresses=aa_dict,
+                        tx_volume=tv_dict,
+                        db_path=config["DUCKDB_PATH"],
+                    ):
+                        logging.info("✅ Spec-007 metrics saved to metrics table")
+                    else:
+                        logging.warning("⚠️ Failed to save spec-007 metrics")
+                except Exception as e:
+                    logging.warning(f"Spec-007 metrics save failed: {e}")
         else:
             logging.info("[DRY-RUN] Would save data:")
             logging.info(json.dumps(data, indent=2))

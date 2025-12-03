@@ -666,7 +666,7 @@ async def get_historical_whale_flow(
         return {"success": True, "data": data, "count": len(data)}
 
     except Exception as e:
-        logger.error(f"Error fetching historical whale data: {e}")
+        logging.error(f"Error fetching historical whale data: {e}")
         return {"success": False, "error": str(e), "data": [], "count": 0}
 
     finally:
@@ -682,6 +682,134 @@ async def whale_history_alias(
 ):
     """Alias for /api/whale/historical endpoint (backward compatibility)."""
     return await get_historical_whale_flow(start=start, end=end, timeframe=timeframe)
+
+
+# =============================================================================
+# Spec-007: On-Chain Metrics API Endpoints
+# =============================================================================
+
+
+class MonteCarloFusionResponse(BaseModel):
+    """Monte Carlo signal fusion result."""
+
+    signal_mean: float = Field(..., description="Mean of bootstrap samples")
+    signal_std: float = Field(..., description="Standard deviation of samples")
+    ci_lower: float = Field(..., description="95% CI lower bound")
+    ci_upper: float = Field(..., description="95% CI upper bound")
+    action: str = Field(..., description="Recommended action: BUY/SELL/HOLD")
+    action_confidence: float = Field(..., description="Confidence in action")
+    n_samples: int = Field(default=1000, description="Bootstrap iterations")
+    distribution_type: str = Field(default="unimodal", description="unimodal/bimodal")
+
+
+class ActiveAddressesResponse(BaseModel):
+    """Active addresses metric."""
+
+    block_height: int = Field(..., description="Bitcoin block height")
+    active_addresses_block: int = Field(..., description="Unique addresses in block")
+    active_addresses_24h: Optional[int] = Field(
+        None, description="24h unique addresses"
+    )
+    unique_senders: int = Field(..., description="Unique senders")
+    unique_receivers: int = Field(..., description="Unique receivers")
+    is_anomaly: bool = Field(default=False, description="Anomaly detected")
+
+
+class TxVolumeResponse(BaseModel):
+    """Transaction volume metric."""
+
+    tx_count: int = Field(..., description="Transaction count")
+    tx_volume_btc: float = Field(..., description="Volume in BTC")
+    tx_volume_usd: Optional[float] = Field(None, description="Volume in USD")
+    utxoracle_price_used: Optional[float] = Field(None, description="Price used")
+    low_confidence: bool = Field(default=False, description="Low confidence flag")
+
+
+class MetricsLatestResponse(BaseModel):
+    """Combined metrics response for /api/metrics/latest."""
+
+    timestamp: datetime = Field(..., description="Metrics timestamp")
+    monte_carlo: Optional[MonteCarloFusionResponse] = Field(
+        None, description="Signal fusion"
+    )
+    active_addresses: Optional[ActiveAddressesResponse] = Field(
+        None, description="Address metrics"
+    )
+    tx_volume: Optional[TxVolumeResponse] = Field(None, description="Volume metrics")
+
+
+@app.get("/api/metrics/latest", response_model=MetricsLatestResponse)
+async def get_latest_metrics():
+    """
+    Get the most recent on-chain metrics (spec-007).
+
+    Returns Monte Carlo fusion, Active Addresses, and TX Volume.
+    """
+    import duckdb
+
+    db_path = os.getenv(
+        "DUCKDB_PATH", "/media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxoracle_cache.db"
+    )
+
+    try:
+        conn = duckdb.connect(db_path, read_only=True)
+
+        # Fetch latest metrics record
+        result = conn.execute(
+            "SELECT * FROM metrics ORDER BY timestamp DESC LIMIT 1"
+        ).fetchone()
+
+        if not result:
+            raise HTTPException(status_code=404, detail="No metrics found")
+
+        columns = [desc[0] for desc in conn.description]
+        data = dict(zip(columns, result))
+        conn.close()
+
+        # Build response
+        response = {"timestamp": data.get("timestamp", datetime.now())}
+
+        # Monte Carlo Fusion
+        if data.get("signal_mean") is not None:
+            response["monte_carlo"] = {
+                "signal_mean": data["signal_mean"],
+                "signal_std": data.get("signal_std", 0),
+                "ci_lower": data.get("ci_lower", 0),
+                "ci_upper": data.get("ci_upper", 0),
+                "action": data.get("action", "HOLD"),
+                "action_confidence": data.get("action_confidence", 0),
+                "n_samples": data.get("n_samples", 1000),
+                "distribution_type": data.get("distribution_type", "unimodal"),
+            }
+
+        # Active Addresses
+        if data.get("active_addresses_block") is not None:
+            response["active_addresses"] = {
+                "block_height": data.get("block_height", 0),
+                "active_addresses_block": data["active_addresses_block"],
+                "active_addresses_24h": data.get("active_addresses_24h"),
+                "unique_senders": data.get("unique_senders", 0),
+                "unique_receivers": data.get("unique_receivers", 0),
+                "is_anomaly": data.get("is_anomaly", False),
+            }
+
+        # TX Volume
+        if data.get("tx_count") is not None:
+            response["tx_volume"] = {
+                "tx_count": data["tx_count"],
+                "tx_volume_btc": data.get("tx_volume_btc", 0),
+                "tx_volume_usd": data.get("tx_volume_usd"),
+                "utxoracle_price_used": data.get("utxoracle_price_used"),
+                "low_confidence": data.get("low_confidence", False),
+            }
+
+        return response
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error fetching metrics: {e}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
 # =============================================================================

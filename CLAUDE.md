@@ -108,6 +108,43 @@ python3 UTXOracle.py -d 2025/10/17 --no-browser
   * Timeframe selector: 7/30/90 days
   * Black background + orange theme
 
+#### On-Chain Metrics Module (spec-007)
+
+Advanced analytics built on top of UTXOracle price calculation:
+
+- **Monte Carlo Signal Fusion** (`scripts/metrics/monte_carlo_fusion.py`)
+  * Bootstrap sampling with 95% confidence intervals
+  * Weighted fusion: 0.7×whale signal + 0.3×utxo signal
+  * Bimodal distribution detection for conflicting signals
+  * Action determination: BUY/SELL/HOLD with confidence score
+  * Performance: <3ms per calculation (target <100ms)
+
+- **Active Addresses** (`scripts/metrics/active_addresses.py`)
+  * Unique address counting per block (deduplicated)
+  * Separate sender/receiver counts
+  * Anomaly detection: 3-sigma from 30-day moving average
+
+- **TX Volume USD** (`scripts/metrics/tx_volume.py`)
+  * Transaction volume using UTXOracle on-chain price
+  * Change output heuristic (<10% of max output = change)
+  * Low confidence flag when UTXOracle confidence <0.3
+  * Performance: <1ms per 1000 transactions
+
+- **Data Models** (`scripts/models/metrics_models.py`)
+  * `MonteCarloFusionResult`: Signal stats and CI
+  * `ActiveAddressesMetric`: Address activity counts
+  * `TxVolumeMetric`: Volume in BTC and USD
+  * `OnChainMetricsBundle`: Combined metrics container
+
+- **Database** (`scripts/init_metrics_db.py`)
+  * DuckDB `metrics` table with 21 columns
+  * Primary key: timestamp (unique per calculation)
+  * Indexes: action, is_anomaly
+
+- **API Endpoint** (`/api/metrics/latest`)
+  * Returns latest Monte Carlo, Active Addresses, and TX Volume
+  * 404 if no metrics data available
+
 ### Code Reduction (spec-002 → spec-003)
 
 **Eliminated Custom Infrastructure** (1,122 lines):
@@ -352,8 +389,16 @@ frontend/                           # Plotly.js dashboard (spec-003)
 scripts/                            # Utilities (batch processing, integration)
 ├── README.md
 ├── daily_analysis.py                   # Integration service (spec-003: T038-T047)
+├── init_metrics_db.py                  # DuckDB metrics table migration (spec-007)
 ├── setup_full_mempool_stack.sh         # Infrastructure deployment (spec-003: T001-T012)
-└── utxoracle_batch.py                  # Batch historical processing
+├── utxoracle_batch.py                  # Batch historical processing
+├── metrics/                            # On-chain metrics module (spec-007)
+│   ├── __init__.py                     # DB helpers (save/load metrics)
+│   ├── monte_carlo_fusion.py           # Bootstrap signal fusion
+│   ├── active_addresses.py             # Address counting & anomaly detection
+│   └── tx_volume.py                    # TX volume in USD
+└── models/
+    └── metrics_models.py               # Pydantic/dataclass models (spec-007)
 specs/                              # Feature specifications (SpecKit)
 ├── 001-specify-scripts-bash/
 ├── 002-mempool-live-oracle/
