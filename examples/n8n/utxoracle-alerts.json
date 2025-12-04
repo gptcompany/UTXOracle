@@ -1,0 +1,301 @@
+{
+  "name": "UTXOracle Alerts",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "utxoracle-alerts",
+        "responseMode": "onReceived",
+        "responseData": "allEntries",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "rules": [
+            {
+              "value": "whale",
+              "outputKey": "whale"
+            },
+            {
+              "value": "signal",
+              "outputKey": "signal"
+            },
+            {
+              "value": "regime",
+              "outputKey": "regime"
+            },
+            {
+              "value": "price",
+              "outputKey": "price"
+            }
+          ]
+        },
+        "dataPropertyName": "={{$json.body.event_type}}"
+      },
+      "id": "switch-event-type",
+      "name": "Switch Event Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format whale event for Telegram\nconst event = $input.item.json.body;\nconst payload = event.payload;\n\nconst direction = payload.direction === 'INFLOW' ? '🔴 EXCHANGE INFLOW' : '🟢 EXCHANGE OUTFLOW';\nconst emoji = payload.amount_btc > 500 ? '🐋' : '🐟';\n\nreturn {\n  text: `${emoji} *WHALE ALERT*\\n\\n${direction}\\n\\n` +\n    `💰 Amount: ${payload.amount_btc.toLocaleString()} BTC\\n` +\n    `📊 Signal Vote: ${(payload.signal_vote * 100).toFixed(1)}%\\n` +\n    (payload.exchange ? `🏦 Exchange: ${payload.exchange}\\n` : '') +\n    (payload.usd_value ? `💵 USD Value: $${payload.usd_value.toLocaleString()}\\n` : '') +\n    `\\n⚠️ Severity: ${event.severity.toUpperCase()}`\n};"
+      },
+      "id": "format-whale",
+      "name": "Format Whale",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 120]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format signal event for Telegram\nconst event = $input.item.json.body;\nconst payload = event.payload;\n\nconst actionEmoji = payload.action === 'BUY' ? '🟢' : '🔴';\nconst confidence = (payload.confidence * 100).toFixed(1);\n\nlet contributors = '';\nif (payload.top_contributors && payload.top_contributors.length > 0) {\n  contributors = '\\n\\n*Top Contributors:*\\n' + \n    payload.top_contributors\n      .map(c => `• ${c.name}: ${(c.value * 100).toFixed(1)}%`)\n      .join('\\n');\n}\n\nreturn {\n  text: `${actionEmoji} *SIGNAL: ${payload.action}*\\n\\n` +\n    `📊 Confidence: ${confidence}%\\n` +\n    `📈 Signal Mean: ${(payload.signal_mean * 100).toFixed(1)}%` +\n    contributors +\n    `\\n\\n⚠️ Severity: ${event.severity.toUpperCase()}`\n};"
+      },
+      "id": "format-signal",
+      "name": "Format Signal",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 280]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format regime event for Telegram\nconst event = $input.item.json.body;\nconst payload = event.payload;\n\nreturn {\n  text: `🔄 *REGIME CHANGE*\\n\\n` +\n    `📊 Metric: ${payload.metric}\\n` +\n    `📉 From: ${payload.from_state}\\n` +\n    `📈 To: ${payload.to_state}\\n` +\n    `\\n💡 *Implication:*\\n${payload.implication}\\n` +\n    `\\n⚠️ Severity: ${event.severity.toUpperCase()}`\n};"
+      },
+      "id": "format-regime",
+      "name": "Format Regime",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 440]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format price event for Telegram\nconst event = $input.item.json.body;\nconst payload = event.payload;\n\nconst direction = payload.direction === 'ABOVE' ? '📈' : '📉';\nconst emoji = Math.abs(payload.divergence_pct) > 5 ? '⚠️' : 'ℹ️';\n\nreturn {\n  text: `${emoji} *PRICE DIVERGENCE*\\n\\n` +\n    `${direction} UTXOracle ${payload.direction} Exchange\\n\\n` +\n    `🔮 UTXOracle: $${payload.utxoracle_price.toLocaleString()}\\n` +\n    `💱 Exchange: $${payload.exchange_price.toLocaleString()}\\n` +\n    `📊 Divergence: ${payload.divergence_pct.toFixed(2)}%\\n` +\n    `\\n⚠️ Severity: ${event.severity.toUpperCase()}`\n};"
+      },
+      "id": "format-price",
+      "name": "Format Price",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 600]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "rules": [
+            {
+              "value": "critical",
+              "outputKey": "critical"
+            },
+            {
+              "value": "high",
+              "outputKey": "high"
+            }
+          ],
+          "fallbackOutput": "other"
+        },
+        "dataPropertyName": "={{$json.body.severity}}"
+      },
+      "id": "switch-severity",
+      "name": "Switch Severity",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "telegram-critical",
+      "name": "Telegram (Critical)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [1120, 200],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-creds",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "telegram-normal",
+      "name": "Telegram (Normal)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [1120, 400],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-creds",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "webhookUri": "={{ $env.DISCORD_WEBHOOK_URL }}",
+        "text": "={{ $json.text }}"
+      },
+      "id": "discord-critical",
+      "name": "Discord (Critical)",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 1,
+      "position": [1120, 100]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Switch Event Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch Event Type": {
+      "main": [
+        [
+          {
+            "node": "Format Whale",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Signal",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Regime",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Price",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Whale": {
+      "main": [
+        [
+          {
+            "node": "Switch Severity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Signal": {
+      "main": [
+        [
+          {
+            "node": "Switch Severity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Regime": {
+      "main": [
+        [
+          {
+            "node": "Switch Severity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Price": {
+      "main": [
+        [
+          {
+            "node": "Switch Severity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch Severity": {
+      "main": [
+        [
+          {
+            "node": "Telegram (Critical)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Discord (Critical)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram (Critical)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram (Normal)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "id": "utxoracle-alerts",
+  "meta": {
+    "instanceId": "utxoracle"
+  },
+  "tags": [
+    {
+      "id": "1",
+      "name": "UTXOracle"
+    },
+    {
+      "id": "2",
+      "name": "Alerts"
+    }
+  ]
+}

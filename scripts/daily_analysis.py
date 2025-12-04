@@ -78,6 +78,21 @@ except ImportError:
         "spec-008 derivatives not available - LiquidationHeatmap integration disabled"
     )
 
+# Webhook Alert System (spec-011) - Signal, Price, and Whale alerts
+try:
+    from scripts.alerts import (
+        emit_alert_sync,
+        create_signal_event,
+        create_price_event,
+        create_whale_event,
+        get_config as get_alert_config,
+    )
+
+    ALERTS_ENABLED = True
+except ImportError:
+    ALERTS_ENABLED = False
+    logging.warning("spec-011 alerts not available - webhook alerts disabled")
+
 
 # =============================================================================
 # Configuration Management (T038)
@@ -1812,6 +1827,77 @@ def main():
                         logging.warning("⚠️ Failed to save spec-007 metrics")
                 except Exception as e:
                     logging.warning(f"Spec-007 metrics save failed: {e}")
+
+            # Step 5.6: Emit webhook alerts (spec-011)
+            if ALERTS_ENABLED:
+                try:
+                    alert_config = get_alert_config()
+
+                    # Signal alert (if action is BUY/SELL with sufficient confidence)
+                    if alert_config.signal_enabled and action in ("BUY", "SELL"):
+                        confidence = (
+                            enhanced_fusion_result.action_confidence
+                            if enhanced_fusion_result
+                            else 0.5
+                        )
+                        if confidence >= alert_config.signal_min_confidence:
+                            signal_event = create_signal_event(
+                                action=action,
+                                confidence=confidence,
+                                signal_mean=combined_signal,
+                                top_contributors=[
+                                    {
+                                        "name": "whale",
+                                        "value": whale_vote if whale_vote else 0,
+                                    },
+                                    {
+                                        "name": "utxo",
+                                        "value": utxo_vote if utxo_vote else 0,
+                                    },
+                                ],
+                            )
+                            if signal_event:
+                                emit_alert_sync(signal_event)
+                                logging.info(
+                                    f"📢 Signal alert emitted: {action} (conf: {confidence:.1%})"
+                                )
+
+                    # Price divergence alert
+                    if alert_config.price_enabled:
+                        divergence = abs(comparison["diff_percent"])
+                        if divergence >= alert_config.price_min_divergence:
+                            price_event = create_price_event(
+                                utxoracle_price=utx_result["price_usd"],
+                                exchange_price=mempool_price,
+                                divergence_pct=comparison["diff_percent"],
+                            )
+                            emit_alert_sync(price_event)
+                            logging.info(
+                                f"📢 Price divergence alert emitted: {divergence:.2f}%"
+                            )
+
+                    # Whale alert (if whale signal available)
+                    if (
+                        alert_config.whale_enabled
+                        and whale_signal
+                        and whale_signal.net_flow_btc
+                    ):
+                        net_flow = abs(whale_signal.net_flow_btc)
+                        if net_flow >= alert_config.whale_min_btc:
+                            whale_event = create_whale_event(
+                                amount_btc=net_flow,
+                                direction="INFLOW"
+                                if whale_signal.net_flow_btc > 0
+                                else "OUTFLOW",
+                                signal_vote=whale_vote if whale_vote else 0,
+                            )
+                            emit_alert_sync(whale_event)
+                            logging.info(
+                                f"📢 Whale alert emitted: {net_flow:.2f} BTC {whale_signal.direction}"
+                            )
+
+                except Exception as e:
+                    logging.warning(f"Spec-011 alert emission failed: {e}")
         else:
             logging.info("[DRY-RUN] Would save data:")
             logging.info(json.dumps(data, indent=2))
