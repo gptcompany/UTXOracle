@@ -29,6 +29,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 import aiohttp
+import psutil
 
 # =============================================================================
 # P2: Structured Logging Configuration
@@ -42,7 +43,6 @@ try:
     from logging_config import (
         configure_structured_logging,
         CorrelationIDMiddleware,
-        get_logger,
     )
 
     configure_structured_logging()
@@ -802,6 +802,55 @@ async def get_latest_metrics():
                 "utxoracle_price_used": data.get("utxoracle_price_used"),
                 "low_confidence": data.get("low_confidence", False),
             }
+
+        # Derivatives signals (spec-008)
+        # Fetch from LiquidationHeatmap if available
+        liq_conn = None
+        try:
+            from scripts.derivatives import get_liq_connection, close_connection
+            from scripts.derivatives.funding_rate_reader import (
+                get_latest_funding_signal,
+            )
+            from scripts.derivatives.oi_reader import get_latest_oi_signal
+
+            liq_conn = get_liq_connection()
+            if liq_conn:
+                derivatives_data = {"available": True}
+
+                # Funding rate signal
+                funding_signal = get_latest_funding_signal(conn=liq_conn)
+                if funding_signal:
+                    derivatives_data["funding"] = {
+                        "timestamp": funding_signal.timestamp.isoformat(),
+                        "funding_rate": funding_signal.funding_rate,
+                        "funding_vote": funding_signal.funding_vote,
+                        "is_extreme": funding_signal.is_extreme,
+                    }
+
+                # OI signal (using NEUTRAL whale direction for API)
+                oi_signal = get_latest_oi_signal(
+                    conn=liq_conn, whale_direction="NEUTRAL"
+                )
+                if oi_signal:
+                    derivatives_data["oi"] = {
+                        "timestamp": oi_signal.timestamp.isoformat(),
+                        "oi_value": oi_signal.oi_value,
+                        "oi_change_1h": oi_signal.oi_change_1h,
+                        "oi_change_24h": oi_signal.oi_change_24h,
+                        "oi_vote": oi_signal.oi_vote,
+                        "context": oi_signal.context,
+                    }
+
+                response["derivatives"] = derivatives_data
+            else:
+                response["derivatives"] = {"available": False}
+        except ImportError:
+            response["derivatives"] = {"available": False, "error": "module_not_found"}
+        except Exception as e:
+            response["derivatives"] = {"available": False, "error": str(e)}
+        finally:
+            if liq_conn:
+                close_connection(liq_conn)
 
         return response
 

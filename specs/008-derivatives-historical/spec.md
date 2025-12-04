@@ -22,10 +22,17 @@
 ATTACH '/media/sam/1TB/LiquidationHeatmap/data/processed/liquidations.duckdb'
 AS liq (READ_ONLY);
 
-SELECT timestamp, funding_rate, open_interest
-FROM liq.funding_rates f
-JOIN liq.open_interest oi ON f.timestamp = oi.timestamp
-WHERE f.symbol = 'BTCUSDT';
+-- Funding rates: 8-hour intervals (4,119 records)
+SELECT timestamp, funding_rate
+FROM liq.funding_rate_history
+WHERE symbol = 'BTCUSDT'
+ORDER BY timestamp DESC;
+
+-- Open Interest: 5-minute intervals (417,460 records)
+SELECT timestamp, open_interest_value
+FROM liq.open_interest_history
+WHERE symbol = 'BTCUSDT'
+ORDER BY timestamp DESC;
 ```
 
 ## User Scenarios & Testing *(mandatory)*
@@ -173,7 +180,7 @@ As a quantitative researcher, I want to **backtest the derivatives-enhanced sign
 - **FR-007**: Default weights: whale=0.40, utxo=0.20, funding=0.25, oi=0.15
 - **FR-008**: System MUST gracefully degrade if derivatives data unavailable
 - **FR-009**: Backtest script MUST output: win rate, total return, Sharpe ratio, max drawdown
-- **FR-010**: All derivatives data MUST be cached locally to avoid repeated cross-DB queries
+- **FR-010**: Derivatives data MUST use 5-minute TTL cache to avoid repeated cross-DB queries (DuckDB ATTACH satisfies this - no data duplication)
 - **FR-011**: System MUST log data freshness (last update timestamp from LiquidationHeatmap)
 
 ### Non-Functional Requirements
@@ -249,7 +256,7 @@ class BacktestResult:
 
 ### Measurable Outcomes
 
-- **SC-001**: Funding rate successfully read from LiquidationHeatmap in <100ms
+- **SC-001**: Single funding rate record read from LiquidationHeatmap in <100ms (batch 24h <500ms per NFR-001)
 - **SC-002**: OI data successfully read and % change calculated correctly
 - **SC-003**: Enhanced fusion produces valid output with all 4 components
 - **SC-004**: Backtest on 30 days shows win rate >55% (better than baseline)
