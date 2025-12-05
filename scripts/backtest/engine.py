@@ -6,6 +6,10 @@ against historical price data.
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    pass
 
 
 @dataclass
@@ -67,13 +71,6 @@ class ComparisonResult:
     best_sharpe: float = 0.0
 
 
-# Type alias for price data
-from typing import TYPE_CHECKING, Optional
-
-if TYPE_CHECKING:
-    pass
-
-
 def get_signal_action(
     signal_value: Optional[float],
     buy_threshold: float,
@@ -129,8 +126,19 @@ def execute_trade(
 
     # Guard against division by zero
     if entry_price <= 0:
-        pnl_pct = 0.0
-    elif direction == "LONG":
+        # Invalid entry price - return zero P&L trade (no transaction costs applied)
+        return Trade(
+            entry_time=entry_time,
+            exit_time=exit_time,
+            entry_price=entry_price,
+            exit_price=exit_price,
+            direction=direction,
+            pnl=0.0,
+            pnl_pct=0.0,
+            signal_value=signal_value,
+        )
+
+    if direction == "LONG":
         # Buy at entry, sell at exit
         pnl_pct = (exit_price - entry_price) / entry_price
     else:  # SHORT
@@ -173,8 +181,8 @@ def calculate_pnl(
         equity += trade.pnl
         equity_curve.append(equity)
 
-    # Guard against division by zero
-    if initial_capital <= 0:
+    # Guard against division by zero (only exactly 0, allow negative capital)
+    if initial_capital == 0:
         total_return = 0.0
     else:
         total_return = (equity - initial_capital) / initial_capital

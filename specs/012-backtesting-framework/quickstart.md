@@ -33,13 +33,34 @@ print(f"Trades: {result.num_trades}")
 ### Compare Multiple Signals
 
 ```python
-from scripts.backtest import compare_signals
+from scripts.backtest import compare_signals, PricePoint
+from datetime import datetime, timedelta
 
-signals = ["whale", "utxo", "symbolic", "fusion"]
+# Create or load price data
+prices = [
+    PricePoint(
+        timestamp=datetime(2025, 1, 1) + timedelta(days=i),
+        utxoracle_price=50000 + i * 100,
+        exchange_price=50000 + i * 100,
+        confidence=0.9,
+        signal_value=0.0,
+    )
+    for i in range(100)
+]
+
+# Define signal values for each strategy
+signals = {
+    "whale": [0.5 if i % 3 == 0 else 0.0 for i in range(100)],
+    "utxo": [-0.5 if i % 4 == 0 else 0.0 for i in range(100)],
+    "symbolic": [0.3 if i % 5 == 0 else -0.3 for i in range(100)],
+    "fusion": [0.4 if i % 2 == 0 else -0.4 for i in range(100)],
+}
+
 comparison = compare_signals(
     signals=signals,
+    prices=prices,
     start_date=datetime(2025, 1, 1),
-    end_date=datetime(2025, 11, 30)
+    end_date=datetime(2025, 4, 10),
 )
 
 print("Signal Ranking by Sharpe:")
@@ -51,12 +72,33 @@ for i, signal in enumerate(comparison.ranking, 1):
 ### Optimize Weights
 
 ```python
-from scripts.backtest import optimize_weights
+from scripts.backtest import optimize_weights, PricePoint
+from datetime import datetime, timedelta
+
+# Create or load price data
+prices = [
+    PricePoint(
+        timestamp=datetime(2025, 1, 1) + timedelta(days=i),
+        utxoracle_price=50000 + i * 100,
+        exchange_price=50000 + i * 100,
+        confidence=0.9,
+        signal_value=0.0,
+    )
+    for i in range(100)
+]
+
+# Define signal values for each strategy to optimize
+signals = {
+    "whale": [0.5 if i % 3 == 0 else 0.0 for i in range(100)],
+    "utxo": [-0.5 if i % 4 == 0 else 0.0 for i in range(100)],
+}
 
 optimization = optimize_weights(
+    signals=signals,
+    prices=prices,
     start_date=datetime(2025, 1, 1),
-    end_date=datetime(2025, 11, 30),
-    step=0.05  # 5% increments
+    end_date=datetime(2025, 4, 10),
+    step=0.1,  # 10% increments (0.05 = 5% creates large grid)
 )
 
 print(f"Best Weights: {optimization.best_weights}")
