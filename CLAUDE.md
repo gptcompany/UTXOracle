@@ -703,7 +703,7 @@ tests/                              # Test suite (pytest)
 
 ## Agent & Skill Architecture
 
-### **Subagents** (7) - Complex Reasoning
+### **Subagents** (8) - Complex Reasoning
 Specialized agents for deep domain expertise and multi-step workflows.
 
 | Agent | Task | Responsibility | Token Cost |
@@ -714,7 +714,8 @@ Specialized agents for deep domain expertise and multi-step workflows.
 | data-streamer | 04 | FastAPI WebSocket server | ~6,000 |
 | visualization-renderer | 05 | Canvas 2D + Three.js WebGL | ~7,000 |
 | tdd-guard | - | TDD enforcement, coverage validation | ~5,000 |
-| **alpha-debug** | - | AlphaEvolve-style iterative bug hunter | ~6,000 |
+| **alpha-debug** | - | Iterative bug hunting on single implementation | ~6,000 |
+| **alpha-evolve** | - | Multi-implementation generator + selection | ~10,000 |
 
 **Usage**: Invoke via Claude Code for complex implementation tasks.
 
@@ -768,6 +769,64 @@ Claude finishes → Stop hook detects → alpha-debug spawns automatically
 - `.claude/agents/alpha-debug.md` - Subagent definition
 - `claude-hooks-shared/hooks/productivity/auto-alpha-debug.py` - Stop hook (auto-trigger)
 - `claude-hooks-shared/hooks/productivity/alpha-debug-loop.py` - SubagentStop hook (loop control)
+
+### **Alpha-Evolve** - Multi-Implementation Selection
+
+AlphaEvolve-inspired system that generates multiple implementation approaches and selects the best.
+
+**Problem Solved**: Alpha-Debug debugs ONE implementation - but what if that implementation is fundamentally wrong?
+
+**Solution**: Generate N approaches, evaluate, select the best BEFORE debugging.
+
+```
+Alpha-Evolve Flow:
+  Task: "Implement Wasserstein distance"
+         │
+         ▼
+  ┌─────────────────────────────────────────────┐
+  │ Generate 3 approaches:                       │
+  │  A: O(n²) naive implementation              │
+  │  B: O(n log n) sorted quantile matching     │
+  │  C: scipy.stats wrapper                     │
+  └─────────────────────────────────────────────┘
+         │
+         ▼
+  ┌─────────────────────────────────────────────┐
+  │ Fitness Evaluation:                          │
+  │  - Tests pass? (correctness)                │
+  │  - Performance (time complexity)            │
+  │  - Code quality (maintainability)           │
+  │  - Edge cases handled?                      │
+  └─────────────────────────────────────────────┘
+         │
+         ▼
+  Winner: Approach B (score: 36/40)
+         │
+         ▼
+  Alpha-Debug runs on VALIDATED implementation
+```
+
+**Triggers** (automatic):
+- Task contains `[E]` marker
+- Keywords: "algorithm", "optimize", "wasserstein", "core algorithm"
+- Keywords: "explore alternatives", "from scratch"
+
+**SpecKit Integration**:
+```markdown
+## tasks.md with [E] marker
+
+- [ ] T010 [P] [US1] Implement user model
+- [ ] T011 [E] [US1] Implement Wasserstein distance  ← Triggers Alpha-Evolve
+- [ ] T012 [P] [US1] Implement API endpoint
+```
+
+**Context Preservation**:
+- Reads spec.md, plan.md, tasks.md from disk
+- NO context loss (files are persistent)
+- Subagent has full project context
+
+**Files**:
+- `.claude/agents/alpha-evolve.md` - Subagent definition
 
 ### **Skills** (4) - Template-Driven Automation
 Lightweight templates for repetitive operations with 60-83% token savings.
