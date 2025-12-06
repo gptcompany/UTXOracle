@@ -1392,6 +1392,144 @@ async def get_wasserstein_regime():
 
 
 # =============================================================================
+# spec-014: Evidence-Based Fusion Weight Breakdown
+# =============================================================================
+
+
+class FusionComponentBreakdown(BaseModel):
+    """Individual fusion component with weight and evidence grade."""
+
+    weight: float = Field(..., description="Component weight in fusion calculation")
+    vote: Optional[float] = Field(None, description="Current signal vote [-1, 1]")
+    grade: str = Field(..., description="Evidence grade: A, B, C, D, or B-LAGGING")
+
+
+class FusionBreakdownResponse(BaseModel):
+    """Response model for fusion weight breakdown (spec-014)."""
+
+    components: Dict[str, FusionComponentBreakdown] = Field(
+        ..., description="All 8 fusion components with weights and grades"
+    )
+    total_weight: float = Field(..., description="Sum of all weights (should be 1.0)")
+    weight_source: str = Field(
+        ..., description="Weight source: 'evidence-based' or 'legacy'"
+    )
+
+
+@app.get("/api/metrics/fusion/breakdown", response_model=FusionBreakdownResponse)
+async def get_fusion_breakdown():
+    """
+    Get fusion weight breakdown with evidence grades (spec-014).
+
+    Returns all 8 component weights, their current votes (if available),
+    and evidence grades from the Contadino Galattico analysis.
+    """
+    import duckdb
+
+    # Import weight configuration from monte_carlo_fusion
+    try:
+        from scripts.metrics.monte_carlo_fusion import (
+            load_weights_from_env,
+            EVIDENCE_GRADES,
+        )
+
+        weights = load_weights_from_env()
+        is_legacy = weights.get("funding", 0) == 0.15
+        weight_source = "legacy" if is_legacy else "evidence-based"
+    except ImportError:
+        # Fallback if module not available
+        weights = {
+            "whale": 0.15,
+            "utxo": 0.20,
+            "funding": 0.05,
+            "oi": 0.10,
+            "power_law": 0.15,
+            "symbolic": 0.15,
+            "fractal": 0.10,
+            "wasserstein": 0.10,
+        }
+        EVIDENCE_GRADES = {
+            "whale": "D",
+            "utxo": "A",
+            "funding": "B-LAGGING",
+            "oi": "B",
+            "power_law": "C",
+            "symbolic": "C",
+            "fractal": "C",
+            "wasserstein": "A",
+        }
+        weight_source = "evidence-based"
+
+    # Try to fetch latest votes from database
+    votes = {}
+    conn = None
+    try:
+        conn = duckdb.connect(DUCKDB_PATH, read_only=True)
+
+        result = conn.execute(
+            """
+            SELECT
+                whale_vote,
+                utxo_vote,
+                funding_vote,
+                oi_vote,
+                power_law_vote,
+                symbolic_vote,
+                fractal_vote,
+                wasserstein_vote
+            FROM metrics
+            ORDER BY timestamp DESC
+            LIMIT 1
+            """
+        ).fetchone()
+
+        if result:
+            vote_names = [
+                "whale",
+                "utxo",
+                "funding",
+                "oi",
+                "power_law",
+                "symbolic",
+                "fractal",
+                "wasserstein",
+            ]
+            for i, name in enumerate(vote_names):
+                votes[name] = result[i]
+
+    except Exception as e:
+        # Log but don't fail - votes are optional
+        logging.debug(f"Could not fetch votes: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+    # Build component breakdown
+    components = {}
+    for component_name in [
+        "whale",
+        "utxo",
+        "funding",
+        "oi",
+        "power_law",
+        "symbolic",
+        "fractal",
+        "wasserstein",
+    ]:
+        components[component_name] = FusionComponentBreakdown(
+            weight=weights.get(component_name, 0.0),
+            vote=votes.get(component_name),
+            grade=EVIDENCE_GRADES.get(component_name, "C"),
+        )
+
+    return FusionBreakdownResponse(
+        components=components,
+        total_weight=sum(weights.values()),
+        weight_source=weight_source,
+    )
+
+
+# =============================================================================
 # Service Connectivity Helper Functions
 # =============================================================================
 

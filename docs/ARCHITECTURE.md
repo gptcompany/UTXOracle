@@ -119,8 +119,13 @@ Statistical analysis extensions providing +40% signal accuracy improvement:
   * Signal: +10% accuracy boost for structural analysis
 
 - **Enhanced Fusion** (`scripts/metrics/monte_carlo_fusion.py:enhanced_fusion`)
-  * 7-component weighted fusion (vs 2-component in spec-007)
-  * Components: whale (25%), utxo (15%), funding (15%), oi (10%), power_law (10%), symbolic (15%), fractal (10%)
+  * 8-component weighted fusion (vs 2-component in spec-007)
+  * Evidence-based weights (spec-014, default):
+    - whale: 15% (Grade D), utxo: 20% (Grade A), funding: 5% (Grade B-LAGGING)
+    - oi: 10% (Grade B), power_law: 15% (Grade C), symbolic: 15% (Grade C)
+    - fractal: 10% (Grade C), wasserstein: 10% (Grade A)
+  * Legacy weights via `FUSION_USE_LEGACY_WEIGHTS=true` (spec-009 original)
+  * Environment variable overrides: `FUSION_<COMPONENT>_WEIGHT`
   * Automatic weight renormalization when components unavailable
   * Backward compatible with spec-007 2-component fusion
 
@@ -130,10 +135,9 @@ Statistical analysis extensions providing +40% signal accuracy improvement:
   * `FractalDimensionResult`: D, R², structure
   * `EnhancedFusionResult`: 8-component fusion result (includes Wasserstein)
 
-- **API Endpoint** (`/api/metrics/advanced`)
-  * Real-time computation from latest block data
-  * Returns Power Law, Symbolic Dynamics, Fractal Dimension, Enhanced Fusion
-  * 501 if modules not installed, 503 if electrs unavailable
+- **API Endpoints**
+  * `/api/metrics/advanced` - Power Law, Symbolic Dynamics, Fractal Dimension, Enhanced Fusion
+  * `/api/metrics/fusion/breakdown` - Weight breakdown with evidence grades (spec-014)
 
 ### Wasserstein Distance Module (spec-010)
 
@@ -156,7 +160,7 @@ Distribution shift detection using Earth Mover's Distance (Wasserstein-1):
   * `/api/metrics/wasserstein/regime` - Trading recommendation
 
 - **Enhanced Fusion Integration**
-  * 8th component with 0.08 weight
+  * 8th component with 10% weight (spec-014 evidence-based)
   * Automatic weight renormalization when unavailable
 
 ### Derivatives Historical Module (spec-008)
