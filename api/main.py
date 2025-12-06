@@ -128,6 +128,9 @@ FASTAPI_HOST = os.getenv("FASTAPI_HOST", "0.0.0.0")
 FASTAPI_PORT = int(os.getenv("FASTAPI_PORT", "8000"))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
+# Wasserstein Distance Configuration (spec-010)
+WASSERSTEIN_SHIFT_THRESHOLD = float(os.getenv("WASSERSTEIN_SHIFT_THRESHOLD", "0.10"))
+
 # Setup logging
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL.upper()),
@@ -1241,13 +1244,14 @@ async def get_wasserstein_history(
 
         cutoff = datetime.now() - timedelta(hours=hours)
 
+        # L2 fix: Use configurable threshold instead of hardcoded 0.10
         results = conn.execute(
             f"""
             SELECT
                 timestamp,
                 wasserstein_distance,
                 wasserstein_shift_direction,
-                CASE WHEN wasserstein_distance > 0.10 THEN true ELSE false END as is_significant
+                CASE WHEN wasserstein_distance > {WASSERSTEIN_SHIFT_THRESHOLD} THEN true ELSE false END as is_significant
             FROM metrics
             WHERE wasserstein_distance IS NOT NULL
               AND timestamp >= ?
@@ -1289,20 +1293,13 @@ async def get_wasserstein_history(
 
     except Exception as e:
         error_msg = str(e).lower()
-        # Handle missing columns gracefully (schema not yet migrated)
+        # L3 fix: Consistent error handling - raise 404 for schema migration issues
         if "wasserstein" in error_msg or "column" in error_msg or "binder" in error_msg:
             logging.info("Wasserstein columns not yet available in database schema")
-            return {
-                "data": [],
-                "summary": {
-                    "mean_distance": 0,
-                    "max_distance": 0,
-                    "min_distance": 0,
-                    "std_distance": 0,
-                    "sustained_shifts": 0,
-                    "period_hours": hours,
-                },
-            }
+            raise HTTPException(
+                status_code=404,
+                detail="Wasserstein metrics not available. Schema migration pending.",
+            )
         logging.error(f"Error fetching Wasserstein history: {e}")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     finally:

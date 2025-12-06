@@ -313,8 +313,8 @@ class TestWassersteinHistoryEndpoint:
         """Should return historical Wasserstein data as array."""
         response = client.get("/api/metrics/wasserstein/history?hours=24")
 
-        # Should return 200 OK
-        assert response.status_code in [200, 400]
+        # L3 fix: 404 now returned for schema migration pending (consistent with other endpoints)
+        assert response.status_code in [200, 400, 404]
 
         if response.status_code == 200:
             data = response.json()

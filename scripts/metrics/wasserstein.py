@@ -27,7 +27,7 @@ Usage:
 from __future__ import annotations
 
 import math
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -39,6 +39,9 @@ if TYPE_CHECKING:
 # =============================================================================
 # Configuration Constants
 # =============================================================================
+
+# L1 fix: UTC constant for Python 3.12+ compatibility (avoids deprecated utcnow)
+_UTC = timezone.utc
 
 # Window configuration
 DEFAULT_WINDOW_SIZE = 144  # blocks (~24 hours)
@@ -487,13 +490,13 @@ def rolling_wasserstein(
         is_significant_list.append(result.is_significant)
         directions.append(result.shift_direction)
 
-    # Generate timestamps if not provided
+    # Generate timestamps if not provided (L1 fix: use timezone-aware datetime)
     if timestamps is None:
-        timestamps = [datetime.utcnow() for _ in distances]
+        timestamps = [datetime.now(_UTC) for _ in distances]
     elif len(timestamps) > len(distances):
         timestamps = timestamps[: len(distances)]
     elif len(timestamps) < len(distances):
-        timestamps = timestamps + [datetime.utcnow()] * (
+        timestamps = timestamps + [datetime.now(_UTC)] * (
             len(distances) - len(timestamps)
         )
 
