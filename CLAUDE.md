@@ -184,6 +184,133 @@ Statistical analysis extensions providing +40% signal accuracy improvement:
   * Returns Power Law, Symbolic Dynamics, Fractal Dimension, Enhanced Fusion
   * 501 if modules not installed, 503 if electrs unavailable
 
+#### Derivatives Historical Module (spec-008)
+
+Historical derivatives data integration for enhanced signal fusion:
+
+- **Funding Rate Reader** (`scripts/derivatives/funding_rate_reader.py`)
+  * Reads historical funding rates from DuckDB
+  * Contrarian signal: extreme positive funding → bearish, extreme negative → bullish
+  * Graceful degradation when database unavailable
+
+- **Open Interest Reader** (`scripts/derivatives/oi_reader.py`)
+  * Tracks OI changes for accumulation/distribution detection
+  * Rising OI + rising price = accumulation, rising OI + falling price = distribution
+  * 24h change percentage calculation
+
+- **Enhanced Fusion** (`scripts/derivatives/enhanced_fusion.py`)
+  * 4-component fusion: whale + utxo + funding + OI
+  * Automatic weight redistribution when components missing
+  * Backward compatible with 2-component fusion
+
+- **Data Models** (`scripts/models/derivatives_models.py`)
+  * `FundingRateSignal`: rate, vote, timestamp
+  * `OpenInterestSignal`: value, change_pct, vote
+  * `DerivativesBundle`: Combined derivatives state
+
+- **API Endpoint** (`/api/derivatives/signals`)
+  * Returns latest funding rate and OI signals
+  * Graceful 503 when databases unavailable
+
+#### Alert System Module (spec-011)
+
+Webhook-based alert system for real-time notifications:
+
+- **Alert Generators** (`scripts/alerts/generators.py`)
+  * Whale movement alerts (>100 BTC transactions)
+  * Price deviation alerts (UTXOracle vs exchange >5%)
+  * Metric anomaly alerts (3-sigma from baseline)
+  * Configurable thresholds per alert type
+
+- **Webhook Dispatcher** (`scripts/alerts/dispatcher.py`)
+  * HTTP POST to configured webhook URLs
+  * HMAC signature for authentication
+  * Retry logic with exponential backoff (3 attempts)
+  * Event persistence in DuckDB for replay
+
+- **Alert Models** (`scripts/alerts/models.py`)
+  * `Alert`: type, severity, message, metadata
+  * `WebhookConfig`: url, secret, enabled
+  * `AlertEvent`: persisted alert with status
+
+- **n8n Integration** (`examples/n8n/utxoracle-alerts.json`)
+  * Ready-to-import n8n workflow
+  * Telegram/Discord/Email routing
+  * Alert deduplication logic
+
+- **API Endpoint** (`/api/alerts/history`)
+  * Returns recent alert events
+  * Filter by type, severity, time range
+
+#### Backtesting Framework Module (spec-012)
+
+Signal backtesting and optimization framework:
+
+- **Backtest Engine** (`scripts/backtest/engine.py`)
+  * Single-signal and multi-signal backtesting
+  * Configurable entry/exit thresholds
+  * Trade-by-trade tracking with timestamps
+
+- **Performance Metrics** (`scripts/backtest/metrics.py`)
+  * Sharpe ratio, Sortino ratio, max drawdown
+  * Win rate, profit factor, average trade
+  * Annualized returns with configurable periods
+
+- **Weight Optimizer** (`scripts/backtest/optimizer.py`)
+  * Grid search over weight combinations
+  * Walk-forward validation for robustness
+  * Constraint: weights sum to 1.0
+
+- **Data Loader** (`scripts/backtest/data_loader.py`)
+  * Load historical signals from DuckDB
+  * Price data alignment and interpolation
+  * Train/test split utilities
+
+- **API Endpoint** (`/api/backtest/run`)
+  * Run backtest with custom parameters
+  * Returns performance metrics and trade log
+
+#### Address Clustering Module (spec-013)
+
+Address clustering and CoinJoin detection for whale identification:
+
+- **Union-Find Structure** (`scripts/clustering/union_find.py`)
+  * Efficient disjoint-set data structure
+  * Path compression and union by rank
+  * O(α(n)) amortized operations
+
+- **Address Clustering** (`scripts/clustering/address_clustering.py`)
+  * Common-input-ownership heuristic
+  * Multi-input transaction grouping
+  * Cluster size tracking for entity identification
+
+- **CoinJoin Detector** (`scripts/clustering/coinjoin_detector.py`)
+  * Wasabi Wallet detection (equal outputs + coordinator fee)
+  * Whirlpool detection (fixed denominations: 0.5, 0.05, 0.01, 0.001 BTC)
+  * JoinMarket pattern recognition
+  * Filters CoinJoins from whale analysis
+
+- **Change Detector** (`scripts/clustering/change_detector.py`)
+  * Round amount heuristic (payment likely round, change likely odd)
+  * Relative size heuristic (small output likely change)
+  * Prevents change addresses from polluting clusters
+
+- **API Endpoint** (`/api/clustering/entities`)
+  * Returns top clusters by size
+  * CoinJoin filtering statistics
+
+### Spec Implementation Status
+
+| Spec | Module | Status | Files |
+|------|--------|--------|-------|
+| spec-007 | metrics/ | ✅ Complete | 7 |
+| spec-008 | derivatives/ | ✅ Complete | 4 |
+| spec-009 | metrics/ (advanced) | ✅ Complete | +3 |
+| spec-010 | wasserstein/ | ❌ Not Started | 0 |
+| spec-011 | alerts/ | ✅ Complete | 4 |
+| spec-012 | backtest/ | ✅ Complete | 5 |
+| spec-013 | clustering/ | ✅ Complete | 5 |
+
 ### Code Reduction (spec-002 → spec-003)
 
 **Eliminated Custom Infrastructure** (1,122 lines):
@@ -427,21 +554,51 @@ frontend/                           # Plotly.js dashboard (spec-003)
 └── comparison.html                     # Price comparison visualization
 scripts/                            # Utilities (batch processing, integration)
 ├── README.md
-├── daily_analysis.py                   # Integration service (spec-003: T038-T047)
+├── daily_analysis.py                   # Integration service (spec-003)
 ├── init_metrics_db.py                  # DuckDB metrics table migration (spec-007)
-├── setup_full_mempool_stack.sh         # Infrastructure deployment (spec-003: T001-T012)
+├── setup_full_mempool_stack.sh         # Infrastructure deployment (spec-003)
 ├── utxoracle_batch.py                  # Batch historical processing
-├── metrics/                            # On-chain metrics module (spec-007)
-│   ├── __init__.py                     # DB helpers (save/load metrics)
+├── alerts/                             # Alert system (spec-011)
+│   ├── __init__.py                     # Public API
+│   ├── generators.py                   # Alert generation logic
+│   ├── dispatcher.py                   # Webhook dispatch with retry
+│   └── models.py                       # Alert data models
+├── backtest/                           # Backtesting framework (spec-012)
+│   ├── __init__.py                     # Public API
+│   ├── engine.py                       # Backtest execution engine
+│   ├── metrics.py                      # Performance metrics
+│   ├── optimizer.py                    # Weight optimization
+│   └── data_loader.py                  # Historical data loading
+├── clustering/                         # Address clustering (spec-013)
+│   ├── __init__.py                     # Public API
+│   ├── union_find.py                   # Disjoint-set structure
+│   ├── address_clustering.py           # Clustering algorithm
+│   ├── coinjoin_detector.py            # CoinJoin detection
+│   └── change_detector.py              # Change output heuristics
+├── derivatives/                        # Derivatives data (spec-008)
+│   ├── __init__.py                     # Public API
+│   ├── funding_rate_reader.py          # Funding rate signals
+│   ├── oi_reader.py                    # Open interest signals
+│   └── enhanced_fusion.py              # 4-component fusion
+├── metrics/                            # On-chain metrics (spec-007 + spec-009)
+│   ├── __init__.py                     # DB helpers
 │   ├── monte_carlo_fusion.py           # Bootstrap signal fusion
-│   ├── active_addresses.py             # Address counting & anomaly detection
-│   └── tx_volume.py                    # TX volume in USD
+│   ├── active_addresses.py             # Address counting
+│   ├── tx_volume.py                    # TX volume in USD
+│   ├── power_law.py                    # Power law detector (spec-009)
+│   ├── symbolic_dynamics.py            # Permutation entropy (spec-009)
+│   └── fractal_dimension.py            # Box-counting (spec-009)
 └── models/
-    └── metrics_models.py               # Pydantic/dataclass models (spec-007)
+    ├── metrics_models.py               # Metrics data models
+    └── derivatives_models.py           # Derivatives data models
 specs/                              # Feature specifications (SpecKit)
-├── 001-specify-scripts-bash/
-├── 002-mempool-live-oracle/
-└── 003-mempool-integration-refactor/
+├── 007-onchain-metrics-core/           # ✅ Implemented
+├── 008-derivatives-historical/         # ✅ Implemented
+├── 009-advanced-onchain-analytics/     # ✅ Implemented
+├── 010-wasserstein-distance/           # ❌ Not started
+├── 011-alert-system/                   # ✅ Implemented
+├── 012-backtesting-framework/          # ✅ Implemented
+└── 013-address-clustering/             # ✅ Implemented
 tests/                              # Test suite (pytest)
 ├── __init__.py
 ├── conftest.py
