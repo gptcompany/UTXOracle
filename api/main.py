@@ -1225,6 +1225,8 @@ async def get_wasserstein_history(
 
     Returns rolling Wasserstein distances for the specified period.
     """
+    import duckdb
+
     conn = None
     try:
         conn = duckdb.connect(DB_PATH, read_only=True)
@@ -1292,6 +1294,8 @@ async def get_wasserstein_regime():
 
     Returns simplified regime status for trading decisions.
     """
+    import duckdb
+
     conn = None
     try:
         conn = duckdb.connect(DB_PATH, read_only=True)
