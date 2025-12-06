@@ -427,7 +427,7 @@ def load_backtest_history(
         conn.close()
 
         # Convert to list of dicts
-        return [dict(zip(columns, row)) for row in result]
+        return [dict(zip(columns, row, strict=False)) for row in result]
     except Exception:
         conn.close()
         return []

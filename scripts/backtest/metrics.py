@@ -42,6 +42,10 @@ def sharpe_ratio(
     if std_return == 0:
         return 0.0
 
+    # Guard against negative annualization factor (sqrt of negative)
+    if annualization_factor < 0:
+        return float("nan")
+
     return (excess_return / std_return) * math.sqrt(annualization_factor)
 
 
