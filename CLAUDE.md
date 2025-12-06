@@ -722,26 +722,41 @@ Specialized agents for deep domain expertise and multi-step workflows.
 
 AlphaEvolve-inspired iterative debugging system that finds bugs even when tests pass.
 
+**Auto-Triggering** (Stop Hook):
+- Triggers automatically when Claude stops after implementation phases
+- Detects: keywords (implement, complete, fix), >20 lines changed, 3+ files modified
+- Calculates optimal rounds based on complexity (2-10 range)
+
 **Invocation Patterns**:
 ```
-# After implementation phase
+# Automatic (after implementation - no action needed!)
+Claude finishes → Stop hook detects → alpha-debug spawns automatically
+
+# Manual override
 "run alpha-debug on wasserstein implementation"
-
-# Before commit (N rounds)
-"alpha-debug 3 rounds before commit"
-
-# General bug hunt
+"alpha-debug 5 rounds before commit"
 "esegui N rounds di verifica e ricerca bug"
 ```
 
-**How It Works**:
-1. **SubagentStop Hook** (`alpha-debug-loop.py`) controls the loop
-2. Each round: ANALYZE → HYPOTHESIZE → VERIFY → FIX → SCORE
-3. Continues until:
-   - MAX_ROUNDS reached (default: 5)
-   - 2 consecutive clean rounds (0 bugs)
-   - Tests failing (needs human intervention)
-   - Critical issue requiring review
+**Dynamic Rounds** (complexity-based):
+| Lines Changed | Files | Rounds |
+|---------------|-------|--------|
+| < 50 | 1-2 | 2-3 |
+| 50-150 | 2-4 | 3-4 |
+| 150-300 | 4-6 | 5-6 |
+| > 300 | 6+ | 7-10 |
+
+**Self-Assessment** (each round):
+- Subagent evaluates confidence level (0-100%)
+- Decides CONTINUE/STOP based on unanalyzed areas
+- Stops early if confidence >= 95%
+
+**Stop Conditions**:
+1. MAX_ROUNDS reached (dynamic, 2-10)
+2. 2 consecutive clean rounds (0 bugs)
+3. Self-assessment STOP with confidence >= 90%
+4. Tests failing → human intervention
+5. Critical issue → BLOCKED
 
 **Bug Categories Hunted**:
 - **A**: Logic errors (off-by-one, wrong comparisons)
@@ -749,17 +764,10 @@ AlphaEvolve-inspired iterative debugging system that finds bugs even when tests 
 - **C**: Integration issues (API contracts, type mismatches)
 - **D**: Code smells (unused vars, complexity)
 
-**Output Format**:
-```
-=== ALPHA DEBUG COMPLETE ===
-Reason: Code is clean (2 consecutive rounds with 0 bugs)
-
-Final Statistics:
-- Total rounds: 3
-- Total bugs found: 2
-- Total bugs fixed: 2
-- Success rate: 100%
-```
+**Files**:
+- `.claude/agents/alpha-debug.md` - Subagent definition
+- `claude-hooks-shared/hooks/productivity/auto-alpha-debug.py` - Stop hook (auto-trigger)
+- `claude-hooks-shared/hooks/productivity/alpha-debug-loop.py` - SubagentStop hook (loop control)
 
 ### **Skills** (4) - Template-Driven Automation
 Lightweight templates for repetitive operations with 60-83% token savings.
