@@ -440,6 +440,14 @@ def rolling_wasserstein(
     """
     from scripts.models.metrics_models import RollingWassersteinResult
 
+    # R2-3 fix: Validate parameters to prevent infinite loop or invalid behavior
+    if step_size <= 0:
+        raise ValueError(f"step_size must be positive, got {step_size}")
+    if window_size <= 0:
+        raise ValueError(f"window_size must be positive, got {window_size}")
+    if min_samples <= 0:
+        raise ValueError(f"min_samples must be positive, got {min_samples}")
+
     # Create windows
     windows = _create_windows(values, window_size, step_size)
     n_windows = len(windows)
