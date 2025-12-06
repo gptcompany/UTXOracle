@@ -105,17 +105,17 @@
 
 ### Tests for User Story 3 (TDD RED phase)
 
-- [ ] T028 [P] [US3] Write test_enhanced_fusion_with_wasserstein() in tests/test_wasserstein.py
-- [ ] T029 [P] [US3] Write test_fusion_weights_sum_to_one() in tests/test_wasserstein.py
-- [ ] T030 [P] [US3] Write test_fusion_without_wasserstein_backward_compatible() in tests/test_wasserstein.py
+- [X] T028 [P] [US3] Write test_enhanced_fusion_with_wasserstein() in tests/test_wasserstein.py
+- [X] T029 [P] [US3] Write test_fusion_weights_sum_to_one() in tests/test_wasserstein.py
+- [X] T030 [P] [US3] Write test_fusion_without_wasserstein_backward_compatible() in tests/test_wasserstein.py
 
 ### Implementation for User Story 3 (TDD GREEN phase)
 
-- [ ] T031 [US3] Update EnhancedFusionResult in scripts/models/metrics_models.py - add wasserstein fields
-- [ ] T032 [US3] Update ENHANCED_WEIGHTS in scripts/metrics/monte_carlo_fusion.py for 8 components
-- [ ] T033 [US3] Update `enhanced_fusion()` in scripts/metrics/monte_carlo_fusion.py to accept wasserstein_vote
-- [ ] T034 [US3] Run tests - verify all T028-T030 pass
-- [ ] T035 [US3] Verify existing spec-009 tests still pass (no regression)
+- [X] T031 [US3] Update EnhancedFusionResult in scripts/models/metrics_models.py - add wasserstein fields
+- [X] T032 [US3] Update ENHANCED_WEIGHTS in scripts/metrics/monte_carlo_fusion.py for 8 components
+- [X] T033 [US3] Update `enhanced_fusion()` in scripts/metrics/monte_carlo_fusion.py to accept wasserstein_vote
+- [X] T034 [US3] Run tests - verify all T028-T030 pass
+- [X] T035 [US3] Verify existing spec-009 tests still pass (no regression)
 
 **Checkpoint**: Wasserstein integrated into fusion, backward compatible
 

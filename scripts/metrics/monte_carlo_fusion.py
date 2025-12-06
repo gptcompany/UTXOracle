@@ -286,6 +286,9 @@ def enhanced_fusion(
     if fractal_vote is not None:
         components["fractal"] = (fractal_vote, 1.0)
         components_used.append("fractal")
+    if wasserstein_vote is not None:
+        components["wasserstein"] = (wasserstein_vote, 1.0)
+        components_used.append("wasserstein")
 
     n_components = len(components)
 
@@ -353,6 +356,7 @@ def enhanced_fusion(
         power_law_vote=power_law_vote,
         symbolic_vote=symbolic_vote,
         fractal_vote=fractal_vote,
+        wasserstein_vote=wasserstein_vote,  # spec-010
         whale_weight=normalized_weights.get("whale", 0.0),
         utxo_weight=normalized_weights.get("utxo", 0.0),
         funding_weight=normalized_weights.get("funding", 0.0),
@@ -360,6 +364,7 @@ def enhanced_fusion(
         power_law_weight=normalized_weights.get("power_law", 0.0),
         symbolic_weight=normalized_weights.get("symbolic", 0.0),
         fractal_weight=normalized_weights.get("fractal", 0.0),
+        wasserstein_weight=normalized_weights.get("wasserstein", 0.0),  # spec-010
         components_available=n_components,
         components_used=components_used,
     )
