@@ -1,19 +1,25 @@
 """
-Monte Carlo Signal Fusion (spec-007, User Story 1).
+Monte Carlo Signal Fusion (spec-007 + spec-009).
 
-Upgrades linear fusion (0.7*whale + 0.3*utxo) to bootstrap sampling
-with 95% confidence intervals.
+spec-007: Original 2-component fusion (whale + utxo)
+spec-009: Enhanced 7-component fusion with advanced metrics
 
 Usage:
+    # spec-007 (backward compatible)
     from scripts.metrics.monte_carlo_fusion import monte_carlo_fusion
     result = monte_carlo_fusion(whale_vote=0.8, whale_confidence=0.9,
                                 utxo_vote=0.7, utxo_confidence=0.85)
+
+    # spec-009 (enhanced)
+    from scripts.metrics.monte_carlo_fusion import enhanced_fusion
+    result = enhanced_fusion(whale_vote=0.8, whale_conf=0.9, utxo_vote=0.7,
+                             utxo_conf=0.85, symbolic_vote=0.6, ...)
 """
 
 import random
 from statistics import mean, stdev
-from typing import Literal
-from scripts.models.metrics_models import MonteCarloFusionResult
+from typing import Literal, Optional
+from scripts.models.metrics_models import MonteCarloFusionResult, EnhancedFusionResult
 
 # Default weights for signal fusion
 WHALE_WEIGHT = 0.7
@@ -185,3 +191,170 @@ def determine_action(
             action_confidence = max(0.3, 0.6 - abs(signal_mean))
 
     return action, round(action_confidence, 3)
+
+
+# =============================================================================
+# spec-009: Enhanced 7-Component Fusion
+# =============================================================================
+
+# Default weights for enhanced fusion (sum = 1.0)
+ENHANCED_WEIGHTS = {
+    "whale": 0.25,
+    "utxo": 0.15,
+    "funding": 0.15,
+    "oi": 0.10,
+    "power_law": 0.10,
+    "symbolic": 0.15,
+    "fractal": 0.10,
+}
+
+
+def enhanced_fusion(
+    whale_vote: Optional[float] = None,
+    whale_conf: Optional[float] = None,
+    utxo_vote: Optional[float] = None,
+    utxo_conf: Optional[float] = None,
+    funding_vote: Optional[float] = None,
+    oi_vote: Optional[float] = None,
+    power_law_vote: Optional[float] = None,
+    symbolic_vote: Optional[float] = None,
+    fractal_vote: Optional[float] = None,
+    n_samples: int = 1000,
+    weights: Optional[dict[str, float]] = None,
+) -> EnhancedFusionResult:
+    """
+    Enhanced Monte Carlo fusion with 7 signal components.
+
+    Extends spec-007 with spec-009 advanced metrics (power law, symbolic,
+    fractal) plus spec-008 derivatives (funding, oi).
+
+    Components:
+    - whale: Whale flow signal (highest weight)
+    - utxo: UTXOracle price signal
+    - funding: Funding rate signal (spec-008)
+    - oi: Open interest signal (spec-008)
+    - power_law: Power law regime signal (spec-009)
+    - symbolic: Symbolic dynamics signal (spec-009)
+    - fractal: Fractal dimension signal (spec-009)
+
+    Args:
+        whale_vote: Whale flow vote (-1 to +1), None if unavailable
+        whale_conf: Whale signal confidence (0 to 1)
+        utxo_vote: UTXOracle vote (-1 to +1), None if unavailable
+        utxo_conf: UTXOracle confidence (0 to 1)
+        funding_vote: Funding rate vote, None if unavailable
+        oi_vote: Open interest vote, None if unavailable
+        power_law_vote: Power law regime vote, None if unavailable
+        symbolic_vote: Symbolic dynamics vote, None if unavailable
+        fractal_vote: Fractal dimension vote, None if unavailable
+        n_samples: Number of bootstrap samples (default: 1000)
+        weights: Custom weights dict (uses ENHANCED_WEIGHTS if None)
+
+    Returns:
+        EnhancedFusionResult with fused signal and all component info
+    """
+    # Use default weights if not provided
+    w = weights if weights else ENHANCED_WEIGHTS.copy()
+
+    # Collect available components and renormalize weights
+    components = {}
+    components_used = []
+
+    if whale_vote is not None:
+        components["whale"] = (whale_vote, whale_conf if whale_conf else 1.0)
+        components_used.append("whale")
+    if utxo_vote is not None:
+        components["utxo"] = (utxo_vote, utxo_conf if utxo_conf else 1.0)
+        components_used.append("utxo")
+    if funding_vote is not None:
+        components["funding"] = (funding_vote, 1.0)  # No confidence for derivatives
+        components_used.append("funding")
+    if oi_vote is not None:
+        components["oi"] = (oi_vote, 1.0)
+        components_used.append("oi")
+    if power_law_vote is not None:
+        components["power_law"] = (power_law_vote, 1.0)
+        components_used.append("power_law")
+    if symbolic_vote is not None:
+        components["symbolic"] = (symbolic_vote, 1.0)
+        components_used.append("symbolic")
+    if fractal_vote is not None:
+        components["fractal"] = (fractal_vote, 1.0)
+        components_used.append("fractal")
+
+    n_components = len(components)
+
+    if n_components == 0:
+        # No components available - return neutral result
+        return EnhancedFusionResult(
+            signal_mean=0.0,
+            signal_std=0.0,
+            ci_lower=0.0,
+            ci_upper=0.0,
+            action="HOLD",
+            action_confidence=0.0,
+            n_samples=0,
+            distribution_type="insufficient_data",
+            components_available=0,
+            components_used=[],
+        )
+
+    # Renormalize weights for available components
+    total_weight = sum(w.get(c, 0) for c in components.keys())
+    if total_weight > 0:
+        normalized_weights = {c: w.get(c, 0) / total_weight for c in components.keys()}
+    else:
+        # Equal weights if no weights defined
+        normalized_weights = {c: 1.0 / n_components for c in components.keys()}
+
+    # Bootstrap sampling
+    samples = []
+    for _ in range(n_samples):
+        sample_sum = 0.0
+        for comp_name, (vote, conf) in components.items():
+            # Sample vote with confidence as Bernoulli success rate
+            sampled_vote = vote if random.random() < conf else 0.0
+            sample_sum += normalized_weights[comp_name] * sampled_vote
+        samples.append(sample_sum)
+
+    # Calculate statistics
+    signal_mean = mean(samples)
+    signal_std = stdev(samples) if len(samples) > 1 else 0.0
+
+    # Calculate 95% CI
+    sorted_samples = sorted(samples)
+    ci_lower = sorted_samples[int(0.025 * n_samples)]
+    ci_upper = sorted_samples[int(0.975 * n_samples)]
+
+    # Detect distribution type
+    distribution_type = detect_bimodal(samples)
+
+    # Determine action and confidence
+    action, action_confidence = determine_action(signal_mean, ci_lower, ci_upper)
+
+    return EnhancedFusionResult(
+        signal_mean=signal_mean,
+        signal_std=signal_std,
+        ci_lower=ci_lower,
+        ci_upper=ci_upper,
+        action=action,
+        action_confidence=action_confidence,
+        n_samples=n_samples,
+        distribution_type=distribution_type,
+        whale_vote=whale_vote,
+        utxo_vote=utxo_vote,
+        funding_vote=funding_vote,
+        oi_vote=oi_vote,
+        power_law_vote=power_law_vote,
+        symbolic_vote=symbolic_vote,
+        fractal_vote=fractal_vote,
+        whale_weight=normalized_weights.get("whale", 0.0),
+        utxo_weight=normalized_weights.get("utxo", 0.0),
+        funding_weight=normalized_weights.get("funding", 0.0),
+        oi_weight=normalized_weights.get("oi", 0.0),
+        power_law_weight=normalized_weights.get("power_law", 0.0),
+        symbolic_weight=normalized_weights.get("symbolic", 0.0),
+        fractal_weight=normalized_weights.get("fractal", 0.0),
+        components_available=n_components,
+        components_used=components_used,
+    )

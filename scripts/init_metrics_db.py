@@ -68,6 +68,74 @@ CREATE INDEX IF NOT EXISTS idx_metrics_action ON metrics(action);
 CREATE INDEX IF NOT EXISTS idx_metrics_anomaly ON metrics(is_anomaly);
 """
 
+# Schema for alert_events table (spec-011)
+ALERT_EVENTS_TABLE_SQL = """
+-- Alert Events table (spec-011)
+-- Stores webhook alert events for audit and replay
+
+CREATE TABLE IF NOT EXISTS alert_events (
+    event_id VARCHAR PRIMARY KEY,
+    event_type VARCHAR NOT NULL CHECK (event_type IN ('whale', 'signal', 'regime', 'price')),
+    timestamp TIMESTAMP NOT NULL,
+    severity VARCHAR NOT NULL CHECK (severity IN ('critical', 'high', 'medium', 'low')),
+    payload JSON NOT NULL,
+    webhook_status VARCHAR DEFAULT 'pending' CHECK (webhook_status IN ('pending', 'sent', 'failed')),
+    webhook_attempts INTEGER DEFAULT 0,
+    webhook_response_code INTEGER,
+    webhook_error VARCHAR,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    sent_at TIMESTAMP
+);
+"""
+
+ALERT_EVENTS_INDEXES_SQL = """
+-- Index for event type filtering
+CREATE INDEX IF NOT EXISTS idx_alert_type ON alert_events(event_type);
+
+-- Index for severity filtering
+CREATE INDEX IF NOT EXISTS idx_alert_severity ON alert_events(severity);
+
+-- Index for timestamp ordering
+CREATE INDEX IF NOT EXISTS idx_alert_timestamp ON alert_events(timestamp);
+
+-- Index for webhook status (for replay queries)
+CREATE INDEX IF NOT EXISTS idx_alert_status ON alert_events(webhook_status);
+"""
+
+# Schema for backtest_results table (spec-012)
+BACKTEST_RESULTS_TABLE_SQL = """
+-- Backtest Results table (spec-012)
+-- Stores historical backtest runs for performance tracking
+
+CREATE TABLE IF NOT EXISTS backtest_results (
+    id INTEGER PRIMARY KEY,
+    run_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    signal_source VARCHAR NOT NULL,
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    total_return DOUBLE,
+    sharpe_ratio DOUBLE,
+    sortino_ratio DOUBLE,
+    win_rate DOUBLE,
+    max_drawdown DOUBLE,
+    profit_factor DOUBLE,
+    num_trades INTEGER,
+    config_json VARCHAR,
+    trades_json VARCHAR
+);
+"""
+
+BACKTEST_RESULTS_INDEXES_SQL = """
+-- Index for signal source filtering
+CREATE INDEX IF NOT EXISTS idx_backtest_signal ON backtest_results(signal_source);
+
+-- Index for date range queries
+CREATE INDEX IF NOT EXISTS idx_backtest_dates ON backtest_results(start_date, end_date);
+
+-- Index for run timestamp (most recent)
+CREATE INDEX IF NOT EXISTS idx_backtest_run ON backtest_results(run_timestamp);
+"""
+
 
 def init_metrics_db(db_path: str = DEFAULT_DB_PATH) -> bool:
     """
@@ -87,13 +155,29 @@ def init_metrics_db(db_path: str = DEFAULT_DB_PATH) -> bool:
         # Connect to database
         conn = duckdb.connect(db_path)
 
-        # Create table
+        # Create metrics table
         conn.execute(METRICS_TABLE_SQL)
         print(f"Created/verified metrics table in {db_path}")
 
-        # Create indexes
+        # Create metrics indexes
         conn.execute(INDEXES_SQL)
-        print("Created/verified indexes")
+        print("Created/verified metrics indexes")
+
+        # Create alert_events table (spec-011)
+        conn.execute(ALERT_EVENTS_TABLE_SQL)
+        print("Created/verified alert_events table")
+
+        # Create alert_events indexes
+        conn.execute(ALERT_EVENTS_INDEXES_SQL)
+        print("Created/verified alert_events indexes")
+
+        # Create backtest_results table (spec-012)
+        conn.execute(BACKTEST_RESULTS_TABLE_SQL)
+        print("Created/verified backtest_results table")
+
+        # Create backtest_results indexes
+        conn.execute(BACKTEST_RESULTS_INDEXES_SQL)
+        print("Created/verified backtest_results indexes")
 
         # Verify table exists
         result = conn.execute(

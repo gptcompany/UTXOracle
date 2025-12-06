@@ -53,6 +53,46 @@ except ImportError:
     METRICS_ENABLED = False
     logging.warning("spec-007 metrics not available - run scripts/init_metrics_db.py")
 
+# Advanced On-Chain Analytics (spec-009) - Power Law, Symbolic Dynamics, Fractal Dimension
+try:
+    from scripts.metrics.monte_carlo_fusion import enhanced_fusion
+    from scripts.metrics.power_law import fit as power_law_fit
+    from scripts.metrics.symbolic_dynamics import analyze as symbolic_analyze
+    from scripts.metrics.fractal_dimension import analyze as fractal_analyze
+
+    ADVANCED_METRICS_ENABLED = True
+except ImportError:
+    ADVANCED_METRICS_ENABLED = False
+    logging.warning("spec-009 advanced metrics not available")
+
+# Derivatives Integration (spec-008) - Funding Rate and Open Interest from LiquidationHeatmap
+try:
+    from scripts.derivatives import get_liq_connection, close_connection
+    from scripts.derivatives.funding_rate_reader import get_latest_funding_signal
+    from scripts.derivatives.oi_reader import get_latest_oi_signal
+
+    DERIVATIVES_ENABLED = True
+except ImportError:
+    DERIVATIVES_ENABLED = False
+    logging.warning(
+        "spec-008 derivatives not available - LiquidationHeatmap integration disabled"
+    )
+
+# Webhook Alert System (spec-011) - Signal, Price, and Whale alerts
+try:
+    from scripts.alerts import (
+        emit_alert_sync,
+        create_signal_event,
+        create_price_event,
+        create_whale_event,
+        get_config as get_alert_config,
+    )
+
+    ALERTS_ENABLED = True
+except ImportError:
+    ALERTS_ENABLED = False
+    logging.warning("spec-011 alerts not available - webhook alerts disabled")
+
 
 # =============================================================================
 # Configuration Management (T038)
@@ -1609,6 +1649,136 @@ def main():
             except Exception as e:
                 logging.warning(f"Spec-007 metrics calculation failed: {e}")
 
+        # Step 2.8: Spec-009 Advanced On-Chain Analytics
+        power_law_result = None
+        symbolic_result = None
+        fractal_result = None
+        enhanced_fusion_result = None
+
+        if ADVANCED_METRICS_ENABLED:
+            try:
+                # Extract UTXO values from transactions for distribution analysis
+                utxo_values = []
+                for tx in utx_result.get("transactions", []):
+                    for vout in tx.get("vout", []):
+                        value = vout.get("value", 0)
+                        if value > 0:
+                            utxo_values.append(value)
+
+                if len(utxo_values) >= 100:
+                    # US1: Power Law Regime Detection
+                    power_law_result = power_law_fit(utxo_values)
+                    logging.info(
+                        f"📊 Power Law: τ={power_law_result.tau:.3f} "
+                        f"(regime: {power_law_result.regime}, "
+                        f"vote: {power_law_result.power_law_vote:+.3f})"
+                    )
+
+                    # US3: Fractal Dimension Analysis
+                    fractal_result = fractal_analyze(utxo_values)
+                    logging.info(
+                        f"📐 Fractal Dimension: D={fractal_result.dimension:.3f} "
+                        f"(structure: {fractal_result.structure}, "
+                        f"vote: {fractal_result.fractal_vote:+.3f})"
+                    )
+
+                # US2: Symbolic Dynamics (requires time series - use tx volumes)
+                tx_volumes = []
+                for tx in utx_result.get("transactions", []):
+                    total_out = sum(vout.get("value", 0) for vout in tx.get("vout", []))
+                    if total_out > 0:
+                        tx_volumes.append(total_out)
+
+                if len(tx_volumes) >= 240:  # Minimum for order=5 symbolic analysis
+                    symbolic_result = symbolic_analyze(tx_volumes, order=5)
+                    logging.info(
+                        f"🔣 Symbolic Dynamics: H={symbolic_result.permutation_entropy:.3f} "
+                        f"(pattern: {symbolic_result.pattern_type}, "
+                        f"vote: {symbolic_result.symbolic_vote:+.3f})"
+                    )
+
+                # US4: Enhanced 7-Component Fusion (spec-009) + Derivatives (spec-008)
+                if whale_signal and mc_result:
+                    whale_vote = _calculate_whale_vote(
+                        net_flow_btc=whale_signal.net_flow_btc,
+                        direction=whale_signal.direction,
+                    )
+                    utxo_vote = _calculate_utxo_vote(
+                        confidence=utx_result["confidence"]
+                    )
+
+                    # T033: Fetch derivatives signals from LiquidationHeatmap (spec-008)
+                    funding_vote = None
+                    oi_vote = None
+                    if DERIVATIVES_ENABLED:
+                        liq_conn = None
+                        try:
+                            liq_conn = get_liq_connection()
+                            if liq_conn:
+                                # Get funding rate signal
+                                funding_signal = get_latest_funding_signal(
+                                    conn=liq_conn
+                                )
+                                if funding_signal:
+                                    funding_vote = funding_signal.funding_vote
+                                    logging.info(
+                                        f"📊 Funding Rate: {funding_signal.funding_rate * 100:.4f}% "
+                                        f"→ vote={funding_vote:+.2f} "
+                                        f"({'EXTREME' if funding_signal.is_extreme else 'normal'})"
+                                    )
+
+                                # Get OI signal (use whale direction for context)
+                                oi_signal = get_latest_oi_signal(
+                                    conn=liq_conn,
+                                    whale_direction=whale_signal.direction,
+                                )
+                                if oi_signal:
+                                    oi_vote = oi_signal.oi_vote
+                                    logging.info(
+                                        f"📈 Open Interest: {oi_signal.oi_value / 1e9:.2f}B USD "
+                                        f"(1h: {oi_signal.oi_change_1h * 100:+.2f}%) "
+                                        f"→ vote={oi_vote:+.2f} ({oi_signal.context})"
+                                    )
+                        except Exception as e:
+                            logging.warning(f"Failed to fetch derivatives: {e}")
+                        finally:
+                            if liq_conn:
+                                close_connection(liq_conn)
+
+                    enhanced_fusion_result = enhanced_fusion(
+                        whale_vote=whale_vote,
+                        whale_conf=whale_signal.confidence,
+                        utxo_vote=utxo_vote,
+                        utxo_conf=utx_result["confidence"],
+                        power_law_vote=power_law_result.power_law_vote
+                        if power_law_result and power_law_result.is_valid
+                        else None,
+                        symbolic_vote=symbolic_result.symbolic_vote
+                        if symbolic_result and symbolic_result.is_valid
+                        else None,
+                        fractal_vote=fractal_result.fractal_vote
+                        if fractal_result and fractal_result.is_valid
+                        else None,
+                        funding_vote=funding_vote,  # spec-008 derivatives
+                        oi_vote=oi_vote,  # spec-008 derivatives
+                        n_samples=1000,
+                    )
+
+                    logging.info(
+                        f"🔮 Enhanced Fusion ({enhanced_fusion_result.components_available} components): "
+                        f"signal={enhanced_fusion_result.signal_mean:+.3f} "
+                        f"(95% CI: [{enhanced_fusion_result.ci_lower:+.3f}, {enhanced_fusion_result.ci_upper:+.3f}]), "
+                        f"action={enhanced_fusion_result.action} "
+                        f"(conf: {enhanced_fusion_result.action_confidence:.1%})"
+                    )
+
+                    # Override action with enhanced fusion result if available
+                    action = enhanced_fusion_result.action
+                    combined_signal = enhanced_fusion_result.signal_mean
+
+            except Exception as e:
+                logging.warning(f"Spec-009 advanced metrics calculation failed: {e}")
+
         # Step 3: Compare prices (T041)
         comparison = compare_prices(utx_result["price_usd"], mempool_price)
 
@@ -1657,6 +1827,77 @@ def main():
                         logging.warning("⚠️ Failed to save spec-007 metrics")
                 except Exception as e:
                     logging.warning(f"Spec-007 metrics save failed: {e}")
+
+            # Step 5.6: Emit webhook alerts (spec-011)
+            if ALERTS_ENABLED:
+                try:
+                    alert_config = get_alert_config()
+
+                    # Signal alert (if action is BUY/SELL with sufficient confidence)
+                    if alert_config.signal_enabled and action in ("BUY", "SELL"):
+                        confidence = (
+                            enhanced_fusion_result.action_confidence
+                            if enhanced_fusion_result
+                            else 0.5
+                        )
+                        if confidence >= alert_config.signal_min_confidence:
+                            signal_event = create_signal_event(
+                                action=action,
+                                confidence=confidence,
+                                signal_mean=combined_signal,
+                                top_contributors=[
+                                    {
+                                        "name": "whale",
+                                        "value": whale_vote if whale_vote else 0,
+                                    },
+                                    {
+                                        "name": "utxo",
+                                        "value": utxo_vote if utxo_vote else 0,
+                                    },
+                                ],
+                            )
+                            if signal_event:
+                                emit_alert_sync(signal_event)
+                                logging.info(
+                                    f"📢 Signal alert emitted: {action} (conf: {confidence:.1%})"
+                                )
+
+                    # Price divergence alert
+                    if alert_config.price_enabled:
+                        divergence = abs(comparison["diff_percent"])
+                        if divergence >= alert_config.price_min_divergence:
+                            price_event = create_price_event(
+                                utxoracle_price=utx_result["price_usd"],
+                                exchange_price=mempool_price,
+                                divergence_pct=comparison["diff_percent"],
+                            )
+                            emit_alert_sync(price_event)
+                            logging.info(
+                                f"📢 Price divergence alert emitted: {divergence:.2f}%"
+                            )
+
+                    # Whale alert (if whale signal available)
+                    if (
+                        alert_config.whale_enabled
+                        and whale_signal
+                        and whale_signal.net_flow_btc
+                    ):
+                        net_flow = abs(whale_signal.net_flow_btc)
+                        if net_flow >= alert_config.whale_min_btc:
+                            whale_event = create_whale_event(
+                                amount_btc=net_flow,
+                                direction="INFLOW"
+                                if whale_signal.net_flow_btc > 0
+                                else "OUTFLOW",
+                                signal_vote=whale_vote if whale_vote else 0,
+                            )
+                            emit_alert_sync(whale_event)
+                            logging.info(
+                                f"📢 Whale alert emitted: {net_flow:.2f} BTC {whale_signal.direction}"
+                            )
+
+                except Exception as e:
+                    logging.warning(f"Spec-011 alert emission failed: {e}")
         else:
             logging.info("[DRY-RUN] Would save data:")
             logging.info(json.dumps(data, indent=2))

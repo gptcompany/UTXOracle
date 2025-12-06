@@ -1,11 +1,17 @@
 """
-Data models for on-chain metrics (spec-007).
+Data models for on-chain metrics (spec-007 + spec-009).
 
 These dataclasses mirror the DuckDB `metrics` table schema and provide
 type-safe data transfer between calculation modules and storage/API.
+
+Spec-009 additions:
+- PowerLawResult: Power law regime detection
+- SymbolicDynamicsResult: Permutation entropy analysis
+- FractalDimensionResult: Box-counting dimension
+- EnhancedFusionResult: 7-component Monte Carlo fusion
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, Literal
 
@@ -188,3 +194,193 @@ class OnChainMetricsBundle:
             result["tx_volume"] = self.tx_volume.to_dict()
 
         return result
+
+
+# =============================================================================
+# Spec-009: Advanced On-Chain Analytics Dataclasses
+# =============================================================================
+
+
+@dataclass
+class PowerLawResult:
+    """
+    Result of power law fit to UTXO value distribution.
+
+    Power law: P(x) ~ x^(-tau)
+
+    Regime classification based on tau:
+    - ACCUMULATION: tau < 1.8 (heavy tail, whale concentration)
+    - NEUTRAL: 1.8 <= tau <= 2.2 (typical market)
+    - DISTRIBUTION: tau > 2.2 (light tail, dispersion)
+    """
+
+    tau: float
+    tau_std: float
+    xmin: float
+    ks_statistic: float
+    ks_pvalue: float
+    is_valid: bool
+    regime: str  # "ACCUMULATION" | "NEUTRAL" | "DISTRIBUTION"
+    power_law_vote: float
+    sample_size: int
+    timestamp: datetime = field(default_factory=datetime.utcnow)
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "tau": self.tau,
+            "tau_std": self.tau_std,
+            "xmin": self.xmin,
+            "ks_statistic": self.ks_statistic,
+            "ks_pvalue": self.ks_pvalue,
+            "is_valid": self.is_valid,
+            "regime": self.regime,
+            "power_law_vote": self.power_law_vote,
+            "sample_size": self.sample_size,
+        }
+
+
+@dataclass
+class SymbolicDynamicsResult:
+    """
+    Result of symbolic dynamics analysis on UTXO flow time series.
+
+    Permutation entropy H measures temporal complexity:
+    - H ~ 0: Perfectly predictable (monotonic trend)
+    - H ~ 1: Maximum entropy (random noise)
+
+    Pattern classification based on H and series_trend:
+    - ACCUMULATION_TREND: H < 0.4, positive trend
+    - DISTRIBUTION_TREND: H < 0.4, negative trend
+    - CHAOTIC_TRANSITION: H > 0.7
+    - EDGE_OF_CHAOS: 0.4 <= H <= 0.7, C > 0.2
+    """
+
+    permutation_entropy: float
+    statistical_complexity: float
+    order: int
+    pattern_counts: dict
+    dominant_pattern: str
+    complexity_class: str  # "LOW" | "MEDIUM" | "HIGH"
+    pattern_type: str  # "ACCUMULATION_TREND" | "DISTRIBUTION_TREND" | "CHAOTIC_TRANSITION" | "EDGE_OF_CHAOS"
+    symbolic_vote: float
+    series_length: int
+    series_trend: float = 0.0  # Positive = accumulation, negative = distribution
+    is_valid: bool = True
+    timestamp: datetime = field(default_factory=datetime.utcnow)
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "permutation_entropy": self.permutation_entropy,
+            "statistical_complexity": self.statistical_complexity,
+            "order": self.order,
+            "complexity_class": self.complexity_class,
+            "pattern_type": self.pattern_type,
+            "symbolic_vote": self.symbolic_vote,
+            "series_length": self.series_length,
+            "series_trend": self.series_trend,
+            "is_valid": self.is_valid,
+        }
+
+
+@dataclass
+class FractalDimensionResult:
+    """
+    Result of fractal dimension analysis on UTXO value distribution.
+
+    Box-counting dimension D measures self-similarity:
+    - D = 0: Single point (all values identical)
+    - D = 1: Line (uniform distribution)
+    - D > 1: Space-filling (complex structure)
+
+    Structure classification based on D:
+    - WHALE_DOMINATED: D < 0.8 (concentrated in few clusters)
+    - MIXED: 0.8 <= D <= 1.2 (typical market)
+    - RETAIL_DOMINATED: D > 1.2 (highly dispersed)
+    """
+
+    dimension: float
+    dimension_std: float
+    r_squared: float
+    scales_used: list
+    counts: list
+    is_valid: bool
+    structure: str  # "WHALE_DOMINATED" | "MIXED" | "RETAIL_DOMINATED"
+    fractal_vote: float
+    sample_size: int
+    timestamp: datetime = field(default_factory=datetime.utcnow)
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "dimension": self.dimension,
+            "dimension_std": self.dimension_std,
+            "r_squared": self.r_squared,
+            "is_valid": self.is_valid,
+            "structure": self.structure,
+            "fractal_vote": self.fractal_vote,
+            "sample_size": self.sample_size,
+        }
+
+
+@dataclass
+class EnhancedFusionResult:
+    """
+    Result of enhanced Monte Carlo signal fusion with 7 components.
+
+    Extends spec-007 MonteCarloFusionResult with:
+    - Power Law vote (spec-009)
+    - Symbolic Dynamics vote (spec-009)
+    - Fractal Dimension vote (spec-009)
+    - Funding Rate vote (spec-008)
+    - Open Interest vote (spec-008)
+    """
+
+    # Base Monte Carlo fields
+    signal_mean: float
+    signal_std: float
+    ci_lower: float
+    ci_upper: float
+    action: str  # "BUY" | "SELL" | "HOLD"
+    action_confidence: float
+    n_samples: int
+    distribution_type: str  # "unimodal" | "bimodal"
+
+    # Component votes (None if unavailable)
+    whale_vote: Optional[float] = None
+    utxo_vote: Optional[float] = None
+    funding_vote: Optional[float] = None
+    oi_vote: Optional[float] = None
+    power_law_vote: Optional[float] = None
+    symbolic_vote: Optional[float] = None
+    fractal_vote: Optional[float] = None
+
+    # Component weights
+    whale_weight: float = 0.25
+    utxo_weight: float = 0.15
+    funding_weight: float = 0.15
+    oi_weight: float = 0.10
+    power_law_weight: float = 0.10
+    symbolic_weight: float = 0.15
+    fractal_weight: float = 0.10
+
+    # Metadata
+    components_available: int = 0
+    components_used: list = field(default_factory=list)
+    timestamp: datetime = field(default_factory=datetime.utcnow)
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "signal_mean": self.signal_mean,
+            "signal_std": self.signal_std,
+            "ci_lower": self.ci_lower,
+            "ci_upper": self.ci_upper,
+            "action": self.action,
+            "action_confidence": self.action_confidence,
+            "n_samples": self.n_samples,
+            "distribution_type": self.distribution_type,
+            "components_available": self.components_available,
+            "components_used": self.components_used,
+        }

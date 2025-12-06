@@ -1,16 +1,27 @@
 """
-On-Chain Metrics Module (spec-007)
+On-Chain Metrics Module (spec-007 + spec-009)
 
-This module provides three core metrics:
+This module provides on-chain metrics for UTXOracle:
+
+Spec-007 (Core Metrics):
 1. Monte Carlo Signal Fusion - Bootstrap sampling with 95% CI
 2. Active Addresses - Unique addresses per block/day
 3. TX Volume USD - Transaction volume using UTXOracle price
 
+Spec-009 (Advanced Analytics):
+4. Symbolic Dynamics - Permutation entropy and pattern detection
+5. Power Law - Regime detection via MLE + KS validation
+6. Fractal Dimension - Box-counting structure analysis
+7. Enhanced Fusion - 7-component weighted signal fusion
+
 Usage:
     from scripts.metrics import save_metrics_to_db, load_metrics_from_db
-    from scripts.metrics.monte_carlo_fusion import monte_carlo_fusion
+    from scripts.metrics.monte_carlo_fusion import monte_carlo_fusion, enhanced_fusion
     from scripts.metrics.active_addresses import count_active_addresses
     from scripts.metrics.tx_volume import calculate_tx_volume
+    from scripts.metrics.symbolic_dynamics import analyze as symbolic_analyze
+    from scripts.metrics.power_law import fit as power_law_fit
+    from scripts.metrics.fractal_dimension import analyze as fractal_analyze
 """
 
 from datetime import datetime

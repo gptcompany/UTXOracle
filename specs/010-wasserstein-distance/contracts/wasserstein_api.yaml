@@ -1,0 +1,244 @@
+openapi: 3.0.3
+info:
+  title: UTXOracle Wasserstein API
+  description: API for Wasserstein distance metrics and regime detection
+  version: 1.0.0
+  contact:
+    name: UTXOracle
+    url: https://github.com/utxoracle/utxoracle
+
+servers:
+  - url: http://localhost:8000
+    description: Local development server
+
+paths:
+  /api/metrics/wasserstein:
+    get:
+      summary: Get latest Wasserstein metrics
+      description: Returns the most recent Wasserstein distance calculation and regime status
+      operationId: getWassersteinLatest
+      tags:
+        - Wasserstein
+      responses:
+        '200':
+          description: Successful response with Wasserstein metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WassersteinMetricsResponse'
+        '404':
+          description: No Wasserstein metrics available
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/metrics/wasserstein/history:
+    get:
+      summary: Get historical Wasserstein distances
+      description: Returns rolling Wasserstein distances for the specified period
+      operationId: getWassersteinHistory
+      tags:
+        - Wasserstein
+      parameters:
+        - name: hours
+          in: query
+          description: Number of hours of history to return
+          required: false
+          schema:
+            type: integer
+            default: 24
+            minimum: 1
+            maximum: 168
+        - name: limit
+          in: query
+          description: Maximum number of data points
+          required: false
+          schema:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 1000
+      responses:
+        '200':
+          description: Successful response with historical data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WassersteinHistoryResponse'
+        '400':
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/metrics/wasserstein/regime:
+    get:
+      summary: Get current regime status
+      description: Returns simplified regime status for trading decisions
+      operationId: getWassersteinRegime
+      tags:
+        - Wasserstein
+      responses:
+        '200':
+          description: Successful response with regime status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegimeStatusResponse'
+
+components:
+  schemas:
+    WassersteinMetricsResponse:
+      type: object
+      required:
+        - distance
+        - distance_normalized
+        - shift_direction
+        - regime_status
+        - wasserstein_vote
+        - is_valid
+        - timestamp
+      properties:
+        distance:
+          type: number
+          format: double
+          description: Raw Wasserstein distance
+          example: 0.125
+        distance_normalized:
+          type: number
+          format: double
+          description: Normalized distance (0-1 scale)
+          example: 0.087
+        shift_direction:
+          type: string
+          enum: [CONCENTRATION, DISPERSION, NONE]
+          description: Direction of distribution shift
+          example: CONCENTRATION
+        regime_status:
+          type: string
+          enum: [STABLE, TRANSITIONING, SHIFTED]
+          description: Current regime status
+          example: TRANSITIONING
+        wasserstein_vote:
+          type: number
+          format: double
+          description: Signal vote for fusion (-1 to +1)
+          minimum: -1
+          maximum: 1
+          example: 0.35
+        is_valid:
+          type: boolean
+          description: Whether calculation is valid (sufficient samples)
+          example: true
+        window_1_mean:
+          type: number
+          format: double
+          description: Mean of first distribution window
+          example: 125000.5
+        window_2_mean:
+          type: number
+          format: double
+          description: Mean of second distribution window
+          example: 145000.2
+        timestamp:
+          type: string
+          format: date-time
+          description: Timestamp of calculation
+          example: "2025-12-04T15:30:00Z"
+
+    WassersteinHistoryResponse:
+      type: object
+      required:
+        - data
+        - summary
+      properties:
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              timestamp:
+                type: string
+                format: date-time
+              distance:
+                type: number
+                format: double
+              shift_direction:
+                type: string
+              is_significant:
+                type: boolean
+        summary:
+          type: object
+          properties:
+            mean_distance:
+              type: number
+              format: double
+            max_distance:
+              type: number
+              format: double
+            min_distance:
+              type: number
+              format: double
+            std_distance:
+              type: number
+              format: double
+            sustained_shifts:
+              type: integer
+            period_hours:
+              type: integer
+
+    RegimeStatusResponse:
+      type: object
+      required:
+        - status
+        - confidence
+        - recommendation
+      properties:
+        status:
+          type: string
+          enum: [STABLE, TRANSITIONING, SHIFTED]
+          description: Current regime status
+          example: STABLE
+        confidence:
+          type: number
+          format: double
+          description: Confidence in regime classification
+          minimum: 0
+          maximum: 1
+          example: 0.85
+        recommendation:
+          type: string
+          description: Trading recommendation based on regime
+          example: "No significant distribution shift detected. Current strategy valid."
+        last_shift_timestamp:
+          type: string
+          format: date-time
+          description: When last regime shift was detected
+          nullable: true
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Error code
+          example: NOT_FOUND
+        message:
+          type: string
+          description: Human-readable error message
+          example: No Wasserstein metrics available. Run daily_analysis.py first.
+
+tags:
+  - name: Wasserstein
+    description: Wasserstein distance metrics and regime detection
