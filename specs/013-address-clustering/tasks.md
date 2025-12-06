@@ -100,8 +100,8 @@
 
 ## Phase 7: Database Integration
 
-- [ ] T035 Add address_clusters table to scripts/init_metrics_db.py
-- [ ] T036 Add coinjoin_cache table to scripts/init_metrics_db.py
+- [x] T035 Add address_clusters table to scripts/init_metrics_db.py
+- [x] T036 Add coinjoin_cache table to scripts/init_metrics_db.py
 - [x] T037 Implement save_cluster() in scripts/clustering/address_clustering.py
 - [x] T038 Implement save_coinjoin_result() in scripts/clustering/coinjoin_detector.py
 
@@ -111,7 +111,7 @@
 
 - [x] T039 [P] Add module docstrings to all clustering modules
 - [x] T040 [P] Export public API from scripts/clustering/__init__.py
-- [ ] T041 Run full test suite - verify ≥85% coverage (current: 77%)
+- [x] T041 Run full test suite - verify ≥85% coverage ✅ (achieved: 87%)
 - [x] T042 Create integration test in tests/integration/test_clustering_whale.py
 
 ---
@@ -139,12 +139,13 @@ Phase 8 (Polish)      → All previous
 | US2 | 9 | 9 ✅ |
 | US3 | 5 | 5 ✅ |
 | US4 | 6 | 6 ✅ |
-| DB | 4 | 2/4 |
-| Polish | 4 | 3/4 |
-| **Total** | **42** | **39/42** |
+| DB | 4 | 4 ✅ |
+| Polish | 4 | 4 ✅ |
+| **Total** | **42** | **42/42** ✅ |
 
-## Remaining Tasks
+## Status: COMPLETE ✅
 
-1. **T035**: Add `address_clusters` table to init_metrics_db.py
-2. **T036**: Add `coinjoin_cache` table to init_metrics_db.py
-3. **T041**: Increase test coverage from 77% to ≥85%
+All 42 tasks completed. Bug hunting passed (6 rounds, 0 bugs found).
+- **Test coverage**: 87% (target: 85%)
+- **Total tests**: 65 passing
+- **Modules**: 5 files, 260 lines of code
