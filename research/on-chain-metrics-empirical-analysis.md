@@ -777,13 +777,14 @@ Based on research findings and mechanism analysis:
    - Removes noise from metrics
    - **Implementation:** Apply clustering heuristics to addresses
 
-### 10.2 Consider for spec-013 (Address Clustering Focus)
+### 10.2 Implement spec-010 (Wasserstein Distance) - IN PROGRESS
 
 **Wasserstein Distance Clustering:**
-- Academic validation (Horvath et al.)
-- **Novel application:** Cluster daily transaction histograms
-- Compare vs current statistical methods
+- Academic validation (Horvath et al. 2021, Grade A)
+- **Novel application:** Cluster daily UTXO transaction histograms
+- Compare vs current statistical methods (power law, symbolic dynamics)
 - Could improve regime detection
+- **STATUS: IN IMPLEMENTAZIONE (54 tasks specified)**
 
 **Implementation Path:**
 1. Calculate Wasserstein distance between daily distributions

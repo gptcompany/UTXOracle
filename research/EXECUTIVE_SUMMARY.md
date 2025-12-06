@@ -70,7 +70,7 @@
 
 **Gap:** No published research applying this to Bitcoin UTXO distributions
 
-**Opportunity for spec-013:** Implement WK-means for clustering daily transaction histograms - could be novel contribution.
+**Opportunity (spec-010):** Implement WK-means for clustering daily transaction histograms - could be novel contribution. **STATUS: IN IMPLEMENTAZIONE**
 
 ### 5. Cointime Economics - Game Changer
 **Source:** ARK Invest + Glassnode White Paper (2023)
@@ -110,29 +110,30 @@
 
 ## Recommendations for UTXOracle
 
-### Immediate Actions (spec-013)
+### Immediate Actions
 
-**1. Implement STH/LTH SOPR Analysis**
-- Highest evidence quality (Grade A-B)
-- Both leading (STH) and cycle identification (LTH)
-- Directly applicable to UTXO analysis
-- Calculate from spent outputs in blocks
+**1. Implement Wasserstein Distance (spec-010)**
+- Academic validation: Horvath 2021 (Grade A)
+- 54 tasks already specified
+- Novel application: cluster daily UTXO histograms
+- Compare vs power law/symbolic dynamics
+- **STATUS: IN IMPLEMENTAZIONE**
 
-**2. Reduce Funding Rate Weight**
+**2. Reduce Funding Rate Weight (spec-008)**
 - Current: 15%
 - Recommended: 5% or remove
 - Reason: Confirmed LAGGING indicator, not leading
 
-**3. Add Realized Value Derivatives**
-- Highest ML feature importance across multiple studies
-- Foundation for MVRV, thermocap, AVIV
-- Already tracking UTXOs - extend to realized value
+**3. Backtest spec-009 Metrics**
+- Symbolic Dynamics, Power Law, Fractal: Grade C (no peer review)
+- Generate validation report with statistical significance
+- Potential academic publication opportunity
 
-**4. Explore Wasserstein Distance Clustering**
-- Academic validation (Horvath 2021)
-- Novel application: cluster daily transaction histograms
-- Compare vs power law/symbolic dynamics
-- Potential research publication
+**4. Future: Implement STH/LTH SOPR (new spec)**
+- Highest evidence quality (Grade A-B, 82.44% accuracy)
+- Both leading (STH) and cycle identification (LTH)
+- Requires partial UTXO lifecycle tracking
+- Calculate from spent outputs in blocks
 
 ### Proposed Fusion Weight Adjustments
 
@@ -189,12 +190,12 @@ Whale Signal: 5% (reduce, weak evidence)
 ## Research Gaps = Opportunities
 
 ### No Published Research Found For:
-1. **Wasserstein distance on Bitcoin UTXO distributions** ← UTXOracle opportunity
-2. **Permutation entropy on Bitcoin transactions** ← spec-009 symbolic dynamics
-3. **Fractal dimension of BTC value distributions** ← spec-009 fractal dimension
-4. **Mempool whale tracking predictive power** ← avoid this
+1. **Wasserstein distance on Bitcoin UTXO distributions** ← spec-010 (IN IMPLEMENTAZIONE)
+2. **Permutation entropy on Bitcoin transactions** ← spec-009 symbolic dynamics (IMPLEMENTED, needs backtest)
+3. **Fractal dimension of BTC value distributions** ← spec-009 fractal dimension (IMPLEMENTED, needs backtest)
+4. **Mempool whale tracking predictive power** ← avoid this (Grade D evidence)
 
-**Impact:** Specs 009 and 013 could generate novel academic contributions if properly backtested and documented.
+**Impact:** Specs 009 and 010 could generate novel academic contributions if properly backtested and documented.
 
 ---
 

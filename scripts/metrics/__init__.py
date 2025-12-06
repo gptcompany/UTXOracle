@@ -1,5 +1,5 @@
 """
-On-Chain Metrics Module (spec-007 + spec-009)
+On-Chain Metrics Module (spec-007 + spec-009 + spec-010)
 
 This module provides on-chain metrics for UTXOracle:
 
@@ -12,7 +12,10 @@ Spec-009 (Advanced Analytics):
 4. Symbolic Dynamics - Permutation entropy and pattern detection
 5. Power Law - Regime detection via MLE + KS validation
 6. Fractal Dimension - Box-counting structure analysis
-7. Enhanced Fusion - 7-component weighted signal fusion
+7. Enhanced Fusion - 8-component weighted signal fusion
+
+Spec-010 (Distribution Shift Detection):
+8. Wasserstein Distance - Earth Mover's Distance for distribution shifts
 
 Usage:
     from scripts.metrics import save_metrics_to_db, load_metrics_from_db
@@ -22,6 +25,7 @@ Usage:
     from scripts.metrics.symbolic_dynamics import analyze as symbolic_analyze
     from scripts.metrics.power_law import fit as power_law_fit
     from scripts.metrics.fractal_dimension import analyze as fractal_analyze
+    from scripts.metrics.wasserstein import rolling_wasserstein, wasserstein_vote
 """
 
 from datetime import datetime
@@ -37,6 +41,7 @@ def save_metrics_to_db(
     monte_carlo: Optional[dict] = None,
     active_addresses: Optional[dict] = None,
     tx_volume: Optional[dict] = None,
+    wasserstein: Optional[dict] = None,
     db_path: str = DEFAULT_DB_PATH,
 ) -> bool:
     """
@@ -47,6 +52,7 @@ def save_metrics_to_db(
         monte_carlo: Monte Carlo fusion result dict (optional)
         active_addresses: Active addresses metric dict (optional)
         tx_volume: TX volume metric dict (optional)
+        wasserstein: Wasserstein distance result dict (optional) - spec-010
         db_path: Path to DuckDB database
 
     Returns:
@@ -101,6 +107,21 @@ def save_metrics_to_db(
                 if col in tx_volume:
                     columns.append(col)
                     values.append(tx_volume[col])
+
+        # Wasserstein Distance columns (spec-010)
+        if wasserstein:
+            ws_cols = [
+                ("mean_distance", "wasserstein_distance"),
+                ("mean_normalized_distance", "wasserstein_normalized"),
+                ("dominant_shift_direction", "wasserstein_shift_direction"),
+                ("regime_status", "wasserstein_regime_status"),
+                ("wasserstein_vote", "wasserstein_vote"),
+                ("is_valid", "wasserstein_is_valid"),
+            ]
+            for src_col, db_col in ws_cols:
+                if src_col in wasserstein:
+                    columns.append(db_col)
+                    values.append(wasserstein[src_col])
 
         placeholders = ", ".join(["?" for _ in values])
         col_str = ", ".join(columns)

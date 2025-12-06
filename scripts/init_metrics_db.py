@@ -54,6 +54,14 @@ CREATE TABLE IF NOT EXISTS metrics (
     utxoracle_price_used DOUBLE,
     low_confidence BOOLEAN DEFAULT FALSE,
 
+    -- Wasserstein Distance (spec-010)
+    wasserstein_distance DOUBLE,
+    wasserstein_normalized DOUBLE,
+    wasserstein_shift_direction VARCHAR(20) CHECK (wasserstein_shift_direction IN ('CONCENTRATION', 'DISPERSION', 'NONE') OR wasserstein_shift_direction IS NULL),
+    wasserstein_regime_status VARCHAR(20) CHECK (wasserstein_regime_status IN ('STABLE', 'TRANSITIONING', 'SHIFTED') OR wasserstein_regime_status IS NULL),
+    wasserstein_vote DOUBLE,
+    wasserstein_is_valid BOOLEAN DEFAULT FALSE,
+
     -- Metadata
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -66,6 +74,17 @@ CREATE INDEX IF NOT EXISTS idx_metrics_action ON metrics(action);
 
 -- Index for anomaly detection queries (non-partial, DuckDB doesn't support partial indexes)
 CREATE INDEX IF NOT EXISTS idx_metrics_anomaly ON metrics(is_anomaly);
+"""
+
+# Migration SQL for Wasserstein columns (spec-010) - for existing databases
+WASSERSTEIN_MIGRATION_SQL = """
+-- Add Wasserstein columns if they don't exist (spec-010)
+ALTER TABLE metrics ADD COLUMN IF NOT EXISTS wasserstein_distance DOUBLE;
+ALTER TABLE metrics ADD COLUMN IF NOT EXISTS wasserstein_normalized DOUBLE;
+ALTER TABLE metrics ADD COLUMN IF NOT EXISTS wasserstein_shift_direction VARCHAR(20);
+ALTER TABLE metrics ADD COLUMN IF NOT EXISTS wasserstein_regime_status VARCHAR(20);
+ALTER TABLE metrics ADD COLUMN IF NOT EXISTS wasserstein_vote DOUBLE;
+ALTER TABLE metrics ADD COLUMN IF NOT EXISTS wasserstein_is_valid BOOLEAN DEFAULT FALSE;
 """
 
 # Schema for alert_events table (spec-011)
@@ -162,6 +181,18 @@ def init_metrics_db(db_path: str = DEFAULT_DB_PATH) -> bool:
         # Create metrics indexes
         conn.execute(INDEXES_SQL)
         print("Created/verified metrics indexes")
+
+        # Run Wasserstein migration (spec-010) - adds columns if they don't exist
+        for stmt in WASSERSTEIN_MIGRATION_SQL.strip().split(";"):
+            stmt = stmt.strip()
+            if stmt and not stmt.startswith("--"):
+                try:
+                    conn.execute(stmt)
+                except Exception as e:
+                    # Column might already exist, ignore
+                    if "already exists" not in str(e).lower():
+                        print(f"Warning: Wasserstein migration: {e}")
+        print("Created/verified Wasserstein columns (spec-010)")
 
         # Create alert_events table (spec-011)
         conn.execute(ALERT_EVENTS_TABLE_SQL)

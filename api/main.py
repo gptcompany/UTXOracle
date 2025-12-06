@@ -1167,7 +1167,7 @@ async def get_wasserstein_latest():
 
     conn = None
     try:
-        conn = duckdb.connect(DB_PATH, read_only=True)
+        conn = duckdb.connect(DUCKDB_PATH, read_only=True)
 
         # Query latest Wasserstein metrics from metrics table
         result = conn.execute(
@@ -1206,6 +1206,14 @@ async def get_wasserstein_latest():
     except HTTPException:
         raise
     except Exception as e:
+        error_msg = str(e).lower()
+        # Handle missing columns gracefully (schema not yet migrated)
+        if "wasserstein" in error_msg or "column" in error_msg or "binder" in error_msg:
+            logging.info("Wasserstein columns not yet available in database schema")
+            raise HTTPException(
+                status_code=404,
+                detail="Wasserstein metrics not available. Schema migration pending.",
+            )
         logging.error(f"Error fetching Wasserstein metrics: {e}")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     finally:
@@ -1229,7 +1237,7 @@ async def get_wasserstein_history(
 
     conn = None
     try:
-        conn = duckdb.connect(DB_PATH, read_only=True)
+        conn = duckdb.connect(DUCKDB_PATH, read_only=True)
 
         cutoff = datetime.now() - timedelta(hours=hours)
 
@@ -1280,6 +1288,21 @@ async def get_wasserstein_history(
         return {"data": data, "summary": summary}
 
     except Exception as e:
+        error_msg = str(e).lower()
+        # Handle missing columns gracefully (schema not yet migrated)
+        if "wasserstein" in error_msg or "column" in error_msg or "binder" in error_msg:
+            logging.info("Wasserstein columns not yet available in database schema")
+            return {
+                "data": [],
+                "summary": {
+                    "mean_distance": 0,
+                    "max_distance": 0,
+                    "min_distance": 0,
+                    "std_distance": 0,
+                    "sustained_shifts": 0,
+                    "period_hours": hours,
+                },
+            }
         logging.error(f"Error fetching Wasserstein history: {e}")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     finally:
@@ -1298,7 +1321,7 @@ async def get_wasserstein_regime():
 
     conn = None
     try:
-        conn = duckdb.connect(DB_PATH, read_only=True)
+        conn = duckdb.connect(DUCKDB_PATH, read_only=True)
 
         # Get recent Wasserstein metrics to determine regime
         results = conn.execute(
@@ -1356,6 +1379,14 @@ async def get_wasserstein_regime():
     except HTTPException:
         raise
     except Exception as e:
+        error_msg = str(e).lower()
+        # Handle missing columns gracefully (schema not yet migrated)
+        if "wasserstein" in error_msg or "column" in error_msg or "binder" in error_msg:
+            logging.info("Wasserstein columns not yet available in database schema")
+            raise HTTPException(
+                status_code=404,
+                detail="Wasserstein metrics not available. Schema migration pending.",
+            )
         logging.error(f"Error fetching regime status: {e}")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     finally:
