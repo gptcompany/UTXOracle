@@ -22,11 +22,11 @@ Templates Status:
   ✅ .specify/templates/checklist-template.md (no changes needed - principles compatible)
 
 Runtime Guidance Updates:
-  ⚠️ CLAUDE.md - May need update to reference privacy principle for mempool monitoring
+  ✅ docs/ARCHITECTURE.md - Contains detailed spec documentation
+  ✅ docs/DEVELOPMENT_WORKFLOW.md - Contains TDD and cleanup checklists
   ⚠️ .claude/prompts/utxoracle-system.md - Should reference new principle
 
 Follow-up TODOs:
-  - Update CLAUDE.md to reference Principle V for mempool whale detection
   - Review privacy implications of whale alert broadcasting
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -->
@@ -188,7 +188,7 @@ to real-time systems. Users trust us because we don't leak their data.
 - Delete debug code (`print()`, `console.log`, `debugger`)
 - Remove unused imports (`ruff check --select F401`)
 - Run linter/formatter if available (`ruff check .`, `ruff format .`)
-- Update CLAUDE.md if file structure changed
+- Update `docs/ARCHITECTURE.md` if architecture/specs changed (NOT CLAUDE.md)
 - Review `.gitignore` for new patterns
 
 ## Governance

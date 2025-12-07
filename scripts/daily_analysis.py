@@ -53,21 +53,30 @@ except ImportError:
     METRICS_ENABLED = False
     logging.warning("spec-007 metrics not available - run scripts/init_metrics_db.py")
 
-# Advanced On-Chain Analytics (spec-009) - Power Law, Symbolic Dynamics, Fractal Dimension
+# Advanced On-Chain Analytics (spec-009 + spec-014) - Power Law, Symbolic Dynamics, Fractal Dimension
 try:
-    from scripts.metrics.monte_carlo_fusion import enhanced_fusion
+    from scripts.metrics.monte_carlo_fusion import (
+        enhanced_fusion,
+        load_weights_from_env,
+    )
     from scripts.metrics.power_law import fit as power_law_fit
     from scripts.metrics.symbolic_dynamics import analyze as symbolic_analyze
     from scripts.metrics.fractal_dimension import analyze as fractal_analyze
 
     ADVANCED_METRICS_ENABLED = True
+    # Log which weights are being used (spec-014)
+    _weights = load_weights_from_env()
+    _is_legacy = _weights.get("funding", 0) == 0.15  # Legacy has funding=0.15
+    logging.info(
+        f"spec-014: Using {'legacy' if _is_legacy else 'evidence-based'} fusion weights"
+    )
 except ImportError:
     ADVANCED_METRICS_ENABLED = False
     logging.warning("spec-009 advanced metrics not available")
 
 # Wasserstein Distance Calculator (spec-010) - Distribution Shift Detection
 try:
-    from scripts.metrics.wasserstein import rolling_wasserstein, wasserstein_vote
+    from scripts.metrics.wasserstein import rolling_wasserstein
 
     WASSERSTEIN_ENABLED = True
 except ImportError:
