@@ -7,8 +7,9 @@
 
 **Organization**: Tasks grouped by user story for independent implementation and testing.
 
-## Format: `[ID] [P?] [Story] Description`
+## Format: `[ID] [Markers] [Story] Description`
 - **[P]**: Can run in parallel (different files, no dependencies)
+- **[E]**: Alpha-Evolve trigger - complex algorithmic task requiring multi-implementation exploration
 - **[Story]**: Which user story this task belongs to (US1, US2, US3, US4)
 - Include exact file paths in descriptions
 
@@ -67,7 +68,7 @@
 
 ### Implementation for User Story 1 (GREEN Phase)
 
-- [ ] T016 [US1] Implement `calculate_output_sopr()` function in `scripts/metrics/sopr.py`
+- [ ] T016 [E] [US1] Implement `calculate_output_sopr()` function in `scripts/metrics/sopr.py`
 - [ ] T017 [US1] Implement `get_historical_price()` for price lookup in `scripts/metrics/sopr.py`
 - [ ] T018 [US1] Implement `get_utxo_creation_block()` for age calculation in `scripts/metrics/sopr.py`
 - [ ] T019 [US1] Add caching for creation block lookups in `scripts/metrics/sopr.py`
@@ -95,7 +96,7 @@
 ### Implementation for User Story 2 (GREEN Phase)
 
 - [ ] T025 [US2] Implement cohort classification in `SpentOutputSOPR.__post_init__()` in `scripts/models/metrics_models.py`
-- [ ] T026 [US2] Implement `calculate_block_sopr()` function in `scripts/metrics/sopr.py`
+- [ ] T026 [E] [US2] Implement `calculate_block_sopr()` function in `scripts/metrics/sopr.py`
 - [ ] T027 [US2] Implement `BlockSOPR.from_outputs()` classmethod in `scripts/models/metrics_models.py`
 - [ ] T028 [US2] Add weighted average helper function in `scripts/metrics/sopr.py`
 - [ ] T029 [US2] Run tests and verify all pass → GREEN
@@ -121,7 +122,7 @@
 
 ### Implementation for User Story 3 (GREEN Phase)
 
-- [ ] T034 [US3] Implement `detect_sopr_signals()` function in `scripts/metrics/sopr.py`
+- [ ] T034 [E] [US3] Implement `detect_sopr_signals()` function in `scripts/metrics/sopr.py`
 - [ ] T035 [US3] Implement `SOPRSignal.capitulation_signal()` classmethod in `scripts/models/metrics_models.py`
 - [ ] T036 [US3] Implement `SOPRSignal.distribution_signal()` classmethod in `scripts/models/metrics_models.py`
 - [ ] T037 [US3] Implement rolling window analysis in `scripts/metrics/sopr.py`

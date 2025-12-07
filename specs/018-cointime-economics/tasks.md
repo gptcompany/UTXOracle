@@ -7,6 +7,10 @@
 
 **Organization**: Tasks grouped by user story.
 
+## Format: `[ID] [Markers] [Story] Description`
+- **[P]**: Can run in parallel (different files, no dependencies)
+- **[E]**: Alpha-Evolve trigger - complex algorithmic task
+
 ---
 
 ## Phase 1: Setup
@@ -42,8 +46,8 @@
 
 ### Implementation (GREEN)
 
-- [ ] T013 [US1] Implement `calculate_coinblocks_destroyed()` in `scripts/metrics/cointime.py`
-- [ ] T014 [US1] Implement `calculate_coinblocks_created()` in `scripts/metrics/cointime.py`
+- [ ] T013 [E] [US1] Implement `calculate_coinblocks_destroyed()` in `scripts/metrics/cointime.py`
+- [ ] T014 [E] [US1] Implement `calculate_coinblocks_created()` in `scripts/metrics/cointime.py`
 - [ ] T015 [US1] Implement cumulative tracking functions
 - [ ] T016 [US1] Run tests → GREEN
 
@@ -63,8 +67,8 @@
 
 ### Implementation (GREEN)
 
-- [ ] T020 [US2] Implement `calculate_liveliness()` in `scripts/metrics/cointime.py`
-- [ ] T021 [US2] Implement `calculate_vaultedness()` in `scripts/metrics/cointime.py`
+- [ ] T020 [E] [US2] Implement `calculate_liveliness()` in `scripts/metrics/cointime.py`
+- [ ] T021 [E] [US2] Implement `calculate_vaultedness()` in `scripts/metrics/cointime.py`
 - [ ] T022 [US2] Add bounds validation (0-1)
 - [ ] T023 [US2] Run tests → GREEN
 
@@ -84,8 +88,8 @@
 
 ### Implementation (GREEN)
 
-- [ ] T027 [US3] Implement `calculate_active_supply()` in `scripts/metrics/cointime.py`
-- [ ] T028 [US3] Implement `calculate_vaulted_supply()` in `scripts/metrics/cointime.py`
+- [ ] T027 [E] [US3] Implement `calculate_active_supply()` in `scripts/metrics/cointime.py`
+- [ ] T028 [E] [US3] Implement `calculate_vaulted_supply()` in `scripts/metrics/cointime.py`
 - [ ] T029 [US3] Run tests → GREEN
 
 **Checkpoint**: Supply split working
