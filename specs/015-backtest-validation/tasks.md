@@ -30,7 +30,7 @@ git checkout -b 015-backtest-validation
 ```
 
 **Acceptance Criteria**:
-- [ ] Branch created from main
+- [X] Branch created from main
 
 ---
 
@@ -46,8 +46,8 @@ touch scripts/backtest/__init__.py
 ```
 
 **Acceptance Criteria**:
-- [ ] Directories created
-- [ ] `__init__.py` created
+- [X] Directories created
+- [X] `__init__.py` created
 
 ---
 
@@ -67,8 +67,8 @@ touch scripts/backtest/__init__.py
 4. Include cross-validation fields
 
 **Acceptance Criteria**:
-- [ ] Dataclass fully defined
-- [ ] All fields documented
+- [X] Dataclass fully defined
+- [X] All fields documented
 
 ---
 
@@ -84,8 +84,8 @@ touch scripts/backtest/__init__.py
 - `buyhold_baseline()` - Buy-and-hold Sharpe
 
 **Acceptance Criteria**:
-- [ ] Random baseline deterministic (seeded)
-- [ ] Buy-and-hold calculation correct
+- [X] Random baseline deterministic (seeded)
+- [X] Buy-and-hold calculation correct
 
 ---
 
@@ -103,9 +103,9 @@ touch scripts/backtest/__init__.py
 - `t_cdf()` - t-distribution CDF (pure Python)
 
 **Acceptance Criteria**:
-- [ ] t-test matches scipy output (within tolerance)
-- [ ] Cohen's d interpretation correct
-- [ ] Bootstrap CI reasonable
+- [X] t-test matches scipy output (within tolerance)
+- [X] Cohen's d interpretation correct
+- [X] Bootstrap CI reasonable
 
 ---
 
@@ -121,9 +121,9 @@ touch scripts/backtest/__init__.py
 - `cross_validate()` - Run CV and return mean/std
 
 **Acceptance Criteria**:
-- [ ] Folds non-overlapping
-- [ ] All data used exactly once
-- [ ] Results reproducible
+- [X] Folds non-overlapping
+- [X] All data used exactly once
+- [X] Results reproducible
 
 ---
 
@@ -140,8 +140,8 @@ touch scripts/backtest/__init__.py
 - `_calculate_performance()` - Sharpe, win rate, etc.
 
 **Acceptance Criteria**:
-- [ ] Full pipeline working
-- [ ] Returns MetricValidationResult
+- [X] Full pipeline working
+- [X] Returns MetricValidationResult
 
 ---
 
@@ -158,9 +158,9 @@ touch scripts/backtest/__init__.py
 - `interpret_cohens_d()` - Effect size interpretation
 
 **Acceptance Criteria**:
-- [ ] JSON valid and complete
-- [ ] Markdown well-formatted
-- [ ] Ranking correct
+- [X] JSON valid and complete
+- [X] Markdown well-formatted
+- [X] Ranking correct
 
 ---
 
@@ -179,8 +179,8 @@ touch scripts/backtest/__init__.py
 3. Ensure 180+ days of data
 
 **Acceptance Criteria**:
-- [ ] Data loaded successfully
-- [ ] Minimum 180 days
+- [X] Data loaded successfully
+- [X] Minimum 180 days
 
 ---
 
@@ -195,8 +195,8 @@ touch scripts/backtest/__init__.py
 3. Generate report
 
 **Acceptance Criteria**:
-- [ ] Validation complete
-- [ ] Report generated
+- [X] Validation complete
+- [X] Report generated
 
 ---
 
@@ -211,8 +211,8 @@ touch scripts/backtest/__init__.py
 3. Generate report
 
 **Acceptance Criteria**:
-- [ ] Validation complete
-- [ ] Report generated
+- [X] Validation complete
+- [X] Report generated
 
 ---
 
@@ -227,8 +227,8 @@ touch scripts/backtest/__init__.py
 3. Generate report
 
 **Acceptance Criteria**:
-- [ ] Validation complete
-- [ ] Report generated
+- [X] Validation complete
+- [X] Report generated
 
 ---
 
@@ -248,8 +248,8 @@ touch scripts/backtest/__init__.py
 4. Recommendations (increase/maintain/decrease weight)
 
 **Acceptance Criteria**:
-- [ ] All metrics ranked
-- [ ] Clear recommendations
+- [X] All metrics ranked
+- [X] Clear recommendations
 
 ---
 
@@ -264,8 +264,8 @@ touch scripts/backtest/__init__.py
 3. Update spec-014 if needed
 
 **Acceptance Criteria**:
-- [ ] Weights reviewed
-- [ ] spec-014 updated if needed
+- [X] Weights reviewed
+- [X] spec-014 updated if needed
 
 ---
 
@@ -282,8 +282,8 @@ touch scripts/backtest/__init__.py
 3. Methodology details
 
 **Acceptance Criteria**:
-- [ ] Research notes complete
-- [ ] Publication potential assessed
+- [X] Research notes complete
+- [X] Publication potential assessed
 
 ---
 
@@ -307,8 +307,8 @@ def test_full_validation_pipeline()
 ```
 
 **Acceptance Criteria**:
-- [ ] All tests pass
-- [ ] Coverage > 80%
+- [X] All tests pass
+- [X] Coverage > 80%
 
 ---
 
@@ -320,8 +320,8 @@ def test_full_validation_pipeline()
 **Files**: `CLAUDE.md`, `docs/ARCHITECTURE.md`
 
 **Acceptance Criteria**:
-- [ ] Documentation updated
-- [ ] Validation process documented
+- [X] Documentation updated
+- [X] Validation process documented
 
 ---
 

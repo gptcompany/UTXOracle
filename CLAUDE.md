@@ -68,6 +68,7 @@ python3 scripts/utxoracle_batch.py 2025/10/01 2025/10/10 /home/sam/.bitcoin 12
 | spec-012 | backtest/ | ✅ Complete |
 | spec-013 | clustering/ | ✅ Complete |
 | spec-014 | metrics/ (evidence weights) | ✅ Complete |
+| spec-015 | backtest/ (validation) | ✅ Complete |
 
 ## Repository Organization
 

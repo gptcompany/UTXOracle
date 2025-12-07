@@ -278,6 +278,41 @@ Address clustering and CoinJoin detection for whale identification:
   * Returns top clusters by size
   * CoinJoin filtering statistics
 
+### Metric Validation Framework (spec-015)
+
+Rigorous statistical validation for spec-009 metrics:
+
+- **Statistics Module** (`scripts/backtest/statistics.py`)
+  * Pure Python t-test implementation (no scipy dependency)
+  * Cohen's d effect size calculation
+  * Bootstrap confidence intervals (1000 samples)
+  * t-distribution CDF approximation via incomplete beta function
+
+- **Baseline Generators** (`scripts/backtest/baselines.py`)
+  * Random baseline: Monte Carlo shuffled signals (1000 trials)
+  * Buy-and-hold baseline: Passive market exposure Sharpe
+  * Deterministic with seed for reproducibility
+
+- **Cross-Validation** (`scripts/backtest/cross_validation.py`)
+  * K-fold time series split (contiguous blocks)
+  * Walk-forward validation (expanding window)
+  * Stability assessment (CV std < 0.5 = stable)
+
+- **Metric Validator** (`scripts/backtest/metric_validator.py`)
+  * `MetricValidationResult`: Complete validation dataclass
+  * `MetricValidator.validate()`: Full validation pipeline
+  * `compare_metrics()`: Side-by-side metric comparison
+
+- **Report Generator** (`scripts/backtest/report_generator.py`)
+  * JSON output for programmatic access
+  * Markdown output with tables and recommendations
+  * Comparative ranking across metrics
+
+- **Validation Runner** (`scripts/backtest/run_validations.py`)
+  * CLI: `python -m scripts.backtest.run_validations`
+  * Validates: Symbolic Dynamics, Power Law, Fractal Dimension
+  * Output: `reports/validation/*.md` and `*.json`
+
 ---
 
 ## Spec Implementation Status
@@ -291,6 +326,7 @@ Address clustering and CoinJoin detection for whale identification:
 | spec-011 | alerts/ | ✅ Complete | 4 |
 | spec-012 | backtest/ | ✅ Complete | 5 |
 | spec-013 | clustering/ | ✅ Complete | 5 |
+| spec-015 | backtest/ (validation) | ✅ Complete | 6 |
 
 ---
 

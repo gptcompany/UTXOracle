@@ -56,6 +56,38 @@ from scripts.backtest.optimizer import (
     walk_forward_validate,
 )
 
+# Metric validation (spec-015)
+from scripts.backtest.metric_validator import (
+    MetricValidator,
+    MetricValidationResult,
+    ComparativeValidationReport,
+    compare_metrics,
+)
+
+from scripts.backtest.statistics import (
+    t_test_vs_baseline,
+    cohens_d,
+    bootstrap_ci,
+    interpret_cohens_d,
+)
+
+from scripts.backtest.cross_validation import (
+    kfold_split,
+    cross_validate,
+    assess_stability,
+)
+
+from scripts.backtest.baselines import (
+    random_baseline,
+    buyhold_baseline,
+    calculate_signal_sharpe,
+)
+
+from scripts.backtest.report_generator import (
+    generate_validation_report,
+    generate_comparative_report,
+)
+
 __all__ = [
     # Engine
     "BacktestConfig",
@@ -84,4 +116,21 @@ __all__ = [
     "OptimizationResult",
     "optimize_weights",
     "walk_forward_validate",
+    # Metric Validation (spec-015)
+    "MetricValidator",
+    "MetricValidationResult",
+    "ComparativeValidationReport",
+    "compare_metrics",
+    "t_test_vs_baseline",
+    "cohens_d",
+    "bootstrap_ci",
+    "interpret_cohens_d",
+    "kfold_split",
+    "cross_validate",
+    "assess_stability",
+    "random_baseline",
+    "buyhold_baseline",
+    "calculate_signal_sharpe",
+    "generate_validation_report",
+    "generate_comparative_report",
 ]
