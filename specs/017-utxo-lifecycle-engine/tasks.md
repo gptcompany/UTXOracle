@@ -7,7 +7,9 @@
 
 **Organization**: Tasks grouped by user story for independent implementation.
 
-## Format: `[ID] [P?] [Story] Description`
+## Format: `[ID] [Markers] [Story] Description`
+- **[P]**: Can run in parallel (different files, no dependencies)
+- **[E]**: Alpha-Evolve trigger - complex algorithmic task
 
 ---
 
@@ -128,9 +130,9 @@
 
 ### Implementation for User Story 4 (GREEN Phase)
 
-- [ ] T043 [US4] Implement `calculate_realized_cap()` in `scripts/metrics/realized_metrics.py`
-- [ ] T044 [US4] Implement `calculate_mvrv()` in `scripts/metrics/realized_metrics.py`
-- [ ] T045 [US4] Implement `calculate_nupl()` in `scripts/metrics/realized_metrics.py`
+- [ ] T043 [E] [US4] Implement `calculate_realized_cap()` in `scripts/metrics/realized_metrics.py`
+- [ ] T044 [E] [US4] Implement `calculate_mvrv()` in `scripts/metrics/realized_metrics.py`
+- [ ] T045 [E] [US4] Implement `calculate_nupl()` in `scripts/metrics/realized_metrics.py`
 - [ ] T046 [US4] Implement `create_snapshot()` for point-in-time metrics
 - [ ] T047 [US4] Run tests → GREEN
 
@@ -151,7 +153,7 @@
 
 ### Implementation for User Story 5 (GREEN Phase)
 
-- [ ] T050 [US5] Implement `calculate_hodl_waves()` in `scripts/metrics/hodl_waves.py`
+- [ ] T050 [E] [US5] Implement `calculate_hodl_waves()` in `scripts/metrics/hodl_waves.py`
 - [ ] T051 [US5] Add HODL waves to snapshot creation
 - [ ] T052 [US5] Run tests → GREEN
 

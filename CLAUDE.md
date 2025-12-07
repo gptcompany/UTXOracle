@@ -145,6 +145,33 @@ Finds bugs even when tests pass. Triggers automatically after implementation pha
 3. Confidence >= 95%
 4. Tests failing → human intervention
 
+### Task Markers (SpecKit Integration)
+
+Use markers in `tasks.md` to control execution behavior:
+
+| Marker | Meaning | Processed By |
+|--------|---------|--------------|
+| `[P]` | Parallel execution (no dependencies) | `/speckit.implement` |
+| `[E]` | Alpha-Evolve trigger (algorithmic task) | `auto-alpha-debug` hook |
+| `[USn]` | User Story grouping | `/speckit.implement` |
+
+**`[E]` Marker Usage**:
+- Add `[E]` to tasks requiring multi-implementation exploration
+- Triggers alpha-evolve instead of alpha-debug after completion
+- Best for: core algorithms, distance metrics, statistical calculations
+
+```markdown
+# Example in tasks.md
+- [ ] T016 [E] [US1] Implement Wasserstein distance calculation
+- [ ] T020 [E] Implement SOPR algorithm with STH/LTH classification
+```
+
+**Auto-Trigger Flow**:
+1. Stop hook detects code changes (>20 lines)
+2. Checks stop_reason for `[E]` or evolve keywords
+3. If `[E]` found → spawns alpha-evolve (generates 3+ approaches)
+4. If not → spawns alpha-debug (iterative verification)
+
 ## Development Principles
 
 ### KISS & YAGNI

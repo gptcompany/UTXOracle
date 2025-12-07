@@ -89,7 +89,7 @@ touch scripts/backtest/__init__.py
 
 ---
 
-### Task 015-005: Implement statistical tests
+### Task 015-005: [E] Implement statistical tests
 **Priority**: P1
 **Effort**: 45 min
 **Dependencies**: 015-002
@@ -109,7 +109,7 @@ touch scripts/backtest/__init__.py
 
 ---
 
-### Task 015-006: Implement cross-validation
+### Task 015-006: [E] Implement cross-validation
 **Priority**: P1
 **Effort**: 30 min
 **Dependencies**: 015-002
