@@ -1434,7 +1434,8 @@ async def get_fusion_breakdown():
         )
 
         weights = load_weights_from_env()
-        is_legacy = weights.get("funding", 0) == 0.15
+        # Detect legacy by absence of wasserstein component (more reliable than funding value)
+        is_legacy = "wasserstein" not in weights or weights.get("wasserstein", 0) == 0.0
         weight_source = "legacy" if is_legacy else "evidence-based"
     except ImportError:
         # Fallback if module not available

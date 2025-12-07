@@ -352,10 +352,13 @@ def enhanced_fusion(
     components_used = []
 
     if whale_vote is not None:
-        components["whale"] = (whale_vote, whale_conf if whale_conf else 1.0)
+        components["whale"] = (
+            whale_vote,
+            whale_conf if whale_conf is not None else 1.0,
+        )
         components_used.append("whale")
     if utxo_vote is not None:
-        components["utxo"] = (utxo_vote, utxo_conf if utxo_conf else 1.0)
+        components["utxo"] = (utxo_vote, utxo_conf if utxo_conf is not None else 1.0)
         components_used.append("utxo")
     if funding_vote is not None:
         components["funding"] = (funding_vote, 1.0)  # No confidence for derivatives
