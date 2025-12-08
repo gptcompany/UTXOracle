@@ -54,7 +54,7 @@ def cross_validate(
 
     Args:
         signals: Signal values
-        prices: Corresponding prices
+        prices: Corresponding prices (must have len >= len(signals) + 1)
         k: Number of folds (default: 3)
         metric_fn: Function to calculate metric (default: sharpe_ratio)
 
@@ -66,8 +66,9 @@ def cross_validate(
 
         metric_fn = calculate_signal_sharpe
 
-    n = min(len(signals), len(prices))
-    if n < k * 2:  # Need at least 2 points per fold
+    # We need at least one more price than signals for return calculation
+    n = min(len(signals), len(prices) - 1)
+    if n < k * 2:  # Need at least 2 signals per fold
         return 0.0, 0.0, []
 
     folds = kfold_split(n, k)
@@ -75,9 +76,10 @@ def cross_validate(
 
     for start, end in folds:
         fold_signals = signals[start:end]
-        fold_prices = prices[start:end]
+        # Need one extra price point for return calculation
+        fold_prices = prices[start : end + 1]
 
-        if len(fold_signals) >= 2 and len(fold_prices) >= 2:
+        if len(fold_signals) >= 2 and len(fold_prices) >= 3:
             metric = metric_fn(fold_signals, fold_prices)
             fold_metrics.append(metric)
 
@@ -100,7 +102,7 @@ def walk_forward_validate(
 
     Args:
         signals: Signal values
-        prices: Corresponding prices
+        prices: Corresponding prices (must have len >= len(signals) + 1)
         train_ratio: Fraction of each window used for training
         n_splits: Number of walk-forward windows
         metric_fn: Function to calculate metric
@@ -113,7 +115,8 @@ def walk_forward_validate(
 
         metric_fn = calculate_signal_sharpe
 
-    n = min(len(signals), len(prices))
+    # We need at least one more price than signals for return calculation
+    n = min(len(signals), len(prices) - 1)
     if n < 20:  # Need reasonable data
         return 0.0, 0.0, []
 
@@ -132,9 +135,10 @@ def walk_forward_validate(
         # We only evaluate on test data
         # (Training would be used for parameter optimization)
         test_signals = signals[test_start:test_end]
-        test_prices = prices[test_start:test_end]
+        # Need one extra price point for return calculation
+        test_prices = prices[test_start : test_end + 1]
 
-        if len(test_signals) >= 2 and len(test_prices) >= 2:
+        if len(test_signals) >= 2 and len(test_prices) >= 3:
             metric = metric_fn(test_signals, test_prices)
             split_metrics.append(metric)
 

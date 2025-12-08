@@ -74,18 +74,19 @@ def _simulate_signal_returns(
 
     Args:
         signals: Signal values
-        prices: Price series
+        prices: Price series (must have len(prices) >= len(signals) + 1)
         threshold: Signal threshold for entry
 
     Returns:
-        List of simulated returns
+        List of simulated returns (length = min(len(signals), len(prices) - 1))
     """
-    n = min(len(signals), len(prices))
-    if n < 2:
+    # We need prices[i+1] for signal[i], so max usable signals is len(prices) - 1
+    n = min(len(signals), len(prices) - 1)
+    if n < 1 or len(prices) < 2:
         return []
 
     returns = []
-    for i in range(n - 1):
+    for i in range(n):
         price_return = (prices[i + 1] - prices[i]) / prices[i] if prices[i] > 0 else 0.0
         signal = signals[i] if signals[i] is not None else 0.0
 
@@ -166,20 +167,21 @@ def calculate_win_rate(
 
     Args:
         signals: Signal values
-        prices: Price series
+        prices: Price series (must have len >= len(signals) + 1)
         threshold: Signal threshold for entry
 
     Returns:
         Win rate (0.0 to 1.0)
     """
-    n = min(len(signals), len(prices))
-    if n < 2:
+    # We need prices[i+1] for signal[i]
+    n = min(len(signals), len(prices) - 1)
+    if n < 1 or len(prices) < 2:
         return 0.0
 
     wins = 0
     trades = 0
 
-    for i in range(n - 1):
+    for i in range(n):
         signal = signals[i] if signals[i] is not None else 0.0
 
         if abs(signal) > threshold:

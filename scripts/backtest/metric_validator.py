@@ -151,17 +151,18 @@ class MetricValidator:
 
         Args:
             metric_name: Name of the metric being validated
-            signals: Signal values (aligned with prices)
-            prices: Price series
+            signals: Signal values
+            prices: Price series (must have len >= len(signals) + 1)
             start_date: Start date (for reporting)
             end_date: End date (for reporting)
 
         Returns:
             Complete validation result
         """
-        n = min(len(signals), len(prices))
+        # We need at least one more price than signals for return calculation
+        n = min(len(signals), len(prices) - 1)
 
-        if n < 2:
+        if n < 1 or len(prices) < 2:
             return self._empty_result(metric_name, start_date, end_date)
 
         # Use current date if not provided

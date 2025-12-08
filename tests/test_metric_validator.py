@@ -437,8 +437,8 @@ class TestFullValidationPipeline:
         """Full validation pipeline should execute without errors."""
         # Generate synthetic data
         random.seed(42)
-        prices = [100 + i + random.gauss(0, 2) for i in range(100)]
-        signals = [random.gauss(0, 0.3) for _ in range(100)]
+        prices = [100 + i + random.gauss(0, 2) for i in range(101)]  # 101 prices
+        signals = [random.gauss(0, 0.3) for _ in range(100)]  # 100 signals
 
         # Run validation
         validator = MetricValidator(
@@ -458,7 +458,7 @@ class TestFullValidationPipeline:
 
         # Check all fields are populated
         assert result.metric_name == "synthetic_metric"
-        assert result.total_signals == 100
+        assert result.total_signals == 100  # Now we can use all 100 signals
         assert isinstance(result.sharpe_ratio, float)
         assert isinstance(result.p_value, float)
         assert isinstance(result.effect_size_cohens_d, float)

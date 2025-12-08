@@ -140,6 +140,12 @@ def t_cdf(t: float, df: float) -> float:
     if df <= 0:
         return float("nan")
 
+    # Use fallback for extreme t values to avoid numerical precision loss
+    if t > 10:
+        return 0.99999
+    if t < -10:
+        return 0.00001
+
     # Use relationship to incomplete beta function
     # P(T <= t) = 1 - 0.5 * I_{x}(df/2, 0.5)
     # where x = df / (df + t^2)
@@ -150,10 +156,6 @@ def t_cdf(t: float, df: float) -> float:
         ibeta = _beta_incomplete(df / 2, 0.5, x)
     except (ValueError, OverflowError):
         # Fallback for numerical issues
-        if t > 10:
-            return 0.99999
-        if t < -10:
-            return 0.00001
         return 0.5
 
     if t >= 0:
