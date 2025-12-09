@@ -1,0 +1,105 @@
+openapi: 3.0.3
+info:
+  title: UTXOracle SOPR API
+  description: STH/LTH SOPR metrics endpoints
+  version: 1.0.0
+
+paths:
+  /api/metrics/sopr/current:
+    get:
+      summary: Get current block SOPR
+      description: Returns SOPR metrics for the most recent processed block
+      responses:
+        '200':
+          description: Current SOPR metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlockSOPR'
+
+  /api/metrics/sopr/history:
+    get:
+      summary: Get historical SOPR data
+      parameters:
+        - name: start_block
+          in: query
+          schema:
+            type: integer
+        - name: end_block
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 144
+      responses:
+        '200':
+          description: Historical SOPR data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BlockSOPR'
+
+  /api/metrics/sopr/signals:
+    get:
+      summary: Get active SOPR signals
+      responses:
+        '200':
+          description: Active trading signals from SOPR patterns
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SOPRSignals'
+
+components:
+  schemas:
+    BlockSOPR:
+      type: object
+      properties:
+        block_height:
+          type: integer
+        timestamp:
+          type: string
+          format: date-time
+        aggregate_sopr:
+          type: number
+        sth_sopr:
+          type: number
+          nullable: true
+        lth_sopr:
+          type: number
+          nullable: true
+        valid_outputs:
+          type: integer
+        sth_outputs:
+          type: integer
+        lth_outputs:
+          type: integer
+        profit_ratio:
+          type: number
+        is_valid:
+          type: boolean
+
+    SOPRSignals:
+      type: object
+      properties:
+        sth_capitulation:
+          type: boolean
+        sth_breakeven_cross:
+          type: boolean
+        lth_distribution:
+          type: boolean
+        sopr_vote:
+          type: number
+          minimum: -1
+          maximum: 1
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        consecutive_periods:
+          type: integer
