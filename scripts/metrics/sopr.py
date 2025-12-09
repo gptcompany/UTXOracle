@@ -234,8 +234,14 @@ def calculate_output_sopr(
         >>> output.profit_loss
         'PROFIT'
     """
-    # Validate prices
-    if creation_price <= 0 or spend_price <= 0:
+    import math
+
+    # Validate prices - must be positive finite numbers
+    # Note: NaN comparisons always return False, so we need explicit isnan/isinf checks
+    def is_valid_price(price: float) -> bool:
+        return price > 0 and not math.isnan(price) and not math.isinf(price)
+
+    if not is_valid_price(creation_price) or not is_valid_price(spend_price):
         return SpentOutputSOPR(
             creation_price=creation_price,
             spend_price=spend_price,

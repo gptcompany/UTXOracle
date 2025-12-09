@@ -106,7 +106,7 @@ except ImportError:
 
 # SOPR - Spent Output Profit Ratio (spec-016)
 try:
-    from scripts.metrics.sopr import detect_sopr_signals, SOPRWindow
+    from scripts.metrics.sopr import detect_sopr_signals
 
     SOPR_ENABLED = True
 except ImportError:
@@ -1791,22 +1791,30 @@ def main():
                     sopr_vote = None
                     if SOPR_ENABLED:
                         try:
-                            # Create mock SOPRWindow from UTXO values for signal detection
                             # Note: Full SOPR requires historical price data for creation blocks
                             # This is a simplified version using current block data only
-                            sopr_signal = detect_sopr_signals(
-                                windows=[],  # Would need historical block SOPR windows
+                            # In production, would need historical BlockSOPR windows
+                            sopr_signals = detect_sopr_signals(
+                                window=[],  # Would need historical block SOPR windows
                                 capitulation_days=3,
-                                capitulation_threshold=1.0,
                                 distribution_threshold=3.0,
                             )
-                            if sopr_signal:
-                                sopr_vote = sopr_signal.sopr_vote
-                                logging.info(
-                                    f"📊 SOPR: {sopr_signal.signal_type} signal "
-                                    f"→ vote={sopr_vote:+.2f} "
-                                    f"(confidence: {sopr_signal.confidence:.1%})"
-                                )
+                            if sopr_signals:
+                                sopr_vote = sopr_signals["sopr_vote"]
+                                # Determine signal type from flags
+                                if sopr_signals["sth_capitulation"]:
+                                    signal_type = "STH_CAPITULATION"
+                                elif sopr_signals["lth_distribution"]:
+                                    signal_type = "LTH_DISTRIBUTION"
+                                elif sopr_signals["sth_breakeven_cross"]:
+                                    signal_type = "BREAKEVEN_CROSS"
+                                else:
+                                    signal_type = "NEUTRAL"
+                                if sopr_vote != 0.0:
+                                    logging.info(
+                                        f"📊 SOPR: {signal_type} signal "
+                                        f"→ vote={sopr_vote:+.2f}"
+                                    )
                         except Exception as e:
                             logging.warning(f"SOPR calculation failed: {e}")
 
