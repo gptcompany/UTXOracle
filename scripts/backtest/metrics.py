@@ -87,8 +87,14 @@ def sortino_ratio(
     downside_variance = sum(d**2 for d in downside_deviations) / n
 
     if downside_variance == 0:
-        # No downside returns - perfect performance
-        return float("inf") if excess_return > 0 else 0.0
+        # No downside returns
+        # Positive excess = perfect (inf), negative excess = worst (-inf)
+        if excess_return > 0:
+            return float("inf")
+        elif excess_return < 0:
+            return float("-inf")
+        else:
+            return 0.0
 
     downside_std = math.sqrt(downside_variance)
 

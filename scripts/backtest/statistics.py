@@ -183,9 +183,11 @@ def t_test_vs_baseline(
     std_baseline = stdev(baseline_samples)
 
     if std_baseline == 0:
-        # No variance in baseline - can't compute t-test
-        # Use tolerance for float comparison
-        return 0.0, 1.0 if abs(actual - mean_baseline) < 1e-10 else 0.0
+        # No variance in baseline - degenerate case
+        # If actual matches baseline exactly, not significant (p=1.0)
+        # If actual differs, we can't assess significance (no distribution info)
+        # Return p=1.0 in both cases to avoid false positives
+        return 0.0, 1.0
 
     # Standard error of the mean
     se = std_baseline / math.sqrt(n)

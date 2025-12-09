@@ -7,6 +7,7 @@ Generates validation reports in JSON and Markdown formats:
 """
 
 import json
+import math
 import os
 from dataclasses import asdict
 from datetime import date, datetime
@@ -37,6 +38,8 @@ def _serialize_for_json(obj):
             return "inf" if obj > 0 else "-inf"
         if math.isnan(obj):
             return "nan"
+        # Normal float - JSON serializable as-is
+        return obj
     raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
 
