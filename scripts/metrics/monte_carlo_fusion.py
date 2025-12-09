@@ -194,20 +194,22 @@ def determine_action(
 
 
 # =============================================================================
-# spec-009 + spec-010: Enhanced 8-Component Fusion
+# spec-009 + spec-010 + spec-016: Enhanced 9-Component Fusion
 # =============================================================================
 
 # Default weights for enhanced fusion (sum = 1.0)
-# Updated for 8 components including Wasserstein (spec-010)
+# Updated for 9 components including SOPR (spec-016)
+# SOPR weight 0.15 based on evidence grade A-B (82.44% accuracy - Omole & Enke 2024)
 ENHANCED_WEIGHTS = {
-    "whale": 0.23,  # Primary signal (was 0.25)
-    "utxo": 0.14,  # Price signal (was 0.15)
-    "funding": 0.14,  # Derivatives (was 0.15)
-    "oi": 0.09,  # Derivatives (was 0.10)
-    "power_law": 0.09,  # Regime (was 0.10)
-    "symbolic": 0.14,  # Temporal (was 0.15)
-    "fractal": 0.09,  # Structure (was 0.10)
-    "wasserstein": 0.08,  # Distribution shift (NEW spec-010)
+    "whale": 0.12,  # Primary signal (reduced from 0.23)
+    "utxo": 0.18,  # Price signal (entity-adjusted)
+    "funding": 0.05,  # Derivatives (LAGGING indicator)
+    "oi": 0.08,  # Derivatives
+    "power_law": 0.12,  # Regime
+    "symbolic": 0.12,  # Temporal
+    "fractal": 0.08,  # Structure
+    "wasserstein": 0.10,  # Distribution shift (spec-010)
+    "sopr": 0.15,  # SOPR signal (spec-016) - Highest evidence grade
 }
 
 
@@ -222,24 +224,27 @@ def enhanced_fusion(
     symbolic_vote: Optional[float] = None,
     fractal_vote: Optional[float] = None,
     wasserstein_vote: Optional[float] = None,  # spec-010
+    sopr_vote: Optional[float] = None,  # spec-016
     n_samples: int = 1000,
     weights: Optional[dict[str, float]] = None,
 ) -> EnhancedFusionResult:
     """
-    Enhanced Monte Carlo fusion with 8 signal components.
+    Enhanced Monte Carlo fusion with 9 signal components.
 
     Extends spec-007 with spec-009 advanced metrics (power law, symbolic,
-    fractal), spec-008 derivatives (funding, oi), and spec-010 Wasserstein.
+    fractal), spec-008 derivatives (funding, oi), spec-010 Wasserstein,
+    and spec-016 SOPR (STH/LTH).
 
     Components:
-    - whale: Whale flow signal (highest weight)
-    - utxo: UTXOracle price signal
+    - whale: Whale flow signal
+    - utxo: UTXOracle price signal (entity-adjusted)
     - funding: Funding rate signal (spec-008)
     - oi: Open interest signal (spec-008)
     - power_law: Power law regime signal (spec-009)
     - symbolic: Symbolic dynamics signal (spec-009)
     - fractal: Fractal dimension signal (spec-009)
     - wasserstein: Distribution shift signal (spec-010)
+    - sopr: Spent Output Profit Ratio signal (spec-016) - Highest evidence grade
 
     Args:
         whale_vote: Whale flow vote (-1 to +1), None if unavailable
@@ -252,6 +257,7 @@ def enhanced_fusion(
         symbolic_vote: Symbolic dynamics vote, None if unavailable
         fractal_vote: Fractal dimension vote, None if unavailable
         wasserstein_vote: Wasserstein shift vote, None if unavailable (spec-010)
+        sopr_vote: SOPR signal vote, None if unavailable (spec-016)
         n_samples: Number of bootstrap samples (default: 1000)
         weights: Custom weights dict (uses ENHANCED_WEIGHTS if None)
 
@@ -289,6 +295,9 @@ def enhanced_fusion(
     if wasserstein_vote is not None:
         components["wasserstein"] = (wasserstein_vote, 1.0)
         components_used.append("wasserstein")
+    if sopr_vote is not None:
+        components["sopr"] = (sopr_vote, 1.0)  # spec-016
+        components_used.append("sopr")
 
     n_components = len(components)
 
@@ -357,6 +366,7 @@ def enhanced_fusion(
         symbolic_vote=symbolic_vote,
         fractal_vote=fractal_vote,
         wasserstein_vote=wasserstein_vote,  # spec-010
+        sopr_vote=sopr_vote,  # spec-016
         whale_weight=normalized_weights.get("whale", 0.0),
         utxo_weight=normalized_weights.get("utxo", 0.0),
         funding_weight=normalized_weights.get("funding", 0.0),
@@ -365,6 +375,7 @@ def enhanced_fusion(
         symbolic_weight=normalized_weights.get("symbolic", 0.0),
         fractal_weight=normalized_weights.get("fractal", 0.0),
         wasserstein_weight=normalized_weights.get("wasserstein", 0.0),  # spec-010
+        sopr_weight=normalized_weights.get("sopr", 0.0),  # spec-016
         components_available=n_components,
         components_used=components_used,
     )

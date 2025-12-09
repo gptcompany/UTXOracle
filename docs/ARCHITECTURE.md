@@ -119,8 +119,8 @@ Statistical analysis extensions providing +40% signal accuracy improvement:
   * Signal: +10% accuracy boost for structural analysis
 
 - **Enhanced Fusion** (`scripts/metrics/monte_carlo_fusion.py:enhanced_fusion`)
-  * 7-component weighted fusion (vs 2-component in spec-007)
-  * Components: whale (25%), utxo (15%), funding (15%), oi (10%), power_law (10%), symbolic (15%), fractal (10%)
+  * 9-component weighted fusion (vs 2-component in spec-007)
+  * Components: whale (12%), utxo (18%), funding (5%), oi (8%), power_law (12%), symbolic (12%), fractal (8%), wasserstein (10%), sopr (15%)
   * Automatic weight renormalization when components unavailable
   * Backward compatible with spec-007 2-component fusion
 
@@ -128,7 +128,7 @@ Statistical analysis extensions providing +40% signal accuracy improvement:
   * `PowerLawResult`: τ, xmin, KS stats, regime
   * `SymbolicDynamicsResult`: H, C, pattern type
   * `FractalDimensionResult`: D, R², structure
-  * `EnhancedFusionResult`: 8-component fusion result (includes Wasserstein)
+  * `EnhancedFusionResult`: 9-component fusion result (includes Wasserstein and SOPR)
 
 - **API Endpoint** (`/api/metrics/advanced`)
   * Real-time computation from latest block data
@@ -274,6 +274,49 @@ Address clustering and CoinJoin detection for whale identification:
   * Returns top clusters by size
   * CoinJoin filtering statistics
 
+### SOPR Module (spec-016)
+
+Spent Output Profit Ratio (SOPR) analysis with STH/LTH holder classification:
+
+- **SOPR Calculator** (`scripts/metrics/sopr.py`)
+  * Individual output SOPR: spend_price / creation_price
+  * STH/LTH classification: Short-Term Holder (<155 days), Long-Term Holder (≥155 days)
+  * Block aggregation with BTC-weighted averages
+  * Performance: 2.94ms per block (34x faster than 100ms target)
+
+- **Signal Detection** (`scripts/metrics/sopr.py:detect_sopr_signals`)
+  * **Capitulation**: STH-SOPR < 1.0 for 3+ consecutive days → Bullish (+0.7 vote)
+  * **Breakeven Cross**: STH-SOPR crosses 1.0 → Momentum change (±0.3 vote)
+  * **Distribution**: LTH-SOPR > 3.0 → Bearish (-0.5 vote)
+  * Configurable thresholds via environment variables
+
+- **Data Models** (`scripts/metrics/sopr.py`)
+  * `SpentOutputSOPR`: Individual UTXO SOPR with cohort classification
+  * `BlockSOPR`: Aggregated block-level metrics (all/STH/LTH)
+  * `SOPRWindow`: Rolling window summary for signal detection
+  * `SOPRSignal`: Trading signal with type, vote, and confidence
+
+- **Enhanced Fusion Integration** (`scripts/metrics/monte_carlo_fusion.py`)
+  * 9th component with 0.15 weight (highest evidence grade A-B)
+  * Based on Omole & Enke (2024) research: 82.44% accuracy
+  * Automatic weight renormalization when unavailable
+
+- **API Endpoints** (`api/main.py`)
+  * `/api/metrics/sopr/current` - Latest block SOPR (all/STH/LTH split)
+  * `/api/metrics/sopr/history` - Historical SOPR data with pagination
+  * `/api/metrics/sopr/signals` - Active trading signals
+
+- **Configuration** (`.env.example`)
+  ```bash
+  SOPR_ENABLED=true
+  SOPR_STH_THRESHOLD_DAYS=155
+  SOPR_MIN_OUTPUTS=100
+  SOPR_CAPITULATION_DAYS=3
+  SOPR_CAPITULATION_THRESHOLD=1.0
+  SOPR_DISTRIBUTION_THRESHOLD=3.0
+  SOPR_WEIGHT=0.15
+  ```
+
 ---
 
 ## Spec Implementation Status
@@ -287,6 +330,9 @@ Address clustering and CoinJoin detection for whale identification:
 | spec-011 | alerts/ | ✅ Complete | 4 |
 | spec-012 | backtest/ | ✅ Complete | 5 |
 | spec-013 | clustering/ | ✅ Complete | 5 |
+| spec-014 | metrics/ (evidence weights) | ✅ Complete | - |
+| spec-015 | backtest/ (validation) | ✅ Complete | - |
+| spec-016 | metrics/sopr | ✅ Complete | 1 |
 
 ---
 

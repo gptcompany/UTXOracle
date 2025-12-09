@@ -1392,6 +1392,224 @@ async def get_wasserstein_regime():
 
 
 # =============================================================================
+# Spec-016: SOPR Endpoints
+# =============================================================================
+
+
+@app.get("/api/metrics/sopr/current")
+async def get_sopr_current():
+    """
+    Get current block SOPR metrics (spec-016).
+
+    Returns the most recent SOPR calculation with STH/LTH split.
+    """
+    import duckdb
+
+    conn = None
+    try:
+        db_path = os.getenv(
+            "DUCKDB_PATH",
+            "/media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxoracle_cache.db",
+        )
+        conn = duckdb.connect(db_path, read_only=True)
+
+        result = conn.execute("""
+            SELECT block_height, block_hash, timestamp,
+                   aggregate_sopr, sth_sopr, lth_sopr,
+                   valid_outputs, sth_outputs, lth_outputs,
+                   profit_ratio, is_valid
+            FROM sopr_blocks
+            ORDER BY block_height DESC
+            LIMIT 1
+        """).fetchone()
+
+        if not result:
+            raise HTTPException(
+                status_code=404,
+                detail="No SOPR data available. Analysis may not have run yet.",
+            )
+
+        return {
+            "block_height": result[0],
+            "block_hash": result[1],
+            "timestamp": result[2].isoformat() if result[2] else None,
+            "aggregate_sopr": result[3],
+            "sth_sopr": result[4],
+            "lth_sopr": result[5],
+            "valid_outputs": result[6],
+            "sth_outputs": result[7],
+            "lth_outputs": result[8],
+            "profit_ratio": result[9],
+            "is_valid": result[10],
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "sopr" in error_msg or "column" in error_msg or "binder" in error_msg:
+            logging.info("SOPR columns not yet available in database schema")
+            raise HTTPException(
+                status_code=404,
+                detail="SOPR metrics not available. Schema migration pending.",
+            )
+        logging.error(f"Error fetching SOPR: {e}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.get("/api/metrics/sopr/history")
+async def get_sopr_history(
+    limit: int = Query(
+        default=144, ge=1, le=1000, description="Maximum data points (144 = ~24h)"
+    ),
+    start_block: int = Query(default=None, description="Start block height"),
+    end_block: int = Query(default=None, description="End block height"),
+):
+    """
+    Get historical SOPR data (spec-016).
+
+    Returns SOPR metrics for the specified range or last N blocks.
+    """
+    import duckdb
+
+    conn = None
+    try:
+        db_path = os.getenv(
+            "DUCKDB_PATH",
+            "/media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxoracle_cache.db",
+        )
+        conn = duckdb.connect(db_path, read_only=True)
+
+        query = """
+            SELECT block_height, timestamp, aggregate_sopr, sth_sopr, lth_sopr,
+                   valid_outputs, sth_outputs, lth_outputs, profit_ratio, is_valid
+            FROM sopr_blocks
+            WHERE 1=1
+        """
+        params = []
+
+        if start_block is not None:
+            query += " AND block_height >= ?"
+            params.append(start_block)
+        if end_block is not None:
+            query += " AND block_height <= ?"
+            params.append(end_block)
+
+        query += " ORDER BY block_height DESC LIMIT ?"
+        params.append(limit)
+
+        results = conn.execute(query, params).fetchall()
+
+        return [
+            {
+                "block_height": row[0],
+                "timestamp": row[1].isoformat() if row[1] else None,
+                "aggregate_sopr": row[2],
+                "sth_sopr": row[3],
+                "lth_sopr": row[4],
+                "valid_outputs": row[5],
+                "sth_outputs": row[6],
+                "lth_outputs": row[7],
+                "profit_ratio": row[8],
+                "is_valid": row[9],
+            }
+            for row in results
+        ]
+
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "sopr" in error_msg or "column" in error_msg:
+            logging.info("SOPR columns not yet available in database schema")
+            return []
+        logging.error(f"Error fetching SOPR history: {e}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.get("/api/metrics/sopr/signals")
+async def get_sopr_signals():
+    """
+    Get active SOPR trading signals (spec-016).
+
+    Returns current capitulation, breakeven cross, and distribution signals.
+    """
+    import duckdb
+
+    conn = None
+    try:
+        db_path = os.getenv(
+            "DUCKDB_PATH",
+            "/media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxoracle_cache.db",
+        )
+        conn = duckdb.connect(db_path, read_only=True)
+
+        # Get recent signals
+        results = conn.execute("""
+            SELECT block_height, timestamp, signal_type, direction,
+                   strength, confidence, sopr_vote, consecutive_periods
+            FROM sopr_signals
+            ORDER BY block_height DESC
+            LIMIT 10
+        """).fetchall()
+
+        signals = [
+            {
+                "block_height": row[0],
+                "timestamp": row[1].isoformat() if row[1] else None,
+                "signal_type": row[2],
+                "direction": row[3],
+                "strength": row[4],
+                "confidence": row[5],
+                "sopr_vote": row[6],
+                "consecutive_periods": row[7],
+            }
+            for row in results
+        ]
+
+        # Calculate summary
+        sth_capitulation = any(s["signal_type"] == "CAPITULATION" for s in signals[:3])
+        lth_distribution = any(s["signal_type"] == "DISTRIBUTION" for s in signals[:3])
+        breakeven_cross = any(
+            s["signal_type"] == "BREAKEVEN_CROSS" for s in signals[:3]
+        )
+        latest_vote = signals[0]["sopr_vote"] if signals else 0.0
+
+        return {
+            "sth_capitulation": sth_capitulation,
+            "sth_breakeven_cross": breakeven_cross,
+            "lth_distribution": lth_distribution,
+            "sopr_vote": latest_vote,
+            "confidence": signals[0]["confidence"] if signals else 0.0,
+            "consecutive_periods": signals[0]["consecutive_periods"] if signals else 0,
+            "recent_signals": signals,
+        }
+
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "sopr" in error_msg or "column" in error_msg:
+            logging.info("SOPR signals not yet available in database schema")
+            return {
+                "sth_capitulation": False,
+                "sth_breakeven_cross": False,
+                "lth_distribution": False,
+                "sopr_vote": 0.0,
+                "confidence": 0.0,
+                "consecutive_periods": 0,
+                "recent_signals": [],
+            }
+        logging.error(f"Error fetching SOPR signals: {e}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+# =============================================================================
 # Service Connectivity Helper Functions
 # =============================================================================
 
