@@ -558,3 +558,329 @@ class RollingWassersteinResult:
             "windows_analyzed": self.windows_analyzed,
             "is_valid": self.is_valid,
         }
+
+
+# =============================================================================
+# Spec-016: SOPR STH/LTH Dataclasses
+# =============================================================================
+
+
+@dataclass
+class SOPRResult:
+    """
+    Spent Output Profit Ratio (SOPR) calculation result.
+
+    SOPR = realized_value / spent_value
+    - SOPR > 1: Holders selling at profit
+    - SOPR = 1: Selling at cost basis
+    - SOPR < 1: Holders selling at loss
+
+    Attributes:
+        sopr: Overall SOPR value
+        sopr_sth: Short-term holder SOPR (age < 155 days)
+        sopr_lth: Long-term holder SOPR (age >= 155 days)
+        sample_count: Number of spent outputs analyzed
+        sth_count: Number of STH outputs
+        lth_count: Number of LTH outputs
+        is_valid: True if sufficient samples
+    """
+
+    sopr: float
+    sopr_sth: Optional[float] = None
+    sopr_lth: Optional[float] = None
+    sample_count: int = 0
+    sth_count: int = 0
+    lth_count: int = 0
+    is_valid: bool = True
+    timestamp: datetime = field(default_factory=datetime.utcnow)
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "sopr": self.sopr,
+            "sopr_sth": self.sopr_sth,
+            "sopr_lth": self.sopr_lth,
+            "sample_count": self.sample_count,
+            "sth_count": self.sth_count,
+            "lth_count": self.lth_count,
+            "is_valid": self.is_valid,
+        }
+
+
+# =============================================================================
+# Spec-017: UTXO Lifecycle Engine Dataclasses
+# =============================================================================
+
+
+@dataclass
+class UTXOLifecycle:
+    """
+    Complete lifecycle record for a single UTXO.
+
+    Tracks creation, spending, and derived metrics like age and SOPR.
+    This is the foundation for Tier A metrics (MVRV, Realized Cap, HODL Waves).
+
+    Attributes:
+        outpoint: Unique identifier "{txid}:{vout_index}"
+        txid: Transaction ID that created this UTXO
+        vout_index: Output index within the transaction
+
+        creation_block: Block height when UTXO was created
+        creation_timestamp: Block timestamp when created
+        creation_price_usd: UTXOracle price at creation time
+        btc_value: BTC amount in this UTXO
+        realized_value_usd: btc_value × creation_price
+
+        spent_block: Block height when spent (None if unspent)
+        spent_timestamp: Block timestamp when spent
+        spent_price_usd: UTXOracle price at spend time
+        spending_txid: Transaction that spent this UTXO
+
+        age_blocks: Age in blocks (current or at spend)
+        age_days: Age in days (current or at spend)
+        cohort: "STH" or "LTH"
+        sub_cohort: Age band ("<1d", "1d-1w", etc.)
+        sopr: Spent Output Profit Ratio (None if unspent)
+
+        is_coinbase: True if from coinbase transaction
+        is_spent: True if UTXO has been spent
+        price_source: "utxoracle" or "mempool" (fallback)
+    """
+
+    # Identity
+    outpoint: str
+    txid: str
+    vout_index: int
+
+    # Creation
+    creation_block: int
+    creation_timestamp: datetime
+    creation_price_usd: float
+    btc_value: float
+    realized_value_usd: float
+
+    # Spending (None if unspent)
+    spent_block: Optional[int] = None
+    spent_timestamp: Optional[datetime] = None
+    spent_price_usd: Optional[float] = None
+    spending_txid: Optional[str] = None
+
+    # Derived
+    age_blocks: Optional[int] = None
+    age_days: Optional[int] = None
+    cohort: str = ""
+    sub_cohort: str = ""
+    sopr: Optional[float] = None
+
+    # Metadata
+    is_coinbase: bool = False
+    is_spent: bool = False
+    price_source: str = "utxoracle"
+
+    def __post_init__(self):
+        """Validate and compute derived fields."""
+        if self.btc_value < 0:
+            raise ValueError(f"btc_value must be >= 0: {self.btc_value}")
+        if self.creation_price_usd < 0:
+            raise ValueError(
+                f"creation_price_usd must be >= 0: {self.creation_price_usd}"
+            )
+
+    def mark_spent(
+        self,
+        spent_block: int,
+        spent_timestamp: datetime,
+        spent_price_usd: float,
+        spending_txid: str,
+        blocks_per_day: int = 144,
+    ) -> None:
+        """Mark this UTXO as spent and calculate derived metrics."""
+        self.spent_block = spent_block
+        self.spent_timestamp = spent_timestamp
+        self.spent_price_usd = spent_price_usd
+        self.spending_txid = spending_txid
+        self.is_spent = True
+
+        # Calculate age
+        self.age_blocks = spent_block - self.creation_block
+        self.age_days = self.age_blocks // blocks_per_day
+
+        # Calculate SOPR
+        if self.creation_price_usd > 0:
+            self.sopr = spent_price_usd / self.creation_price_usd
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "outpoint": self.outpoint,
+            "txid": self.txid,
+            "vout_index": self.vout_index,
+            "creation_block": self.creation_block,
+            "creation_timestamp": self.creation_timestamp.isoformat()
+            if self.creation_timestamp
+            else None,
+            "creation_price_usd": self.creation_price_usd,
+            "btc_value": self.btc_value,
+            "realized_value_usd": self.realized_value_usd,
+            "spent_block": self.spent_block,
+            "spent_timestamp": self.spent_timestamp.isoformat()
+            if self.spent_timestamp
+            else None,
+            "spent_price_usd": self.spent_price_usd,
+            "age_days": self.age_days,
+            "cohort": self.cohort,
+            "sub_cohort": self.sub_cohort,
+            "sopr": self.sopr,
+            "is_coinbase": self.is_coinbase,
+            "is_spent": self.is_spent,
+        }
+
+
+@dataclass
+class UTXOSetSnapshot:
+    """
+    Point-in-time snapshot of UTXO set metrics.
+
+    Created periodically (e.g., daily) to track supply distribution
+    and realized metrics over time.
+
+    Attributes:
+        block_height: Block height of this snapshot
+        timestamp: Block timestamp
+
+        total_supply_btc: Total BTC in unspent UTXOs
+        sth_supply_btc: BTC held by short-term holders (< 155 days)
+        lth_supply_btc: BTC held by long-term holders (>= 155 days)
+        supply_by_cohort: BTC by age cohort
+
+        realized_cap_usd: Sum of (btc_value × creation_price) for all UTXOs
+        market_cap_usd: total_supply × current_price
+        mvrv: Market Cap / Realized Cap
+        nupl: (Market Cap - Realized Cap) / Market Cap
+
+        hodl_waves: Percentage of supply by age cohort
+    """
+
+    block_height: int
+    timestamp: datetime
+
+    # Supply Distribution
+    total_supply_btc: float
+    sth_supply_btc: float
+    lth_supply_btc: float
+    supply_by_cohort: dict
+
+    # Realized Metrics
+    realized_cap_usd: float
+    market_cap_usd: float
+    mvrv: float
+    nupl: float
+
+    # HODL Waves (cohort -> % of supply)
+    hodl_waves: dict
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "block_height": self.block_height,
+            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "total_supply_btc": self.total_supply_btc,
+            "sth_supply_btc": self.sth_supply_btc,
+            "lth_supply_btc": self.lth_supply_btc,
+            "supply_by_cohort": self.supply_by_cohort,
+            "realized_cap_usd": self.realized_cap_usd,
+            "market_cap_usd": self.market_cap_usd,
+            "mvrv": self.mvrv,
+            "nupl": self.nupl,
+            "hodl_waves": self.hodl_waves,
+        }
+
+
+@dataclass
+class AgeCohortsConfig:
+    """
+    Configuration for UTXO age cohort classification.
+
+    Standard cohorts follow industry convention:
+    - STH (Short-Term Holder): < 155 days
+    - LTH (Long-Term Holder): >= 155 days
+
+    Sub-cohorts for HODL Waves visualization:
+    - <1d, 1d-1w, 1w-1m, 1m-3m, 3m-6m (STH bands)
+    - 6m-1y, 1y-2y, 2y-3y, 3y-5y, >5y (LTH bands)
+    """
+
+    sth_threshold_days: int = 155
+
+    cohorts: list = field(
+        default_factory=lambda: [
+            ("<1d", 0, 1),
+            ("1d-1w", 1, 7),
+            ("1w-1m", 7, 30),
+            ("1m-3m", 30, 90),
+            ("3m-6m", 90, 180),
+            ("6m-1y", 180, 365),
+            ("1y-2y", 365, 730),
+            ("2y-3y", 730, 1095),
+            ("3y-5y", 1095, 1825),
+            (">5y", 1825, float("inf")),
+        ]
+    )
+
+    def classify(self, age_days: int) -> tuple:
+        """
+        Classify UTXO by age into cohort and sub-cohort.
+
+        Args:
+            age_days: UTXO age in days.
+
+        Returns:
+            Tuple of (cohort, sub_cohort) where cohort is "STH" or "LTH"
+            and sub_cohort is the specific age band.
+        """
+        cohort = "STH" if age_days < self.sth_threshold_days else "LTH"
+
+        for name, min_days, max_days in self.cohorts:
+            if min_days <= age_days < max_days:
+                return cohort, name
+
+        return cohort, ">5y"
+
+
+@dataclass
+class SyncState:
+    """
+    Tracks sync progress for incremental UTXO updates.
+
+    Allows resuming sync from last processed block without full rescan.
+
+    Attributes:
+        last_processed_block: Most recent block fully processed
+        last_processed_timestamp: Timestamp of that block
+        total_utxos_created: Cumulative UTXOs created
+        total_utxos_spent: Cumulative UTXOs spent
+        sync_started: When current sync session began
+        sync_duration_seconds: Total sync time so far
+    """
+
+    last_processed_block: int
+    last_processed_timestamp: datetime
+    total_utxos_created: int
+    total_utxos_spent: int
+    sync_started: datetime = field(default_factory=datetime.utcnow)
+    sync_duration_seconds: float = 0.0
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "last_processed_block": self.last_processed_block,
+            "last_processed_timestamp": self.last_processed_timestamp.isoformat()
+            if self.last_processed_timestamp
+            else None,
+            "total_utxos_created": self.total_utxos_created,
+            "total_utxos_spent": self.total_utxos_spent,
+            "sync_started": self.sync_started.isoformat()
+            if self.sync_started
+            else None,
+            "sync_duration_seconds": self.sync_duration_seconds,
+        }
