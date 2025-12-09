@@ -282,7 +282,11 @@ class MetricValidator:
         if is_significant and effect_size > 0.5 and cv_is_stable:
             return "increase_weight"
 
-        # Clear underperformance
+        # Significantly negative performance (harmful signal)
+        if is_significant and effect_size < -0.2:
+            return "decrease_weight"
+
+        # Clear underperformance (below random, not necessarily significant)
         if actual_sharpe < random_mean and not is_significant:
             return "decrease_weight"
 

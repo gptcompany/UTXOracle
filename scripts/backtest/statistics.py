@@ -93,30 +93,23 @@ def _beta_incomplete(a: float, b: float, x: float) -> float:
     lnbeta = math.lgamma(a) + math.lgamma(b) - math.lgamma(a + b)
     front = math.exp(a * math.log(x) + b * math.log(1 - x) - lnbeta) / a
 
-    # Continued fraction
+    # Continued fraction using modified Lentz algorithm
+    # The continued fraction expansion is: 1 / (1 + a_1 / (1 + a_2 / (1 + ...)))
     f = 1.0
     c = 1.0
-    d = 0.0
+    d = 1.0  # Initialize to 1, not 0
 
-    for m in range(max_iter):
-        # Calculate a_m coefficient
-        if m == 0:
-            am = 1.0
-        elif m % 2 == 1:
-            k = (m - 1) // 2
-            am = -(a + k) * (a + b + k) * x / ((a + 2 * k) * (a + 2 * k + 1))
+    for m in range(1, max_iter + 1):
+        # Calculate a_m coefficient (m starts from 1)
+        if m % 2 == 1:
+            k = (m + 1) // 2
+            am = k * (b - k) * x / ((a + 2 * k - 1) * (a + 2 * k))
         else:
             k = m // 2
-            am = k * (b - k) * x / ((a + 2 * k - 1) * (a + 2 * k))
+            am = -(a + k) * (a + b + k) * x / ((a + 2 * k) * (a + 2 * k + 1))
 
-        d = 1.0 + am * d
-        if abs(d) < eps:
-            d = eps
-        d = 1.0 / d
-
+        d = 1.0 / (1.0 + am * d)
         c = 1.0 + am / c
-        if abs(c) < eps:
-            c = eps
 
         delta = c * d
         f *= delta
@@ -147,21 +140,23 @@ def t_cdf(t: float, df: float) -> float:
         return 0.00001
 
     # Use relationship to incomplete beta function
-    # P(T <= t) = 1 - 0.5 * I_{x}(df/2, 0.5)
-    # where x = df / (df + t^2)
+    # For t >= 0: P(T <= t) = 0.5 + 0.5 * I_x(0.5, df/2)
+    # where x = t^2 / (t^2 + df)
+    # For t < 0: Use symmetry P(T <= -t) = 1 - P(T <= t)
 
-    x = df / (df + t * t)
+    if t < 0:
+        # Use symmetry for negative t
+        return 1.0 - t_cdf(-t, df)
+
+    x = t * t / (t * t + df)
 
     try:
-        ibeta = _beta_incomplete(df / 2, 0.5, x)
+        ibeta = _beta_incomplete(0.5, df / 2, x)
     except (ValueError, OverflowError):
         # Fallback for numerical issues
         return 0.5
 
-    if t >= 0:
-        return 1 - 0.5 * ibeta
-    else:
-        return 0.5 * ibeta
+    return 0.5 + 0.5 * ibeta
 
 
 def t_test_vs_baseline(
@@ -189,7 +184,8 @@ def t_test_vs_baseline(
 
     if std_baseline == 0:
         # No variance in baseline - can't compute t-test
-        return 0.0, 1.0 if actual == mean_baseline else 0.0
+        # Use tolerance for float comparison
+        return 0.0, 1.0 if abs(actual - mean_baseline) < 1e-10 else 0.0
 
     # Standard error of the mean
     se = std_baseline / math.sqrt(n)
@@ -230,7 +226,7 @@ def cohens_d(
     std_baseline = stdev(baseline_samples)
 
     if std_baseline == 0:
-        return 0.0 if actual == mean_baseline else float("inf")
+        return 0.0 if abs(actual - mean_baseline) < 1e-10 else float("inf")
 
     return (actual - mean_baseline) / std_baseline
 
@@ -347,7 +343,7 @@ def two_sample_t_test(
         # Welch's t-test (unequal variances)
         se = math.sqrt(var1 / n1 + var2 / n2)
         if se == 0:
-            return 0.0, 1.0 if mean1 == mean2 else 0.0
+            return 0.0, 1.0 if abs(mean1 - mean2) < 1e-10 else 0.0
 
         # Welch-Satterthwaite degrees of freedom
         num = (var1 / n1 + var2 / n2) ** 2
@@ -355,7 +351,7 @@ def two_sample_t_test(
         df = num / denom if denom > 0 else n1 + n2 - 2
 
     if se == 0:
-        return 0.0, 1.0 if mean1 == mean2 else 0.0
+        return 0.0, 1.0 if abs(mean1 - mean2) < 1e-10 else 0.0
 
     t_stat = (mean1 - mean2) / se
     p_value = 2 * (1 - t_cdf(abs(t_stat), df))
