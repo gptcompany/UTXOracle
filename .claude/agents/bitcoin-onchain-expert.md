@@ -2,7 +2,7 @@
 name: bitcoin-onchain-expert
 description: Bitcoin mempool and blockchain specialist. Use proactively for Task 01 (Bitcoin Core ZMQ integration), mempool transaction streaming, and binary protocol parsing. Expert in PyZMQ, Bitcoin Core RPC, and mempool state tracking.
 tools: Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch, mcp__serena__*, mcp__context7__get-library-docs, mcp__context7__resolve-library-id, TodoWrite
-model: sonnet
+model: opus
 color: orange
 ---
 
