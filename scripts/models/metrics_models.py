@@ -327,7 +327,7 @@ class FractalDimensionResult:
 @dataclass
 class EnhancedFusionResult:
     """
-    Result of enhanced Monte Carlo signal fusion with 8 components.
+    Result of enhanced Monte Carlo signal fusion with 9 components.
 
     Extends spec-007 MonteCarloFusionResult with:
     - Power Law vote (spec-009)
@@ -336,6 +336,7 @@ class EnhancedFusionResult:
     - Funding Rate vote (spec-008)
     - Open Interest vote (spec-008)
     - Wasserstein vote (spec-010)
+    - SOPR vote (spec-016) - Highest evidence grade A-B (82.44% accuracy)
     """
 
     # Base Monte Carlo fields
@@ -357,16 +358,18 @@ class EnhancedFusionResult:
     symbolic_vote: Optional[float] = None
     fractal_vote: Optional[float] = None
     wasserstein_vote: Optional[float] = None  # spec-010
+    sopr_vote: Optional[float] = None  # spec-016
 
-    # Component weights (updated for 8 components, sum = 1.0)
-    whale_weight: float = 0.23
-    utxo_weight: float = 0.14
-    funding_weight: float = 0.14
-    oi_weight: float = 0.09
-    power_law_weight: float = 0.09
-    symbolic_weight: float = 0.14
-    fractal_weight: float = 0.09
-    wasserstein_weight: float = 0.08  # spec-010
+    # Component weights (updated for 9 components, sum = 1.0)
+    whale_weight: float = 0.12
+    utxo_weight: float = 0.18
+    funding_weight: float = 0.05
+    oi_weight: float = 0.08
+    power_law_weight: float = 0.12
+    symbolic_weight: float = 0.12
+    fractal_weight: float = 0.08
+    wasserstein_weight: float = 0.10  # spec-010
+    sopr_weight: float = 0.15  # spec-016 - Highest evidence grade
 
     # Metadata
     components_available: int = 0

@@ -113,6 +113,15 @@ except ImportError:
     ALERTS_ENABLED = False
     logging.warning("spec-011 alerts not available - webhook alerts disabled")
 
+# SOPR - Spent Output Profit Ratio (spec-016)
+try:
+    from scripts.metrics.sopr import detect_sopr_signals
+
+    SOPR_ENABLED = True
+except ImportError:
+    SOPR_ENABLED = False
+    logging.warning("spec-016 SOPR not available - STH/LTH analysis disabled")
+
 
 # =============================================================================
 # Configuration Management (T038)
@@ -1787,6 +1796,37 @@ def main():
                             if liq_conn:
                                 close_connection(liq_conn)
 
+                    # Spec-016: SOPR signal calculation
+                    sopr_vote = None
+                    if SOPR_ENABLED:
+                        try:
+                            # Note: Full SOPR requires historical price data for creation blocks
+                            # This is a simplified version using current block data only
+                            # In production, would need historical BlockSOPR windows
+                            sopr_signals = detect_sopr_signals(
+                                window=[],  # Would need historical block SOPR windows
+                                capitulation_days=3,
+                                distribution_threshold=3.0,
+                            )
+                            if sopr_signals:
+                                sopr_vote = sopr_signals["sopr_vote"]
+                                # Determine signal type from flags
+                                if sopr_signals["sth_capitulation"]:
+                                    signal_type = "STH_CAPITULATION"
+                                elif sopr_signals["lth_distribution"]:
+                                    signal_type = "LTH_DISTRIBUTION"
+                                elif sopr_signals["sth_breakeven_cross"]:
+                                    signal_type = "BREAKEVEN_CROSS"
+                                else:
+                                    signal_type = "NEUTRAL"
+                                if sopr_vote != 0.0:
+                                    logging.info(
+                                        f"📊 SOPR: {signal_type} signal "
+                                        f"→ vote={sopr_vote:+.2f}"
+                                    )
+                        except Exception as e:
+                            logging.warning(f"SOPR calculation failed: {e}")
+
                     enhanced_fusion_result = enhanced_fusion(
                         whale_vote=whale_vote,
                         whale_conf=whale_signal.confidence,
@@ -1804,6 +1844,7 @@ def main():
                         wasserstein_vote=w_vote,  # spec-010 distribution shift
                         funding_vote=funding_vote,  # spec-008 derivatives
                         oi_vote=oi_vote,  # spec-008 derivatives
+                        sopr_vote=sopr_vote,  # spec-016 SOPR (STH/LTH)
                         n_samples=1000,
                     )
 

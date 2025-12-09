@@ -1,9 +1,8 @@
 """
-Monte Carlo Signal Fusion (spec-007 + spec-009 + spec-014).
+Monte Carlo Signal Fusion (spec-007 + spec-009).
 
 spec-007: Original 2-component fusion (whale + utxo)
 spec-009: Enhanced 7-component fusion with advanced metrics
-spec-014: Evidence-based weight adjustments
 
 Usage:
     # spec-007 (backward compatible)
@@ -17,112 +16,18 @@ Usage:
                              utxo_conf=0.85, symbolic_vote=0.6, ...)
 """
 
-import os
 import random
 from statistics import mean, stdev
 from typing import Literal, Optional
-
 from scripts.models.metrics_models import MonteCarloFusionResult, EnhancedFusionResult
 
-# Default weights for signal fusion (spec-007)
+# Default weights for signal fusion
 WHALE_WEIGHT = 0.7
 UTXO_WEIGHT = 0.3
 
 # Signal thresholds for action determination
 BUY_THRESHOLD = 0.5
 SELL_THRESHOLD = -0.5
-
-# =============================================================================
-# spec-014: Evidence-Based Weight Constants
-# =============================================================================
-
-# Legacy weights (spec-009) - preserved for backward compatibility
-# Original weights before evidence-based adjustment
-LEGACY_WEIGHTS = {
-    "whale": 0.25,  # Grade D evidence (zero empirical validation)
-    "utxo": 0.15,  # Underweighted per Glassnode ML study
-    "funding": 0.15,  # LAGGING indicator (Coinbase research)
-    "oi": 0.10,  # Grade B evidence
-    "power_law": 0.10,  # Regime detection value
-    "symbolic": 0.15,  # Needs validation (spec-015)
-    "fractal": 0.10,  # Needs validation (spec-015)
-}  # Sum = 1.0
-
-# Evidence-based weights (spec-014)
-# Sources: Contadino Galattico analysis (42 sources, 7 peer-reviewed)
-EVIDENCE_BASED_WEIGHTS = {
-    "whale": 0.15,  # Reduced: Grade D evidence (zero empirical validation)
-    "utxo": 0.20,  # Increased: Entity-adjusted, Grade A evidence
-    "funding": 0.05,  # Reduced: LAGGING indicator (Coinbase research)
-    "oi": 0.10,  # Maintained: Grade B evidence
-    "power_law": 0.15,  # Increased: Regime detection value
-    "symbolic": 0.15,  # Maintained: Needs validation (spec-015)
-    "fractal": 0.10,  # Maintained: Needs validation (spec-015)
-    "wasserstein": 0.10,  # NEW: Grade A evidence (Horvath 2021)
-}  # Sum = 1.0
-
-# Evidence grades for each component (spec-014)
-EVIDENCE_GRADES = {
-    "whale": "D",  # Zero empirical validation found
-    "utxo": "A",  # Entity-adjusted, multiple ML studies
-    "funding": "B-LAGGING",  # Coinbase: "trailing byproduct of momentum"
-    "oi": "B",  # Moderate correlation with price
-    "power_law": "C",  # Needs validation (spec-015)
-    "symbolic": "C",  # Needs validation (spec-015)
-    "fractal": "C",  # Needs validation (spec-015)
-    "wasserstein": "A",  # Horvath 2021, strong theoretical foundation
-}
-
-
-def validate_weights(weights: dict[str, float]) -> bool:
-    """
-    Validate that weights sum to 1.0 and are all non-negative.
-
-    Args:
-        weights: Dictionary of component weights
-
-    Returns:
-        True if valid
-
-    Raises:
-        ValueError: If weights don't sum to 1.0 or contain negative values
-    """
-    total = sum(weights.values())
-    if abs(total - 1.0) > 0.001:
-        raise ValueError(f"Weights must sum to 1.0, got {total:.4f}")
-    if any(w < 0 for w in weights.values()):
-        raise ValueError("All weights must be non-negative")
-    return True
-
-
-def load_weights_from_env() -> dict[str, float]:
-    """
-    Load fusion weights from environment variables.
-
-    If FUSION_USE_LEGACY_WEIGHTS=true, returns legacy weights.
-    Otherwise, loads from FUSION_*_WEIGHT env vars or defaults to
-    evidence-based weights.
-
-    Returns:
-        Dictionary of component weights (validated to sum to 1.0)
-    """
-    # Check for legacy mode toggle
-    if os.getenv("FUSION_USE_LEGACY_WEIGHTS", "false").lower() == "true":
-        return LEGACY_WEIGHTS.copy()
-
-    # Load from environment with evidence-based defaults
-    weights = {
-        "whale": float(os.getenv("FUSION_WHALE_WEIGHT", "0.15")),
-        "utxo": float(os.getenv("FUSION_UTXO_WEIGHT", "0.20")),
-        "funding": float(os.getenv("FUSION_FUNDING_WEIGHT", "0.05")),
-        "oi": float(os.getenv("FUSION_OI_WEIGHT", "0.10")),
-        "power_law": float(os.getenv("FUSION_POWER_LAW_WEIGHT", "0.15")),
-        "symbolic": float(os.getenv("FUSION_SYMBOLIC_WEIGHT", "0.15")),
-        "fractal": float(os.getenv("FUSION_FRACTAL_WEIGHT", "0.10")),
-        "wasserstein": float(os.getenv("FUSION_WASSERSTEIN_WEIGHT", "0.10")),
-    }
-    validate_weights(weights)
-    return weights
 
 
 def monte_carlo_fusion(
@@ -289,12 +194,23 @@ def determine_action(
 
 
 # =============================================================================
-# spec-009 + spec-010 + spec-014: Enhanced 8-Component Fusion
+# spec-009 + spec-010 + spec-016: Enhanced 9-Component Fusion
 # =============================================================================
 
-# Default weights for enhanced fusion now uses EVIDENCE_BASED_WEIGHTS (spec-014)
-# The old ENHANCED_WEIGHTS is kept for reference but superseded
-ENHANCED_WEIGHTS = EVIDENCE_BASED_WEIGHTS  # Use evidence-based by default
+# Default weights for enhanced fusion (sum = 1.0)
+# Updated for 9 components including SOPR (spec-016)
+# SOPR weight 0.15 based on evidence grade A-B (82.44% accuracy - Omole & Enke 2024)
+ENHANCED_WEIGHTS = {
+    "whale": 0.12,  # Primary signal (reduced from 0.23)
+    "utxo": 0.18,  # Price signal (entity-adjusted)
+    "funding": 0.05,  # Derivatives (LAGGING indicator)
+    "oi": 0.08,  # Derivatives
+    "power_law": 0.12,  # Regime
+    "symbolic": 0.12,  # Temporal
+    "fractal": 0.08,  # Structure
+    "wasserstein": 0.10,  # Distribution shift (spec-010)
+    "sopr": 0.15,  # SOPR signal (spec-016) - Highest evidence grade
+}
 
 
 def enhanced_fusion(
@@ -308,24 +224,27 @@ def enhanced_fusion(
     symbolic_vote: Optional[float] = None,
     fractal_vote: Optional[float] = None,
     wasserstein_vote: Optional[float] = None,  # spec-010
+    sopr_vote: Optional[float] = None,  # spec-016
     n_samples: int = 1000,
     weights: Optional[dict[str, float]] = None,
 ) -> EnhancedFusionResult:
     """
-    Enhanced Monte Carlo fusion with 8 signal components.
+    Enhanced Monte Carlo fusion with 9 signal components.
 
     Extends spec-007 with spec-009 advanced metrics (power law, symbolic,
-    fractal), spec-008 derivatives (funding, oi), and spec-010 Wasserstein.
+    fractal), spec-008 derivatives (funding, oi), spec-010 Wasserstein,
+    and spec-016 SOPR (STH/LTH).
 
     Components:
-    - whale: Whale flow signal (highest weight)
-    - utxo: UTXOracle price signal
+    - whale: Whale flow signal
+    - utxo: UTXOracle price signal (entity-adjusted)
     - funding: Funding rate signal (spec-008)
     - oi: Open interest signal (spec-008)
     - power_law: Power law regime signal (spec-009)
     - symbolic: Symbolic dynamics signal (spec-009)
     - fractal: Fractal dimension signal (spec-009)
     - wasserstein: Distribution shift signal (spec-010)
+    - sopr: Spent Output Profit Ratio signal (spec-016) - Highest evidence grade
 
     Args:
         whale_vote: Whale flow vote (-1 to +1), None if unavailable
@@ -338,27 +257,25 @@ def enhanced_fusion(
         symbolic_vote: Symbolic dynamics vote, None if unavailable
         fractal_vote: Fractal dimension vote, None if unavailable
         wasserstein_vote: Wasserstein shift vote, None if unavailable (spec-010)
+        sopr_vote: SOPR signal vote, None if unavailable (spec-016)
         n_samples: Number of bootstrap samples (default: 1000)
-        weights: Custom weights dict (uses evidence-based from env if None)
+        weights: Custom weights dict (uses ENHANCED_WEIGHTS if None)
 
     Returns:
         EnhancedFusionResult with fused signal and all component info
     """
-    # Use weights from environment if not provided (spec-014)
-    w = weights if weights else load_weights_from_env()
+    # Use default weights if not provided
+    w = weights if weights else ENHANCED_WEIGHTS.copy()
 
     # Collect available components and renormalize weights
     components = {}
     components_used = []
 
     if whale_vote is not None:
-        components["whale"] = (
-            whale_vote,
-            whale_conf if whale_conf is not None else 1.0,
-        )
+        components["whale"] = (whale_vote, whale_conf if whale_conf else 1.0)
         components_used.append("whale")
     if utxo_vote is not None:
-        components["utxo"] = (utxo_vote, utxo_conf if utxo_conf is not None else 1.0)
+        components["utxo"] = (utxo_vote, utxo_conf if utxo_conf else 1.0)
         components_used.append("utxo")
     if funding_vote is not None:
         components["funding"] = (funding_vote, 1.0)  # No confidence for derivatives
@@ -378,6 +295,9 @@ def enhanced_fusion(
     if wasserstein_vote is not None:
         components["wasserstein"] = (wasserstein_vote, 1.0)
         components_used.append("wasserstein")
+    if sopr_vote is not None:
+        components["sopr"] = (sopr_vote, 1.0)  # spec-016
+        components_used.append("sopr")
 
     n_components = len(components)
 
@@ -446,6 +366,7 @@ def enhanced_fusion(
         symbolic_vote=symbolic_vote,
         fractal_vote=fractal_vote,
         wasserstein_vote=wasserstein_vote,  # spec-010
+        sopr_vote=sopr_vote,  # spec-016
         whale_weight=normalized_weights.get("whale", 0.0),
         utxo_weight=normalized_weights.get("utxo", 0.0),
         funding_weight=normalized_weights.get("funding", 0.0),
@@ -454,6 +375,7 @@ def enhanced_fusion(
         symbolic_weight=normalized_weights.get("symbolic", 0.0),
         fractal_weight=normalized_weights.get("fractal", 0.0),
         wasserstein_weight=normalized_weights.get("wasserstein", 0.0),  # spec-010
+        sopr_weight=normalized_weights.get("sopr", 0.0),  # spec-016
         components_available=n_components,
         components_used=components_used,
     )

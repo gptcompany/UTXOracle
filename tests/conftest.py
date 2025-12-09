@@ -7,6 +7,9 @@ Add global fixtures here that are used across multiple test modules.
 import pytest
 from fastapi.testclient import TestClient
 
+# Register plugins for fixtures from separate files (spec-016)
+pytest_plugins = ["tests.fixtures.sopr_fixtures"]
+
 
 @pytest.fixture
 def client():

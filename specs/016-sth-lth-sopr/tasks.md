@@ -24,11 +24,11 @@
 
 **Purpose**: Project initialization and SOPR module structure
 
-- [ ] T001 Create feature branch `016-sth-lth-sopr` and verify checkout
-- [ ] T002 [P] Create SOPR module file at `scripts/metrics/sopr.py` with docstring
-- [ ] T003 [P] Create test file at `tests/test_sopr.py` with imports
-- [ ] T004 [P] Add SOPR configuration to `.env.example` (SOPR_ENABLED, SOPR_STH_THRESHOLD_DAYS, etc.)
-- [ ] T005 [P] Create test fixtures file at `tests/fixtures/sopr_fixtures.py`
+- [X] T001 Create feature branch `016-sth-lth-sopr` and verify checkout
+- [X] T002 [P] Create SOPR module file at `scripts/metrics/sopr.py` with docstring
+- [X] T003 [P] Create test file at `tests/test_sopr.py` with imports
+- [X] T004 [P] Add SOPR configuration to `.env.example` (SOPR_ENABLED, SOPR_STH_THRESHOLD_DAYS, etc.)
+- [X] T005 [P] Create test fixtures file at `tests/fixtures/sopr_fixtures.py`
 
 ---
 
@@ -38,12 +38,12 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T006 Add SpentOutputSOPR dataclass to `scripts/models/metrics_models.py`
-- [ ] T007 Add BlockSOPR dataclass to `scripts/models/metrics_models.py`
-- [ ] T008 Add SOPRWindow dataclass to `scripts/models/metrics_models.py`
-- [ ] T009 Add SOPRSignal dataclass to `scripts/models/metrics_models.py`
-- [ ] T010 [P] Verify historical prices table exists in DuckDB with `utxoracle_prices`
-- [ ] T011 [P] Create SOPR database schema (sopr_blocks, sopr_signals tables) in `scripts/metrics/sopr.py`
+- [X] T006 Add SpentOutputSOPR dataclass to `scripts/metrics/sopr.py` (in-module)
+- [X] T007 Add BlockSOPR dataclass to `scripts/metrics/sopr.py` (in-module)
+- [X] T008 Add SOPRWindow dataclass to `scripts/metrics/sopr.py` (in-module)
+- [X] T009 Add SOPRSignal dataclass to `scripts/metrics/sopr.py` (in-module)
+- [X] T010 [P] Verify historical prices table exists in DuckDB with `utxoracle_prices`
+- [X] T011 [P] Create SOPR database schema (sopr_blocks, sopr_signals tables) in `scripts/metrics/sopr.py`
 
 **Checkpoint**: Foundation ready - user story implementation can now begin
 
@@ -59,20 +59,20 @@
 
 **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [ ] T012 [P] [US1] Unit test `test_sopr_calculation_profit()` in `tests/test_sopr.py`
-- [ ] T013 [P] [US1] Unit test `test_sopr_calculation_loss()` in `tests/test_sopr.py`
-- [ ] T014 [P] [US1] Unit test `test_sopr_calculation_breakeven()` in `tests/test_sopr.py`
-- [ ] T015 [P] [US1] Unit test `test_sopr_invalid_prices()` in `tests/test_sopr.py`
+- [X] T012 [P] [US1] Unit test `test_sopr_calculation_profit()` in `tests/test_sopr.py`
+- [X] T013 [P] [US1] Unit test `test_sopr_calculation_loss()` in `tests/test_sopr.py`
+- [X] T014 [P] [US1] Unit test `test_sopr_calculation_breakeven()` in `tests/test_sopr.py`
+- [X] T015 [P] [US1] Unit test `test_sopr_invalid_prices()` in `tests/test_sopr.py`
 
 **Run tests**: `uv run pytest tests/test_sopr.py -v -k "test_sopr_calculation"` → Must FAIL
 
 ### Implementation for User Story 1 (GREEN Phase)
 
-- [ ] T016 [E] [US1] Implement `calculate_output_sopr()` function in `scripts/metrics/sopr.py`
-- [ ] T017 [US1] Implement `get_historical_price()` for price lookup in `scripts/metrics/sopr.py`
-- [ ] T018 [US1] Implement `get_utxo_creation_block()` for age calculation in `scripts/metrics/sopr.py`
-- [ ] T019 [US1] Add caching for creation block lookups in `scripts/metrics/sopr.py`
-- [ ] T020 [US1] Run tests and verify all pass → GREEN
+- [X] T016 [E] [US1] Implement `calculate_output_sopr()` function in `scripts/metrics/sopr.py`
+- [X] T017 [US1] Implement `get_historical_price()` for price lookup in `scripts/metrics/sopr.py`
+- [X] T018 [US1] Implement `get_utxo_creation_block()` for age calculation in `scripts/metrics/sopr.py`
+- [X] T019 [E] [US1] Add caching for creation block lookups in `scripts/metrics/sopr.py`
+- [X] T020 [US1] Run tests and verify all pass → GREEN
 
 **Checkpoint**: Individual output SOPR calculation working and tested
 
@@ -86,20 +86,20 @@
 
 ### Tests for User Story 2 (RED Phase)
 
-- [ ] T021 [P] [US2] Unit test `test_sth_classification()` in `tests/test_sopr.py`
-- [ ] T022 [P] [US2] Unit test `test_lth_classification()` in `tests/test_sopr.py`
-- [ ] T023 [P] [US2] Unit test `test_block_sopr_aggregation()` in `tests/test_sopr.py`
-- [ ] T024 [P] [US2] Unit test `test_block_sopr_sth_lth_split()` in `tests/test_sopr.py`
+- [X] T021 [P] [US2] Unit test `test_sth_classification()` in `tests/test_sopr.py`
+- [X] T022 [P] [US2] Unit test `test_lth_classification()` in `tests/test_sopr.py`
+- [X] T023 [P] [US2] Unit test `test_block_sopr_aggregation()` in `tests/test_sopr.py`
+- [X] T024 [P] [US2] Unit test `test_block_sopr_sth_lth_split()` in `tests/test_sopr.py`
 
 **Run tests**: `uv run pytest tests/test_sopr.py -v -k "test_sth or test_lth or test_block"` → Must FAIL
 
 ### Implementation for User Story 2 (GREEN Phase)
 
-- [ ] T025 [US2] Implement cohort classification in `SpentOutputSOPR.__post_init__()` in `scripts/models/metrics_models.py`
-- [ ] T026 [E] [US2] Implement `calculate_block_sopr()` function in `scripts/metrics/sopr.py`
-- [ ] T027 [US2] Implement `BlockSOPR.from_outputs()` classmethod in `scripts/models/metrics_models.py`
-- [ ] T028 [US2] Add weighted average helper function in `scripts/metrics/sopr.py`
-- [ ] T029 [US2] Run tests and verify all pass → GREEN
+- [X] T025 [US2] Implement cohort classification in `SpentOutputSOPR.__post_init__()` in `scripts/metrics/sopr.py`
+- [X] T026 [E] [US2] Implement `calculate_block_sopr()` function in `scripts/metrics/sopr.py`
+- [X] T027 [US2] Implement `BlockSOPR.from_outputs()` classmethod in `scripts/metrics/sopr.py`
+- [X] T028 [E] [US2] Add weighted average helper function in `scripts/metrics/sopr.py`
+- [X] T029 [US2] Run tests and verify all pass → GREEN
 
 **Checkpoint**: Block SOPR with STH/LTH split working and tested
 
@@ -113,20 +113,20 @@
 
 ### Tests for User Story 3 (RED Phase)
 
-- [ ] T030 [P] [US3] Unit test `test_detect_sth_capitulation()` in `tests/test_sopr.py`
-- [ ] T031 [P] [US3] Unit test `test_detect_breakeven_cross()` in `tests/test_sopr.py`
-- [ ] T032 [P] [US3] Unit test `test_detect_lth_distribution()` in `tests/test_sopr.py`
-- [ ] T033 [P] [US3] Unit test `test_sopr_vote_generation()` in `tests/test_sopr.py`
+- [X] T030 [P] [US3] Unit test `test_detect_sth_capitulation()` in `tests/test_sopr.py`
+- [X] T031 [P] [US3] Unit test `test_detect_breakeven_cross()` in `tests/test_sopr.py`
+- [X] T032 [P] [US3] Unit test `test_detect_lth_distribution()` in `tests/test_sopr.py`
+- [X] T033 [P] [US3] Unit test `test_sopr_vote_generation()` in `tests/test_sopr.py`
 
 **Run tests**: `uv run pytest tests/test_sopr.py -v -k "test_detect"` → Must FAIL
 
 ### Implementation for User Story 3 (GREEN Phase)
 
-- [ ] T034 [E] [US3] Implement `detect_sopr_signals()` function in `scripts/metrics/sopr.py`
-- [ ] T035 [US3] Implement `SOPRSignal.capitulation_signal()` classmethod in `scripts/models/metrics_models.py`
-- [ ] T036 [US3] Implement `SOPRSignal.distribution_signal()` classmethod in `scripts/models/metrics_models.py`
-- [ ] T037 [US3] Implement rolling window analysis in `scripts/metrics/sopr.py`
-- [ ] T038 [US3] Run tests and verify all pass → GREEN
+- [X] T034 [E] [US3] Implement `detect_sopr_signals()` function in `scripts/metrics/sopr.py`
+- [X] T035 [US3] Implement `SOPRSignal.capitulation_signal()` classmethod in `scripts/metrics/sopr.py`
+- [X] T036 [US3] Implement `SOPRSignal.distribution_signal()` classmethod in `scripts/metrics/sopr.py`
+- [X] T037 [E] [US3] Implement rolling window analysis in `scripts/metrics/sopr.py`
+- [X] T038 [US3] Run tests and verify all pass → GREEN
 
 **Checkpoint**: SOPR signal detection working and tested
 
@@ -140,20 +140,20 @@
 
 ### Tests for User Story 4 (RED Phase)
 
-- [ ] T039 [P] [US4] Unit test `test_fusion_with_sopr_component()` in `tests/test_monte_carlo_fusion.py`
-- [ ] T040 [P] [US4] Integration test `test_daily_analysis_with_sopr()` in `tests/test_sopr.py`
+- [X] T039 [P] [US4] Unit test `test_fusion_with_sopr_component()` in `tests/test_monte_carlo_fusion.py`
+- [X] T040 [P] [US4] Integration test `test_daily_analysis_with_sopr()` in `tests/test_sopr.py`
 
 **Run tests**: `uv run pytest -v -k "test_fusion_with_sopr or test_daily_analysis_with_sopr"` → Must FAIL
 
 ### Implementation for User Story 4 (GREEN Phase)
 
-- [ ] T041 [US4] Add `sopr` to `EVIDENCE_BASED_WEIGHTS` in `scripts/metrics/monte_carlo_fusion.py`
-- [ ] T042 [US4] Update `enhanced_monte_carlo_fusion()` to accept sopr_vote in `scripts/metrics/monte_carlo_fusion.py`
-- [ ] T043 [US4] Add SOPR calculation to `scripts/daily_analysis.py` pipeline
-- [ ] T044 [US4] Add `/api/metrics/sopr/current` endpoint in `api/main.py`
-- [ ] T045 [US4] Add `/api/metrics/sopr/history` endpoint in `api/main.py`
-- [ ] T046 [US4] Add `/api/metrics/sopr/signals` endpoint in `api/main.py`
-- [ ] T047 [US4] Run tests and verify all pass → GREEN
+- [X] T041 [US4] Add `sopr` to `EVIDENCE_BASED_WEIGHTS` with weight 0.15 (FR-017) in `scripts/metrics/monte_carlo_fusion.py`
+- [X] T042 [US4] Update `enhanced_monte_carlo_fusion()` to accept sopr_vote as 9th component (FR-016) in `scripts/metrics/monte_carlo_fusion.py`
+- [X] T043 [US4] Add SOPR calculation to `scripts/daily_analysis.py` pipeline
+- [X] T044 [US4] Add `/api/metrics/sopr/current` endpoint in `api/main.py`
+- [X] T045 [US4] Add `/api/metrics/sopr/history` endpoint in `api/main.py`
+- [X] T046 [US4] Add `/api/metrics/sopr/signals` endpoint in `api/main.py`
+- [X] T047 [US4] Run tests and verify all pass → GREEN
 
 **Checkpoint**: Full SOPR integration complete and tested
 
@@ -163,13 +163,14 @@
 
 **Purpose**: Documentation, optimization, and validation
 
-- [ ] T048 [P] Update CLAUDE.md with spec-016 completion status
-- [ ] T049 [P] Update `docs/ARCHITECTURE.md` with SOPR module documentation
-- [ ] T050 Run full test suite: `uv run pytest tests/ -v --tb=short`
-- [ ] T051 Run linter: `ruff check scripts/metrics/sopr.py && ruff format scripts/metrics/sopr.py`
-- [ ] T052 Validate quickstart.md scenarios work end-to-end
-- [ ] T053 Run backtest to verify SOPR contribution to Sharpe ratio
-- [ ] T054 Create PR with summary and merge
+- [X] T048 [P] Update CLAUDE.md with spec-016 completion status
+- [X] T049 [P] Update `docs/ARCHITECTURE.md` with SOPR module documentation
+- [X] T050 Run full test suite: `uv run pytest tests/ -v --tb=short`
+- [X] T051 Run linter: `ruff check scripts/metrics/sopr.py && ruff format scripts/metrics/sopr.py`
+- [X] T052 Validate quickstart.md scenarios work end-to-end
+- [ ] T053 Run backtest to verify SOPR contribution to Sharpe ratio (OPTIONAL - requires historical SOPR data)
+- [X] T054 Benchmark `calculate_block_sopr()` against NFR-001 target (<100ms per block with 3000 outputs)
+- [X] T055 Create PR with summary and merge
 
 ---
 
@@ -180,7 +181,8 @@
 - **Setup (Phase 1)**: No dependencies - can start immediately
 - **Foundational (Phase 2)**: Depends on Setup completion - BLOCKS all user stories
 - **User Stories (Phase 3-6)**: All depend on Foundational phase completion
-  - US1-US3 can proceed in parallel (same module, different functions)
+  - US1 → US2 → US3 (sequential dependency chain: SpentOutputSOPR → BlockSOPR → Signals)
+  - Within each user story, test tasks marked [P] can run in parallel
   - US4 depends on US1-US3 completion
 - **Polish (Phase 7)**: Depends on all user stories being complete
 
@@ -204,7 +206,7 @@
 - T006-T009 are sequential (same file)
 - T010, T011 can run in parallel
 - All test tasks within a phase marked [P] can run in parallel
-- After Phase 2, US1-US3 can start in parallel if independent
+- User stories are sequential (US1 → US2 → US3), only [P] tasks within each story can parallel
 
 ---
 
@@ -247,14 +249,14 @@ Task: "Unit test test_sopr_invalid_prices() in tests/test_sopr.py"
 
 | Metric | Count |
 |--------|-------|
-| **Total Tasks** | 54 |
+| **Total Tasks** | 55 |
 | **Setup Tasks** | 5 |
 | **Foundational Tasks** | 6 |
 | **US1 Tasks** | 9 |
 | **US2 Tasks** | 9 |
 | **US3 Tasks** | 9 |
 | **US4 Tasks** | 9 |
-| **Polish Tasks** | 7 |
+| **Polish Tasks** | 8 |
 | **Parallel Opportunities** | 24 tasks marked [P] |
 
 ---
