@@ -42,7 +42,7 @@
 - [X] T007 Add BlockSOPR dataclass to `scripts/metrics/sopr.py` (in-module)
 - [X] T008 Add SOPRWindow dataclass to `scripts/metrics/sopr.py` (in-module)
 - [X] T009 Add SOPRSignal dataclass to `scripts/metrics/sopr.py` (in-module)
-- [ ] T010 [P] Verify historical prices table exists in DuckDB with `utxoracle_prices`
+- [X] T010 [P] Verify historical prices table exists in DuckDB with `utxoracle_prices`
 - [X] T011 [P] Create SOPR database schema (sopr_blocks, sopr_signals tables) in `scripts/metrics/sopr.py`
 
 **Checkpoint**: Foundation ready - user story implementation can now begin
