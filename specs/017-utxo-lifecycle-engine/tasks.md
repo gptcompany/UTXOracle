@@ -211,11 +211,11 @@
 
 ### NFR Validation Tests - A4/A5 Remediation
 
-- [ ] T065a [NFR] Test `test_block_processing_under_5_seconds()` - benchmark (NFR-001)
-- [ ] T065b [NFR] Test `test_100k_utxos_per_block()` - stress test (NFR-004)
+- [x] T065a [NFR] Test `test_block_processing_under_5_seconds()` - benchmark (NFR-001) ✅ PASS
+- [x] T065b [NFR] Test `test_100k_utxos_per_block()` - stress test (NFR-004) ✅ PASS (443s)
 
-- [ ] T066 Run full test suite: `uv run pytest tests/ -v`
-- [ ] T067 Run linter on all new files
+- [x] T066 Run full test suite: `uv run pytest tests/ -v` ✅ 38/38 PASS
+- [x] T067 Run linter on all new files ✅ All checks passed
 - [ ] T068 Validate quickstart.md scenarios
 - [ ] T069 Create PR and merge
 

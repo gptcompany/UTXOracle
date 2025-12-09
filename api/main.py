@@ -1677,15 +1677,15 @@ async def get_hodl_waves():
             snapshot_columns = [desc[0] for desc in conn.description]
             snapshot_data = dict(zip(snapshot_columns, snapshot_result))
 
-            # Parse hodl_waves JSON
+            # Parse hodl_waves JSON (column name is hodl_waves_json)
             import json
 
             hodl_waves = {}
-            if snapshot_data.get("hodl_waves"):
+            if snapshot_data.get("hodl_waves_json"):
                 try:
-                    hodl_waves = json.loads(snapshot_data["hodl_waves"])
+                    hodl_waves = json.loads(snapshot_data["hodl_waves_json"])
                 except (json.JSONDecodeError, TypeError):
-                    hodl_waves = snapshot_data["hodl_waves"]
+                    hodl_waves = snapshot_data["hodl_waves_json"]
 
             total_supply = snapshot_data.get("total_supply_btc", 0)
             sth_supply = snapshot_data.get("sth_supply_btc", 0)

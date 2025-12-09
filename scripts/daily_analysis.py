@@ -1914,12 +1914,12 @@ def main():
                     init_utxo_schema(utxo_conn)
                     init_utxo_indexes(utxo_conn)
 
-                    # Get current block height from UTXOracle result
-                    block_height = utx_result.get("block_height", 0)
+                    # Get current price from UTXOracle result
                     utxoracle_price = utx_result.get("price_usd", 50000.0)
 
-                    # Check sync state
+                    # Check sync state - use last_processed_block for calculations
                     sync_state = get_utxo_sync_state(utxo_conn)
+                    block_height = sync_state.last_processed_block if sync_state else 0
 
                     # Calculate realized metrics
                     total_supply = get_total_unspent_supply(utxo_conn)

@@ -182,7 +182,9 @@ def sync_blocks(
             block_price = get_utxoracle_price(block_height, main_db)
 
             # Process block
-            created, spent = process_block_utxos(utxo_db, block_data, block_price)
+            created, spent = process_block_utxos(
+                utxo_db, block_data, block_price, age_config
+            )
 
             total_created += len(created)
             total_spent += len(spent)
