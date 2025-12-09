@@ -267,7 +267,17 @@ class MetricValidator:
         - increase_weight: Significant positive effect, stable
         - maintain_weight: At baseline level or inconclusive
         - decrease_weight: Underperforming or unstable
+
+        Decision order (most restrictive first):
+        1. Check for instability (blocks increase/maintain)
+        2. Check for strong positive (increase)
+        3. Check for clear underperformance (decrease)
+        4. Default to maintain
         """
+        # Unstable performance - MUST check first to block maintain/increase
+        if not cv_is_stable:
+            return "decrease_weight"
+
         # Strong positive: significant, large effect, stable
         if is_significant and effect_size > 0.5 and cv_is_stable:
             return "increase_weight"
@@ -276,13 +286,9 @@ class MetricValidator:
         if actual_sharpe < random_mean and not is_significant:
             return "decrease_weight"
 
-        # Beats buy-and-hold but not significant
+        # Beats buy-and-hold with reasonable effect
         if actual_sharpe > buyhold_sharpe and effect_size > 0.2:
             return "maintain_weight"
-
-        # Unstable performance
-        if not cv_is_stable:
-            return "decrease_weight"
 
         # Default: maintain current weight
         return "maintain_weight"

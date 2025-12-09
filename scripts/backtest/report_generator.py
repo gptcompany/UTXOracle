@@ -21,11 +21,22 @@ if TYPE_CHECKING:
 
 
 def _serialize_for_json(obj):
-    """Custom JSON serializer for dataclasses with dates."""
+    """Custom JSON serializer for dataclasses with dates and special floats.
+
+    Handles:
+    - date/datetime objects → ISO format strings
+    - tuples → lists
+    - inf/-inf/nan → string representations (JSON spec compliant)
+    """
     if isinstance(obj, (date, datetime)):
         return obj.isoformat()
     if isinstance(obj, tuple):
         return list(obj)
+    if isinstance(obj, float):
+        if math.isinf(obj):
+            return "inf" if obj > 0 else "-inf"
+        if math.isnan(obj):
+            return "nan"
     raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
 

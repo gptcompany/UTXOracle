@@ -53,18 +53,23 @@ def sortino_ratio(
     returns: list[float],
     risk_free_rate: float = 0.0,
     annualization_factor: float = 252,
+    target: float = 0.0,
 ) -> float:
     """Calculate annualized Sortino ratio.
 
-    Sortino = (mean(returns) - rf) / std(negative_returns) * sqrt(annualization_factor)
+    Sortino = (mean(returns) - rf) / downside_deviation * sqrt(annualization_factor)
 
-    Only penalizes downside volatility, making it more appropriate for
-    asymmetric return distributions.
+    Only penalizes downside volatility (returns below target), making it more
+    appropriate for asymmetric return distributions.
+
+    The downside deviation is calculated as the semi-standard deviation of
+    returns below the target return.
 
     Args:
         returns: List of period returns
         risk_free_rate: Risk-free rate for the same period
         annualization_factor: Periods per year
+        target: Target return threshold (default 0.0)
 
     Returns:
         Annualized Sortino ratio
@@ -76,16 +81,16 @@ def sortino_ratio(
     mean_return = sum(returns) / n
     excess_return = mean_return - risk_free_rate
 
-    # Only consider negative returns (downside)
-    negative_returns = [r for r in returns if r < 0]
+    # Calculate downside deviation (semi-deviation from target)
+    # Only penalize returns below the target
+    downside_deviations = [min(0.0, r - target) for r in returns]
+    downside_variance = sum(d**2 for d in downside_deviations) / n
 
-    if not negative_returns:
+    if downside_variance == 0:
         # No downside returns - perfect performance
         return float("inf") if excess_return > 0 else 0.0
 
-    # Downside deviation
-    downside_variance = sum(r**2 for r in negative_returns) / len(negative_returns)
-    downside_std = math.sqrt(downside_variance) if downside_variance > 0 else 0.0
+    downside_std = math.sqrt(downside_variance)
 
     if downside_std == 0:
         return 0.0
