@@ -194,8 +194,32 @@ def determine_action(
 
 
 # =============================================================================
-# spec-009 + spec-010 + spec-016: Enhanced 9-Component Fusion
+# spec-009 + spec-010 + spec-014 + spec-016: Enhanced 9-Component Fusion
 # =============================================================================
+
+# Legacy weights (spec-009 original, 7 components)
+LEGACY_WEIGHTS = {
+    "whale": 0.25,
+    "utxo": 0.15,
+    "funding": 0.15,
+    "oi": 0.10,
+    "power_law": 0.10,
+    "symbolic": 0.15,
+    "fractal": 0.10,
+}
+
+# Evidence-based weights (spec-014, 8 components)
+# Adjusted based on academic literature review
+EVIDENCE_BASED_WEIGHTS = {
+    "whale": 0.15,  # Reduced from 0.25 (low evidence grade)
+    "utxo": 0.20,  # Increased from 0.15 (entity-adjusted)
+    "funding": 0.05,  # Reduced from 0.15 (LAGGING indicator)
+    "oi": 0.10,
+    "power_law": 0.15,  # Increased from 0.10
+    "symbolic": 0.15,
+    "fractal": 0.10,
+    "wasserstein": 0.10,  # spec-010
+}
 
 # Default weights for enhanced fusion (sum = 1.0)
 # Updated for 9 components including SOPR (spec-016)
@@ -211,6 +235,70 @@ ENHANCED_WEIGHTS = {
     "wasserstein": 0.10,  # Distribution shift (spec-010)
     "sopr": 0.15,  # SOPR signal (spec-016) - Highest evidence grade
 }
+
+
+def validate_weights(weights: dict[str, float]) -> bool:
+    """
+    Validate that weights are valid (sum to 1.0, all non-negative).
+
+    Args:
+        weights: Dictionary of component weights
+
+    Returns:
+        True if valid
+
+    Raises:
+        ValueError: If weights are invalid
+    """
+    # Check for negative weights
+    for key, value in weights.items():
+        if value < 0:
+            raise ValueError(f"Weight for '{key}' must be non-negative, got {value}")
+
+    # Check sum (with tolerance)
+    total = sum(weights.values())
+    if abs(total - 1.0) > 0.001:
+        raise ValueError(f"Weights must sum to 1.0, got {total:.4f}")
+
+    return True
+
+
+def load_weights_from_env() -> dict[str, float]:
+    """
+    Load fusion weights from environment variables.
+
+    If FUSION_USE_LEGACY_WEIGHTS=true, returns legacy weights.
+    Otherwise returns evidence-based weights (can be overridden by env vars).
+
+    Returns:
+        Dictionary of component weights
+    """
+    import os
+
+    if os.getenv("FUSION_USE_LEGACY_WEIGHTS", "false").lower() == "true":
+        return LEGACY_WEIGHTS.copy()
+
+    # Start with evidence-based defaults
+    weights = EVIDENCE_BASED_WEIGHTS.copy()
+
+    # Allow per-component overrides
+    env_mapping = {
+        "FUSION_WHALE_WEIGHT": "whale",
+        "FUSION_UTXO_WEIGHT": "utxo",
+        "FUSION_FUNDING_WEIGHT": "funding",
+        "FUSION_OI_WEIGHT": "oi",
+        "FUSION_POWER_LAW_WEIGHT": "power_law",
+        "FUSION_SYMBOLIC_WEIGHT": "symbolic",
+        "FUSION_FRACTAL_WEIGHT": "fractal",
+        "FUSION_WASSERSTEIN_WEIGHT": "wasserstein",
+    }
+
+    for env_var, component in env_mapping.items():
+        if env_val := os.getenv(env_var):
+            weights[component] = float(env_val)
+
+    validate_weights(weights)
+    return weights
 
 
 def enhanced_fusion(
