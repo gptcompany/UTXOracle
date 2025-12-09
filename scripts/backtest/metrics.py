@@ -89,9 +89,10 @@ def sortino_ratio(
     if downside_variance == 0:
         # No downside returns
         # Positive excess = perfect (inf), negative excess = worst (-inf)
-        if excess_return > 0:
+        # Use tolerance for floating-point precision
+        if excess_return > 1e-10:
             return float("inf")
-        elif excess_return < 0:
+        elif excess_return < -1e-10:
             return float("-inf")
         else:
             return 0.0
