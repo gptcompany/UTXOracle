@@ -1392,217 +1392,370 @@ async def get_wasserstein_regime():
 
 
 # =============================================================================
-# Spec-016: SOPR Endpoints
+# UTXO Lifecycle Engine Endpoints (spec-017)
 # =============================================================================
 
+# UTXO Lifecycle database path
+UTXO_DB_PATH = os.getenv("UTXO_LIFECYCLE_DB_PATH", "data/utxo_lifecycle.duckdb")
 
-@app.get("/api/metrics/sopr/current")
-async def get_sopr_current():
-    """
-    Get current block SOPR metrics (spec-016).
 
-    Returns the most recent SOPR calculation with STH/LTH split.
+class UTXOLifecycleResponse(BaseModel):
+    """Response model for UTXO lifecycle data."""
+
+    sync_status: dict = Field(description="Current sync state")
+    supply_metrics: dict = Field(description="Supply by holder type")
+    supply_by_cohort: dict = Field(description="Supply by age cohort")
+    timestamp: datetime = Field(description="Response timestamp")
+
+
+class RealizedMetricsResponse(BaseModel):
+    """Response model for realized metrics."""
+
+    block_height: int = Field(description="Block height of metrics")
+    timestamp: datetime = Field(description="Timestamp of metrics")
+    total_supply_btc: float = Field(description="Total unspent supply in BTC")
+    realized_cap_usd: float = Field(description="Realized Cap in USD")
+    market_cap_usd: Optional[float] = Field(
+        default=None, description="Market Cap in USD"
+    )
+    mvrv: Optional[float] = Field(default=None, description="MVRV ratio")
+    nupl: Optional[float] = Field(
+        default=None, description="Net Unrealized Profit/Loss"
+    )
+
+
+class HODLWavesResponse(BaseModel):
+    """Response model for HODL Waves."""
+
+    block_height: int = Field(description="Block height of data")
+    timestamp: datetime = Field(description="Timestamp of data")
+    hodl_waves: dict = Field(description="Supply percentage by age cohort")
+    sth_supply_btc: float = Field(description="Short-term holder supply")
+    lth_supply_btc: float = Field(description="Long-term holder supply")
+    sth_percentage: float = Field(description="STH supply percentage")
+    lth_percentage: float = Field(description="LTH supply percentage")
+
+
+@app.get("/api/metrics/utxo-lifecycle", response_model=UTXOLifecycleResponse)
+async def get_utxo_lifecycle():
     """
-    import duckdb
+    Get UTXO lifecycle metrics (spec-017).
+
+    Returns current sync status, supply by holder type (STH/LTH),
+    and supply distribution by age cohort.
+    """
+    import duckdb as duckdb_module
+
+    utxo_db_path = Path(UTXO_DB_PATH)
+    if not utxo_db_path.exists():
+        raise HTTPException(
+            status_code=503,
+            detail="UTXO lifecycle database not initialized. Run sync script first.",
+        )
 
     conn = None
     try:
-        db_path = os.getenv(
-            "DUCKDB_PATH",
-            "/media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxoracle_cache.db",
-        )
-        conn = duckdb.connect(db_path, read_only=True)
+        conn = duckdb_module.connect(str(utxo_db_path), read_only=True)
 
-        result = conn.execute("""
-            SELECT block_height, block_hash, timestamp,
-                   aggregate_sopr, sth_sopr, lth_sopr,
-                   valid_outputs, sth_outputs, lth_outputs,
-                   profit_ratio, is_valid
-            FROM sopr_blocks
-            ORDER BY block_height DESC
-            LIMIT 1
-        """).fetchone()
+        # Get sync state
+        sync_result = conn.execute(
+            "SELECT * FROM utxo_sync_state ORDER BY last_processed_block DESC LIMIT 1"
+        ).fetchone()
 
-        if not result:
+        if not sync_result:
             raise HTTPException(
                 status_code=404,
-                detail="No SOPR data available. Analysis may not have run yet.",
+                detail="No UTXO lifecycle data available. Run sync script first.",
             )
 
-        return {
-            "block_height": result[0],
-            "block_hash": result[1],
-            "timestamp": result[2].isoformat() if result[2] else None,
-            "aggregate_sopr": result[3],
-            "sth_sopr": result[4],
-            "lth_sopr": result[5],
-            "valid_outputs": result[6],
-            "sth_outputs": result[7],
-            "lth_outputs": result[8],
-            "profit_ratio": result[9],
-            "is_valid": result[10],
-        }
+        sync_columns = [desc[0] for desc in conn.description]
+        sync_data = dict(zip(sync_columns, sync_result))
+
+        current_block = sync_data.get("last_processed_block", 0)
+
+        # Import age config
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from scripts.models.metrics_models import AgeCohortsConfig
+        from scripts.metrics.utxo_lifecycle import (
+            get_sth_lth_supply,
+            get_supply_by_cohort,
+        )
+
+        age_config = AgeCohortsConfig()
+
+        # Get STH/LTH supply
+        sth_supply, lth_supply = get_sth_lth_supply(conn, current_block)
+
+        # Get supply by cohort
+        supply_by_cohort = get_supply_by_cohort(conn, current_block, age_config)
+
+        return UTXOLifecycleResponse(
+            sync_status={
+                "last_processed_block": sync_data.get("last_processed_block"),
+                "last_processed_timestamp": sync_data.get("last_processed_timestamp"),
+                "total_utxos_created": sync_data.get("total_utxos_created"),
+                "total_utxos_spent": sync_data.get("total_utxos_spent"),
+            },
+            supply_metrics={
+                "sth_supply_btc": sth_supply,
+                "lth_supply_btc": lth_supply,
+                "total_supply_btc": sth_supply + lth_supply,
+                "sth_percentage": round(sth_supply / (sth_supply + lth_supply) * 100, 2)
+                if (sth_supply + lth_supply) > 0
+                else 0,
+                "lth_percentage": round(lth_supply / (sth_supply + lth_supply) * 100, 2)
+                if (sth_supply + lth_supply) > 0
+                else 0,
+            },
+            supply_by_cohort=supply_by_cohort,
+            timestamp=datetime.now(),
+        )
 
     except HTTPException:
         raise
+    except ImportError as e:
+        logging.error(f"Import error for UTXO lifecycle: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail="UTXO lifecycle modules not available.",
+        )
     except Exception as e:
-        error_msg = str(e).lower()
-        if "sopr" in error_msg or "column" in error_msg or "binder" in error_msg:
-            logging.info("SOPR columns not yet available in database schema")
-            raise HTTPException(
-                status_code=404,
-                detail="SOPR metrics not available. Schema migration pending.",
-            )
-        logging.error(f"Error fetching SOPR: {e}")
+        logging.error(f"Error fetching UTXO lifecycle: {e}")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     finally:
         if conn:
             conn.close()
 
 
-@app.get("/api/metrics/sopr/history")
-async def get_sopr_history(
-    limit: int = Query(
-        default=144, ge=1, le=1000, description="Maximum data points (144 = ~24h)"
+@app.get("/api/metrics/realized", response_model=RealizedMetricsResponse)
+async def get_realized_metrics(
+    current_price: Optional[float] = Query(
+        default=None,
+        description="Current BTC price for market cap calculation. If not provided, uses latest UTXOracle price.",
     ),
-    start_block: int = Query(default=None, description="Start block height"),
-    end_block: int = Query(default=None, description="End block height"),
 ):
     """
-    Get historical SOPR data (spec-016).
+    Get realized metrics (spec-017).
 
-    Returns SOPR metrics for the specified range or last N blocks.
+    Returns Realized Cap, MVRV, and NUPL based on UTXO lifecycle data.
     """
-    import duckdb
+    import duckdb as duckdb_module
+
+    utxo_db_path = Path(UTXO_DB_PATH)
+    if not utxo_db_path.exists():
+        raise HTTPException(
+            status_code=503,
+            detail="UTXO lifecycle database not initialized. Run sync script first.",
+        )
 
     conn = None
+    main_conn = None
     try:
-        db_path = os.getenv(
-            "DUCKDB_PATH",
-            "/media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxoracle_cache.db",
+        conn = duckdb_module.connect(str(utxo_db_path), read_only=True)
+
+        # Get latest snapshot if available
+        snapshot_result = conn.execute(
+            "SELECT * FROM utxo_snapshots ORDER BY block_height DESC LIMIT 1"
+        ).fetchone()
+
+        if snapshot_result:
+            snapshot_columns = [desc[0] for desc in conn.description]
+            snapshot_data = dict(zip(snapshot_columns, snapshot_result))
+
+            return RealizedMetricsResponse(
+                block_height=snapshot_data.get("block_height", 0),
+                timestamp=snapshot_data.get("timestamp", datetime.now()),
+                total_supply_btc=snapshot_data.get("total_supply_btc", 0),
+                realized_cap_usd=snapshot_data.get("realized_cap_usd", 0),
+                market_cap_usd=snapshot_data.get("market_cap_usd"),
+                mvrv=snapshot_data.get("mvrv"),
+                nupl=snapshot_data.get("nupl"),
+            )
+
+        # Calculate on-the-fly if no snapshot
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from scripts.metrics.realized_metrics import (
+            calculate_realized_cap,
+            calculate_market_cap,
+            calculate_mvrv,
+            calculate_nupl,
+            get_total_unspent_supply,
         )
-        conn = duckdb.connect(db_path, read_only=True)
 
-        query = """
-            SELECT block_height, timestamp, aggregate_sopr, sth_sopr, lth_sopr,
-                   valid_outputs, sth_outputs, lth_outputs, profit_ratio, is_valid
-            FROM sopr_blocks
-            WHERE 1=1
-        """
-        params = []
+        # Get sync state for block height
+        sync_result = conn.execute(
+            "SELECT last_processed_block, last_processed_timestamp FROM utxo_sync_state ORDER BY last_processed_block DESC LIMIT 1"
+        ).fetchone()
 
-        if start_block is not None:
-            query += " AND block_height >= ?"
-            params.append(start_block)
-        if end_block is not None:
-            query += " AND block_height <= ?"
-            params.append(end_block)
+        if not sync_result:
+            raise HTTPException(
+                status_code=404,
+                detail="No UTXO lifecycle data available.",
+            )
 
-        query += " ORDER BY block_height DESC LIMIT ?"
-        params.append(limit)
+        block_height, timestamp = sync_result
 
-        results = conn.execute(query, params).fetchall()
+        # Calculate metrics
+        total_supply = get_total_unspent_supply(conn)
+        realized_cap = calculate_realized_cap(conn)
 
-        return [
-            {
-                "block_height": row[0],
-                "timestamp": row[1].isoformat() if row[1] else None,
-                "aggregate_sopr": row[2],
-                "sth_sopr": row[3],
-                "lth_sopr": row[4],
-                "valid_outputs": row[5],
-                "sth_outputs": row[6],
-                "lth_outputs": row[7],
-                "profit_ratio": row[8],
-                "is_valid": row[9],
-            }
-            for row in results
-        ]
+        # Get current price if not provided
+        if current_price is None:
+            try:
+                main_conn = duckdb_module.connect(DUCKDB_PATH, read_only=True)
+                price_result = main_conn.execute(
+                    "SELECT utxoracle_price FROM prices ORDER BY timestamp DESC LIMIT 1"
+                ).fetchone()
+                if price_result and price_result[0]:
+                    current_price = float(price_result[0])
+            except Exception:
+                pass
 
+        market_cap = None
+        mvrv = None
+        nupl = None
+
+        if current_price:
+            market_cap = calculate_market_cap(total_supply, current_price)
+            mvrv = calculate_mvrv(market_cap, realized_cap)
+            nupl = calculate_nupl(market_cap, realized_cap)
+
+        return RealizedMetricsResponse(
+            block_height=block_height,
+            timestamp=timestamp or datetime.now(),
+            total_supply_btc=total_supply,
+            realized_cap_usd=realized_cap,
+            market_cap_usd=market_cap,
+            mvrv=mvrv,
+            nupl=nupl,
+        )
+
+    except HTTPException:
+        raise
+    except ImportError as e:
+        logging.error(f"Import error for realized metrics: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail="Realized metrics modules not available.",
+        )
     except Exception as e:
-        error_msg = str(e).lower()
-        if "sopr" in error_msg or "column" in error_msg:
-            logging.info("SOPR columns not yet available in database schema")
-            return []
-        logging.error(f"Error fetching SOPR history: {e}")
+        logging.error(f"Error fetching realized metrics: {e}")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     finally:
         if conn:
             conn.close()
+        if main_conn:
+            main_conn.close()
 
 
-@app.get("/api/metrics/sopr/signals")
-async def get_sopr_signals():
+@app.get("/api/metrics/hodl-waves", response_model=HODLWavesResponse)
+async def get_hodl_waves():
     """
-    Get active SOPR trading signals (spec-016).
+    Get HODL Waves data (spec-017).
 
-    Returns current capitulation, breakeven cross, and distribution signals.
+    Returns supply distribution by age cohort (HODL Waves visualization data).
     """
-    import duckdb
+    import duckdb as duckdb_module
+
+    utxo_db_path = Path(UTXO_DB_PATH)
+    if not utxo_db_path.exists():
+        raise HTTPException(
+            status_code=503,
+            detail="UTXO lifecycle database not initialized. Run sync script first.",
+        )
 
     conn = None
     try:
-        db_path = os.getenv(
-            "DUCKDB_PATH",
-            "/media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxoracle_cache.db",
+        conn = duckdb_module.connect(str(utxo_db_path), read_only=True)
+
+        # Get latest snapshot if available
+        snapshot_result = conn.execute(
+            "SELECT * FROM utxo_snapshots ORDER BY block_height DESC LIMIT 1"
+        ).fetchone()
+
+        if snapshot_result:
+            snapshot_columns = [desc[0] for desc in conn.description]
+            snapshot_data = dict(zip(snapshot_columns, snapshot_result))
+
+            # Parse hodl_waves JSON (column name is hodl_waves_json)
+            import json
+
+            hodl_waves = {}
+            if snapshot_data.get("hodl_waves_json"):
+                try:
+                    hodl_waves = json.loads(snapshot_data["hodl_waves_json"])
+                except (json.JSONDecodeError, TypeError):
+                    hodl_waves = snapshot_data["hodl_waves_json"]
+
+            total_supply = snapshot_data.get("total_supply_btc", 0)
+            sth_supply = snapshot_data.get("sth_supply_btc", 0)
+            lth_supply = snapshot_data.get("lth_supply_btc", 0)
+
+            return HODLWavesResponse(
+                block_height=snapshot_data.get("block_height", 0),
+                timestamp=snapshot_data.get("timestamp", datetime.now()),
+                hodl_waves=hodl_waves,
+                sth_supply_btc=sth_supply,
+                lth_supply_btc=lth_supply,
+                sth_percentage=round(sth_supply / total_supply * 100, 2)
+                if total_supply > 0
+                else 0,
+                lth_percentage=round(lth_supply / total_supply * 100, 2)
+                if total_supply > 0
+                else 0,
+            )
+
+        # Calculate on-the-fly if no snapshot
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from scripts.models.metrics_models import AgeCohortsConfig
+        from scripts.metrics.hodl_waves import calculate_hodl_waves
+        from scripts.metrics.utxo_lifecycle import get_sth_lth_supply
+
+        # Get sync state for block height
+        sync_result = conn.execute(
+            "SELECT last_processed_block, last_processed_timestamp FROM utxo_sync_state ORDER BY last_processed_block DESC LIMIT 1"
+        ).fetchone()
+
+        if not sync_result:
+            raise HTTPException(
+                status_code=404,
+                detail="No UTXO lifecycle data available.",
+            )
+
+        block_height, timestamp = sync_result
+        age_config = AgeCohortsConfig()
+
+        # Calculate HODL waves
+        hodl_waves = calculate_hodl_waves(conn, block_height, age_config)
+
+        # Get STH/LTH supply
+        sth_supply, lth_supply = get_sth_lth_supply(conn, block_height)
+        total_supply = sth_supply + lth_supply
+
+        return HODLWavesResponse(
+            block_height=block_height,
+            timestamp=timestamp or datetime.now(),
+            hodl_waves=hodl_waves,
+            sth_supply_btc=sth_supply,
+            lth_supply_btc=lth_supply,
+            sth_percentage=round(sth_supply / total_supply * 100, 2)
+            if total_supply > 0
+            else 0,
+            lth_percentage=round(lth_supply / total_supply * 100, 2)
+            if total_supply > 0
+            else 0,
         )
-        conn = duckdb.connect(db_path, read_only=True)
 
-        # Get recent signals
-        results = conn.execute("""
-            SELECT block_height, timestamp, signal_type, direction,
-                   strength, confidence, sopr_vote, consecutive_periods
-            FROM sopr_signals
-            ORDER BY block_height DESC
-            LIMIT 10
-        """).fetchall()
-
-        signals = [
-            {
-                "block_height": row[0],
-                "timestamp": row[1].isoformat() if row[1] else None,
-                "signal_type": row[2],
-                "direction": row[3],
-                "strength": row[4],
-                "confidence": row[5],
-                "sopr_vote": row[6],
-                "consecutive_periods": row[7],
-            }
-            for row in results
-        ]
-
-        # Calculate summary
-        sth_capitulation = any(s["signal_type"] == "CAPITULATION" for s in signals[:3])
-        lth_distribution = any(s["signal_type"] == "DISTRIBUTION" for s in signals[:3])
-        breakeven_cross = any(
-            s["signal_type"] == "BREAKEVEN_CROSS" for s in signals[:3]
+    except HTTPException:
+        raise
+    except ImportError as e:
+        logging.error(f"Import error for HODL waves: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail="HODL waves modules not available.",
         )
-        latest_vote = signals[0]["sopr_vote"] if signals else 0.0
-
-        return {
-            "sth_capitulation": sth_capitulation,
-            "sth_breakeven_cross": breakeven_cross,
-            "lth_distribution": lth_distribution,
-            "sopr_vote": latest_vote,
-            "confidence": signals[0]["confidence"] if signals else 0.0,
-            "consecutive_periods": signals[0]["consecutive_periods"] if signals else 0,
-            "recent_signals": signals,
-        }
-
     except Exception as e:
-        error_msg = str(e).lower()
-        if "sopr" in error_msg or "column" in error_msg:
-            logging.info("SOPR signals not yet available in database schema")
-            return {
-                "sth_capitulation": False,
-                "sth_breakeven_cross": False,
-                "lth_distribution": False,
-                "sopr_vote": 0.0,
-                "confidence": 0.0,
-                "consecutive_periods": 0,
-                "recent_signals": [],
-            }
-        logging.error(f"Error fetching SOPR signals: {e}")
+        logging.error(f"Error fetching HODL waves: {e}")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     finally:
         if conn:

@@ -70,6 +70,7 @@ python3 scripts/utxoracle_batch.py 2025/10/01 2025/10/10 /home/sam/.bitcoin 12
 | spec-014 | metrics/ (evidence weights) | ✅ Complete |
 | spec-015 | backtest/ (validation) | ✅ Complete |
 | spec-016 | metrics/sopr | ✅ Complete |
+| spec-017 | metrics/utxo_lifecycle | ✅ Complete |
 
 ## Repository Organization
 

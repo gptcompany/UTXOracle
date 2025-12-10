@@ -119,8 +119,8 @@ Statistical analysis extensions providing +40% signal accuracy improvement:
   * Signal: +10% accuracy boost for structural analysis
 
 - **Enhanced Fusion** (`scripts/metrics/monte_carlo_fusion.py:enhanced_fusion`)
-  * 9-component weighted fusion (vs 2-component in spec-007)
-  * Components: whale (12%), utxo (18%), funding (5%), oi (8%), power_law (12%), symbolic (12%), fractal (8%), wasserstein (10%), sopr (15%)
+  * 7-component weighted fusion (vs 2-component in spec-007)
+  * Components: whale (25%), utxo (15%), funding (15%), oi (10%), power_law (10%), symbolic (15%), fractal (10%)
   * Automatic weight renormalization when components unavailable
   * Backward compatible with spec-007 2-component fusion
 
@@ -128,7 +128,7 @@ Statistical analysis extensions providing +40% signal accuracy improvement:
   * `PowerLawResult`: τ, xmin, KS stats, regime
   * `SymbolicDynamicsResult`: H, C, pattern type
   * `FractalDimensionResult`: D, R², structure
-  * `EnhancedFusionResult`: 9-component fusion result (includes Wasserstein and SOPR)
+  * `EnhancedFusionResult`: 8-component fusion result (includes Wasserstein)
 
 - **API Endpoint** (`/api/metrics/advanced`)
   * Real-time computation from latest block data
@@ -274,48 +274,59 @@ Address clustering and CoinJoin detection for whale identification:
   * Returns top clusters by size
   * CoinJoin filtering statistics
 
-### SOPR Module (spec-016)
+### UTXO Lifecycle Engine Module (spec-017)
 
-Spent Output Profit Ratio (SOPR) analysis with STH/LTH holder classification:
+Comprehensive UTXO lifecycle tracking for Realized Cap, MVRV, NUPL, and HODL Waves:
 
-- **SOPR Calculator** (`scripts/metrics/sopr.py`)
-  * Individual output SOPR: spend_price / creation_price
-  * STH/LTH classification: Short-Term Holder (<155 days), Long-Term Holder (≥155 days)
-  * Block aggregation with BTC-weighted averages
-  * Performance: 2.94ms per block (34x faster than 100ms target)
+- **UTXO Lifecycle Tracker** (`scripts/metrics/utxo_lifecycle.py`)
+  * Hybrid approach with in-memory cache for hot UTXOs
+  * Tracks creation block, creation price, realized value per UTXO
+  * Marks spending with spent_block, spent_price, calculates SOPR
+  * STH/LTH classification (155-day threshold, configurable)
+  * Age cohort breakdown: <1h, 1h-24h, 1d-1w, 1w-1m, 1m-3m, 3m-6m, 6m-1y, 1y-2y, 2y-3y, 3y+
+  * Performance: <5s per block, handles 100k UTXOs per block
 
-- **Signal Detection** (`scripts/metrics/sopr.py:detect_sopr_signals`)
-  * **Capitulation**: STH-SOPR < 1.0 for 3+ consecutive days → Bullish (+0.7 vote)
-  * **Breakeven Cross**: STH-SOPR crosses 1.0 → Momentum change (±0.3 vote)
-  * **Distribution**: LTH-SOPR > 3.0 → Bearish (-0.5 vote)
-  * Configurable thresholds via environment variables
+- **Realized Metrics Calculator** (`scripts/metrics/realized_metrics.py`)
+  * Realized Cap: Σ(BTC × creation_price) for unspent UTXOs
+  * Market Cap: Total supply × current price
+  * MVRV: Market Cap / Realized Cap (>3.0 overvalued, <1.0 undervalued)
+  * NUPL: (Market Cap - Realized Cap) / Market Cap
+  * Point-in-time snapshot creation for historical analysis
 
-- **Data Models** (`scripts/metrics/sopr.py`)
-  * `SpentOutputSOPR`: Individual UTXO SOPR with cohort classification
-  * `BlockSOPR`: Aggregated block-level metrics (all/STH/LTH)
-  * `SOPRWindow`: Rolling window summary for signal detection
-  * `SOPRSignal`: Trading signal with type, vote, and confidence
+- **HODL Waves Calculator** (`scripts/metrics/hodl_waves.py`)
+  * Supply distribution by age cohort (percentages sum to 100%)
+  * Visualizes Bitcoin holding behavior over time
+  * Identifies accumulation vs distribution phases
 
-- **Enhanced Fusion Integration** (`scripts/metrics/monte_carlo_fusion.py`)
-  * 9th component with 0.15 weight (highest evidence grade A-B)
-  * Based on Omole & Enke (2024) research: 82.44% accuracy
-  * Automatic weight renormalization when unavailable
+- **Sync Engine** (`scripts/sync_utxo_lifecycle.py`)
+  * Incremental sync from last checkpoint
+  * Bitcoin Core RPC integration with price lookup
+  * Configurable batch size and retention period (default 180 days)
+  * Automatic pruning of old spent UTXOs
 
-- **API Endpoints** (`api/main.py`)
-  * `/api/metrics/sopr/current` - Latest block SOPR (all/STH/LTH split)
-  * `/api/metrics/sopr/history` - Historical SOPR data with pagination
-  * `/api/metrics/sopr/signals` - Active trading signals
+- **Data Models** (`scripts/models/metrics_models.py`)
+  * `UTXOLifecycle`: Creation/spending data with SOPR calculation
+  * `UTXOSetSnapshot`: Point-in-time realized metrics
+  * `AgeCohortsConfig`: Configurable cohort boundaries
+  * `SyncState`: Incremental sync checkpoint tracking
 
-- **Configuration** (`.env.example`)
-  ```bash
-  SOPR_ENABLED=true
-  SOPR_STH_THRESHOLD_DAYS=155
-  SOPR_MIN_OUTPUTS=100
-  SOPR_CAPITULATION_DAYS=3
-  SOPR_CAPITULATION_THRESHOLD=1.0
-  SOPR_DISTRIBUTION_THRESHOLD=3.0
-  SOPR_WEIGHT=0.15
-  ```
+- **Database Schema** (DuckDB)
+  * `utxo_lifecycle` table: Core UTXO tracking with indexes
+  * `utxo_snapshots` table: Historical metric snapshots
+  * `utxo_sync_state` table: Sync progress tracking
+  * Storage: ~5GB for 6-month MVP retention
+
+- **API Endpoints**
+  * `/api/metrics/utxo-lifecycle` - STH/LTH supply breakdown
+  * `/api/metrics/realized` - Realized Cap, MVRV, NUPL
+  * `/api/metrics/hodl-waves` - Age cohort distribution
+
+- **Configuration** (`.env`)
+  * `UTXO_LIFECYCLE_ENABLED=true` - Enable/disable feature
+  * `UTXO_LIFECYCLE_DB_PATH` - DuckDB path
+  * `UTXO_STH_THRESHOLD_DAYS=155` - STH/LTH boundary
+  * `UTXO_RETENTION_DAYS=180` - Data retention period
+  * `UTXO_PRUNING_ENABLED=true` - Auto-prune old spent UTXOs
 
 ---
 
@@ -330,9 +341,7 @@ Spent Output Profit Ratio (SOPR) analysis with STH/LTH holder classification:
 | spec-011 | alerts/ | ✅ Complete | 4 |
 | spec-012 | backtest/ | ✅ Complete | 5 |
 | spec-013 | clustering/ | ✅ Complete | 5 |
-| spec-014 | metrics/ (evidence weights) | ✅ Complete | - |
-| spec-015 | backtest/ (validation) | ✅ Complete | - |
-| spec-016 | metrics/sopr | ✅ Complete | 1 |
+| spec-017 | metrics/utxo_lifecycle | ✅ Complete | 4 |
 
 ---
 

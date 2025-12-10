@@ -122,6 +122,32 @@ except ImportError:
     SOPR_ENABLED = False
     logging.warning("spec-016 SOPR not available - STH/LTH analysis disabled")
 
+# UTXO Lifecycle Engine (spec-017) - Realized Cap, MVRV, NUPL, HODL Waves
+try:
+    from scripts.metrics.utxo_lifecycle import (
+        init_schema as init_utxo_schema,
+        init_indexes as init_utxo_indexes,
+        get_sync_state as get_utxo_sync_state,
+        get_sth_lth_supply,
+    )
+    from scripts.metrics.realized_metrics import (
+        calculate_realized_cap,
+        calculate_market_cap,
+        calculate_mvrv,
+        calculate_nupl,
+        get_total_unspent_supply,
+        create_snapshot,
+    )
+    from scripts.metrics.hodl_waves import calculate_hodl_waves
+    from scripts.models.metrics_models import AgeCohortsConfig
+
+    UTXO_LIFECYCLE_ENABLED = (
+        os.getenv("UTXO_LIFECYCLE_ENABLED", "true").lower() == "true"
+    )
+except ImportError as e:
+    UTXO_LIFECYCLE_ENABLED = False
+    logging.warning(f"spec-017 UTXO lifecycle not available: {e}")
+
 
 # =============================================================================
 # Configuration Management (T038)
@@ -1924,6 +1950,86 @@ def main():
                         logging.warning("⚠️ Failed to save spec-007/010 metrics")
                 except Exception as e:
                     logging.warning(f"Spec-007/010 metrics save failed: {e}")
+
+            # Step 5.5b: UTXO Lifecycle Metrics (spec-017)
+            if UTXO_LIFECYCLE_ENABLED:
+                try:
+                    utxo_db_path = os.getenv(
+                        "UTXO_LIFECYCLE_DB_PATH", "data/utxo_lifecycle.duckdb"
+                    )
+
+                    # Initialize database if needed
+                    Path(utxo_db_path).parent.mkdir(parents=True, exist_ok=True)
+                    utxo_conn = duckdb.connect(utxo_db_path)
+                    init_utxo_schema(utxo_conn)
+                    init_utxo_indexes(utxo_conn)
+
+                    # Get current price from UTXOracle result
+                    utxoracle_price = utx_result.get("price_usd", 50000.0)
+
+                    # Check sync state - use last_processed_block for calculations
+                    sync_state = get_utxo_sync_state(utxo_conn)
+                    block_height = sync_state.last_processed_block if sync_state else 0
+
+                    # Calculate realized metrics
+                    total_supply = get_total_unspent_supply(utxo_conn)
+                    realized_cap = calculate_realized_cap(utxo_conn)
+
+                    if total_supply > 0 and realized_cap > 0:
+                        market_cap = calculate_market_cap(total_supply, utxoracle_price)
+                        mvrv = calculate_mvrv(market_cap, realized_cap)
+                        nupl = calculate_nupl(market_cap, realized_cap)
+
+                        # Get STH/LTH supply
+                        age_config = AgeCohortsConfig()
+                        sth_supply, lth_supply = get_sth_lth_supply(
+                            utxo_conn, block_height
+                        )
+
+                        # Calculate HODL waves
+                        hodl_waves = calculate_hodl_waves(
+                            utxo_conn, block_height, age_config
+                        )
+                        top_cohort = (
+                            max(hodl_waves.items(), key=lambda x: x[1])[0]
+                            if hodl_waves
+                            else "N/A"
+                        )
+
+                        # Create and save snapshot if interval reached
+                        snapshot_interval = int(
+                            os.getenv("UTXO_SNAPSHOT_INTERVAL", "144")
+                        )
+                        if (
+                            sync_state is None
+                            or (block_height - sync_state.last_processed_block)
+                            >= snapshot_interval
+                        ):
+                            create_snapshot(
+                                utxo_conn,
+                                block_height,
+                                current_time,
+                                utxoracle_price,
+                            )
+                            logging.info(
+                                f"📸 UTXO snapshot saved at block {block_height}"
+                            )
+
+                        logging.info(
+                            f"📊 UTXO Lifecycle (spec-017): "
+                            f"MVRV={mvrv:.3f}, NUPL={nupl:.3f}, "
+                            f"STH={sth_supply:.2f} BTC, LTH={lth_supply:.2f} BTC, "
+                            f"Top Cohort={top_cohort}"
+                        )
+                    else:
+                        logging.info(
+                            "📊 UTXO Lifecycle: No data yet - run sync_utxo_lifecycle.py"
+                        )
+
+                    utxo_conn.close()
+
+                except Exception as e:
+                    logging.warning(f"Spec-017 UTXO lifecycle failed: {e}")
 
             # Step 5.6: Emit webhook alerts (spec-011)
             if ALERTS_ENABLED:
