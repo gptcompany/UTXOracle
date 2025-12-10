@@ -274,6 +274,60 @@ Address clustering and CoinJoin detection for whale identification:
   * Returns top clusters by size
   * CoinJoin filtering statistics
 
+### UTXO Lifecycle Engine Module (spec-017)
+
+Comprehensive UTXO lifecycle tracking for Realized Cap, MVRV, NUPL, and HODL Waves:
+
+- **UTXO Lifecycle Tracker** (`scripts/metrics/utxo_lifecycle.py`)
+  * Hybrid approach with in-memory cache for hot UTXOs
+  * Tracks creation block, creation price, realized value per UTXO
+  * Marks spending with spent_block, spent_price, calculates SOPR
+  * STH/LTH classification (155-day threshold, configurable)
+  * Age cohort breakdown: <1h, 1h-24h, 1d-1w, 1w-1m, 1m-3m, 3m-6m, 6m-1y, 1y-2y, 2y-3y, 3y+
+  * Performance: <5s per block, handles 100k UTXOs per block
+
+- **Realized Metrics Calculator** (`scripts/metrics/realized_metrics.py`)
+  * Realized Cap: Σ(BTC × creation_price) for unspent UTXOs
+  * Market Cap: Total supply × current price
+  * MVRV: Market Cap / Realized Cap (>3.0 overvalued, <1.0 undervalued)
+  * NUPL: (Market Cap - Realized Cap) / Market Cap
+  * Point-in-time snapshot creation for historical analysis
+
+- **HODL Waves Calculator** (`scripts/metrics/hodl_waves.py`)
+  * Supply distribution by age cohort (percentages sum to 100%)
+  * Visualizes Bitcoin holding behavior over time
+  * Identifies accumulation vs distribution phases
+
+- **Sync Engine** (`scripts/sync_utxo_lifecycle.py`)
+  * Incremental sync from last checkpoint
+  * Bitcoin Core RPC integration with price lookup
+  * Configurable batch size and retention period (default 180 days)
+  * Automatic pruning of old spent UTXOs
+
+- **Data Models** (`scripts/models/metrics_models.py`)
+  * `UTXOLifecycle`: Creation/spending data with SOPR calculation
+  * `UTXOSetSnapshot`: Point-in-time realized metrics
+  * `AgeCohortsConfig`: Configurable cohort boundaries
+  * `SyncState`: Incremental sync checkpoint tracking
+
+- **Database Schema** (DuckDB)
+  * `utxo_lifecycle` table: Core UTXO tracking with indexes
+  * `utxo_snapshots` table: Historical metric snapshots
+  * `utxo_sync_state` table: Sync progress tracking
+  * Storage: ~5GB for 6-month MVP retention
+
+- **API Endpoints**
+  * `/api/metrics/utxo-lifecycle` - STH/LTH supply breakdown
+  * `/api/metrics/realized` - Realized Cap, MVRV, NUPL
+  * `/api/metrics/hodl-waves` - Age cohort distribution
+
+- **Configuration** (`.env`)
+  * `UTXO_LIFECYCLE_ENABLED=true` - Enable/disable feature
+  * `UTXO_LIFECYCLE_DB_PATH` - DuckDB path
+  * `UTXO_STH_THRESHOLD_DAYS=155` - STH/LTH boundary
+  * `UTXO_RETENTION_DAYS=180` - Data retention period
+  * `UTXO_PRUNING_ENABLED=true` - Auto-prune old spent UTXOs
+
 ---
 
 ## Spec Implementation Status
@@ -287,6 +341,7 @@ Address clustering and CoinJoin detection for whale identification:
 | spec-011 | alerts/ | ✅ Complete | 4 |
 | spec-012 | backtest/ | ✅ Complete | 5 |
 | spec-013 | clustering/ | ✅ Complete | 5 |
+| spec-017 | metrics/utxo_lifecycle | ✅ Complete | 4 |
 
 ---
 

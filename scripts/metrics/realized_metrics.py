@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import duckdb
 
@@ -24,6 +25,38 @@ if TYPE_CHECKING:
     from scripts.models.metrics_models import UTXOSetSnapshot
 
 logger = logging.getLogger(__name__)
+
+# =============================================================================
+# TTL Cache for API Performance (T063)
+# =============================================================================
+
+# Cache TTL in seconds (5 minutes - shorter than 10-min cron interval)
+CACHE_TTL_SECONDS = 300
+
+# Simple module-level cache for frequently accessed data
+_snapshot_cache: dict[str, tuple[float, Any]] = {}
+
+
+def _get_cached(key: str) -> Any | None:
+    """Get value from cache if not expired."""
+    if key in _snapshot_cache:
+        timestamp, value = _snapshot_cache[key]
+        if time.time() - timestamp < CACHE_TTL_SECONDS:
+            return value
+        # Expired, remove from cache
+        del _snapshot_cache[key]
+    return None
+
+
+def _set_cached(key: str, value: Any) -> None:
+    """Set value in cache with current timestamp."""
+    _snapshot_cache[key] = (time.time(), value)
+
+
+def clear_cache() -> None:
+    """Clear all cached data. Call after sync operations."""
+    _snapshot_cache.clear()
+    logger.debug("Realized metrics cache cleared")
 
 
 def calculate_realized_cap(conn: duckdb.DuckDBPyConnection) -> float:
@@ -195,10 +228,15 @@ def create_snapshot(
 def save_snapshot(conn: duckdb.DuckDBPyConnection, snapshot: UTXOSetSnapshot) -> None:
     """Save a snapshot to the database.
 
+    Automatically clears the snapshot cache to ensure fresh data.
+
     Args:
         conn: DuckDB connection.
         snapshot: UTXOSetSnapshot to save.
     """
+    # Clear cache to ensure fresh data on next read
+    clear_cache()
+
     conn.execute(
         """
         INSERT INTO utxo_snapshots (
@@ -280,7 +318,10 @@ def load_snapshot(
 
 
 def get_latest_snapshot(conn: duckdb.DuckDBPyConnection) -> UTXOSetSnapshot | None:
-    """Get the most recent snapshot.
+    """Get the most recent snapshot (with TTL caching).
+
+    Uses a 5-minute cache to reduce database queries for API requests.
+    Cache is automatically invalidated after TTL expires.
 
     Args:
         conn: DuckDB connection.
@@ -288,6 +329,13 @@ def get_latest_snapshot(conn: duckdb.DuckDBPyConnection) -> UTXOSetSnapshot | No
     Returns:
         Most recent UTXOSetSnapshot or None.
     """
+    # Check cache first
+    cached = _get_cached("latest_snapshot")
+    if cached is not None:
+        logger.debug("Cache hit for latest_snapshot")
+        return cached
+
+    # Cache miss - query database
     result = conn.execute(
         """
         SELECT block_height FROM utxo_snapshots
@@ -298,4 +346,11 @@ def get_latest_snapshot(conn: duckdb.DuckDBPyConnection) -> UTXOSetSnapshot | No
     if result is None:
         return None
 
-    return load_snapshot(conn, result[0])
+    snapshot = load_snapshot(conn, result[0])
+
+    # Cache the result
+    if snapshot is not None:
+        _set_cached("latest_snapshot", snapshot)
+        logger.debug(f"Cached latest_snapshot (block {snapshot.block_height})")
+
+    return snapshot

@@ -205,9 +205,9 @@
 **Purpose**: Pruning, caching, documentation
 
 - [x] T062 [P] Implement `prune_old_utxos()` function
-- [ ] T063 [P] Add caching for frequently accessed data
-- [ ] T064 [P] Update CLAUDE.md with spec-017 status
-- [ ] T065 [P] Update `docs/ARCHITECTURE.md` with lifecycle documentation
+- [x] T063 [P] Add caching for frequently accessed data
+- [x] T064 [P] Update CLAUDE.md with spec-017 status
+- [x] T065 [P] Update `docs/ARCHITECTURE.md` with lifecycle documentation
 
 ### NFR Validation Tests - A4/A5 Remediation
 
@@ -216,7 +216,7 @@
 
 - [x] T066 Run full test suite: `uv run pytest tests/ -v` ✅ 38/38 PASS
 - [x] T067 Run linter on all new files ✅ All checks passed
-- [ ] T068 Validate quickstart.md scenarios
+- [x] T068 Validate quickstart.md scenarios (N/A - no quickstart.md for spec-017)
 - [ ] T069 Create PR and merge
 
 ---
