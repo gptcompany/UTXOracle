@@ -155,6 +155,53 @@ CREATE INDEX IF NOT EXISTS idx_backtest_dates ON backtest_results(start_date, en
 CREATE INDEX IF NOT EXISTS idx_backtest_run ON backtest_results(run_timestamp);
 """
 
+# Schema for cointime_metrics table (spec-018)
+COINTIME_METRICS_TABLE_SQL = """
+-- Cointime Metrics table (spec-018)
+-- Stores Cointime Economics metrics: coinblocks, liveliness, supply split, AVIV
+
+CREATE TABLE IF NOT EXISTS cointime_metrics (
+    -- Block height is the primary key
+    block_height INTEGER PRIMARY KEY,
+    timestamp TIMESTAMP NOT NULL,
+
+    -- Coinblocks (per-block) - must be non-negative
+    coinblocks_created DOUBLE NOT NULL CHECK (coinblocks_created >= 0),
+    coinblocks_destroyed DOUBLE NOT NULL CHECK (coinblocks_destroyed >= 0),
+
+    -- Coinblocks (cumulative) - must be non-negative
+    cumulative_created DOUBLE NOT NULL CHECK (cumulative_created >= 0),
+    cumulative_destroyed DOUBLE NOT NULL CHECK (cumulative_destroyed >= 0),
+
+    -- Liveliness/Vaultedness (derived)
+    liveliness DOUBLE NOT NULL CHECK (liveliness >= 0 AND liveliness <= 1),
+    vaultedness DOUBLE NOT NULL CHECK (vaultedness >= 0 AND vaultedness <= 1),
+
+    -- Supply split - must be non-negative
+    active_supply_btc DOUBLE NOT NULL CHECK (active_supply_btc >= 0),
+    vaulted_supply_btc DOUBLE NOT NULL CHECK (vaulted_supply_btc >= 0),
+
+    -- Valuation (optional - requires price data)
+    true_market_mean_usd DOUBLE,
+    aviv_ratio DOUBLE,
+    aviv_percentile DOUBLE CHECK (aviv_percentile >= 0 AND aviv_percentile <= 100 OR aviv_percentile IS NULL),
+
+    -- Metadata
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+COINTIME_METRICS_INDEXES_SQL = """
+-- Index for timestamp queries
+CREATE INDEX IF NOT EXISTS idx_cointime_timestamp ON cointime_metrics(timestamp);
+
+-- Index for AVIV ratio filtering (find undervalued/overvalued periods)
+CREATE INDEX IF NOT EXISTS idx_cointime_aviv ON cointime_metrics(aviv_ratio);
+
+-- Index for liveliness queries
+CREATE INDEX IF NOT EXISTS idx_cointime_liveliness ON cointime_metrics(liveliness);
+"""
+
 
 def init_metrics_db(db_path: str = DEFAULT_DB_PATH) -> bool:
     """
@@ -209,6 +256,14 @@ def init_metrics_db(db_path: str = DEFAULT_DB_PATH) -> bool:
         # Create backtest_results indexes
         conn.execute(BACKTEST_RESULTS_INDEXES_SQL)
         print("Created/verified backtest_results indexes")
+
+        # Create cointime_metrics table (spec-018)
+        conn.execute(COINTIME_METRICS_TABLE_SQL)
+        print("Created/verified cointime_metrics table")
+
+        # Create cointime_metrics indexes
+        conn.execute(COINTIME_METRICS_INDEXES_SQL)
+        print("Created/verified cointime_metrics indexes")
 
         # Verify table exists
         result = conn.execute(

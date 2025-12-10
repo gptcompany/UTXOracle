@@ -73,7 +73,23 @@ As a Bitcoin trader, I want to calculate **network liveliness**, so I can unders
 
 ---
 
-### User Story 3 - AVIV Ratio (Priority: P1)
+### User Story 3 - Supply Split (Priority: P1)
+
+As a Bitcoin analyst, I want to see **Active vs Vaulted Supply**, so I can understand how much BTC is circulating vs dormant.
+
+**Acceptance Scenarios**:
+
+1. **Given** total supply = 19.5M BTC, liveliness = 0.3
+   **When** supply split calculated
+   **Then** `active_supply = 5.85M`, `vaulted_supply = 13.65M`
+
+2. **Given** active + vaulted supply
+   **When** summed
+   **Then** equals total supply (conservation law)
+
+---
+
+### User Story 4 - AVIV Ratio (Priority: P1)
 
 As a Bitcoin trader, I want the **AVIV ratio** as a superior MVRV.
 
@@ -86,6 +102,22 @@ As a Bitcoin trader, I want the **AVIV ratio** as a superior MVRV.
 2. **Given** AVIV < 1.0
    **When** signal generated
    **Then** `undervalued = True` (bullish accumulation zone)
+
+---
+
+### User Story 5 - Fusion Integration (Priority: P2)
+
+As a system operator, I want **Cointime as the 10th fusion component**, so I can improve signal quality with academically rigorous metrics.
+
+**Acceptance Scenarios**:
+
+1. **Given** cointime metrics calculated
+   **When** fusion runs
+   **Then** cointime_vote included with weight 0.12
+
+2. **Given** API request to `/api/metrics/cointime`
+   **When** endpoint called
+   **Then** returns CointimeSignal JSON
 
 ---
 
@@ -118,33 +150,12 @@ As a Bitcoin trader, I want the **AVIV ratio** as a superior MVRV.
 
 ### Key Entities *(mandatory)*
 
-```python
-@dataclass
-class CoinblocksMetrics:
-    block_height: int
-    coinblocks_created: float
-    coinblocks_destroyed: float
-    cumulative_created: float
-    cumulative_destroyed: float
-    liveliness: float
-    vaultedness: float
+See [data-model.md](./data-model.md) for complete entity definitions:
 
-@dataclass
-class CointimeValuation:
-    block_height: int
-    active_supply_btc: float
-    true_market_mean_usd: float
-    aviv_ratio: float
-    valuation_zone: str  # "UNDERVALUED" | "FAIR" | "OVERVALUED"
-
-@dataclass
-class CointimeSignal:
-    liveliness_trend: str
-    aviv_ratio: float
-    extreme_dormancy: bool
-    cointime_vote: float
-    confidence: float
-```
+- **CoinblocksMetrics**: Per-block coinblocks created/destroyed + cumulative totals
+- **CointimeSupply**: Active vs Vaulted supply breakdown
+- **CointimeValuation**: True Market Mean and AVIV ratio with percentile
+- **CointimeSignal**: Trading signal with vote, confidence, and pattern flags
 
 ---
 
@@ -155,6 +166,17 @@ class CointimeSignal:
 - **SC-003**: Calculation <1s per block
 - **SC-004**: Positive contribution to fusion Sharpe
 - **SC-005**: Code coverage ≥85%
+
+### Validation Approach
+
+**SC-001/SC-002 Glassnode Comparison**:
+- Validation uses pre-downloaded Glassnode reference data (CSV)
+- Reference file: `tests/fixtures/glassnode_cointime_reference.csv`
+- Contains: block_height, liveliness, aviv_ratio (sampled daily)
+- Test compares UTXOracle output against reference at matching heights
+- Manual validation acceptable for initial release; automated CI optional
+
+**Reference Data Source**: Export from Glassnode Studio (requires subscription) or use published values from ARK Invest whitepaper appendix.
 
 ### Definition of Done
 

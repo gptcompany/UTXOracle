@@ -128,7 +128,7 @@ Statistical analysis extensions providing +40% signal accuracy improvement:
   * `PowerLawResult`: τ, xmin, KS stats, regime
   * `SymbolicDynamicsResult`: H, C, pattern type
   * `FractalDimensionResult`: D, R², structure
-  * `EnhancedFusionResult`: 8-component fusion result (includes Wasserstein)
+  * `EnhancedFusionResult`: 9-component fusion result (includes Wasserstein + Cointime)
 
 - **API Endpoint** (`/api/metrics/advanced`)
   * Real-time computation from latest block data
@@ -156,8 +156,40 @@ Distribution shift detection using Earth Mover's Distance (Wasserstein-1):
   * `/api/metrics/wasserstein/regime` - Trading recommendation
 
 - **Enhanced Fusion Integration**
-  * 8th component with 0.08 weight
+  * 8th component with 0.04 weight (reduced for cointime)
   * Automatic weight renormalization when unavailable
+
+### Cointime Economics Module (spec-018)
+
+ARK Invest + Glassnode's Cointime Economics framework for long-term valuation:
+
+- **Cointime Calculator** (`scripts/metrics/cointime.py`)
+  * Coinblocks: BTC × Blocks (created when UTXOs born, destroyed when spent)
+  * Liveliness: Cumulative Destroyed / Cumulative Created (0-1 range)
+  * Vaultedness: 1 - Liveliness (HODLer conviction)
+  * Active/Vaulted Supply: Supply weighted by liveliness
+  * True Market Mean: Market Cap / Active Supply (more accurate realized price)
+  * AVIV Ratio: Price / True Market Mean (superior to MVRV)
+
+- **Data Models** (`scripts/models/metrics_models.py`)
+  * `CoinblocksMetrics`: Per-block coinblocks tracking
+  * `CointimeSupply`: Active/vaulted supply split
+  * `CointimeValuation`: AVIV ratio and valuation zone
+  * `CointimeSignal`: Trading signal with confidence
+
+- **API Endpoints**
+  * `/api/metrics/cointime` - Latest cointime metrics
+  * `/api/metrics/cointime/history` - Historical AVIV and liveliness
+  * `/api/metrics/cointime/signal` - Trading signal for fusion
+
+- **DuckDB Schema** (`cointime_metrics` table)
+  * Block-indexed storage for all cointime data
+  * Rolling liveliness windows (7d, 30d, 90d)
+
+- **Enhanced Fusion Integration**
+  * 9th component with 0.12 weight
+  * AVIV-based valuation signal
+  * Confidence-weighted based on zone + dormancy
 
 ### Derivatives Historical Module (spec-008)
 
@@ -341,7 +373,11 @@ Comprehensive UTXO lifecycle tracking for Realized Cap, MVRV, NUPL, and HODL Wav
 | spec-011 | alerts/ | ✅ Complete | 4 |
 | spec-012 | backtest/ | ✅ Complete | 5 |
 | spec-013 | clustering/ | ✅ Complete | 5 |
+| spec-014 | metrics/ (evidence weights) | ✅ Complete | - |
+| spec-015 | backtest/ (validation) | ✅ Complete | - |
+| spec-016 | metrics/sopr | ✅ Complete | 1 |
 | spec-017 | metrics/utxo_lifecycle | ✅ Complete | 4 |
+| spec-018 | metrics/cointime | ✅ Complete | 1 |
 
 ---
 

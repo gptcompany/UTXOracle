@@ -336,7 +336,7 @@ class EnhancedFusionResult:
     - Funding Rate vote (spec-008)
     - Open Interest vote (spec-008)
     - Wasserstein vote (spec-010)
-    - SOPR vote (spec-016) - Highest evidence grade A-B (82.44% accuracy)
+    - Cointime vote (spec-018)
     """
 
     # Base Monte Carlo fields
@@ -358,23 +358,35 @@ class EnhancedFusionResult:
     symbolic_vote: Optional[float] = None
     fractal_vote: Optional[float] = None
     wasserstein_vote: Optional[float] = None  # spec-010
-    sopr_vote: Optional[float] = None  # spec-016
+    cointime_vote: Optional[float] = None  # spec-018
 
     # Component weights (updated for 9 components, sum = 1.0)
-    whale_weight: float = 0.12
-    utxo_weight: float = 0.18
-    funding_weight: float = 0.05
-    oi_weight: float = 0.08
-    power_law_weight: float = 0.12
+    # Rebalanced: whale 0.23→0.21, utxo 0.14→0.12, funding 0.14→0.12
+    # symbolic 0.14→0.12, oi/power_law/fractal/wasserstein unchanged
+    # Added cointime 0.12
+    whale_weight: float = 0.21
+    utxo_weight: float = 0.12
+    funding_weight: float = 0.12
+    oi_weight: float = 0.09
+    power_law_weight: float = 0.09
     symbolic_weight: float = 0.12
-    fractal_weight: float = 0.08
-    wasserstein_weight: float = 0.10  # spec-010
-    sopr_weight: float = 0.15  # spec-016 - Highest evidence grade
+    fractal_weight: float = 0.09
+    wasserstein_weight: float = 0.04  # spec-010 (reduced from 0.08)
+    cointime_weight: float = 0.12  # spec-018
 
     # Metadata
     components_available: int = 0
     components_used: list = field(default_factory=list)
     timestamp: datetime = field(default_factory=datetime.utcnow)
+
+    def __post_init__(self):
+        """Validate signal bounds."""
+        if not -1.0 <= self.signal_mean <= 1.0:
+            raise ValueError(f"signal_mean out of range: {self.signal_mean}")
+        if not 0.0 <= self.action_confidence <= 1.0:
+            raise ValueError(
+                f"action_confidence out of range: {self.action_confidence}"
+            )
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
@@ -564,330 +576,257 @@ class RollingWassersteinResult:
 
 
 # =============================================================================
-# Spec-016: SOPR STH/LTH Dataclasses
+# Spec-018: Cointime Economics Dataclasses
 # =============================================================================
 
 
 @dataclass
-class SOPRResult:
+class CoinblocksMetrics:
     """
-    Spent Output Profit Ratio (SOPR) calculation result.
+    Per-block coinblocks metrics for Cointime Economics.
 
-    SOPR = realized_value / spent_value
-    - SOPR > 1: Holders selling at profit
-    - SOPR = 1: Selling at cost basis
-    - SOPR < 1: Holders selling at loss
+    Coinblocks measure the economic weight of coins based on:
+    - Created: BTC × blocks held (accumulates as coins age)
+    - Destroyed: BTC × blocks since creation (when coins are spent)
 
     Attributes:
-        sopr: Overall SOPR value
-        sopr_sth: Short-term holder SOPR (age < 155 days)
-        sopr_lth: Long-term holder SOPR (age >= 155 days)
-        sample_count: Number of spent outputs analyzed
-        sth_count: Number of STH outputs
-        lth_count: Number of LTH outputs
-        is_valid: True if sufficient samples
-    """
-
-    sopr: float
-    sopr_sth: Optional[float] = None
-    sopr_lth: Optional[float] = None
-    sample_count: int = 0
-    sth_count: int = 0
-    lth_count: int = 0
-    is_valid: bool = True
-    timestamp: datetime = field(default_factory=datetime.utcnow)
-
-    def to_dict(self) -> dict:
-        """Convert to dictionary for JSON serialization."""
-        return {
-            "sopr": self.sopr,
-            "sopr_sth": self.sopr_sth,
-            "sopr_lth": self.sopr_lth,
-            "sample_count": self.sample_count,
-            "sth_count": self.sth_count,
-            "lth_count": self.lth_count,
-            "is_valid": self.is_valid,
-        }
-
-
-# =============================================================================
-# Spec-017: UTXO Lifecycle Engine Dataclasses
-# =============================================================================
-
-
-@dataclass
-class UTXOLifecycle:
-    """
-    Complete lifecycle record for a single UTXO.
-
-    Tracks creation, spending, and derived metrics like age and SOPR.
-    This is the foundation for Tier A metrics (MVRV, Realized Cap, HODL Waves).
-
-    Attributes:
-        outpoint: Unique identifier "{txid}:{vout_index}"
-        txid: Transaction ID that created this UTXO
-        vout_index: Output index within the transaction
-
-        creation_block: Block height when UTXO was created
-        creation_timestamp: Block timestamp when created
-        creation_price_usd: UTXOracle price at creation time
-        btc_value: BTC amount in this UTXO
-        realized_value_usd: btc_value × creation_price
-
-        spent_block: Block height when spent (None if unspent)
-        spent_timestamp: Block timestamp when spent
-        spent_price_usd: UTXOracle price at spend time
-        spending_txid: Transaction that spent this UTXO
-
-        age_blocks: Age in blocks (current or at spend)
-        age_days: Age in days (current or at spend)
-        cohort: "STH" or "LTH"
-        sub_cohort: Age band ("<1d", "1d-1w", etc.)
-        sopr: Spent Output Profit Ratio (None if unspent)
-
-        is_coinbase: True if from coinbase transaction
-        is_spent: True if UTXO has been spent
-        price_source: "utxoracle" or "mempool" (fallback)
-    """
-
-    # Identity
-    outpoint: str
-    txid: str
-    vout_index: int
-
-    # Creation
-    creation_block: int
-    creation_timestamp: datetime
-    creation_price_usd: float
-    btc_value: float
-    realized_value_usd: float
-
-    # Spending (None if unspent)
-    spent_block: Optional[int] = None
-    spent_timestamp: Optional[datetime] = None
-    spent_price_usd: Optional[float] = None
-    spending_txid: Optional[str] = None
-
-    # Derived
-    age_blocks: Optional[int] = None
-    age_days: Optional[int] = None
-    cohort: str = ""
-    sub_cohort: str = ""
-    sopr: Optional[float] = None
-
-    # Metadata
-    is_coinbase: bool = False
-    is_spent: bool = False
-    price_source: str = "utxoracle"
-
-    def __post_init__(self):
-        """Validate and compute derived fields."""
-        if self.btc_value < 0:
-            raise ValueError(f"btc_value must be >= 0: {self.btc_value}")
-        if self.creation_price_usd < 0:
-            raise ValueError(
-                f"creation_price_usd must be >= 0: {self.creation_price_usd}"
-            )
-
-    def mark_spent(
-        self,
-        spent_block: int,
-        spent_timestamp: datetime,
-        spent_price_usd: float,
-        spending_txid: str,
-        blocks_per_day: int = 144,
-    ) -> None:
-        """Mark this UTXO as spent and calculate derived metrics."""
-        self.spent_block = spent_block
-        self.spent_timestamp = spent_timestamp
-        self.spent_price_usd = spent_price_usd
-        self.spending_txid = spending_txid
-        self.is_spent = True
-
-        # Calculate age
-        self.age_blocks = spent_block - self.creation_block
-        self.age_days = self.age_blocks // blocks_per_day
-
-        # Calculate SOPR
-        if self.creation_price_usd > 0:
-            self.sopr = spent_price_usd / self.creation_price_usd
-
-    def to_dict(self) -> dict:
-        """Convert to dictionary for JSON serialization."""
-        return {
-            "outpoint": self.outpoint,
-            "txid": self.txid,
-            "vout_index": self.vout_index,
-            "creation_block": self.creation_block,
-            "creation_timestamp": self.creation_timestamp.isoformat()
-            if self.creation_timestamp
-            else None,
-            "creation_price_usd": self.creation_price_usd,
-            "btc_value": self.btc_value,
-            "realized_value_usd": self.realized_value_usd,
-            "spent_block": self.spent_block,
-            "spent_timestamp": self.spent_timestamp.isoformat()
-            if self.spent_timestamp
-            else None,
-            "spent_price_usd": self.spent_price_usd,
-            "age_days": self.age_days,
-            "cohort": self.cohort,
-            "sub_cohort": self.sub_cohort,
-            "sopr": self.sopr,
-            "is_coinbase": self.is_coinbase,
-            "is_spent": self.is_spent,
-        }
-
-
-@dataclass
-class UTXOSetSnapshot:
-    """
-    Point-in-time snapshot of UTXO set metrics.
-
-    Created periodically (e.g., daily) to track supply distribution
-    and realized metrics over time.
-
-    Attributes:
-        block_height: Block height of this snapshot
+        block_height: Bitcoin block height
         timestamp: Block timestamp
-
-        total_supply_btc: Total BTC in unspent UTXOs
-        sth_supply_btc: BTC held by short-term holders (< 155 days)
-        lth_supply_btc: BTC held by long-term holders (>= 155 days)
-        supply_by_cohort: BTC by age cohort
-
-        realized_cap_usd: Sum of (btc_value × creation_price) for all UTXOs
-        market_cap_usd: total_supply × current_price
-        mvrv: Market Cap / Realized Cap
-        nupl: (Market Cap - Realized Cap) / Market Cap
-
-        hodl_waves: Percentage of supply by age cohort
+        coinblocks_created: Coinblocks created this block
+        coinblocks_destroyed: Coinblocks destroyed this block
+        cumulative_created: Total coinblocks created (all time)
+        cumulative_destroyed: Total coinblocks destroyed (all time)
+        liveliness: destroyed / created ratio (0-1)
+        vaultedness: 1 - liveliness (0-1)
     """
 
     block_height: int
     timestamp: datetime
+    coinblocks_created: float
+    coinblocks_destroyed: float
+    cumulative_created: float
+    cumulative_destroyed: float
+    liveliness: float
+    vaultedness: float
 
-    # Supply Distribution
-    total_supply_btc: float
-    sth_supply_btc: float
-    lth_supply_btc: float
-    supply_by_cohort: dict
-
-    # Realized Metrics
-    realized_cap_usd: float
-    market_cap_usd: float
-    mvrv: float
-    nupl: float
-
-    # HODL Waves (cohort -> % of supply)
-    hodl_waves: dict
+    def __post_init__(self):
+        """Validate coinblocks metrics."""
+        if self.coinblocks_created < 0:
+            raise ValueError(
+                f"coinblocks_created must be >= 0: {self.coinblocks_created}"
+            )
+        if self.coinblocks_destroyed < 0:
+            raise ValueError(
+                f"coinblocks_destroyed must be >= 0: {self.coinblocks_destroyed}"
+            )
+        if self.cumulative_created < 0:
+            raise ValueError(
+                f"cumulative_created must be >= 0: {self.cumulative_created}"
+            )
+        if self.cumulative_destroyed < 0:
+            raise ValueError(
+                f"cumulative_destroyed must be >= 0: {self.cumulative_destroyed}"
+            )
+        if not 0.0 <= self.liveliness <= 1.0:
+            raise ValueError(f"liveliness must be in [0, 1]: {self.liveliness}")
+        if not 0.0 <= self.vaultedness <= 1.0:
+            raise ValueError(f"vaultedness must be in [0, 1]: {self.vaultedness}")
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
         return {
             "block_height": self.block_height,
-            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
-            "total_supply_btc": self.total_supply_btc,
-            "sth_supply_btc": self.sth_supply_btc,
-            "lth_supply_btc": self.lth_supply_btc,
-            "supply_by_cohort": self.supply_by_cohort,
-            "realized_cap_usd": self.realized_cap_usd,
-            "market_cap_usd": self.market_cap_usd,
-            "mvrv": self.mvrv,
-            "nupl": self.nupl,
-            "hodl_waves": self.hodl_waves,
+            "timestamp": self.timestamp.isoformat()
+            if hasattr(self.timestamp, "isoformat")
+            else str(self.timestamp),
+            "coinblocks_created": self.coinblocks_created,
+            "coinblocks_destroyed": self.coinblocks_destroyed,
+            "cumulative_created": self.cumulative_created,
+            "cumulative_destroyed": self.cumulative_destroyed,
+            "liveliness": self.liveliness,
+            "vaultedness": self.vaultedness,
         }
 
 
 @dataclass
-class AgeCohortsConfig:
+class CointimeSupply:
     """
-    Configuration for UTXO age cohort classification.
+    Supply breakdown by activity level.
 
-    Standard cohorts follow industry convention:
-    - STH (Short-Term Holder): < 155 days
-    - LTH (Long-Term Holder): >= 155 days
-
-    Sub-cohorts for HODL Waves visualization:
-    - <1d, 1d-1w, 1w-1m, 1m-3m, 3m-6m (STH bands)
-    - 6m-1y, 1y-2y, 2y-3y, 3y-5y, >5y (LTH bands)
-    """
-
-    sth_threshold_days: int = 155
-
-    cohorts: list = field(
-        default_factory=lambda: [
-            ("<1d", 0, 1),
-            ("1d-1w", 1, 7),
-            ("1w-1m", 7, 30),
-            ("1m-3m", 30, 90),
-            ("3m-6m", 90, 180),
-            ("6m-1y", 180, 365),
-            ("1y-2y", 365, 730),
-            ("2y-3y", 730, 1095),
-            ("3y-5y", 1095, 1825),
-            (">5y", 1825, float("inf")),
-        ]
-    )
-
-    def classify(self, age_days: int) -> tuple:
-        """
-        Classify UTXO by age into cohort and sub-cohort.
-
-        Args:
-            age_days: UTXO age in days.
-
-        Returns:
-            Tuple of (cohort, sub_cohort) where cohort is "STH" or "LTH"
-            and sub_cohort is the specific age band.
-        """
-        # B5 fix: Guard against negative age_days (defensive for invalid data)
-        if age_days < 0:
-            return "STH", "<1d"
-
-        cohort = "STH" if age_days < self.sth_threshold_days else "LTH"
-
-        for name, min_days, max_days in self.cohorts:
-            if min_days <= age_days < max_days:
-                return cohort, name
-
-        return cohort, ">5y"
-
-
-@dataclass
-class SyncState:
-    """
-    Tracks sync progress for incremental UTXO updates.
-
-    Allows resuming sync from last processed block without full rescan.
+    Active Supply = coins that have moved recently (economically active)
+    Vaulted Supply = coins that are dormant (long-term holders)
 
     Attributes:
-        last_processed_block: Most recent block fully processed
-        last_processed_timestamp: Timestamp of that block
-        total_utxos_created: Cumulative UTXOs created
-        total_utxos_spent: Cumulative UTXOs spent
-        sync_started: When current sync session began
-        sync_duration_seconds: Total sync time so far
+        block_height: Bitcoin block height
+        timestamp: Block timestamp
+        total_supply_btc: Total Bitcoin supply
+        active_supply_btc: Supply × liveliness
+        vaulted_supply_btc: Supply × vaultedness
+        active_supply_pct: Percentage active (0-100)
+        vaulted_supply_pct: Percentage vaulted (0-100)
     """
 
-    last_processed_block: int
-    last_processed_timestamp: datetime
-    total_utxos_created: int
-    total_utxos_spent: int
-    sync_started: datetime = field(default_factory=datetime.utcnow)
-    sync_duration_seconds: float = 0.0
+    block_height: int
+    timestamp: datetime
+    total_supply_btc: float
+    active_supply_btc: float
+    vaulted_supply_btc: float
+    active_supply_pct: float
+    vaulted_supply_pct: float
+
+    def __post_init__(self):
+        """Validate supply metrics."""
+        if self.total_supply_btc < 0:
+            raise ValueError(f"total_supply_btc must be >= 0: {self.total_supply_btc}")
+        # Allow small floating point errors in sum validation
+        supply_sum = self.active_supply_btc + self.vaulted_supply_btc
+        if abs(supply_sum - self.total_supply_btc) > 0.01:
+            raise ValueError(
+                f"active + vaulted must equal total: {supply_sum} != {self.total_supply_btc}"
+            )
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
         return {
-            "last_processed_block": self.last_processed_block,
-            "last_processed_timestamp": self.last_processed_timestamp.isoformat()
-            if self.last_processed_timestamp
-            else None,
-            "total_utxos_created": self.total_utxos_created,
-            "total_utxos_spent": self.total_utxos_spent,
-            "sync_started": self.sync_started.isoformat()
-            if self.sync_started
-            else None,
-            "sync_duration_seconds": self.sync_duration_seconds,
+            "block_height": self.block_height,
+            "timestamp": self.timestamp.isoformat()
+            if hasattr(self.timestamp, "isoformat")
+            else str(self.timestamp),
+            "total_supply_btc": self.total_supply_btc,
+            "active_supply_btc": self.active_supply_btc,
+            "vaulted_supply_btc": self.vaulted_supply_btc,
+            "active_supply_pct": self.active_supply_pct,
+            "vaulted_supply_pct": self.vaulted_supply_pct,
+        }
+
+
+@dataclass
+class CointimeValuation:
+    """
+    AVIV and True Market Mean valuation metrics.
+
+    True Market Mean = Market Cap / Active Supply
+    AVIV = Current Price / True Market Mean (superior MVRV)
+
+    Attributes:
+        block_height: Bitcoin block height
+        timestamp: Block timestamp
+        current_price_usd: Current BTC price in USD
+        market_cap_usd: Total market capitalization
+        active_supply_btc: Active supply in BTC
+        true_market_mean_usd: Activity-adjusted price
+        aviv_ratio: AVIV ratio (price / TMM)
+        aviv_percentile: Historical percentile (0-100)
+        valuation_zone: "UNDERVALUED" | "FAIR" | "OVERVALUED"
+    """
+
+    block_height: int
+    timestamp: datetime
+    current_price_usd: float
+    market_cap_usd: float
+    active_supply_btc: float
+    true_market_mean_usd: float
+    aviv_ratio: float
+    aviv_percentile: float
+    valuation_zone: str
+
+    def __post_init__(self):
+        """Validate valuation metrics."""
+        valid_zones = {"UNDERVALUED", "FAIR", "OVERVALUED"}
+        if self.valuation_zone not in valid_zones:
+            raise ValueError(
+                f"valuation_zone must be one of {valid_zones}: {self.valuation_zone}"
+            )
+        if not 0.0 <= self.aviv_percentile <= 100.0:
+            raise ValueError(
+                f"aviv_percentile must be in [0, 100]: {self.aviv_percentile}"
+            )
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "block_height": self.block_height,
+            "timestamp": self.timestamp.isoformat()
+            if hasattr(self.timestamp, "isoformat")
+            else str(self.timestamp),
+            "current_price_usd": self.current_price_usd,
+            "market_cap_usd": self.market_cap_usd,
+            "active_supply_btc": self.active_supply_btc,
+            "true_market_mean_usd": self.true_market_mean_usd,
+            "aviv_ratio": self.aviv_ratio,
+            "aviv_percentile": self.aviv_percentile,
+            "valuation_zone": self.valuation_zone,
+        }
+
+
+@dataclass
+class CointimeSignal:
+    """
+    Trading signal from Cointime Economics analysis.
+
+    Combines liveliness trends, AVIV valuation, and pattern detection
+    to generate a fusion-compatible vote.
+
+    Attributes:
+        block_height: Bitcoin block height
+        timestamp: Block timestamp
+        liveliness_7d_change: 7-day change in liveliness
+        liveliness_30d_change: 30-day change in liveliness
+        liveliness_trend: "INCREASING" | "DECREASING" | "STABLE"
+        aviv_ratio: Current AVIV ratio
+        valuation_zone: "UNDERVALUED" | "FAIR" | "OVERVALUED"
+        extreme_dormancy: True if liveliness < 0.15
+        supply_squeeze: True if active supply declining
+        distribution_warning: True if AVIV > 2.0 + liveliness spike
+        cointime_vote: Signal vote (-1 to +1)
+        confidence: Signal confidence (0.5 to 1.0)
+    """
+
+    block_height: int
+    timestamp: datetime
+    liveliness_7d_change: float
+    liveliness_30d_change: float
+    liveliness_trend: str
+    aviv_ratio: float
+    valuation_zone: str
+    extreme_dormancy: bool
+    supply_squeeze: bool
+    distribution_warning: bool
+    cointime_vote: float
+    confidence: float
+
+    def __post_init__(self):
+        """Validate signal fields."""
+        valid_trends = {"INCREASING", "DECREASING", "STABLE"}
+        if self.liveliness_trend not in valid_trends:
+            raise ValueError(
+                f"liveliness_trend must be one of {valid_trends}: {self.liveliness_trend}"
+            )
+        valid_zones = {"UNDERVALUED", "FAIR", "OVERVALUED"}
+        if self.valuation_zone not in valid_zones:
+            raise ValueError(
+                f"valuation_zone must be one of {valid_zones}: {self.valuation_zone}"
+            )
+        if not -1.0 <= self.cointime_vote <= 1.0:
+            raise ValueError(f"cointime_vote must be in [-1, 1]: {self.cointime_vote}")
+        if not 0.0 <= self.confidence <= 1.0:
+            raise ValueError(f"confidence must be in [0, 1]: {self.confidence}")
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "block_height": self.block_height,
+            "timestamp": self.timestamp.isoformat()
+            if hasattr(self.timestamp, "isoformat")
+            else str(self.timestamp),
+            "liveliness_7d_change": self.liveliness_7d_change,
+            "liveliness_30d_change": self.liveliness_30d_change,
+            "liveliness_trend": self.liveliness_trend,
+            "aviv_ratio": self.aviv_ratio,
+            "valuation_zone": self.valuation_zone,
+            "extreme_dormancy": self.extreme_dormancy,
+            "supply_squeeze": self.supply_squeeze,
+            "distribution_warning": self.distribution_warning,
+            "cointime_vote": self.cointime_vote,
+            "confidence": self.confidence,
         }

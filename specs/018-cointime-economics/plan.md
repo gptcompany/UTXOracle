@@ -72,6 +72,30 @@ tests/
 - Liveliness = Σ(Destroyed) / Σ(Created)
 - Range: 0 to 1
 
+### R3: Confidence Formula
+**Decision**: Signal strength + zone extremity
+
+```python
+def calculate_confidence(cointime_vote: float, aviv_ratio: float, extreme_dormancy: bool) -> float:
+    """
+    Confidence = base + signal_strength + zone_bonus + dormancy_bonus
+
+    Components:
+    - base: 0.5 (minimum confidence)
+    - signal_strength: |cointime_vote| × 0.3 (stronger vote = more confident)
+    - zone_bonus: 0.1 if AVIV in extreme zone (<0.8 or >2.5)
+    - dormancy_bonus: 0.1 if extreme_dormancy detected
+
+    Range: 0.5 to 1.0
+    """
+    base = 0.5
+    signal_strength = abs(cointime_vote) * 0.3
+    zone_bonus = 0.1 if (aviv_ratio < 0.8 or aviv_ratio > 2.5) else 0.0
+    dormancy_bonus = 0.1 if extreme_dormancy else 0.0
+
+    return min(1.0, base + signal_strength + zone_bonus + dormancy_bonus)
+```
+
 ## Phase 1: Design
 
 See [data-model.md](./data-model.md) for entities.
