@@ -686,8 +686,8 @@ def mark_utxo_spent(
         logger.warning(f"UTXO not found for spending: {outpoint}")
         return None
 
-    # Calculate age
-    age_blocks = spent_block - utxo.creation_block
+    # Calculate age (guard against negative from reorg/data issues)
+    age_blocks = max(0, spent_block - utxo.creation_block)
     age_days = age_blocks // BLOCKS_PER_DAY
 
     # Classify cohort
@@ -763,7 +763,8 @@ def get_supply_by_cohort(
     # Aggregate by cohort
     supply_by_cohort: dict[str, float] = {}
     for creation_block, btc_value in results:
-        age_blocks = current_block - creation_block
+        # Guard against negative age from data issues
+        age_blocks = max(0, current_block - creation_block)
         age_days = age_blocks // BLOCKS_PER_DAY
         _, sub_cohort = age_config.classify(age_days)
 
@@ -975,7 +976,8 @@ def calculate_age_days(creation_block: int, current_block: int) -> int:
         current_block: Current (or spend) block.
 
     Returns:
-        Age in days.
+        Age in days (minimum 0).
     """
-    age_blocks = current_block - creation_block
+    # Guard against negative age from data issues
+    age_blocks = max(0, current_block - creation_block)
     return age_blocks // BLOCKS_PER_DAY

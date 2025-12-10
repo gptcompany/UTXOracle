@@ -2000,10 +2000,18 @@ def main():
                         snapshot_interval = int(
                             os.getenv("UTXO_SNAPSHOT_INTERVAL", "144")
                         )
+                        # Get last snapshot block height (not sync_state.last_processed_block)
+                        last_snapshot_result = utxo_conn.execute(
+                            "SELECT MAX(block_height) FROM utxo_snapshots"
+                        ).fetchone()
+                        last_snapshot_block = (
+                            last_snapshot_result[0]
+                            if last_snapshot_result and last_snapshot_result[0]
+                            else 0
+                        )
                         if (
-                            sync_state is None
-                            or (block_height - sync_state.last_processed_block)
-                            >= snapshot_interval
+                            last_snapshot_block == 0
+                            or (block_height - last_snapshot_block) >= snapshot_interval
                         ):
                             create_snapshot(
                                 utxo_conn,

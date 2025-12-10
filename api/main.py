@@ -1683,9 +1683,13 @@ async def get_hodl_waves():
             hodl_waves = {}
             if snapshot_data.get("hodl_waves_json"):
                 try:
-                    hodl_waves = json.loads(snapshot_data["hodl_waves_json"])
+                    parsed = json.loads(snapshot_data["hodl_waves_json"])
+                    # Ensure parsed result is a dict
+                    if isinstance(parsed, dict):
+                        hodl_waves = parsed
                 except (json.JSONDecodeError, TypeError):
-                    hodl_waves = snapshot_data["hodl_waves_json"]
+                    # If JSON parse fails, keep empty dict (don't assign string)
+                    logging.warning("Failed to parse hodl_waves_json, using empty dict")
 
             total_supply = snapshot_data.get("total_supply_btc", 0)
             sth_supply = snapshot_data.get("sth_supply_btc", 0)

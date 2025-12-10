@@ -171,6 +171,9 @@ def sync_blocks(
     total_created = 0
     total_spent = 0
     blocks_processed = 0
+    # Track what we've already reported to avoid double-counting
+    reported_created = 0
+    reported_spent = 0
 
     for block_height in range(start_block, end_block + 1):
         try:
@@ -193,13 +196,19 @@ def sync_blocks(
             # Update sync state periodically
             if blocks_processed % 100 == 0:
                 block_time = datetime.fromtimestamp(block_data["time"])
+                # Pass only the delta since last report to avoid double-counting
+                # since update_sync_state accumulates internally
+                delta_created = total_created - reported_created
+                delta_spent = total_spent - reported_spent
                 update_sync_state(
                     utxo_db,
                     block_height,
                     block_time,
-                    total_created,
-                    total_spent,
+                    delta_created,
+                    delta_spent,
                 )
+                reported_created = total_created
+                reported_spent = total_spent
                 logger.info(
                     f"Processed block {block_height}: "
                     f"created={len(created)}, spent={len(spent)}, "
@@ -210,14 +219,17 @@ def sync_blocks(
             logger.error(f"Error processing block {block_height}: {e}")
             raise
 
-    # Final sync state update
+    # Final sync state update - only report unreported counts
     if blocks_processed > 0:
         try:
             block_hash = rpc.getblockhash(end_block)
             block_data = rpc.getblock(block_hash, 1)
             block_time = datetime.fromtimestamp(block_data["time"])
+            # Pass only the remaining unreported counts
+            delta_created = total_created - reported_created
+            delta_spent = total_spent - reported_spent
             update_sync_state(
-                utxo_db, end_block, block_time, total_created, total_spent
+                utxo_db, end_block, block_time, delta_created, delta_spent
             )
         except Exception as e:
             logger.warning(f"Failed to update final sync state: {e}")
