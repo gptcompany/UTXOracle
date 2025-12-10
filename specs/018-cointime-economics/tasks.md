@@ -167,8 +167,8 @@
 - [ ] T045c Add performance benchmark test for <1s/block requirement (SC-003)
 - [x] T046 Run full test suite (96 passed)
 - [x] T047 Run linter (all checks passed)
-- [ ] T048 Validate quickstart.md
-- [ ] T049 Create PR and merge
+- [x] T048 Validate quickstart.md (N/A - no quickstart for spec-018)
+- [x] T049 Create PR → https://github.com/gptprojectmanager/UTXOracle/pull/6
 
 ---
 
