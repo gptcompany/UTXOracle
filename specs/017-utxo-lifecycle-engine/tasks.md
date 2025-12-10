@@ -217,7 +217,7 @@
 - [x] T066 Run full test suite: `uv run pytest tests/ -v` ✅ 38/38 PASS
 - [x] T067 Run linter on all new files ✅ All checks passed
 - [x] T068 Validate quickstart.md scenarios (N/A - no quickstart.md for spec-017)
-- [ ] T069 Create PR and merge
+- [x] T069 Create PR and merge → https://github.com/gptprojectmanager/UTXOracle/pull/5
 
 ---
 
