@@ -504,9 +504,9 @@ class TestFusionWithCointime:
         """T038b: Cointime weight is properly applied in fusion."""
         from scripts.metrics.monte_carlo_fusion import enhanced_fusion, ENHANCED_WEIGHTS
 
-        # Verify cointime weight exists and is 0.12
+        # Verify cointime weight exists and is 0.14 (spec-019: increased from 0.12)
         assert "cointime" in ENHANCED_WEIGHTS
-        assert ENHANCED_WEIGHTS["cointime"] == 0.12
+        assert ENHANCED_WEIGHTS["cointime"] == 0.14
 
         # Test fusion with only cointime
         result = enhanced_fusion(cointime_vote=1.0, cointime_conf=1.0)

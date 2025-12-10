@@ -198,19 +198,69 @@ def determine_action(
 # =============================================================================
 
 # Default weights for enhanced fusion (sum = 1.0)
-# Updated for 9 components including Wasserstein (spec-010) and Cointime (spec-018)
-# Rebalanced to accommodate cointime weight of 0.12
+# spec-019: Derivatives weight reduction (funding+oi: 21%→10%)
+# Rationale: Funding rate is a LAGGING indicator (Coinbase Research 2024)
+# Redistribution: +whale, +wasserstein, +cointime, +sopr (NEW)
 ENHANCED_WEIGHTS = {
-    "whale": 0.21,  # Primary signal (was 0.23)
-    "utxo": 0.12,  # Price signal (was 0.14)
-    "funding": 0.12,  # Derivatives (was 0.14)
-    "oi": 0.09,  # Derivatives
-    "power_law": 0.09,  # Regime
-    "symbolic": 0.12,  # Temporal (was 0.14)
-    "fractal": 0.09,  # Structure
-    "wasserstein": 0.04,  # Distribution shift (was 0.08)
-    "cointime": 0.12,  # Cointime Economics (NEW spec-018)
+    "whale": 0.24,  # +0.03 Primary signal, proven alpha
+    "utxo": 0.12,  # unchanged
+    "funding": 0.05,  # -0.07 LAGGING indicator
+    "oi": 0.05,  # -0.04 LAGGING indicator
+    "power_law": 0.09,  # unchanged
+    "symbolic": 0.12,  # unchanged
+    "fractal": 0.09,  # unchanged
+    "wasserstein": 0.08,  # +0.04 Grade A evidence (Horvath 2021)
+    "cointime": 0.14,  # +0.02 AVIV superiority over MVRV
+    "sopr": 0.02,  # NEW: 82.44% accuracy (Omole 2024)
 }
+
+# Validate weights sum to 1.0 at module load (fail fast)
+_weight_sum = sum(ENHANCED_WEIGHTS.values())
+assert abs(_weight_sum - 1.0) < 0.001, (
+    f"ENHANCED_WEIGHTS sum to {_weight_sum}, expected 1.0"
+)
+
+
+def sopr_to_vote(sopr_value: float, confidence: float) -> tuple[float, float]:
+    """
+    Convert SOPR (Spent Output Profit Ratio) to fusion vote.
+
+    SOPR interpretation (spec-019):
+    - SOPR = 1.0: breakeven point (neutral)
+    - SOPR > 1.0: coins sold at profit (bearish pressure - profit taking)
+    - SOPR < 1.0: coins sold at loss (bullish - capitulation signal)
+
+    Vote convention: -1 (bearish) to +1 (bullish)
+
+    Args:
+        sopr_value: SOPR value (typically 0.8 to 1.2)
+        confidence: Signal confidence (0 to 1)
+
+    Returns:
+        Tuple of (vote, confidence) for fusion input
+
+    Raises:
+        ValueError: If sopr_value is invalid (< 0 or unrealistic)
+    """
+    # B1/B2 fix: Validate SOPR range (realistic: 0.5 to 2.0, typical: 0.8 to 1.2)
+    if sopr_value < 0:
+        raise ValueError(f"SOPR cannot be negative: {sopr_value}")
+    if sopr_value == 0:
+        raise ValueError(
+            "SOPR cannot be zero (indicates no transactions or data error)"
+        )
+    if sopr_value > 5.0:
+        raise ValueError(f"SOPR suspiciously high (>{5.0}): {sopr_value}")
+
+    if sopr_value > 1.0:
+        # Profit taking - bearish signal
+        vote = -min(0.8, (sopr_value - 1.0) * 2)
+    elif sopr_value < 1.0:
+        # Capitulation - bullish signal
+        vote = min(0.8, (1.0 - sopr_value) * 2)
+    else:
+        vote = 0.0
+    return (vote, confidence)
 
 
 def enhanced_fusion(
@@ -226,26 +276,29 @@ def enhanced_fusion(
     wasserstein_vote: Optional[float] = None,  # spec-010
     cointime_vote: Optional[float] = None,  # spec-018
     cointime_conf: Optional[float] = None,  # spec-018
+    sopr_vote: Optional[float] = None,  # spec-019
+    sopr_conf: Optional[float] = None,  # spec-019
     n_samples: int = 1000,
     weights: Optional[dict[str, float]] = None,
 ) -> EnhancedFusionResult:
     """
-    Enhanced Monte Carlo fusion with 9 signal components.
+    Enhanced Monte Carlo fusion with 10 signal components.
 
     Extends spec-007 with spec-009 advanced metrics (power law, symbolic,
     fractal), spec-008 derivatives (funding, oi), spec-010 Wasserstein,
-    and spec-018 Cointime Economics.
+    spec-018 Cointime Economics, and spec-019 SOPR.
 
     Components:
     - whale: Whale flow signal (highest weight)
     - utxo: UTXOracle price signal
-    - funding: Funding rate signal (spec-008)
-    - oi: Open interest signal (spec-008)
+    - funding: Funding rate signal (spec-008) - REDUCED weight (lagging)
+    - oi: Open interest signal (spec-008) - REDUCED weight (lagging)
     - power_law: Power law regime signal (spec-009)
     - symbolic: Symbolic dynamics signal (spec-009)
     - fractal: Fractal dimension signal (spec-009)
     - wasserstein: Distribution shift signal (spec-010)
     - cointime: Cointime Economics signal (spec-018)
+    - sopr: Spent Output Profit Ratio signal (spec-019)
 
     Args:
         whale_vote: Whale flow vote (-1 to +1), None if unavailable
@@ -260,12 +313,44 @@ def enhanced_fusion(
         wasserstein_vote: Wasserstein shift vote, None if unavailable (spec-010)
         cointime_vote: Cointime AVIV-based vote, None if unavailable (spec-018)
         cointime_conf: Cointime signal confidence (0 to 1) (spec-018)
+        sopr_vote: SOPR-based vote, None if unavailable (spec-019)
+        sopr_conf: SOPR signal confidence (0 to 1) (spec-019)
         n_samples: Number of bootstrap samples (default: 1000)
         weights: Custom weights dict (uses ENHANCED_WEIGHTS if None)
 
     Returns:
         EnhancedFusionResult with fused signal and all component info
+
+    Raises:
+        ValueError: If any vote is outside [-1, 1] range or confidence outside [0, 1]
     """
+    # B3 fix: Validate all vote and confidence parameters
+    vote_params = [
+        ("whale_vote", whale_vote),
+        ("utxo_vote", utxo_vote),
+        ("funding_vote", funding_vote),
+        ("oi_vote", oi_vote),
+        ("power_law_vote", power_law_vote),
+        ("symbolic_vote", symbolic_vote),
+        ("fractal_vote", fractal_vote),
+        ("wasserstein_vote", wasserstein_vote),
+        ("cointime_vote", cointime_vote),
+        ("sopr_vote", sopr_vote),
+    ]
+    for name, vote in vote_params:
+        if vote is not None and not -1.0 <= vote <= 1.0:
+            raise ValueError(f"{name} must be in [-1, 1], got {vote}")
+
+    conf_params = [
+        ("whale_conf", whale_conf),
+        ("utxo_conf", utxo_conf),
+        ("cointime_conf", cointime_conf),
+        ("sopr_conf", sopr_conf),
+    ]
+    for name, conf in conf_params:
+        if conf is not None and not 0.0 <= conf <= 1.0:
+            raise ValueError(f"{name} must be in [0, 1], got {conf}")
+
     # Use default weights if not provided
     w = weights if weights else ENHANCED_WEIGHTS.copy()
 
@@ -273,11 +358,15 @@ def enhanced_fusion(
     components = {}
     components_used = []
 
+    # B5 fix: Use 'is not None' check instead of truthiness to allow 0.0 confidence
     if whale_vote is not None:
-        components["whale"] = (whale_vote, whale_conf if whale_conf else 1.0)
+        components["whale"] = (
+            whale_vote,
+            whale_conf if whale_conf is not None else 1.0,
+        )
         components_used.append("whale")
     if utxo_vote is not None:
-        components["utxo"] = (utxo_vote, utxo_conf if utxo_conf else 1.0)
+        components["utxo"] = (utxo_vote, utxo_conf if utxo_conf is not None else 1.0)
         components_used.append("utxo")
     if funding_vote is not None:
         components["funding"] = (funding_vote, 1.0)  # No confidence for derivatives
@@ -300,9 +389,15 @@ def enhanced_fusion(
     if cointime_vote is not None:
         components["cointime"] = (
             cointime_vote,
-            cointime_conf if cointime_conf else 1.0,
+            cointime_conf if cointime_conf is not None else 1.0,
         )
         components_used.append("cointime")
+    if sopr_vote is not None:
+        components["sopr"] = (
+            sopr_vote,
+            sopr_conf if sopr_conf is not None else 1.0,
+        )
+        components_used.append("sopr")
 
     n_components = len(components)
 
@@ -375,6 +470,7 @@ def enhanced_fusion(
         fractal_vote=fractal_vote,
         wasserstein_vote=wasserstein_vote,  # spec-010
         cointime_vote=cointime_vote,  # spec-018
+        sopr_vote=sopr_vote,  # spec-019
         whale_weight=normalized_weights.get("whale", 0.0),
         utxo_weight=normalized_weights.get("utxo", 0.0),
         funding_weight=normalized_weights.get("funding", 0.0),
@@ -384,6 +480,7 @@ def enhanced_fusion(
         fractal_weight=normalized_weights.get("fractal", 0.0),
         wasserstein_weight=normalized_weights.get("wasserstein", 0.0),  # spec-010
         cointime_weight=normalized_weights.get("cointime", 0.0),  # spec-018
+        sopr_weight=normalized_weights.get("sopr", 0.0),  # spec-019
         components_available=n_components,
         components_used=components_used,
     )

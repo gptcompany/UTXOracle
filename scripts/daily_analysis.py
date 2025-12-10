@@ -53,22 +53,22 @@ except ImportError:
     METRICS_ENABLED = False
     logging.warning("spec-007 metrics not available - run scripts/init_metrics_db.py")
 
-# Advanced On-Chain Analytics (spec-009 + spec-014) - Power Law, Symbolic Dynamics, Fractal Dimension
+# Advanced On-Chain Analytics (spec-009 + spec-019) - Power Law, Symbolic Dynamics, Fractal Dimension
 try:
     from scripts.metrics.monte_carlo_fusion import (
         enhanced_fusion,
-        load_weights_from_env,
+        sopr_to_vote,
+        ENHANCED_WEIGHTS,
     )
     from scripts.metrics.power_law import fit as power_law_fit
     from scripts.metrics.symbolic_dynamics import analyze as symbolic_analyze
     from scripts.metrics.fractal_dimension import analyze as fractal_analyze
 
     ADVANCED_METRICS_ENABLED = True
-    # Log which weights are being used (spec-014)
-    _weights = load_weights_from_env()
-    _is_legacy = _weights.get("funding", 0) == 0.15  # Legacy has funding=0.15
+    # Log weights being used (spec-019: derivatives reduced, SOPR added)
+    _derivatives_pct = (ENHANCED_WEIGHTS["funding"] + ENHANCED_WEIGHTS["oi"]) * 100
     logging.info(
-        f"spec-014: Using {'legacy' if _is_legacy else 'evidence-based'} fusion weights"
+        f"spec-019: Fusion weights active (derivatives={_derivatives_pct:.0f}%, sopr={ENHANCED_WEIGHTS['sopr'] * 100:.0f}%)"
     )
 except ImportError:
     ADVANCED_METRICS_ENABLED = False
@@ -1822,8 +1822,9 @@ def main():
                             if liq_conn:
                                 close_connection(liq_conn)
 
-                    # Spec-016: SOPR signal calculation
+                    # Spec-016/019: SOPR signal calculation
                     sopr_vote = None
+                    sopr_conf = None
                     if SOPR_ENABLED:
                         try:
                             # Note: Full SOPR requires historical price data for creation blocks
@@ -1834,8 +1835,12 @@ def main():
                                 capitulation_days=3,
                                 distribution_threshold=3.0,
                             )
-                            if sopr_signals:
+                            # B6 fix: Check for meaningful signal (not just truthy dict)
+                            # Empty window returns dict with sopr_vote=0.0, which should be treated as no signal
+                            if sopr_signals and sopr_signals.get("sopr_vote") != 0.0:
                                 sopr_vote = sopr_signals["sopr_vote"]
+                                # spec-019: Add confidence from signal strength
+                                sopr_conf = sopr_signals.get("confidence", 0.8)
                                 # Determine signal type from flags
                                 if sopr_signals["sth_capitulation"]:
                                     signal_type = "STH_CAPITULATION"
@@ -1848,7 +1853,7 @@ def main():
                                 if sopr_vote != 0.0:
                                     logging.info(
                                         f"📊 SOPR: {signal_type} signal "
-                                        f"→ vote={sopr_vote:+.2f}"
+                                        f"→ vote={sopr_vote:+.2f}, conf={sopr_conf:.2f}"
                                     )
                         except Exception as e:
                             logging.warning(f"SOPR calculation failed: {e}")
@@ -1871,6 +1876,7 @@ def main():
                         funding_vote=funding_vote,  # spec-008 derivatives
                         oi_vote=oi_vote,  # spec-008 derivatives
                         sopr_vote=sopr_vote,  # spec-016 SOPR (STH/LTH)
+                        sopr_conf=sopr_conf,  # spec-019 SOPR confidence
                         n_samples=1000,
                     )
 
