@@ -385,6 +385,7 @@ def detect_sopr_signals(
         "sth_breakeven_cross": False,
         "lth_distribution": False,
         "sopr_vote": 0.0,
+        "confidence": 0.0,  # B8 fix: Add confidence field
     }
 
     if not window:
@@ -399,6 +400,8 @@ def detect_sopr_signals(
     if len(recent_sth) >= capitulation_days and all(s < 1.0 for s in recent_sth):
         signals["sth_capitulation"] = True
         signals["sopr_vote"] = 0.7  # Bullish contrarian
+        # B8 fix: High confidence for sustained capitulation (strong signal)
+        signals["confidence"] = 0.85
 
     # Check for breakeven cross (SOPR crosses 1.0 from below)
     # Detect if current STH-SOPR is above 1.0 and any recent value was below 1.0
@@ -411,12 +414,16 @@ def detect_sopr_signals(
                 signals["sth_breakeven_cross"] = True
                 if not signals["sth_capitulation"]:
                     signals["sopr_vote"] = 0.5  # Moderately bullish
+                    # B8 fix: Moderate confidence for breakeven cross (transitional signal)
+                    signals["confidence"] = 0.65
 
     # Check for LTH distribution
     recent_lth = [b.lth_sopr for b in window[-7:] if b.lth_sopr is not None]
     if recent_lth and max(recent_lth) > distribution_threshold:
         signals["lth_distribution"] = True
         signals["sopr_vote"] = -0.7  # Bearish (overrides bullish)
+        # B8 fix: Very high confidence for LTH distribution (cycle top indicator)
+        signals["confidence"] = 0.90
 
     return signals
 

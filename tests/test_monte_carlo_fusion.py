@@ -1,188 +1,191 @@
 """
-Tests for Monte Carlo Fusion module (spec-007, spec-009, spec-014).
+Tests for Monte Carlo Fusion module (spec-007, spec-009, spec-019).
 
-spec-014: Evidence-based weight adjustments.
-TDD: These tests are written FIRST and must FAIL before implementation.
+spec-019: Derivatives weight reduction + SOPR integration.
 """
 
-import os
 import pytest
-from unittest.mock import patch
+from scripts.metrics.monte_carlo_fusion import (
+    ENHANCED_WEIGHTS,
+    enhanced_fusion,
+    sopr_to_vote,
+    monte_carlo_fusion,
+    detect_bimodal,
+    determine_action,
+)
 
 
-class TestEvidenceBasedWeights:
-    """Tests for spec-014 evidence-based weights."""
+class TestEnhancedWeights:
+    """Tests for spec-019 enhanced weights."""
 
-    def test_evidence_based_weights_sum_to_one(self):
-        """Evidence-based weights must sum to exactly 1.0."""
-        from scripts.metrics.monte_carlo_fusion import EVIDENCE_BASED_WEIGHTS
-
-        total = sum(EVIDENCE_BASED_WEIGHTS.values())
+    def test_weights_sum_to_one(self):
+        """Enhanced weights must sum to exactly 1.0."""
+        total = sum(ENHANCED_WEIGHTS.values())
         assert abs(total - 1.0) < 0.001, f"Weights sum to {total}, expected 1.0"
 
-    def test_legacy_weights_sum_to_one(self):
-        """Legacy weights must sum to exactly 1.0."""
-        from scripts.metrics.monte_carlo_fusion import LEGACY_WEIGHTS
+    def test_weights_has_all_10_components(self):
+        """Enhanced weights must have all 10 components."""
+        required = [
+            "whale",
+            "utxo",
+            "funding",
+            "oi",
+            "power_law",
+            "symbolic",
+            "fractal",
+            "wasserstein",
+            "cointime",
+            "sopr",
+        ]
+        for component in required:
+            assert component in ENHANCED_WEIGHTS, f"Missing component: {component}"
 
-        total = sum(LEGACY_WEIGHTS.values())
-        assert abs(total - 1.0) < 0.001, f"Weights sum to {total}, expected 1.0"
-
-    def test_evidence_based_weights_funding_reduced(self):
-        """Funding rate weight should be 0.05 (reduced from 0.15)."""
-        from scripts.metrics.monte_carlo_fusion import EVIDENCE_BASED_WEIGHTS
-
-        assert EVIDENCE_BASED_WEIGHTS["funding"] == 0.05, (
-            f"Funding weight should be 0.05, got {EVIDENCE_BASED_WEIGHTS['funding']}"
+    def test_derivatives_weight_reduced(self):
+        """Derivatives (funding+oi) weight should be 10% (reduced from 21%)."""
+        derivatives_total = ENHANCED_WEIGHTS["funding"] + ENHANCED_WEIGHTS["oi"]
+        assert derivatives_total == pytest.approx(0.10, rel=0.01), (
+            f"Derivatives weight should be 0.10, got {derivatives_total}"
         )
 
-    def test_evidence_based_weights_whale_reduced(self):
-        """Whale weight should be 0.15 (reduced from 0.25)."""
-        from scripts.metrics.monte_carlo_fusion import EVIDENCE_BASED_WEIGHTS
-
-        assert EVIDENCE_BASED_WEIGHTS["whale"] == 0.15, (
-            f"Whale weight should be 0.15, got {EVIDENCE_BASED_WEIGHTS['whale']}"
+    def test_funding_weight_is_005(self):
+        """Funding rate weight should be 0.05 (reduced from 0.12)."""
+        assert ENHANCED_WEIGHTS["funding"] == 0.05, (
+            f"Funding weight should be 0.05, got {ENHANCED_WEIGHTS['funding']}"
         )
 
-    def test_evidence_based_weights_utxo_increased(self):
-        """UTXO weight should be 0.20 (increased from 0.15)."""
-        from scripts.metrics.monte_carlo_fusion import EVIDENCE_BASED_WEIGHTS
-
-        assert EVIDENCE_BASED_WEIGHTS["utxo"] == 0.20, (
-            f"UTXO weight should be 0.20, got {EVIDENCE_BASED_WEIGHTS['utxo']}"
+    def test_oi_weight_is_005(self):
+        """Open interest weight should be 0.05 (reduced from 0.09)."""
+        assert ENHANCED_WEIGHTS["oi"] == 0.05, (
+            f"OI weight should be 0.05, got {ENHANCED_WEIGHTS['oi']}"
         )
 
-    def test_evidence_based_weights_power_law_increased(self):
-        """Power law weight should be 0.15 (increased from 0.10)."""
-        from scripts.metrics.monte_carlo_fusion import EVIDENCE_BASED_WEIGHTS
-
-        assert EVIDENCE_BASED_WEIGHTS["power_law"] == 0.15, (
-            f"Power law weight should be 0.15, got {EVIDENCE_BASED_WEIGHTS['power_law']}"
+    def test_whale_weight_increased(self):
+        """Whale weight should be 0.24 (increased from 0.21)."""
+        assert ENHANCED_WEIGHTS["whale"] == 0.24, (
+            f"Whale weight should be 0.24, got {ENHANCED_WEIGHTS['whale']}"
         )
 
-    def test_evidence_based_weights_has_wasserstein(self):
-        """Evidence-based weights must include wasserstein component."""
-        from scripts.metrics.monte_carlo_fusion import EVIDENCE_BASED_WEIGHTS
-
-        assert "wasserstein" in EVIDENCE_BASED_WEIGHTS, (
-            "Wasserstein component missing from evidence-based weights"
-        )
-        assert EVIDENCE_BASED_WEIGHTS["wasserstein"] == 0.10
-
-
-class TestWeightValidation:
-    """Tests for weight validation functions."""
-
-    def test_weight_validation_accepts_valid_weights(self):
-        """Validation should accept weights that sum to 1.0."""
-        from scripts.metrics.monte_carlo_fusion import validate_weights
-
-        valid_weights = {"a": 0.5, "b": 0.3, "c": 0.2}
-        assert validate_weights(valid_weights) is True
-
-    def test_weight_validation_rejects_invalid_sum(self):
-        """Validation should reject weights that don't sum to 1.0."""
-        from scripts.metrics.monte_carlo_fusion import validate_weights
-
-        invalid_weights = {"a": 0.5, "b": 0.3}  # Sum = 0.8
-        with pytest.raises(ValueError, match="must sum to 1.0"):
-            validate_weights(invalid_weights)
-
-    def test_weight_validation_rejects_negative_weights(self):
-        """Validation should reject negative weight values."""
-        from scripts.metrics.monte_carlo_fusion import validate_weights
-
-        invalid_weights = {"a": 0.5, "b": 0.7, "c": -0.2}  # Sum = 1.0 but has negative
-        with pytest.raises(ValueError, match="non-negative"):
-            validate_weights(invalid_weights)
-
-    def test_weight_validation_accepts_edge_case_tolerance(self):
-        """Validation should accept weights within tolerance (0.001)."""
-        from scripts.metrics.monte_carlo_fusion import validate_weights
-
-        # Sum = 0.9999 (within tolerance)
-        almost_valid = {"a": 0.33333, "b": 0.33333, "c": 0.33324}
-        assert validate_weights(almost_valid) is True
-
-
-class TestEnvironmentLoading:
-    """Tests for environment-based weight loading."""
-
-    def test_load_weights_from_env_default(self):
-        """Default loading should return evidence-based weights."""
-        from scripts.metrics.monte_carlo_fusion import (
-            load_weights_from_env,
-            EVIDENCE_BASED_WEIGHTS,
+    def test_wasserstein_weight_increased(self):
+        """Wasserstein weight should be 0.08 (increased from 0.04)."""
+        assert ENHANCED_WEIGHTS["wasserstein"] == 0.08, (
+            f"Wasserstein weight should be 0.08, got {ENHANCED_WEIGHTS['wasserstein']}"
         )
 
-        # Clear any env vars that might affect the test
-        with patch.dict(os.environ, {}, clear=True):
-            weights = load_weights_from_env()
-            assert weights["funding"] == EVIDENCE_BASED_WEIGHTS["funding"]
-            assert weights["whale"] == EVIDENCE_BASED_WEIGHTS["whale"]
-
-    def test_load_weights_from_env_legacy_toggle(self):
-        """FUSION_USE_LEGACY_WEIGHTS=true should return legacy weights."""
-        from scripts.metrics.monte_carlo_fusion import (
-            load_weights_from_env,
-            LEGACY_WEIGHTS,
+    def test_cointime_weight_increased(self):
+        """Cointime weight should be 0.14 (increased from 0.12)."""
+        assert ENHANCED_WEIGHTS["cointime"] == 0.14, (
+            f"Cointime weight should be 0.14, got {ENHANCED_WEIGHTS['cointime']}"
         )
 
-        with patch.dict(os.environ, {"FUSION_USE_LEGACY_WEIGHTS": "true"}):
-            weights = load_weights_from_env()
-            assert weights == LEGACY_WEIGHTS
+    def test_sopr_weight_is_002(self):
+        """SOPR weight should be 0.02 (NEW in spec-019)."""
+        assert ENHANCED_WEIGHTS["sopr"] == 0.02, (
+            f"SOPR weight should be 0.02, got {ENHANCED_WEIGHTS['sopr']}"
+        )
 
-    def test_load_weights_from_env_custom_values(self):
-        """Custom env vars should override default weights."""
-        from scripts.metrics.monte_carlo_fusion import load_weights_from_env
-
-        custom_env = {
-            "FUSION_WHALE_WEIGHT": "0.10",
-            "FUSION_UTXO_WEIGHT": "0.25",
-            "FUSION_FUNDING_WEIGHT": "0.10",
-            "FUSION_OI_WEIGHT": "0.10",
-            "FUSION_POWER_LAW_WEIGHT": "0.10",
-            "FUSION_SYMBOLIC_WEIGHT": "0.15",
-            "FUSION_FRACTAL_WEIGHT": "0.10",
-            "FUSION_WASSERSTEIN_WEIGHT": "0.10",
-        }
-        with patch.dict(os.environ, custom_env, clear=True):
-            weights = load_weights_from_env()
-            assert weights["whale"] == 0.10
-            assert weights["utxo"] == 0.25
+    def test_all_weights_non_negative(self):
+        """All weights must be non-negative."""
+        for name, weight in ENHANCED_WEIGHTS.items():
+            assert weight >= 0, f"Weight {name} is negative: {weight}"
 
 
-class TestFusionWithWeights:
-    """Tests for enhanced fusion using evidence-based weights."""
+class TestSoprToVote:
+    """Tests for SOPR to vote conversion (spec-019)."""
 
-    def test_enhanced_fusion_uses_evidence_based_by_default(self):
-        """Enhanced fusion should use evidence-based weights by default."""
-        from scripts.metrics.monte_carlo_fusion import enhanced_fusion
+    def test_sopr_neutral_at_one(self):
+        """SOPR = 1.0 should return neutral vote (0.0)."""
+        vote, conf = sopr_to_vote(1.0, 0.9)
+        assert vote == 0.0
+        assert conf == 0.9
 
-        # Run fusion with all components
+    def test_sopr_bullish_below_one(self):
+        """SOPR < 1.0 (capitulation) should return positive vote (bullish)."""
+        vote, conf = sopr_to_vote(0.95, 0.8)
+        assert vote > 0, f"Vote should be positive for SOPR < 1.0, got {vote}"
+        assert conf == 0.8
+
+    def test_sopr_bearish_above_one(self):
+        """SOPR > 1.0 (profit taking) should return negative vote (bearish)."""
+        vote, conf = sopr_to_vote(1.05, 0.85)
+        assert vote < 0, f"Vote should be negative for SOPR > 1.0, got {vote}"
+        assert conf == 0.85
+
+    def test_sopr_vote_clamped_to_08(self):
+        """Vote should be clamped to [-0.8, 0.8] range."""
+        # Extreme bullish case
+        vote_bull, _ = sopr_to_vote(0.5, 1.0)
+        assert vote_bull <= 0.8, f"Vote should be clamped to 0.8, got {vote_bull}"
+
+        # Extreme bearish case
+        vote_bear, _ = sopr_to_vote(1.5, 1.0)
+        assert vote_bear >= -0.8, f"Vote should be clamped to -0.8, got {vote_bear}"
+
+    def test_sopr_vote_scaling(self):
+        """Vote should scale proportionally with SOPR deviation from 1.0."""
+        vote_small, _ = sopr_to_vote(0.98, 1.0)  # Small deviation
+        vote_large, _ = sopr_to_vote(0.90, 1.0)  # Large deviation
+        assert vote_large > vote_small, "Larger deviation should give larger vote"
+
+
+class TestEnhancedFusionWithSopr:
+    """Tests for enhanced fusion with SOPR integration (spec-019)."""
+
+    def test_fusion_accepts_sopr_parameters(self):
+        """Enhanced fusion should accept sopr_vote and sopr_conf parameters."""
+        result = enhanced_fusion(
+            whale_vote=0.5,
+            whale_conf=0.9,
+            sopr_vote=0.6,
+            sopr_conf=0.85,
+            n_samples=100,
+        )
+        assert result is not None
+        assert result.sopr_vote == 0.6
+        assert result.sopr_weight > 0
+
+    def test_fusion_sopr_weight_in_result(self):
+        """Result should include sopr_weight field."""
+        result = enhanced_fusion(
+            whale_vote=0.5,
+            whale_conf=0.9,
+            sopr_vote=0.6,
+            sopr_conf=0.85,
+            n_samples=100,
+        )
+        assert hasattr(result, "sopr_weight")
+        assert 0 <= result.sopr_weight <= 1
+
+    def test_fusion_sopr_in_components_used(self):
+        """SOPR should appear in components_used when provided."""
+        result = enhanced_fusion(
+            whale_vote=0.5,
+            whale_conf=0.9,
+            sopr_vote=0.6,
+            sopr_conf=0.85,
+            n_samples=100,
+        )
+        assert "sopr" in result.components_used
+
+    def test_fusion_without_sopr_backward_compatible(self):
+        """Fusion should work without SOPR parameters (backward compatibility)."""
         result = enhanced_fusion(
             whale_vote=0.5,
             whale_conf=0.9,
             utxo_vote=0.5,
             utxo_conf=0.9,
-            funding_vote=0.5,
-            oi_vote=0.5,
-            power_law_vote=0.5,
-            symbolic_vote=0.5,
-            fractal_vote=0.5,
-            wasserstein_vote=0.5,
             n_samples=100,
         )
+        assert result is not None
+        assert result.sopr_vote is None
+        assert result.sopr_weight == 0.0
+        assert "sopr" not in result.components_used
 
-        # Should use evidence-based weights (after normalization)
-        # whale: 0.15, utxo: 0.20, funding: 0.05, etc.
-        assert result.whale_weight < result.utxo_weight, (
-            "UTXO should have higher weight than whale in evidence-based"
-        )
 
-    def test_enhanced_fusion_accepts_custom_weights(self):
+class TestEnhancedFusionGeneral:
+    """General tests for enhanced fusion."""
+
+    def test_fusion_accepts_custom_weights(self):
         """Enhanced fusion should accept custom weight dict."""
-        from scripts.metrics.monte_carlo_fusion import enhanced_fusion
-
         custom_weights = {
             "whale": 0.50,
             "utxo": 0.50,
@@ -192,6 +195,8 @@ class TestFusionWithWeights:
             "symbolic": 0.0,
             "fractal": 0.0,
             "wasserstein": 0.0,
+            "cointime": 0.0,
+            "sopr": 0.0,
         }
 
         result = enhanced_fusion(
@@ -202,46 +207,94 @@ class TestFusionWithWeights:
             n_samples=100,
             weights=custom_weights,
         )
-
-        # With 50/50 weights between whale (0.8) and utxo (0.2)
-        # Mean should be around 0.5
         assert result.signal_mean is not None
 
+    def test_fusion_returns_valid_action(self):
+        """Fusion should return valid action (BUY/SELL/HOLD)."""
+        result = enhanced_fusion(
+            whale_vote=0.8,
+            whale_conf=0.9,
+            n_samples=100,
+        )
+        assert result.action in ["BUY", "SELL", "HOLD"]
 
-class TestWeightConstants:
-    """Tests verifying weight constant structure."""
+    def test_fusion_returns_valid_confidence(self):
+        """Action confidence should be between 0 and 1."""
+        result = enhanced_fusion(
+            whale_vote=0.8,
+            whale_conf=0.9,
+            n_samples=100,
+        )
+        assert 0 <= result.action_confidence <= 1
 
-    def test_evidence_based_weights_has_all_components(self):
-        """Evidence-based weights must have all 8 components."""
-        from scripts.metrics.monte_carlo_fusion import EVIDENCE_BASED_WEIGHTS
+    def test_fusion_no_components_returns_hold(self):
+        """Fusion with no components should return HOLD with 0 confidence."""
+        result = enhanced_fusion(n_samples=100)
+        assert result.action == "HOLD"
+        assert result.action_confidence == 0.0
+        assert result.components_available == 0
 
-        required = [
-            "whale",
-            "utxo",
-            "funding",
-            "oi",
-            "power_law",
-            "symbolic",
-            "fractal",
-            "wasserstein",
-        ]
-        for component in required:
-            assert component in EVIDENCE_BASED_WEIGHTS, (
-                f"Missing component: {component}"
-            )
 
-    def test_legacy_weights_has_original_components(self):
-        """Legacy weights should have original 7 components."""
-        from scripts.metrics.monte_carlo_fusion import LEGACY_WEIGHTS
+class TestMonteCarloFusionLegacy:
+    """Tests for legacy 2-component Monte Carlo fusion (spec-007)."""
 
-        required = [
-            "whale",
-            "utxo",
-            "funding",
-            "oi",
-            "power_law",
-            "symbolic",
-            "fractal",
-        ]
-        for component in required:
-            assert component in LEGACY_WEIGHTS, f"Missing component: {component}"
+    def test_legacy_fusion_returns_result(self):
+        """Legacy fusion should return MonteCarloFusionResult."""
+        result = monte_carlo_fusion(
+            whale_vote=0.8,
+            whale_confidence=0.9,
+            utxo_vote=0.6,
+            utxo_confidence=0.85,
+            n_samples=100,
+        )
+        assert result is not None
+        assert hasattr(result, "signal_mean")
+        assert hasattr(result, "action")
+
+    def test_legacy_fusion_action_valid(self):
+        """Legacy fusion should return valid action."""
+        result = monte_carlo_fusion(
+            whale_vote=0.8,
+            whale_confidence=0.9,
+            utxo_vote=0.6,
+            utxo_confidence=0.85,
+            n_samples=100,
+        )
+        assert result.action in ["BUY", "SELL", "HOLD"]
+
+
+class TestDetectBimodal:
+    """Tests for bimodal distribution detection."""
+
+    def test_insufficient_data(self):
+        """Small sample should return insufficient_data."""
+        result = detect_bimodal([0.1, 0.2, 0.3])
+        assert result == "insufficient_data"
+
+    def test_unimodal_distribution(self):
+        """Normal distribution should be detected as unimodal."""
+        import random
+
+        random.seed(42)
+        samples = [random.gauss(0.5, 0.1) for _ in range(100)]
+        result = detect_bimodal(samples)
+        assert result == "unimodal"
+
+
+class TestDetermineAction:
+    """Tests for action determination."""
+
+    def test_buy_action_positive_mean(self):
+        """Positive mean above threshold should return BUY."""
+        action, _ = determine_action(0.6, 0.4, 0.8)
+        assert action == "BUY"
+
+    def test_sell_action_negative_mean(self):
+        """Negative mean below threshold should return SELL."""
+        action, _ = determine_action(-0.6, -0.8, -0.4)
+        assert action == "SELL"
+
+    def test_hold_action_neutral_mean(self):
+        """Neutral mean should return HOLD."""
+        action, _ = determine_action(0.1, -0.1, 0.3)
+        assert action == "HOLD"

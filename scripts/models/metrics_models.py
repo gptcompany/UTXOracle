@@ -359,20 +359,21 @@ class EnhancedFusionResult:
     fractal_vote: Optional[float] = None
     wasserstein_vote: Optional[float] = None  # spec-010
     cointime_vote: Optional[float] = None  # spec-018
+    sopr_vote: Optional[float] = None  # spec-019
 
-    # Component weights (updated for 9 components, sum = 1.0)
-    # Rebalanced: whale 0.23→0.21, utxo 0.14→0.12, funding 0.14→0.12
-    # symbolic 0.14→0.12, oi/power_law/fractal/wasserstein unchanged
-    # Added cointime 0.12
-    whale_weight: float = 0.21
-    utxo_weight: float = 0.12
-    funding_weight: float = 0.12
-    oi_weight: float = 0.09
-    power_law_weight: float = 0.09
-    symbolic_weight: float = 0.12
-    fractal_weight: float = 0.09
-    wasserstein_weight: float = 0.04  # spec-010 (reduced from 0.08)
-    cointime_weight: float = 0.12  # spec-018
+    # Component weights (updated for 10 components, sum = 1.0)
+    # spec-019: Derivatives weight reduction (funding+oi: 21%→10%)
+    # Redistribution: +whale, +wasserstein, +cointime, +sopr (NEW)
+    whale_weight: float = 0.24  # +0.03 Primary signal
+    utxo_weight: float = 0.12  # unchanged
+    funding_weight: float = 0.05  # -0.07 LAGGING
+    oi_weight: float = 0.05  # -0.04 LAGGING
+    power_law_weight: float = 0.09  # unchanged
+    symbolic_weight: float = 0.12  # unchanged
+    fractal_weight: float = 0.09  # unchanged
+    wasserstein_weight: float = 0.08  # +0.04 Grade A evidence
+    cointime_weight: float = 0.14  # +0.02 AVIV
+    sopr_weight: float = 0.02  # NEW spec-019
 
     # Metadata
     components_available: int = 0
@@ -390,7 +391,9 @@ class EnhancedFusionResult:
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
+        # B4 fix: Include ALL component votes and weights for API/DB storage
         return {
+            # Base Monte Carlo fields
             "signal_mean": self.signal_mean,
             "signal_std": self.signal_std,
             "ci_lower": self.ci_lower,
@@ -399,6 +402,29 @@ class EnhancedFusionResult:
             "action_confidence": self.action_confidence,
             "n_samples": self.n_samples,
             "distribution_type": self.distribution_type,
+            # Component votes
+            "whale_vote": self.whale_vote,
+            "utxo_vote": self.utxo_vote,
+            "funding_vote": self.funding_vote,
+            "oi_vote": self.oi_vote,
+            "power_law_vote": self.power_law_vote,
+            "symbolic_vote": self.symbolic_vote,
+            "fractal_vote": self.fractal_vote,
+            "wasserstein_vote": self.wasserstein_vote,
+            "cointime_vote": self.cointime_vote,
+            "sopr_vote": self.sopr_vote,
+            # Component weights
+            "whale_weight": self.whale_weight,
+            "utxo_weight": self.utxo_weight,
+            "funding_weight": self.funding_weight,
+            "oi_weight": self.oi_weight,
+            "power_law_weight": self.power_law_weight,
+            "symbolic_weight": self.symbolic_weight,
+            "fractal_weight": self.fractal_weight,
+            "wasserstein_weight": self.wasserstein_weight,
+            "cointime_weight": self.cointime_weight,
+            "sopr_weight": self.sopr_weight,
+            # Metadata
             "components_available": self.components_available,
             "components_used": self.components_used,
         }
