@@ -1,399 +1,316 @@
-# spec-020: Tasks
+# Tasks: MVRV-Z Score + STH/LTH Variants
 
-## Task Dependency Graph
+**Input**: Design documents from `/specs/020-mvrv-implementation/`
+**Prerequisites**: plan.md (required), spec.md (required), research.md, data-model.md, quickstart.md
 
-```
-T001 → T002 → T003 → T004 → T005 → T006 → T007 → T008
-```
+**Tests**: TDD approach per Constitution Principle II - tests are REQUIRED for all new functions.
 
----
+**Organization**: Tasks are grouped by functional requirement (FR-001 through FR-005) to enable independent implementation and testing.
 
-## T001: Add MVRV-Z Score Function
-**Status:** TODO
-**Priority:** P0
-**Effort:** 45 min
+## Format: `[ID] [Markers] [Story] Description`
 
-### Description
-Add `calculate_mvrv_z()` to `scripts/metrics/realized_metrics.py`.
-
-### Actions
-1. Add import for `statistics` module
-2. Implement function:
-```python
-def calculate_mvrv_z(
-    market_cap: float,
-    realized_cap: float,
-    market_cap_history: list[float],
-) -> float:
-    """Calculate MVRV-Z score for cross-cycle comparison.
-
-    MVRV-Z = (Market Cap - Realized Cap) / StdDev(Market Cap)
-
-    Args:
-        market_cap: Current market cap in USD
-        realized_cap: Current realized cap in USD
-        market_cap_history: Historical market caps (365 days recommended)
-
-    Returns:
-        MVRV-Z score (typically -2 to +10 range)
-    """
-    if len(market_cap_history) < 30:
-        return 0.0
-
-    std = statistics.stdev(market_cap_history)
-    if std == 0:
-        return 0.0
-
-    return (market_cap - realized_cap) / std
-```
-
-### Acceptance Criteria
-- [ ] Function implemented
-- [ ] Handles < 30 days history
-- [ ] Handles zero std deviation
+### Task Markers
+- **[P]**: Can run in parallel (different files, no dependencies)
+- **[E]**: Alpha-Evolve trigger - use for complex algorithmic tasks
+- **[Story]**: Which functional requirement this task belongs to (FR1, FR2, FR3, FR4, FR5)
 
 ---
 
-## T002: Add Market Cap History Helper
-**Status:** TODO
-**Priority:** P0
-**Effort:** 45 min
-**Depends:** T001
+## Phase 1: Setup (Shared Infrastructure)
 
-### Description
-Add helper to fetch historical market caps from `utxo_snapshots`.
+**Purpose**: Add missing prerequisite models from spec-017
 
-### Implementation
-```python
-def get_market_cap_history(
-    conn: duckdb.DuckDBPyConnection,
-    days: int = 365,
-) -> list[float]:
-    """Get historical market caps from snapshots table.
+**TDD Note**: Dataclasses are type-only definitions validated by type checkers (mypy/pyright).
+Per Constitution II exception: pure data containers without logic don't require RED phase tests.
+However, `AgeCohortsConfig.classify()` contains logic and requires a test. T005 validates no regressions.
 
-    Args:
-        conn: DuckDB connection
-        days: Number of days of history (default 365)
-
-    Returns:
-        List of market cap values, newest first
-    """
-    result = conn.execute("""
-        SELECT market_cap_usd
-        FROM utxo_snapshots
-        WHERE market_cap_usd IS NOT NULL
-        ORDER BY block_height DESC
-        LIMIT ?
-    """, [days]).fetchall()
-
-    return [r[0] for r in result if r[0] is not None]
-```
-
-### Acceptance Criteria
-- [ ] Returns list of floats
-- [ ] Handles empty table
-- [ ] Orders by block_height DESC
+- [x] T001 Add `UTXOLifecycle` dataclass to `scripts/models/metrics_models.py`
+- [x] T002 Add `UTXOSetSnapshot` dataclass to `scripts/models/metrics_models.py`
+- [x] T003a [Setup] Write test `TestAgeCohortsConfig.test_classify_sth_lth_boundary` in `tests/test_metrics_models.py`
+- [x] T003 Add `AgeCohortsConfig` dataclass to `scripts/models/metrics_models.py`
+- [x] T004 Add `SyncState` dataclass to `scripts/models/metrics_models.py`
+- [x] T005 Verify existing tests pass with new models: `uv run pytest tests/test_realized_metrics.py -v`
 
 ---
 
-## T003: Add Cohort Realized Cap Function
-**Status:** TODO
-**Priority:** P0
-**Effort:** 45 min
-**Depends:** T002
+## Phase 2: Foundational (Blocking Prerequisites)
 
-### Description
-Add `calculate_cohort_realized_cap()` for STH/LTH breakdown.
+**Purpose**: Add new dataclass and verify infrastructure
 
-### Implementation
-```python
-def calculate_cohort_realized_cap(
-    conn: duckdb.DuckDBPyConnection,
-    current_block: int,
-    cohort: Literal["STH", "LTH"],
-    threshold_days: int = 155,
-) -> float:
-    """Calculate realized cap for specific age cohort.
+**⚠️ CRITICAL**: FR-001 through FR-003 depend on this phase completion
 
-    Args:
-        conn: DuckDB connection
-        current_block: Current block height
-        cohort: "STH" (< threshold) or "LTH" (>= threshold)
-        threshold_days: STH/LTH boundary (default 155 days)
+- [x] T006 Add `MVRVExtendedSignal` dataclass to `scripts/models/metrics_models.py`
+- [x] T007a [FR1] Write test `TestMarketCapHistory.test_get_history_365_days` in `tests/test_realized_metrics.py`
+- [x] T007b [FR1] Write test `TestMarketCapHistory.test_insufficient_history_warning` in `tests/test_realized_metrics.py`
+- [x] T007 Add `get_market_cap_history()` helper function to `scripts/metrics/realized_metrics.py`
+- [x] T008 Verify database has `utxo_snapshots` table with `market_cap_usd` column
 
-    Returns:
-        Realized cap in USD for the cohort
-    """
-    threshold_blocks = threshold_days * 144
-    cutoff_block = current_block - threshold_blocks
-
-    op = ">" if cohort == "STH" else "<="
-
-    result = conn.execute(f"""
-        SELECT COALESCE(SUM(btc_value * creation_price_usd), 0)
-        FROM utxo_lifecycle
-        WHERE is_spent = FALSE
-          AND creation_block {op} ?
-    """, [cutoff_block]).fetchone()
-
-    return result[0] if result else 0.0
-```
-
-### Acceptance Criteria
-- [ ] STH = UTXOs younger than threshold
-- [ ] LTH = UTXOs older than threshold
-- [ ] Returns 0.0 for empty result
+**Checkpoint**: Foundation ready - FR implementations can now begin
 
 ---
 
-## T004: Add Cohort MVRV Functions
-**Status:** TODO
-**Priority:** P0
-**Effort:** 30 min
-**Depends:** T003
+## Phase 3: FR-001 - MVRV-Z Score (Priority: P0) 🎯 MVP
 
-### Description
-Add functions to calculate MVRV for each cohort.
+**Goal**: Calculate MVRV-Z score using 365-day rolling market cap history
 
-### Implementation
-```python
-def calculate_cohort_mvrv(
-    market_cap: float,
-    cohort_realized_cap: float,
-) -> float:
-    """Calculate MVRV for a specific cohort."""
-    if cohort_realized_cap <= 0:
-        return 0.0
-    return market_cap / cohort_realized_cap
+**Independent Test**: `calculate_mvrv_z()` returns valid Z-score for known inputs
 
+### Tests for FR-001
 
-def calculate_all_mvrv_variants(
-    conn: duckdb.DuckDBPyConnection,
-    current_block: int,
-    market_cap: float,
-) -> dict[str, float]:
-    """Calculate all MVRV variants in one call.
+- [x] T009 [FR1] Write test `TestMVRVZScore.test_basic_calculation` in `tests/test_realized_metrics.py`
+- [x] T010 [FR1] Write test `TestMVRVZScore.test_insufficient_history` in `tests/test_realized_metrics.py`
+- [x] T011 [FR1] Write test `TestMVRVZScore.test_zero_std_deviation` in `tests/test_realized_metrics.py`
+- [x] T012 [FR1] Write test `TestMVRVZScore.test_typical_ranges` in `tests/test_realized_metrics.py`
 
-    Returns:
-        Dict with keys: mvrv, sth_mvrv, lth_mvrv
-    """
-    total_rc = calculate_realized_cap(conn)
-    sth_rc = calculate_cohort_realized_cap(conn, current_block, "STH")
-    lth_rc = calculate_cohort_realized_cap(conn, current_block, "LTH")
+### Implementation for FR-001
 
-    return {
-        "mvrv": calculate_mvrv(market_cap, total_rc),
-        "sth_mvrv": calculate_cohort_mvrv(market_cap, sth_rc),
-        "lth_mvrv": calculate_cohort_mvrv(market_cap, lth_rc),
-    }
-```
+- [x] T013 [FR1] Implement `calculate_mvrv_z(market_cap, realized_cap, history)` in `scripts/metrics/realized_metrics.py`
+- [x] T014 [FR1] Add logging for Z-score edge cases (insufficient data, zero std) in `scripts/metrics/realized_metrics.py`
+- [x] T015 [FR1] Run tests to verify GREEN: `uv run pytest tests/test_realized_metrics.py::TestMVRVZScore -v`
 
-### Acceptance Criteria
-- [ ] All variants calculated
-- [ ] Division by zero handled
+**Checkpoint**: FR-001 complete - MVRV-Z Score functional
 
 ---
 
-## T005: Add MVRVExtendedSignal Dataclass
-**Status:** TODO
-**Priority:** P1
-**Effort:** 15 min
-**Depends:** T004
+## Phase 4: FR-002 - Cohort Realized Cap (Priority: P0)
 
-### Description
-Add dataclass for extended MVRV signal.
+**Goal**: Calculate realized cap for STH and LTH cohorts
 
-### Implementation
-```python
-@dataclass
-class MVRVExtendedSignal:
-    """Extended MVRV signal with Z-score and cohort variants."""
-    mvrv: float
-    mvrv_z: float
-    sth_mvrv: float
-    lth_mvrv: float
-    zone: str  # "EXTREME_SELL", "CAUTION", "NORMAL", "ACCUMULATION"
-    confidence: float
-    timestamp: datetime
-```
+**Independent Test**: `calculate_cohort_realized_cap()` returns correct values for STH/LTH
 
-### Acceptance Criteria
-- [ ] Dataclass defined
-- [ ] All fields typed
+### Tests for FR-002
+
+- [ ] T016 [FR2] Write test `TestCohortRealizedCap.test_sth_realized_cap` in `tests/test_realized_metrics.py`
+- [ ] T017 [FR2] Write test `TestCohortRealizedCap.test_lth_realized_cap` in `tests/test_realized_metrics.py`
+- [ ] T018 [FR2] Write test `TestCohortRealizedCap.test_sth_plus_lth_equals_total` in `tests/test_realized_metrics.py`
+- [ ] T019 [FR2] Write test `TestCohortRealizedCap.test_custom_threshold` in `tests/test_realized_metrics.py`
+
+### Implementation for FR-002
+
+- [ ] T020 [FR2] Implement `calculate_cohort_realized_cap(conn, current_block, cohort, threshold_days)` in `scripts/metrics/realized_metrics.py`
+- [ ] T021 [FR2] Run tests to verify GREEN: `uv run pytest tests/test_realized_metrics.py::TestCohortRealizedCap -v`
+
+**Checkpoint**: FR-002 complete - Cohort Realized Cap functional
 
 ---
 
-## T006: Add Zone Classification
-**Status:** TODO
-**Priority:** P1
-**Effort:** 15 min
-**Depends:** T005
+## Phase 5: FR-003 - STH/LTH MVRV (Priority: P0)
 
-### Description
-Add function to classify MVRV-Z into actionable zones.
+**Goal**: Calculate MVRV ratios for STH and LTH cohorts
 
-### Implementation
-```python
-def classify_mvrv_zone(mvrv_z: float) -> tuple[str, float]:
-    """Classify MVRV-Z into actionable zone.
+**Independent Test**: `calculate_cohort_mvrv()` returns correct ratios
 
-    Returns:
-        (zone_name, confidence)
-    """
-    if mvrv_z > 7:
-        return ("EXTREME_SELL", 0.95)
-    elif mvrv_z > 3:
-        return ("CAUTION", 0.75)
-    elif mvrv_z > -0.5:
-        return ("NORMAL", 0.50)
-    else:
-        return ("ACCUMULATION", 0.85)
-```
+### Tests for FR-003
 
-### Acceptance Criteria
-- [ ] All zones covered
-- [ ] Confidence values sensible
+- [ ] T022 [FR3] Write test `TestCohortMVRV.test_sth_mvrv_calculation` in `tests/test_realized_metrics.py`
+- [ ] T023 [FR3] Write test `TestCohortMVRV.test_lth_mvrv_calculation` in `tests/test_realized_metrics.py`
+- [ ] T024 [FR3] Write test `TestCohortMVRV.test_zero_realized_cap_handling` in `tests/test_realized_metrics.py`
+
+### Implementation for FR-003
+
+- [ ] T025 [FR3] Implement `calculate_cohort_mvrv(market_cap, cohort_realized_cap)` in `scripts/metrics/realized_metrics.py`
+- [ ] T026 [FR3] Run tests to verify GREEN: `uv run pytest tests/test_realized_metrics.py::TestCohortMVRV -v`
+
+**Checkpoint**: FR-003 complete - STH/LTH MVRV functional
 
 ---
 
-## T007: Fusion Integration
-**Status:** TODO
-**Priority:** P1
-**Effort:** 1 hour
-**Depends:** T006
+## Phase 6: FR-004 - Signal Classification (Priority: P1)
 
-### Description
-Add MVRV-Z signal to Monte Carlo Fusion.
+**Goal**: Classify MVRV-Z into zones and generate confidence scores
 
-### Actions
-1. Add parameters to `enhanced_fusion()`:
-```python
-mvrv_z_vote: Optional[float] = None,
-mvrv_z_conf: Optional[float] = None,
-```
+**Independent Test**: Zone classification matches spec thresholds
 
-2. Add to `ENHANCED_WEIGHTS`:
-```python
-"power_law": 0.06,  # Reduced from 0.09
-"mvrv_z": 0.03,     # NEW
-```
+### Tests for FR-004
 
-3. Add component handling:
-```python
-if mvrv_z_vote is not None and mvrv_z_conf is not None:
-    components["mvrv_z"] = (mvrv_z_vote, mvrv_z_conf)
-```
+- [ ] T027 [FR4] Write test `TestMVRVSignal.test_extreme_sell_zone` in `tests/test_realized_metrics.py`
+- [ ] T028 [FR4] Write test `TestMVRVSignal.test_caution_zone` in `tests/test_realized_metrics.py`
+- [ ] T029 [FR4] Write test `TestMVRVSignal.test_normal_zone` in `tests/test_realized_metrics.py`
+- [ ] T030 [FR4] Write test `TestMVRVSignal.test_accumulation_zone` in `tests/test_realized_metrics.py`
 
-4. Add `mvrv_z_weight` to `EnhancedFusionResult`
+### Implementation for FR-004
 
-5. Add vote converter:
-```python
-def mvrv_z_to_vote(signal: MVRVExtendedSignal) -> tuple[float, float]:
-    zone_to_vote = {
-        "EXTREME_SELL": -0.8,
-        "CAUTION": -0.4,
-        "NORMAL": 0.0,
-        "ACCUMULATION": 0.6,
-    }
-    return (zone_to_vote[signal.zone], signal.confidence)
-```
+- [ ] T031 [FR4] Implement `classify_mvrv_zone(mvrv_z)` in `scripts/metrics/realized_metrics.py`
+- [ ] T032a [FR4] Write test `TestMVRVSignal.test_confidence_extreme_zones` in `tests/test_realized_metrics.py`
+- [ ] T032b [FR4] Write test `TestMVRVSignal.test_confidence_normal_zone` in `tests/test_realized_metrics.py`
+- [ ] T032 [FR4] Implement `calculate_mvrv_confidence(mvrv_z, zone)` in `scripts/metrics/realized_metrics.py`
+- [ ] T033 [FR4] Implement `get_mvrv_extended_signal(conn, current_block, current_price)` in `scripts/metrics/realized_metrics.py`
+- [ ] T034 [FR4] Run tests to verify GREEN: `uv run pytest tests/test_realized_metrics.py::TestMVRVSignal -v`
 
-### Acceptance Criteria
-- [ ] Parameters added
-- [ ] Weights rebalanced (sum = 1.0)
-- [ ] Vote converter working
+**Checkpoint**: FR-004 complete - Signal classification functional
 
 ---
 
-## T008: Tests
-**Status:** TODO
-**Priority:** P0
-**Effort:** 1 hour
-**Depends:** T007
+## Phase 7: FR-005 - Fusion Integration (Priority: P1)
 
-### Description
-Add comprehensive tests for all new functions.
+**Goal**: Add MVRV-Z vote to enhanced_fusion() with proper weight allocation
 
-### Test Cases
-```python
-# test_realized_metrics.py additions
+**Independent Test**: Fusion with mvrv_z_vote produces valid signal
 
-def test_mvrv_z_basic():
-    """Test Z-score with normal distribution."""
-    history = [1e12 + i * 1e10 for i in range(365)]
-    z = calculate_mvrv_z(2e12, 1e12, history)
-    assert z > 0
+### Tests for FR-005
 
+- [ ] T035 [FR5] Write test `TestMVRVFusion.test_weights_sum_to_one` in `tests/test_monte_carlo_fusion.py`
+- [ ] T036 [FR5] Write test `TestMVRVFusion.test_mvrv_z_vote_integration` in `tests/test_monte_carlo_fusion.py`
+- [ ] T037 [FR5] Write test `TestMVRVFusion.test_mvrv_z_optional` in `tests/test_monte_carlo_fusion.py`
 
-def test_mvrv_z_insufficient_history():
-    """Test handling of insufficient data."""
-    history = [1e12] * 20  # Only 20 days
-    assert calculate_mvrv_z(2e12, 1e12, history) == 0.0
+### Implementation for FR-005
 
+- [ ] T038 [FR5] Update `ENHANCED_WEIGHTS` in `scripts/metrics/monte_carlo_fusion.py`: reduce `power_law` 0.09→0.06, add `mvrv_z` 0.03
+- [ ] T039 [FR5] Add `mvrv_z_vote` and `mvrv_z_conf` parameters to `enhanced_fusion()` in `scripts/metrics/monte_carlo_fusion.py`
+- [ ] T040 [FR5] Update `EnhancedFusionResult` dataclass with `mvrv_z_vote` and `mvrv_z_weight` fields in `scripts/models/metrics_models.py`
+- [ ] T041 [FR5] Run tests to verify GREEN: `uv run pytest tests/test_monte_carlo_fusion.py::TestMVRVFusion -v`
 
-def test_mvrv_z_zero_std():
-    """Test handling of zero standard deviation."""
-    history = [1e12] * 365  # Constant
-    assert calculate_mvrv_z(2e12, 1e12, history) == 0.0
-
-
-def test_cohort_realized_cap_sth(test_db):
-    """Test STH realized cap calculation."""
-    rc = calculate_cohort_realized_cap(test_db, 800000, "STH")
-    assert rc >= 0
-
-
-def test_cohort_realized_cap_lth(test_db):
-    """Test LTH realized cap calculation."""
-    rc = calculate_cohort_realized_cap(test_db, 800000, "LTH")
-    assert rc >= 0
-
-
-def test_cohort_sum_equals_total(test_db):
-    """Validate STH + LTH ≈ Total."""
-    total = calculate_realized_cap(test_db)
-    sth = calculate_cohort_realized_cap(test_db, 800000, "STH")
-    lth = calculate_cohort_realized_cap(test_db, 800000, "LTH")
-
-    if total > 0:
-        assert abs((sth + lth) - total) / total < 0.01
-
-
-def test_zone_classification():
-    """Test all zone boundaries."""
-    assert classify_mvrv_zone(8.0)[0] == "EXTREME_SELL"
-    assert classify_mvrv_zone(5.0)[0] == "CAUTION"
-    assert classify_mvrv_zone(1.0)[0] == "NORMAL"
-    assert classify_mvrv_zone(-1.0)[0] == "ACCUMULATION"
-
-
-def test_fusion_with_mvrv_z():
-    """Test fusion integration."""
-    result = enhanced_fusion(
-        whale_vote=0.5, whale_conf=0.8,
-        mvrv_z_vote=-0.4, mvrv_z_conf=0.75,
-    )
-    assert result.mvrv_z_weight > 0
-```
-
-### Acceptance Criteria
-- [ ] All tests pass
-- [ ] Edge cases covered
-- [ ] Integration test with fusion
+**Checkpoint**: FR-005 complete - Fusion integration functional
 
 ---
 
-## Summary
+## Phase 8: Polish & Cross-Cutting Concerns
 
-| Task | Description | Effort | Priority |
-|------|-------------|--------|----------|
-| T001 | MVRV-Z function | 45 min | P0 |
-| T002 | Market cap history | 45 min | P0 |
-| T003 | Cohort realized cap | 45 min | P0 |
-| T004 | Cohort MVRV functions | 30 min | P0 |
-| T005 | MVRVExtendedSignal | 15 min | P1 |
-| T006 | Zone classification | 15 min | P1 |
-| T007 | Fusion integration | 1h | P1 |
-| T008 | Tests | 1h | P0 |
+**Purpose**: Validation, documentation, and final verification
 
-**Total: 8 tasks, ~5.5 hours**
+- [ ] T042 [P] Run all tests to verify no regressions: `uv run pytest tests/ -v`
+- [ ] T043 [P] Validate quickstart.md examples work
+- [ ] T044 [P] Run linting: `ruff check scripts/metrics/realized_metrics.py scripts/metrics/monte_carlo_fusion.py`
+- [ ] T045 [P] Run formatter: `ruff format scripts/metrics/realized_metrics.py scripts/metrics/monte_carlo_fusion.py`
+- [ ] T046 Verify STH + LTH realized cap ≈ Total realized cap invariant with real data
+- [ ] T047 Update `docs/ARCHITECTURE.md` with spec-020 module documentation
+
+---
+
+## Dependencies & Execution Order
+
+### Phase Dependencies
+
+- **Setup (Phase 1)**: No dependencies - adds missing prerequisite models
+- **Foundational (Phase 2)**: Depends on Setup - adds MVRVExtendedSignal model
+- **FR-001 (Phase 3)**: Depends on Foundational - MVRV-Z Score
+- **FR-002 (Phase 4)**: Depends on Foundational - Cohort Realized Cap
+- **FR-003 (Phase 5)**: Depends on FR-002 - STH/LTH MVRV
+- **FR-004 (Phase 6)**: Depends on FR-001, FR-002, FR-003 - Signal Classification
+- **FR-005 (Phase 7)**: Depends on FR-004 - Fusion Integration
+- **Polish (Phase 8)**: Depends on all FR phases complete
+
+### Functional Requirement Dependencies
+
+```
+Phase 1: Setup
+    │
+    ▼
+Phase 2: Foundational
+    │
+    ├──────────────┬──────────────┐
+    ▼              ▼              │
+Phase 3: FR-001   Phase 4: FR-002 │
+(MVRV-Z)          (Cohort Cap)   │
+    │              │              │
+    │              ▼              │
+    │         Phase 5: FR-003 ◄───┘
+    │         (Cohort MVRV)
+    │              │
+    ▼              ▼
+    └──────┬───────┘
+           ▼
+    Phase 6: FR-004
+    (Signal Classification)
+           │
+           ▼
+    Phase 7: FR-005
+    (Fusion Integration)
+           │
+           ▼
+    Phase 8: Polish
+```
+
+### Within Each Functional Requirement
+
+- Tests MUST be written and FAIL before implementation (TDD)
+- Test verification after implementation (GREEN)
+- Checkpoint validation before next FR
+
+### Parallel Opportunities
+
+**Phase 8 (Polish)** - only phase with true parallel opportunities:
+- T042, T043, T044, T045 can run in parallel (independent commands, no file conflicts)
+
+**Note**: Other phases have tasks that edit the same file, so they CANNOT run in parallel:
+- Phase 1: T001-T004 all edit `metrics_models.py` → sequential
+- FR-001 Tests: T009-T012 all edit `test_realized_metrics.py` → sequential
+- FR-002 Tests: T016-T019 all edit `test_realized_metrics.py` → sequential
+- FR-003 Tests: T022-T024 all edit `test_realized_metrics.py` → sequential
+- FR-004 Tests: T027-T030 all edit `test_realized_metrics.py` → sequential
+- FR-005 Tests: T035-T037 all edit `test_monte_carlo_fusion.py` → sequential
+
+---
+
+## Parallel Example: Polish Phase
+
+```bash
+# Only Polish phase has true parallel opportunities (different targets):
+Task: "Run all tests to verify no regressions"        # pytest execution
+Task: "Validate quickstart.md examples work"          # validation script
+Task: "Run linting on metrics modules"                # ruff check
+Task: "Run formatter on metrics modules"              # ruff format
+```
+
+**Why other phases are sequential**: Tasks that edit the same file (e.g., multiple test methods in `test_realized_metrics.py`) would conflict if run in parallel.
+
+---
+
+## Implementation Strategy
+
+### MVP First (FR-001 Only)
+
+1. Complete Phase 1: Setup (add missing models)
+2. Complete Phase 2: Foundational (add MVRVExtendedSignal)
+3. Complete Phase 3: FR-001 (MVRV-Z Score)
+4. **STOP and VALIDATE**: Test `calculate_mvrv_z()` independently
+5. Deploy/demo if ready
+
+### Incremental Delivery
+
+1. Setup + Foundational → Foundation ready
+2. Add FR-001 → Test independently → MVRV-Z available
+3. Add FR-002 + FR-003 → Test independently → Cohort MVRV available
+4. Add FR-004 → Test independently → Signal zones available
+5. Add FR-005 → Test independently → Fusion complete
+6. Each FR adds value without breaking previous FRs
+
+### Estimated Effort (from spec)
+
+| Phase | Tasks | Effort |
+|-------|-------|--------|
+| Setup | T001-T005 (+T003a) | 35min |
+| Foundational | T006-T008 (+T007a,b) | 40min |
+| FR-001 | T009-T015 | 1.5h |
+| FR-002 | T016-T021 | 1h |
+| FR-003 | T022-T026 | 30min |
+| FR-004 | T027-T034 (+T032a,b) | 40min |
+| FR-005 | T035-T041 | 1h |
+| Polish | T042-T047 | 30min |
+| **Total** | **52 tasks** | **~6 hours** |
+
+---
+
+## Notes
+
+- [P] tasks = different files, no dependencies (processed by /speckit.implement)
+- [FR] label maps task to specific functional requirement for traceability
+- Each FR should be independently completable and testable
+- TDD is REQUIRED (Constitution Principle II): verify tests fail before implementing
+- Commit after each task or logical group
+- Stop at any checkpoint to validate FR independently
+- Invariant check: STH + LTH realized cap ≈ Total realized cap
+
+---
+
+## Files Modified
+
+| File | Changes |
+|------|---------|
+| `scripts/models/metrics_models.py` | ADD: UTXOLifecycle, UTXOSetSnapshot, AgeCohortsConfig, SyncState, MVRVExtendedSignal |
+| `scripts/metrics/realized_metrics.py` | ADD: calculate_mvrv_z, calculate_cohort_realized_cap, calculate_cohort_mvrv, classify_mvrv_zone, get_mvrv_extended_signal, get_market_cap_history |
+| `scripts/metrics/monte_carlo_fusion.py` | MODIFY: ENHANCED_WEIGHTS, enhanced_fusion() |
+| `tests/test_metrics_models.py` | ADD: TestAgeCohortsConfig (new file) |
+| `tests/test_realized_metrics.py` | ADD: TestMarketCapHistory, TestMVRVZScore, TestCohortRealizedCap, TestCohortMVRV, TestMVRVSignal |
+| `tests/test_monte_carlo_fusion.py` | ADD: TestMVRVFusion |
+| `docs/ARCHITECTURE.md` | ADD: spec-020 documentation |

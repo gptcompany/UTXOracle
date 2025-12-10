@@ -199,6 +199,7 @@ def determine_action(
 
 # Default weights for enhanced fusion (sum = 1.0)
 # spec-019: Derivatives weight reduction (funding+oi: 21%→10%)
+# spec-020: MVRV-Z integration (power_law 0.09→0.06, +mvrv_z 0.03)
 # Rationale: Funding rate is a LAGGING indicator (Coinbase Research 2024)
 # Redistribution: +whale, +wasserstein, +cointime, +sopr (NEW)
 ENHANCED_WEIGHTS = {
@@ -206,12 +207,13 @@ ENHANCED_WEIGHTS = {
     "utxo": 0.12,  # unchanged
     "funding": 0.05,  # -0.07 LAGGING indicator
     "oi": 0.05,  # -0.04 LAGGING indicator
-    "power_law": 0.09,  # unchanged
+    "power_law": 0.06,  # spec-020: -0.03 to make room for mvrv_z
     "symbolic": 0.12,  # unchanged
     "fractal": 0.09,  # unchanged
     "wasserstein": 0.08,  # +0.04 Grade A evidence (Horvath 2021)
     "cointime": 0.14,  # +0.02 AVIV superiority over MVRV
     "sopr": 0.02,  # NEW: 82.44% accuracy (Omole 2024)
+    "mvrv_z": 0.03,  # spec-020: MVRV-Z Score for cross-cycle comparison
 }
 
 # Validate weights sum to 1.0 at module load (fail fast)
@@ -278,6 +280,8 @@ def enhanced_fusion(
     cointime_conf: Optional[float] = None,  # spec-018
     sopr_vote: Optional[float] = None,  # spec-019
     sopr_conf: Optional[float] = None,  # spec-019
+    mvrv_z_vote: Optional[float] = None,  # spec-020
+    mvrv_z_conf: Optional[float] = None,  # spec-020
     n_samples: int = 1000,
     weights: Optional[dict[str, float]] = None,
 ) -> EnhancedFusionResult:
@@ -336,6 +340,7 @@ def enhanced_fusion(
         ("wasserstein_vote", wasserstein_vote),
         ("cointime_vote", cointime_vote),
         ("sopr_vote", sopr_vote),
+        ("mvrv_z_vote", mvrv_z_vote),  # spec-020
     ]
     for name, vote in vote_params:
         if vote is not None and not -1.0 <= vote <= 1.0:
@@ -346,6 +351,7 @@ def enhanced_fusion(
         ("utxo_conf", utxo_conf),
         ("cointime_conf", cointime_conf),
         ("sopr_conf", sopr_conf),
+        ("mvrv_z_conf", mvrv_z_conf),  # spec-020
     ]
     for name, conf in conf_params:
         if conf is not None and not 0.0 <= conf <= 1.0:
@@ -398,6 +404,12 @@ def enhanced_fusion(
             sopr_conf if sopr_conf is not None else 1.0,
         )
         components_used.append("sopr")
+    if mvrv_z_vote is not None:
+        components["mvrv_z"] = (
+            mvrv_z_vote,
+            mvrv_z_conf if mvrv_z_conf is not None else 1.0,
+        )
+        components_used.append("mvrv_z")
 
     n_components = len(components)
 
@@ -471,6 +483,7 @@ def enhanced_fusion(
         wasserstein_vote=wasserstein_vote,  # spec-010
         cointime_vote=cointime_vote,  # spec-018
         sopr_vote=sopr_vote,  # spec-019
+        mvrv_z_vote=mvrv_z_vote,  # spec-020
         whale_weight=normalized_weights.get("whale", 0.0),
         utxo_weight=normalized_weights.get("utxo", 0.0),
         funding_weight=normalized_weights.get("funding", 0.0),
@@ -481,6 +494,7 @@ def enhanced_fusion(
         wasserstein_weight=normalized_weights.get("wasserstein", 0.0),  # spec-010
         cointime_weight=normalized_weights.get("cointime", 0.0),  # spec-018
         sopr_weight=normalized_weights.get("sopr", 0.0),  # spec-019
+        mvrv_z_weight=normalized_weights.get("mvrv_z", 0.0),  # spec-020
         components_available=n_components,
         components_used=components_used,
     )

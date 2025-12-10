@@ -1,84 +1,123 @@
-# spec-020: Implementation Plan
+# Implementation Plan: MVRV-Z Score + STH/LTH Variants
 
-## Architecture
+**Branch**: `020-mvrv-implementation` | **Date**: 2025-12-10 | **Spec**: [spec-020](spec.md)
+**Input**: Feature specification from `/specs/020-mvrv-implementation/spec.md`
+
+## Summary
+
+Extend existing MVRV implementation with Z-score normalization and cohort-specific variants (STH-MVRV, LTH-MVRV). These additions enable cross-cycle comparison and cohort-level profit/loss analysis. Implementation extends `realized_metrics.py` with 3 new functions and integrates with `enhanced_fusion()` via a new `mvrv_z` signal component.
+
+## Technical Context
+
+**Language/Version**: Python 3.11
+**Primary Dependencies**: DuckDB (existing), statistics (stdlib)
+**Storage**: DuckDB `utxo_lifecycle` table (existing), `utxo_snapshots` table (existing)
+**Testing**: pytest with existing fixtures from `test_realized_metrics.py`
+**Target Platform**: Linux server
+**Project Type**: Single Python package
+**Performance Goals**: <5 seconds for cohort realized cap calculation
+**Constraints**: <100ms for Z-score calculation
+**Scale/Scope**: 365 days of market cap history for Z-score calculation
+
+## Constitution Check
+
+*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
+
+| Principle | Status | Notes |
+|-----------|--------|-------|
+| I. KISS/YAGNI | ✅ PASS | Extends existing module, no new files needed |
+| II. TDD | ✅ PASS | Tests exist in `test_realized_metrics.py`, will add new tests |
+| III. UX Consistency | ✅ PASS | No CLI/API changes, internal functions only |
+| IV. Performance | ✅ PASS | SQL queries use existing indexes |
+| V. Data Privacy | ✅ PASS | All data processed locally from blockchain |
+
+**Pre-Design Gate**: PASS - All principles satisfied.
+
+## Project Structure
+
+### Documentation (this feature)
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                 MVRV Extended (spec-020)                     │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│  Existing (spec-017):                                        │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │  realized_metrics.py                                  │   │
-│  │  - calculate_mvrv() ✅                                │   │
-│  │  - calculate_realized_cap() ✅                        │   │
-│  │  - calculate_nupl() ✅                                │   │
-│  └──────────────────────────────────────────────────────┘   │
-│                          │                                   │
-│                          ▼                                   │
-│  NEW (this spec):                                            │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │  + calculate_mvrv_z()                                 │   │
-│  │  + calculate_cohort_realized_cap()                    │   │
-│  │  + calculate_cohort_mvrv()                            │   │
-│  │  + MVRVExtendedSignal dataclass                       │   │
-│  └──────────────────────────────────────────────────────┘   │
-│                          │                                   │
-│                          ▼                                   │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │  monte_carlo_fusion.py                                │   │
-│  │  + mvrv_z_vote, mvrv_z_conf parameters                │   │
-│  └──────────────────────────────────────────────────────┘   │
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
+specs/020-mvrv-implementation/
+├── plan.md              # This file
+├── research.md          # Phase 0 output
+├── data-model.md        # Phase 1 output
+├── quickstart.md        # Phase 1 output
+├── contracts/           # N/A - no API changes
+└── tasks.md             # Phase 2 output
 ```
+
+### Source Code (repository root)
+
+```
+scripts/
+├── metrics/
+│   ├── realized_metrics.py     # ADD: calculate_mvrv_z, calculate_cohort_realized_cap
+│   └── monte_carlo_fusion.py   # MODIFY: add mvrv_z_vote to enhanced_fusion()
+└── models/
+    └── metrics_models.py       # ADD: MVRVExtendedSignal dataclass
+
+tests/
+└── test_realized_metrics.py    # ADD: TestMVRVZScore, TestCohortMVRV classes
+```
+
+**Structure Decision**: Single project structure. Extends existing `realized_metrics.py` module with 3 new functions. No new files created.
+
+## Complexity Tracking
+
+*No violations. Implementation extends existing patterns without new complexity.*
+
+| Aspect | Complexity | Justification |
+|--------|------------|---------------|
+| New functions | 3 | Minimum needed: Z-score, cohort realized cap, cohort MVRV |
+| Data model | 1 dataclass | MVRVExtendedSignal consolidates all MVRV variants |
+| Fusion weight | Rebalance | Reduce power_law 0.09→0.06, add mvrv_z 0.03 |
 
 ---
 
-## Phase 1: MVRV-Z Score (1.5 hours)
+## Dependencies Analysis
 
-### Step 1.1: Add to realized_metrics.py (45 min)
+| Dependency | Status | Action |
+|------------|--------|--------|
+| `realized_metrics.py` | ✅ Has `calculate_mvrv()` | Base to extend |
+| `utxo_lifecycle` table | ✅ Has `creation_price_usd` | Query for cohort data |
+| Market cap history | ⚠️ Need 365 days | Use `utxo_snapshots.market_cap_usd` |
+| `UTXOSetSnapshot` | ⚠️ Missing model | **PREREQUISITE**: Add to metrics_models.py |
+
+### Critical Prerequisite
+
+The `UTXOLifecycle`, `UTXOSetSnapshot`, `AgeCohortsConfig`, and `SyncState` dataclasses are **specified but not implemented** in `scripts/models/metrics_models.py`. These must be added before this spec can proceed.
+
+**Action**: Add missing models from spec-017/data-model.md to `scripts/models/metrics_models.py`.
+
+---
+
+## Implementation Approach
+
+### Phase 1: Add Missing Models (Prerequisite)
+
+Add to `scripts/models/metrics_models.py`:
+- `UTXOLifecycle` dataclass
+- `UTXOSetSnapshot` dataclass
+- `AgeCohortsConfig` dataclass
+- `SyncState` dataclass
+
+### Phase 2: MVRV-Z Score Implementation
+
 ```python
 def calculate_mvrv_z(
     market_cap: float,
     realized_cap: float,
-    market_cap_history: list[float],
+    market_cap_history: list[float],  # 365 days recommended
 ) -> float:
-    """Calculate MVRV-Z score for cross-cycle comparison."""
-    import statistics
-
-    if len(market_cap_history) < 30:
-        return 0.0
-
-    std = statistics.stdev(market_cap_history)
-    if std == 0:
-        return 0.0
-
-    return (market_cap - realized_cap) / std
 ```
 
-### Step 1.2: Market Cap History Helper (45 min)
-```python
-def get_market_cap_history(
-    conn: duckdb.DuckDBPyConnection,
-    days: int = 365,
-) -> list[float]:
-    """Get historical market caps from snapshots table."""
-    result = conn.execute("""
-        SELECT market_cap_usd
-        FROM utxo_snapshots
-        ORDER BY block_height DESC
-        LIMIT ?
-    """, [days]).fetchall()
+- Use `statistics.stdev()` for std calculation
+- Return 0.0 for insufficient data (<30 days)
+- Guard against zero std
 
-    return [r[0] for r in result]
-```
+### Phase 3: Cohort Realized Cap
 
----
-
-## Phase 2: Cohort Realized Cap (1 hour)
-
-### Step 2.1: STH/LTH Realized Cap (45 min)
 ```python
 def calculate_cohort_realized_cap(
     conn: duckdb.DuckDBPyConnection,
@@ -86,189 +125,73 @@ def calculate_cohort_realized_cap(
     cohort: Literal["STH", "LTH"],
     threshold_days: int = 155,
 ) -> float:
-    """Calculate realized cap for STH or LTH cohort."""
-    threshold_blocks = threshold_days * 144
-    cutoff_block = current_block - threshold_blocks
-
-    op = ">" if cohort == "STH" else "<="
-
-    result = conn.execute(f"""
-        SELECT COALESCE(SUM(btc_value * creation_price_usd), 0)
-        FROM utxo_lifecycle
-        WHERE is_spent = FALSE
-          AND creation_block {op} ?
-    """, [cutoff_block]).fetchone()
-
-    return result[0]
 ```
 
-### Step 2.2: Validation Helper (15 min)
-```python
-def validate_cohort_split(
-    total_rc: float,
-    sth_rc: float,
-    lth_rc: float,
-    tolerance: float = 0.01,
-) -> bool:
-    """Validate that STH + LTH ≈ Total realized cap."""
-    return abs((sth_rc + lth_rc) - total_rc) / total_rc < tolerance
-```
+- Query `utxo_lifecycle` with age filter
+- STH: `creation_block > cutoff_block`
+- LTH: `creation_block <= cutoff_block`
+- Use existing index `idx_utxo_creation_block`
+
+### Phase 4: Fusion Integration
+
+Modify `ENHANCED_WEIGHTS` in `monte_carlo_fusion.py`:
+- Reduce `power_law`: 0.09 → 0.06
+- Add `mvrv_z`: 0.03
+- Weights still sum to 1.0
+
+Add `mvrv_z_vote` and `mvrv_z_conf` parameters to `enhanced_fusion()`.
 
 ---
 
-## Phase 3: STH/LTH MVRV (30 min)
+## Signal Interpretation (from spec)
 
-### Step 3.1: Cohort MVRV Calculation
-```python
-def calculate_cohort_mvrv(
-    market_cap: float,
-    cohort_realized_cap: float,
-) -> float:
-    """Calculate MVRV for specific cohort."""
-    if cohort_realized_cap <= 0:
-        return 0.0
-    return market_cap / cohort_realized_cap
+### MVRV-Z Score Zones
 
+| MVRV-Z | Zone | Action |
+|--------|------|--------|
+| > 7 | Extreme | Strong sell signal |
+| 3 - 7 | Caution | Reduce exposure |
+| -0.5 - 3 | Normal | Hold |
+| < -0.5 | Accumulation | Strong buy signal |
 
-def calculate_all_mvrv_variants(
-    conn: duckdb.DuckDBPyConnection,
-    current_block: int,
-    current_price: float,
-    total_supply: float,
-) -> dict[str, float]:
-    """Calculate all MVRV variants in one call."""
-    market_cap = current_price * total_supply
+### STH-MVRV
 
-    # Get realized caps
-    total_rc = calculate_realized_cap(conn)
-    sth_rc = calculate_cohort_realized_cap(conn, current_block, "STH")
-    lth_rc = calculate_cohort_realized_cap(conn, current_block, "LTH")
+| Value | Interpretation |
+|-------|----------------|
+| > 1.2 | New buyers in profit → distribution risk |
+| 1.0 | Break-even |
+| < 0.8 | New buyers underwater → capitulation |
 
-    return {
-        "mvrv": market_cap / total_rc if total_rc > 0 else 0.0,
-        "sth_mvrv": market_cap / sth_rc if sth_rc > 0 else 0.0,
-        "lth_mvrv": market_cap / lth_rc if lth_rc > 0 else 0.0,
-    }
-```
+### LTH-MVRV
+
+| Value | Interpretation |
+|-------|----------------|
+| > 3.5 | LTH in massive profit → cycle top risk |
+| 1.5 - 3.5 | Healthy profit |
+| < 1.0 | LTH underwater → generational bottom |
 
 ---
 
-## Phase 4: Signal Classification (30 min)
+## Validation Criteria
 
-### Step 4.1: Dataclass Definition
-```python
-@dataclass
-class MVRVExtendedSignal:
-    mvrv: float
-    mvrv_z: float
-    sth_mvrv: float
-    lth_mvrv: float
-    zone: str
-    confidence: float
-    timestamp: datetime
-```
-
-### Step 4.2: Zone Classification
-```python
-def classify_mvrv_zone(mvrv_z: float) -> tuple[str, float]:
-    """Classify MVRV-Z into actionable zone."""
-    if mvrv_z > 7:
-        return ("EXTREME_SELL", 0.95)
-    elif mvrv_z > 3:
-        return ("CAUTION", 0.75)
-    elif mvrv_z > -0.5:
-        return ("NORMAL", 0.50)
-    else:
-        return ("ACCUMULATION", 0.85)
-```
+1. `calculate_mvrv_z()` returns valid Z-score with 365-day history
+2. `calculate_cohort_realized_cap()` works for both STH and LTH
+3. STH + LTH realized cap ≈ Total realized cap (validation invariant)
+4. Signal classification zones implemented correctly
+5. Fusion integration working with weights summing to 1.0
+6. All existing tests pass
+7. New tests achieve >80% coverage for new functions
 
 ---
 
-## Phase 5: Fusion Integration (1 hour)
+## Post-Design Constitution Re-check
 
-### Step 5.1: Update enhanced_fusion()
-```python
-def enhanced_fusion(
-    # ... existing params ...
-    mvrv_z_vote: Optional[float] = None,
-    mvrv_z_conf: Optional[float] = None,
-    # ...
-) -> EnhancedFusionResult:
-    # Add to components
-    if mvrv_z_vote is not None and mvrv_z_conf is not None:
-        components["mvrv_z"] = (mvrv_z_vote, mvrv_z_conf)
-```
+| Principle | Status | Notes |
+|-----------|--------|-------|
+| I. KISS/YAGNI | ✅ PASS | No over-engineering, minimal new code |
+| II. TDD | ✅ PASS | RED phase tests first |
+| III. UX Consistency | ✅ PASS | Internal functions only |
+| IV. Performance | ✅ PASS | Uses existing indexes |
+| V. Data Privacy | ✅ PASS | Local blockchain data only |
 
-### Step 5.2: Update Weights
-```python
-ENHANCED_WEIGHTS = {
-    # ... existing ...
-    "power_law": 0.06,  # Reduced from 0.09
-    "mvrv_z": 0.03,     # NEW
-}
-```
-
-### Step 5.3: Signal to Vote Converter
-```python
-def mvrv_z_to_vote(signal: MVRVExtendedSignal) -> tuple[float, float]:
-    """Convert MVRV-Z signal to fusion vote.
-
-    Returns (vote, confidence):
-    - EXTREME_SELL: -0.8
-    - CAUTION: -0.4
-    - NORMAL: 0.0
-    - ACCUMULATION: +0.6
-    """
-    zone_to_vote = {
-        "EXTREME_SELL": -0.8,
-        "CAUTION": -0.4,
-        "NORMAL": 0.0,
-        "ACCUMULATION": 0.6,
-    }
-    return (zone_to_vote[signal.zone], signal.confidence)
-```
-
----
-
-## Phase 6: Testing (1 hour)
-
-### Test Cases
-```python
-def test_mvrv_z_basic():
-    """Test Z-score calculation."""
-    history = [1e12] * 365  # Constant = std 0
-    assert calculate_mvrv_z(1.5e12, 1e12, history) == 0.0
-
-    history = [1e12 + i * 1e10 for i in range(365)]
-    z = calculate_mvrv_z(2e12, 1e12, history)
-    assert z > 0  # Above realized cap
-
-
-def test_cohort_realized_cap(test_db):
-    """Test STH/LTH realized cap split."""
-    sth_rc = calculate_cohort_realized_cap(test_db, 800000, "STH")
-    lth_rc = calculate_cohort_realized_cap(test_db, 800000, "LTH")
-    total_rc = calculate_realized_cap(test_db)
-
-    assert abs((sth_rc + lth_rc) - total_rc) < total_rc * 0.01
-
-
-def test_mvrv_zone_classification():
-    """Test zone boundaries."""
-    assert classify_mvrv_zone(8.0)[0] == "EXTREME_SELL"
-    assert classify_mvrv_zone(5.0)[0] == "CAUTION"
-    assert classify_mvrv_zone(1.0)[0] == "NORMAL"
-    assert classify_mvrv_zone(-1.0)[0] == "ACCUMULATION"
-```
-
----
-
-## Rollout
-
-| Day | Phase | Deliverable |
-|-----|-------|-------------|
-| 1 AM | Phases 1-2 | MVRV-Z + Cohort RC |
-| 1 PM | Phases 3-4 | STH/LTH MVRV + Signals |
-| 2 AM | Phases 5-6 | Fusion + Tests |
-
-**Total: 1.5 days**
+**Post-Design Gate**: PASS - Ready for task generation.

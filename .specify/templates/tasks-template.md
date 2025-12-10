@@ -18,6 +18,14 @@ description: "Task list template for feature implementation"
 - **[E]**: Alpha-Evolve trigger - use for complex algorithmic tasks requiring multi-implementation exploration
 - **[Story]**: Which user story this task belongs to (e.g., US1, US2, US3)
 
+### When to use [P] marker (CRITICAL)
+- **USE [P]** only when tasks edit **different files** with no dependencies
+- **NEVER use [P]** when multiple tasks edit the **same file** (they conflict)
+- **Examples**:
+  - ✅ `T001 [P] Create user.py` + `T002 [P] Create order.py` → different files, OK
+  - ❌ `T001 [P] Add class A to models.py` + `T002 [P] Add class B to models.py` → same file, WRONG
+  - ❌ `T001 [P] Write test_foo in test_x.py` + `T002 [P] Write test_bar in test_x.py` → same file, WRONG
+
 ### When to use [E] marker
 - Core algorithm implementations (statistical, mathematical)
 - Distance metrics, similarity calculations

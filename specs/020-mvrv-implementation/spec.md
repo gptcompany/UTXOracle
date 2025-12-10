@@ -199,10 +199,17 @@ class MVRVExtendedSignal:
 ## Data Requirements
 
 ### Market Cap History
-Need 365 days of market cap for proper Z-score. Options:
-1. Query `utxo_snapshots` table (if populated)
-2. Calculate from historical price × supply
-3. External data source for bootstrap
+Need 365 days of market cap for proper Z-score.
+
+**Decision**: Primary source is `utxo_snapshots.market_cap_usd` column.
+
+**Fallback strategy**:
+1. Query `utxo_snapshots` table (primary)
+2. If insufficient rows (<30 days): return `mvrv_z = 0.0` with warning log
+3. Bootstrap NOT required - Z-score gracefully degrades with insufficient history
+
+**Rationale**: Avoids external dependencies (Constitution V). New deployments will
+accumulate history naturally; Z-score becomes valid after 30+ days of snapshots.
 
 ### SQL for Cohort Realized Cap
 ```sql

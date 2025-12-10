@@ -360,20 +360,23 @@ class EnhancedFusionResult:
     wasserstein_vote: Optional[float] = None  # spec-010
     cointime_vote: Optional[float] = None  # spec-018
     sopr_vote: Optional[float] = None  # spec-019
+    mvrv_z_vote: Optional[float] = None  # spec-020
 
-    # Component weights (updated for 10 components, sum = 1.0)
+    # Component weights (updated for 11 components, sum = 1.0)
     # spec-019: Derivatives weight reduction (funding+oi: 21%→10%)
+    # spec-020: MVRV-Z integration (power_law 0.09→0.06, +mvrv_z 0.03)
     # Redistribution: +whale, +wasserstein, +cointime, +sopr (NEW)
     whale_weight: float = 0.24  # +0.03 Primary signal
     utxo_weight: float = 0.12  # unchanged
     funding_weight: float = 0.05  # -0.07 LAGGING
     oi_weight: float = 0.05  # -0.04 LAGGING
-    power_law_weight: float = 0.09  # unchanged
+    power_law_weight: float = 0.06  # spec-020: -0.03 for mvrv_z
     symbolic_weight: float = 0.12  # unchanged
     fractal_weight: float = 0.09  # unchanged
     wasserstein_weight: float = 0.08  # +0.04 Grade A evidence
     cointime_weight: float = 0.14  # +0.02 AVIV
     sopr_weight: float = 0.02  # NEW spec-019
+    mvrv_z_weight: float = 0.03  # spec-020: MVRV-Z cross-cycle
 
     # Metadata
     components_available: int = 0
@@ -413,6 +416,7 @@ class EnhancedFusionResult:
             "wasserstein_vote": self.wasserstein_vote,
             "cointime_vote": self.cointime_vote,
             "sopr_vote": self.sopr_vote,
+            "mvrv_z_vote": self.mvrv_z_vote,  # spec-020
             # Component weights
             "whale_weight": self.whale_weight,
             "utxo_weight": self.utxo_weight,
@@ -424,6 +428,7 @@ class EnhancedFusionResult:
             "wasserstein_weight": self.wasserstein_weight,
             "cointime_weight": self.cointime_weight,
             "sopr_weight": self.sopr_weight,
+            "mvrv_z_weight": self.mvrv_z_weight,  # spec-020
             # Metadata
             "components_available": self.components_available,
             "components_used": self.components_used,
@@ -855,4 +860,305 @@ class CointimeSignal:
             "distribution_warning": self.distribution_warning,
             "cointime_vote": self.cointime_vote,
             "confidence": self.confidence,
+        }
+
+
+# =============================================================================
+# Spec-017/020: UTXO Lifecycle & MVRV Dataclasses
+# =============================================================================
+
+
+@dataclass
+class UTXOLifecycle:
+    """Complete lifecycle record for a single UTXO.
+
+    Tracks creation and spending of UTXOs with price data for realized
+    metrics calculation. Used by utxo_lifecycle.py engine.
+
+    Spec: spec-017
+    """
+
+    # Identity
+    outpoint: str  # f"{txid}:{vout_index}"
+    txid: str
+    vout_index: int
+
+    # Creation
+    creation_block: int
+    creation_timestamp: datetime
+    creation_price_usd: float
+    btc_value: float
+    realized_value_usd: float  # btc_value × creation_price
+
+    # Spending (None if unspent)
+    spent_block: Optional[int] = None
+    spent_timestamp: Optional[datetime] = None
+    spent_price_usd: Optional[float] = None
+    spending_txid: Optional[str] = None
+
+    # Derived
+    age_blocks: Optional[int] = None
+    age_days: Optional[int] = None
+    cohort: str = ""  # "STH" | "LTH"
+    sub_cohort: str = ""  # "<1d", "1d-1w", etc.
+    sopr: Optional[float] = None
+
+    # Metadata
+    is_coinbase: bool = False
+    is_spent: bool = False
+    price_source: str = "utxoracle"
+
+    def __post_init__(self):
+        """Validate UTXO fields."""
+        if self.btc_value < 0:
+            raise ValueError(f"btc_value must be >= 0: {self.btc_value}")
+        if self.creation_price_usd < 0:
+            raise ValueError(
+                f"creation_price_usd must be >= 0: {self.creation_price_usd}"
+            )
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "outpoint": self.outpoint,
+            "txid": self.txid,
+            "vout_index": self.vout_index,
+            "creation_block": self.creation_block,
+            "creation_timestamp": self.creation_timestamp.isoformat()
+            if hasattr(self.creation_timestamp, "isoformat")
+            else str(self.creation_timestamp),
+            "creation_price_usd": self.creation_price_usd,
+            "btc_value": self.btc_value,
+            "realized_value_usd": self.realized_value_usd,
+            "spent_block": self.spent_block,
+            "spent_timestamp": self.spent_timestamp.isoformat()
+            if self.spent_timestamp and hasattr(self.spent_timestamp, "isoformat")
+            else self.spent_timestamp,
+            "spent_price_usd": self.spent_price_usd,
+            "spending_txid": self.spending_txid,
+            "age_blocks": self.age_blocks,
+            "age_days": self.age_days,
+            "cohort": self.cohort,
+            "sub_cohort": self.sub_cohort,
+            "sopr": self.sopr,
+            "is_coinbase": self.is_coinbase,
+            "is_spent": self.is_spent,
+            "price_source": self.price_source,
+        }
+
+
+@dataclass
+class UTXOSetSnapshot:
+    """Point-in-time snapshot of UTXO set metrics.
+
+    Captures supply distribution and realized metrics at a specific
+    block height. Used for historical analysis and HODL waves.
+
+    Spec: spec-017
+    """
+
+    block_height: int
+    timestamp: datetime
+
+    # Supply Distribution
+    total_supply_btc: float
+    sth_supply_btc: float  # age < 155 days
+    lth_supply_btc: float  # age >= 155 days
+    supply_by_cohort: dict  # cohort -> BTC
+
+    # Realized Metrics
+    realized_cap_usd: float
+    market_cap_usd: float
+    mvrv: float
+    nupl: float
+
+    # HODL Waves
+    hodl_waves: dict  # cohort -> % of supply
+
+    def __post_init__(self):
+        """Validate snapshot fields."""
+        if self.total_supply_btc < 0:
+            raise ValueError(f"total_supply_btc must be >= 0: {self.total_supply_btc}")
+        if self.realized_cap_usd < 0:
+            raise ValueError(f"realized_cap_usd must be >= 0: {self.realized_cap_usd}")
+        # B5 fix: Validate market_cap_usd and mvrv
+        if self.market_cap_usd < 0:
+            raise ValueError(f"market_cap_usd must be >= 0: {self.market_cap_usd}")
+        if self.mvrv < 0:
+            raise ValueError(f"mvrv must be >= 0: {self.mvrv}")
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "block_height": self.block_height,
+            "timestamp": self.timestamp.isoformat()
+            if hasattr(self.timestamp, "isoformat")
+            else str(self.timestamp),
+            "total_supply_btc": self.total_supply_btc,
+            "sth_supply_btc": self.sth_supply_btc,
+            "lth_supply_btc": self.lth_supply_btc,
+            "supply_by_cohort": self.supply_by_cohort,
+            "realized_cap_usd": self.realized_cap_usd,
+            "market_cap_usd": self.market_cap_usd,
+            "mvrv": self.mvrv,
+            "nupl": self.nupl,
+            "hodl_waves": self.hodl_waves,
+        }
+
+
+@dataclass
+class AgeCohortsConfig:
+    """Configuration for age cohort classification.
+
+    Defines the STH/LTH boundary and sub-cohort age ranges for
+    HODL waves analysis.
+
+    Spec: spec-017
+    """
+
+    sth_threshold_days: int = 155
+
+    cohorts: list = field(
+        default_factory=lambda: [
+            ("<1d", 0, 1),
+            ("1d-1w", 1, 7),
+            ("1w-1m", 7, 30),
+            ("1m-3m", 30, 90),
+            ("3m-6m", 90, 180),
+            ("6m-1y", 180, 365),
+            ("1y-2y", 365, 730),
+            ("2y-3y", 730, 1095),
+            ("3y-5y", 1095, 1825),
+            (">5y", 1825, float("inf")),
+        ]
+    )
+
+    def classify(self, age_days: int) -> tuple[str, str]:
+        """Return (cohort, sub_cohort) for given age.
+
+        Args:
+            age_days: Age of UTXO in days.
+
+        Returns:
+            Tuple of (main cohort, sub-cohort name).
+            Main cohort is "STH" if age < threshold, else "LTH".
+
+        Raises:
+            ValueError: If age_days is negative.
+        """
+        # B3 fix: Validate age_days
+        if age_days < 0:
+            raise ValueError(f"age_days must be non-negative, got {age_days}")
+
+        cohort = "STH" if age_days < self.sth_threshold_days else "LTH"
+        for name, min_days, max_days in self.cohorts:
+            if min_days <= age_days < max_days:
+                return cohort, name
+        return cohort, ">5y"
+
+
+@dataclass
+class SyncState:
+    """Tracks sync progress for incremental updates.
+
+    Used by utxo_lifecycle engine to resume from last processed block.
+
+    Spec: spec-017
+    """
+
+    last_processed_block: int
+    last_processed_timestamp: datetime
+    total_utxos_created: int
+    total_utxos_spent: int
+    sync_started: datetime
+    sync_duration_seconds: float
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "last_processed_block": self.last_processed_block,
+            "last_processed_timestamp": self.last_processed_timestamp.isoformat()
+            if hasattr(self.last_processed_timestamp, "isoformat")
+            else str(self.last_processed_timestamp),
+            "total_utxos_created": self.total_utxos_created,
+            "total_utxos_spent": self.total_utxos_spent,
+            "sync_started": self.sync_started.isoformat()
+            if hasattr(self.sync_started, "isoformat")
+            else str(self.sync_started),
+            "sync_duration_seconds": self.sync_duration_seconds,
+        }
+
+
+@dataclass
+class MVRVExtendedSignal:
+    """Extended MVRV metrics with Z-score and cohort variants.
+
+    Combines base MVRV with Z-score normalization and STH/LTH breakdown.
+    Used for signal classification and fusion integration.
+
+    Spec: spec-020
+    """
+
+    # Base metrics (from existing calculate_mvrv)
+    mvrv: float  # Market Cap / Realized Cap
+    market_cap_usd: float
+    realized_cap_usd: float
+
+    # Z-Score (NEW)
+    mvrv_z: float  # (Market Cap - Realized Cap) / StdDev(Market Cap)
+    z_history_days: int  # Number of days used for std calculation
+
+    # Cohort variants (NEW)
+    sth_mvrv: float  # Market Cap / STH Realized Cap
+    sth_realized_cap_usd: float
+    lth_mvrv: float  # Market Cap / LTH Realized Cap
+    lth_realized_cap_usd: float
+
+    # Signal classification
+    zone: str  # "EXTREME_SELL", "CAUTION", "NORMAL", "ACCUMULATION"
+    confidence: float  # 0.0 to 1.0
+
+    # Metadata
+    timestamp: datetime
+    block_height: int
+    threshold_days: int = 155  # STH/LTH boundary
+
+    def __post_init__(self):
+        """Validate MVRV extended signal fields."""
+        if self.mvrv < 0:
+            raise ValueError(f"mvrv must be >= 0: {self.mvrv}")
+        # B4 fix: Validate cohort MVRV and realized cap values
+        if self.sth_mvrv < 0:
+            raise ValueError(f"sth_mvrv must be >= 0: {self.sth_mvrv}")
+        if self.lth_mvrv < 0:
+            raise ValueError(f"lth_mvrv must be >= 0: {self.lth_mvrv}")
+        if self.realized_cap_usd < 0:
+            raise ValueError(f"realized_cap_usd must be >= 0: {self.realized_cap_usd}")
+        if self.market_cap_usd < 0:
+            raise ValueError(f"market_cap_usd must be >= 0: {self.market_cap_usd}")
+        valid_zones = {"EXTREME_SELL", "CAUTION", "NORMAL", "ACCUMULATION"}
+        if self.zone not in valid_zones:
+            raise ValueError(f"zone must be one of {valid_zones}: {self.zone}")
+        if not 0.0 <= self.confidence <= 1.0:
+            raise ValueError(f"confidence must be in [0, 1]: {self.confidence}")
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "mvrv": self.mvrv,
+            "market_cap_usd": self.market_cap_usd,
+            "realized_cap_usd": self.realized_cap_usd,
+            "mvrv_z": self.mvrv_z,
+            "z_history_days": self.z_history_days,
+            "sth_mvrv": self.sth_mvrv,
+            "sth_realized_cap_usd": self.sth_realized_cap_usd,
+            "lth_mvrv": self.lth_mvrv,
+            "lth_realized_cap_usd": self.lth_realized_cap_usd,
+            "zone": self.zone,
+            "confidence": self.confidence,
+            "timestamp": self.timestamp.isoformat()
+            if hasattr(self.timestamp, "isoformat")
+            else str(self.timestamp),
+            "block_height": self.block_height,
+            "threshold_days": self.threshold_days,
         }

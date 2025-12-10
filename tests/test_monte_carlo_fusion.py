@@ -23,8 +23,8 @@ class TestEnhancedWeights:
         total = sum(ENHANCED_WEIGHTS.values())
         assert abs(total - 1.0) < 0.001, f"Weights sum to {total}, expected 1.0"
 
-    def test_weights_has_all_10_components(self):
-        """Enhanced weights must have all 10 components."""
+    def test_weights_has_all_11_components(self):
+        """Enhanced weights must have all 11 components (spec-020)."""
         required = [
             "whale",
             "utxo",
@@ -36,6 +36,7 @@ class TestEnhancedWeights:
             "wasserstein",
             "cointime",
             "sopr",
+            "mvrv_z",  # spec-020
         ]
         for component in required:
             assert component in ENHANCED_WEIGHTS, f"Missing component: {component}"
@@ -298,3 +299,76 @@ class TestDetermineAction:
         """Neutral mean should return HOLD."""
         action, _ = determine_action(0.1, -0.1, 0.3)
         assert action == "HOLD"
+
+
+# =============================================================================
+# Phase 7: FR-005 - MVRV-Z Fusion Tests (T035-T041) - spec-020
+# =============================================================================
+
+
+class TestMVRVFusion:
+    """Tests for MVRV-Z integration into enhanced fusion (spec-020)."""
+
+    def test_weights_sum_to_one_with_mvrv_z(self):
+        """T035: Enhanced weights including mvrv_z must sum to 1.0."""
+        total = sum(ENHANCED_WEIGHTS.values())
+        assert abs(total - 1.0) < 0.001, f"Weights sum to {total}, expected 1.0"
+
+    def test_mvrv_z_vote_integration(self):
+        """T036: Fusion should accept mvrv_z_vote and mvrv_z_conf parameters."""
+        result = enhanced_fusion(
+            whale_vote=0.5,
+            whale_conf=0.9,
+            mvrv_z_vote=0.7,
+            mvrv_z_conf=0.85,
+            n_samples=100,
+        )
+        assert result is not None
+        assert result.mvrv_z_vote == 0.7
+        assert result.mvrv_z_weight > 0
+
+    def test_mvrv_z_optional(self):
+        """T037: Fusion should work without mvrv_z parameters (backward compatible)."""
+        result = enhanced_fusion(
+            whale_vote=0.5,
+            whale_conf=0.9,
+            utxo_vote=0.5,
+            utxo_conf=0.9,
+            n_samples=100,
+        )
+        assert result is not None
+        assert result.mvrv_z_vote is None
+        assert result.mvrv_z_weight == 0.0
+        assert "mvrv_z" not in result.components_used
+
+    def test_mvrv_z_in_components_used(self):
+        """T036b: mvrv_z should appear in components_used when provided."""
+        result = enhanced_fusion(
+            whale_vote=0.5,
+            whale_conf=0.9,
+            mvrv_z_vote=0.6,
+            mvrv_z_conf=0.8,
+            n_samples=100,
+        )
+        assert "mvrv_z" in result.components_used
+
+    def test_mvrv_z_affects_signal(self):
+        """Strong mvrv_z signal should influence the fused result."""
+        # Without mvrv_z
+        result_without = enhanced_fusion(
+            whale_vote=0.0,
+            whale_conf=1.0,
+            n_samples=500,
+        )
+
+        # With strong mvrv_z
+        result_with = enhanced_fusion(
+            whale_vote=0.0,
+            whale_conf=1.0,
+            mvrv_z_vote=0.9,
+            mvrv_z_conf=1.0,
+            n_samples=500,
+        )
+
+        # The mvrv_z should pull the signal in positive direction
+        assert result_with.signal_mean > result_without.signal_mean

@@ -176,6 +176,22 @@ Finds bugs even when tests pass. Triggers automatically after implementation pha
 - Format code (`ruff check . && ruff format .`)
 - Use `uv` for dependencies (not `pip`)
 
+## SpecKit Task Markers
+
+When generating `tasks.md` files with `/speckit.tasks`:
+
+### [P] Marker Rules (Parallel)
+- **USE [P]** only when tasks edit **different files** with no dependencies
+- **NEVER use [P]** when multiple tasks edit the **same file** (they conflict)
+- **Examples**:
+  - ✅ `T001 [P] Create user.py` + `T002 [P] Create order.py` → different files, OK
+  - ❌ `T001 [P] Add class A to models.py` + `T002 [P] Add class B to models.py` → same file, WRONG
+  - ❌ `T001 [P] Write test_foo in test_x.py` + `T002 [P] Write test_bar in test_x.py` → same file, WRONG
+
+### [E] Marker Rules (Alpha-Evolve)
+- Use for complex algorithmic implementations requiring exploration
+- Statistical calculations, distance metrics, state machines
+
 ## Development Workflow
 
 > **📖 Full documentation**: See `docs/DEVELOPMENT_WORKFLOW.md` for TDD flow, cleanup checklists, and decision frameworks.
