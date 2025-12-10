@@ -519,6 +519,14 @@ def generate_cointime_signal(
     liveliness_rising = liveliness_7d_change > 0.01 or liveliness_30d_change > 0.03
     liveliness_falling = liveliness_7d_change < -0.01 or liveliness_30d_change < -0.03
 
+    # Classify trend direction
+    if liveliness_rising:
+        liveliness_trend = "INCREASING"
+    elif liveliness_falling:
+        liveliness_trend = "DECREASING"
+    else:
+        liveliness_trend = "STABLE"
+
     # Distribution warning: activity increasing while overvalued
     distribution_warning = (valuation_zone == "OVERVALUED" and liveliness_rising) or (
         extreme_activity and valuation_zone == "OVERVALUED"
