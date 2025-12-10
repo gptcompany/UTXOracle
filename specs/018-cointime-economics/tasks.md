@@ -15,20 +15,20 @@
 
 ## Phase 1: Setup
 
-- [ ] T001 Create feature branch `018-cointime-economics`
-- [ ] T002 [P] Create `scripts/metrics/cointime.py` with docstring
-- [ ] T003 [P] Create `tests/test_cointime.py` with imports
-- [ ] T004 [P] Add Cointime configuration to `.env.example`
+- [x] T001 Create feature branch `018-cointime-economics`
+- [x] T002 [P] Create `scripts/metrics/cointime.py` with docstring
+- [x] T003 [P] Create `tests/test_cointime.py` with imports
+- [x] T004 [P] Add Cointime configuration to `.env.example`
 
 ---
 
 ## Phase 2: Foundational
 
-- [ ] T005 Add CoinblocksMetrics dataclass to `scripts/models/metrics_models.py`
-- [ ] T006 Add CointimeSupply dataclass to `scripts/models/metrics_models.py`
-- [ ] T007 Add CointimeValuation dataclass to `scripts/models/metrics_models.py`
-- [ ] T008 Add CointimeSignal dataclass to `scripts/models/metrics_models.py`
-- [ ] T009 Create DuckDB schema for `cointime_metrics` table
+- [x] T005 Add CoinblocksMetrics dataclass to `scripts/models/metrics_models.py`
+- [x] T006 Add CointimeSupply dataclass to `scripts/models/metrics_models.py`
+- [x] T007 Add CointimeValuation dataclass to `scripts/models/metrics_models.py`
+- [x] T008 Add CointimeSignal dataclass to `scripts/models/metrics_models.py`
+- [x] T009 Create DuckDB schema for `cointime_metrics` table
 
 **Checkpoint**: Schema ready
 
@@ -40,18 +40,18 @@
 
 ### Tests (RED)
 
-- [ ] T010 [US1] Test `test_coinblocks_destroyed()` in `tests/test_cointime.py`
-- [ ] T011 [US1] Test `test_coinblocks_created()` in `tests/test_cointime.py`
-- [ ] T012 [US1] Test `test_cumulative_tracking()` in `tests/test_cointime.py`
+- [x] T010 [US1] Test `test_coinblocks_destroyed()` in `tests/test_cointime.py`
+- [x] T011 [US1] Test `test_coinblocks_created()` in `tests/test_cointime.py`
+- [x] T012 [US1] Test `test_cumulative_tracking()` in `tests/test_cointime.py`
 
 ### Implementation (GREEN)
 
-- [ ] T013 [E] [US1] Implement `calculate_coinblocks_destroyed()` in `scripts/metrics/cointime.py`
-- [ ] T014 [E] [US1] Implement `calculate_coinblocks_created()` in `scripts/metrics/cointime.py`
-- [ ] T015 [US1] Implement cumulative tracking functions
-- [ ] T016 [US1] Run tests → GREEN
+- [x] T013 [E] [US1] Implement `calculate_coinblocks_destroyed()` in `scripts/metrics/cointime.py`
+- [x] T014 [E] [US1] Implement `calculate_coinblocks_created()` in `scripts/metrics/cointime.py`
+- [x] T015 [US1] Implement cumulative tracking functions
+- [x] T016 [US1] Run tests → GREEN
 
-**Checkpoint**: Coinblocks working
+**Checkpoint**: Coinblocks working ✅
 
 ---
 
@@ -61,18 +61,18 @@
 
 ### Tests (RED)
 
-- [ ] T017 [US2] Test `test_liveliness_calculation()` in `tests/test_cointime.py`
-- [ ] T018 [US2] Test `test_vaultedness_calculation()` in `tests/test_cointime.py`
-- [ ] T019 [US2] Test `test_liveliness_bounds()` in `tests/test_cointime.py`
+- [x] T017 [US2] Test `test_liveliness_calculation()` in `tests/test_cointime.py`
+- [x] T018 [US2] Test `test_vaultedness_calculation()` in `tests/test_cointime.py`
+- [x] T019 [US2] Test `test_liveliness_bounds()` in `tests/test_cointime.py`
 
 ### Implementation (GREEN)
 
-- [ ] T020 [E] [US2] Implement `calculate_liveliness()` in `scripts/metrics/cointime.py`
-- [ ] T021 [E] [US2] Implement `calculate_vaultedness()` in `scripts/metrics/cointime.py`
-- [ ] T022 [US2] Add bounds validation (0-1)
-- [ ] T023 [US2] Run tests → GREEN
+- [x] T020 [E] [US2] Implement `calculate_liveliness()` in `scripts/metrics/cointime.py`
+- [x] T021 [E] [US2] Implement `calculate_vaultedness()` in `scripts/metrics/cointime.py`
+- [x] T022 [US2] Add bounds validation (0-1)
+- [x] T023 [US2] Run tests → GREEN
 
-**Checkpoint**: Liveliness working
+**Checkpoint**: Liveliness working ✅
 
 ---
 
@@ -82,16 +82,16 @@
 
 ### Tests (RED)
 
-- [ ] T023a [US2] Test `test_rolling_liveliness_7d()` in `tests/test_cointime.py`
-- [ ] T023b [US2] Test `test_rolling_liveliness_30d()` in `tests/test_cointime.py`
-- [ ] T023c [US2] Test `test_rolling_liveliness_90d()` in `tests/test_cointime.py`
+- [x] T023a [US2] Test `test_rolling_liveliness_7d()` in `tests/test_cointime.py`
+- [x] T023b [US2] Test `test_rolling_liveliness_30d()` in `tests/test_cointime.py`
+- [x] T023c [US2] Test `test_rolling_liveliness_90d()` in `tests/test_cointime.py`
 
 ### Implementation (GREEN)
 
-- [ ] T023d [US2] Implement `calculate_rolling_liveliness(window_days: int)` in `scripts/metrics/cointime.py`
-- [ ] T023e [US2] Run tests → GREEN
+- [x] T023d [US2] Implement `calculate_rolling_liveliness(window_days: int)` in `scripts/metrics/cointime.py`
+- [x] T023e [US2] Run tests → GREEN
 
-**Checkpoint**: Rolling liveliness working
+**Checkpoint**: Rolling liveliness working ✅
 
 ---
 
@@ -101,17 +101,17 @@
 
 ### Tests (RED)
 
-- [ ] T024 [US3] Test `test_active_supply()` in `tests/test_cointime.py`
-- [ ] T025 [US3] Test `test_vaulted_supply()` in `tests/test_cointime.py`
-- [ ] T026 [US3] Test `test_supply_sum()` in `tests/test_cointime.py`
+- [x] T024 [US3] Test `test_active_supply()` in `tests/test_cointime.py`
+- [x] T025 [US3] Test `test_vaulted_supply()` in `tests/test_cointime.py`
+- [x] T026 [US3] Test `test_supply_sum()` in `tests/test_cointime.py`
 
 ### Implementation (GREEN)
 
-- [ ] T027 [E] [US3] Implement `calculate_active_supply()` in `scripts/metrics/cointime.py`
-- [ ] T028 [E] [US3] Implement `calculate_vaulted_supply()` in `scripts/metrics/cointime.py`
-- [ ] T029 [US3] Run tests → GREEN
+- [x] T027 [E] [US3] Implement `calculate_active_supply()` in `scripts/metrics/cointime.py`
+- [x] T028 [E] [US3] Implement `calculate_vaulted_supply()` in `scripts/metrics/cointime.py`
+- [x] T029 [US3] Run tests → GREEN
 
-**Checkpoint**: Supply split working
+**Checkpoint**: Supply split working ✅
 
 ---
 
@@ -121,18 +121,18 @@
 
 ### Tests (RED)
 
-- [ ] T030 [US4] Test `test_true_market_mean()` in `tests/test_cointime.py`
-- [ ] T031 [US4] Test `test_aviv_ratio()` in `tests/test_cointime.py`
-- [ ] T032 [US4] Test `test_aviv_zones()` in `tests/test_cointime.py`
+- [x] T030 [US4] Test `test_true_market_mean()` in `tests/test_cointime.py`
+- [x] T031 [US4] Test `test_aviv_ratio()` in `tests/test_cointime.py`
+- [x] T032 [US4] Test `test_aviv_zones()` in `tests/test_cointime.py`
 
 ### Implementation (GREEN)
 
-- [ ] T033 [US4] Implement `calculate_true_market_mean()` in `scripts/metrics/cointime.py`
-- [ ] T034 [US4] Implement `calculate_aviv()` in `scripts/metrics/cointime.py`
-- [ ] T035 [US4] Implement `classify_valuation_zone()` in `scripts/metrics/cointime.py`
-- [ ] T036 [US4] Run tests → GREEN
+- [x] T033 [US4] Implement `calculate_true_market_mean()` in `scripts/metrics/cointime.py`
+- [x] T034 [US4] Implement `calculate_aviv()` in `scripts/metrics/cointime.py`
+- [x] T035 [US4] Implement `classify_valuation_zone()` in `scripts/metrics/cointime.py`
+- [x] T036 [US4] Run tests → GREEN
 
-**Checkpoint**: AVIV working
+**Checkpoint**: AVIV working ✅
 
 ---
 
@@ -142,31 +142,31 @@
 
 ### Tests (RED)
 
-- [ ] T037 [P] [US5] Test `test_cointime_signal_generation()` in `tests/test_cointime.py`
-- [ ] T038 [P] [US5] Test `test_fusion_with_cointime()` in `tests/test_monte_carlo_fusion.py`
+- [x] T037 [P] [US5] Test `test_cointime_signal_generation()` in `tests/test_cointime.py`
+- [x] T038 [P] [US5] Test `test_fusion_with_cointime()` in `tests/test_cointime.py`
 
 ### Implementation (GREEN)
 
-- [ ] T039 [US5] Implement `generate_cointime_signal()` in `scripts/metrics/cointime.py`
-- [ ] T040 [US5] Add `cointime` to `EVIDENCE_BASED_WEIGHTS` in fusion
-- [ ] T040a [US5] Rebalance EVIDENCE_BASED_WEIGHTS to sum to 1.0 (reduce whale 0.15→0.13, utxo 0.20→0.18, sopr 0.15→0.13; add cointime 0.12)
-- [ ] T041 [US5] Update `enhanced_monte_carlo_fusion()` for 10 components
-- [ ] T042 [US5] Add `/api/metrics/cointime` endpoint in `api/main.py`
-- [ ] T043 [US5] Run tests → GREEN
+- [x] T039 [US5] Implement `generate_cointime_signal()` in `scripts/metrics/cointime.py`
+- [x] T040 [US5] Add `cointime` to `ENHANCED_WEIGHTS` in fusion (9 components)
+- [x] T040a [US5] Rebalance ENHANCED_WEIGHTS to sum to 1.0 (whale 0.21, utxo 0.12, funding 0.12, oi 0.09, power_law 0.09, symbolic 0.12, fractal 0.09, wasserstein 0.04, cointime 0.12)
+- [x] T041 [US5] Update `enhanced_fusion()` for 9 components
+- [x] T042 [US5] Add `/api/metrics/cointime` endpoints in `api/main.py` (latest, history, signal)
+- [x] T043 [US5] Run tests → GREEN (96 passed)
 
-**Checkpoint**: Fusion integration complete
+**Checkpoint**: Fusion integration complete ✅
 
 ---
 
 ## Phase 8: Polish
 
-- [ ] T044 [P] Update CLAUDE.md with spec-018 status
-- [ ] T045 [P] Update `docs/ARCHITECTURE.md` with Cointime documentation
+- [x] T044 [P] Update CLAUDE.md with spec-018 status
+- [x] T045 [P] Update `docs/ARCHITECTURE.md` with Cointime documentation
 - [ ] T045a [P] Create `tests/fixtures/glassnode_cointime_reference.csv` with sample validation data
 - [ ] T045b Add validation test `test_glassnode_comparison()` comparing outputs to reference (SC-001/SC-002)
 - [ ] T045c Add performance benchmark test for <1s/block requirement (SC-003)
-- [ ] T046 Run full test suite
-- [ ] T047 Run linter
+- [x] T046 Run full test suite (96 passed)
+- [x] T047 Run linter (all checks passed)
 - [ ] T048 Validate quickstart.md
 - [ ] T049 Create PR and merge
 

@@ -475,3 +475,91 @@ class TestCointimeSignalGeneration:
         assert 0.5 <= confidence <= 1.0
         # High vote + extreme zone + dormancy = high confidence
         assert confidence >= 0.8
+
+
+# =============================================================================
+# Phase 7: Fusion Integration (US5) Tests - T038
+# =============================================================================
+
+
+class TestFusionWithCointime:
+    """Tests for Cointime integration with enhanced_fusion (T038)."""
+
+    def test_fusion_accepts_cointime_vote(self):
+        """T038a: enhanced_fusion accepts cointime_vote parameter."""
+        from scripts.metrics.monte_carlo_fusion import enhanced_fusion
+
+        result = enhanced_fusion(
+            whale_vote=0.5,
+            whale_conf=0.8,
+            cointime_vote=0.7,
+            cointime_conf=0.9,
+        )
+
+        assert result.cointime_vote == 0.7
+        assert "cointime" in result.components_used
+        assert result.components_available == 2
+
+    def test_fusion_cointime_weight_applied(self):
+        """T038b: Cointime weight is properly applied in fusion."""
+        from scripts.metrics.monte_carlo_fusion import enhanced_fusion, ENHANCED_WEIGHTS
+
+        # Verify cointime weight exists and is 0.12
+        assert "cointime" in ENHANCED_WEIGHTS
+        assert ENHANCED_WEIGHTS["cointime"] == 0.12
+
+        # Test fusion with only cointime
+        result = enhanced_fusion(cointime_vote=1.0, cointime_conf=1.0)
+
+        # With only cointime, weight should be renormalized to 1.0
+        assert result.cointime_weight == 1.0
+        assert result.signal_mean > 0  # Should be positive from positive vote
+
+    def test_fusion_all_9_components(self):
+        """T038c: Fusion with all 9 components produces valid result."""
+        from scripts.metrics.monte_carlo_fusion import enhanced_fusion
+
+        result = enhanced_fusion(
+            whale_vote=0.8,
+            whale_conf=0.9,
+            utxo_vote=0.6,
+            utxo_conf=0.8,
+            funding_vote=0.3,
+            oi_vote=0.2,
+            power_law_vote=0.5,
+            symbolic_vote=0.7,
+            fractal_vote=0.4,
+            wasserstein_vote=0.3,
+            cointime_vote=0.6,
+            cointime_conf=0.85,
+        )
+
+        assert result.components_available == 9
+        assert len(result.components_used) == 9
+        assert "cointime" in result.components_used
+        assert result.cointime_vote == 0.6
+        assert result.signal_mean > 0  # All positive votes
+        assert result.action in ["BUY", "SELL", "HOLD"]
+
+    def test_fusion_weights_sum_to_one(self):
+        """T038d: ENHANCED_WEIGHTS must sum to 1.0."""
+        from scripts.metrics.monte_carlo_fusion import ENHANCED_WEIGHTS
+
+        total = sum(ENHANCED_WEIGHTS.values())
+        assert abs(total - 1.0) < 0.001, f"Weights sum to {total}, expected 1.0"
+
+    def test_fusion_cointime_missing(self):
+        """T038e: Fusion works without cointime (backward compatible)."""
+        from scripts.metrics.monte_carlo_fusion import enhanced_fusion
+
+        result = enhanced_fusion(
+            whale_vote=0.8,
+            whale_conf=0.9,
+            utxo_vote=0.6,
+            utxo_conf=0.8,
+        )
+
+        assert result.cointime_vote is None
+        assert result.cointime_weight == 0.0
+        assert "cointime" not in result.components_used
+        assert result.components_available == 2

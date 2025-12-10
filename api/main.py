@@ -1392,6 +1392,266 @@ async def get_wasserstein_regime():
 
 
 # =============================================================================
+# Spec-018: Cointime Economics Endpoints
+# =============================================================================
+
+
+@app.get("/api/metrics/cointime")
+async def get_cointime_latest():
+    """
+    Get latest Cointime Economics metrics (spec-018).
+
+    Returns the most recent coinblocks, liveliness, supply split, and AVIV metrics.
+    """
+    import duckdb
+
+    conn = None
+    try:
+        conn = duckdb.connect(DUCKDB_PATH, read_only=True)
+
+        # Query latest Cointime metrics from cointime_metrics table
+        result = conn.execute(
+            """
+            SELECT
+                block_height,
+                timestamp,
+                coinblocks_created,
+                coinblocks_destroyed,
+                cumulative_created,
+                cumulative_destroyed,
+                liveliness,
+                vaultedness,
+                active_supply_btc,
+                vaulted_supply_btc,
+                true_market_mean_usd,
+                aviv_ratio,
+                aviv_percentile
+            FROM cointime_metrics
+            ORDER BY block_height DESC
+            LIMIT 1
+            """
+        ).fetchone()
+
+        if not result:
+            raise HTTPException(
+                status_code=404,
+                detail="No Cointime metrics found. Run Cointime calculation first.",
+            )
+
+        columns = [desc[0] for desc in conn.description]
+        data = dict(zip(columns, result))
+
+        # Classify valuation zone
+        valuation_zone = "FAIR"
+        if data.get("aviv_ratio") is not None:
+            if data["aviv_ratio"] < 1.0:
+                valuation_zone = "UNDERVALUED"
+            elif data["aviv_ratio"] > 2.5:
+                valuation_zone = "OVERVALUED"
+
+        return {
+            "block_height": data["block_height"],
+            "timestamp": data["timestamp"].isoformat() if data["timestamp"] else None,
+            "coinblocks": {
+                "created": data["coinblocks_created"],
+                "destroyed": data["coinblocks_destroyed"],
+                "cumulative_created": data["cumulative_created"],
+                "cumulative_destroyed": data["cumulative_destroyed"],
+            },
+            "liveliness": {
+                "value": data["liveliness"],
+                "vaultedness": data["vaultedness"],
+            },
+            "supply": {
+                "active_btc": data["active_supply_btc"],
+                "vaulted_btc": data["vaulted_supply_btc"],
+            },
+            "valuation": {
+                "true_market_mean_usd": data["true_market_mean_usd"],
+                "aviv_ratio": data["aviv_ratio"],
+                "aviv_percentile": data["aviv_percentile"],
+                "zone": valuation_zone,
+            },
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_msg = str(e).lower()
+        # Handle missing table gracefully
+        if "cointime" in error_msg or "does not exist" in error_msg:
+            logging.info("Cointime table not yet available in database schema")
+            raise HTTPException(
+                status_code=404,
+                detail="Cointime metrics not available. Schema migration pending.",
+            )
+        logging.error(f"Error fetching Cointime metrics: {e}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.get("/api/metrics/cointime/history")
+async def get_cointime_history(
+    days: int = Query(
+        default=30, ge=1, le=365, description="Days of history to return"
+    ),
+    limit: int = Query(default=100, ge=1, le=1000, description="Maximum data points"),
+):
+    """
+    Get historical Cointime metrics (spec-018).
+
+    Returns liveliness, AVIV, and supply split history for charting.
+    """
+    import duckdb
+
+    conn = None
+    try:
+        conn = duckdb.connect(DUCKDB_PATH, read_only=True)
+
+        cutoff = datetime.now() - timedelta(days=days)
+
+        results = conn.execute(
+            """
+            SELECT
+                block_height,
+                timestamp,
+                liveliness,
+                aviv_ratio,
+                active_supply_btc,
+                vaulted_supply_btc
+            FROM cointime_metrics
+            WHERE timestamp >= ?
+            ORDER BY block_height DESC
+            LIMIT ?
+            """,
+            [cutoff, limit],
+        ).fetchall()
+
+        if not results:
+            raise HTTPException(
+                status_code=404,
+                detail="No historical Cointime metrics found.",
+            )
+
+        columns = [desc[0] for desc in conn.description]
+        history = []
+        for row in results:
+            data = dict(zip(columns, row))
+            history.append(
+                {
+                    "block_height": data["block_height"],
+                    "timestamp": data["timestamp"].isoformat()
+                    if data["timestamp"]
+                    else None,
+                    "liveliness": data["liveliness"],
+                    "aviv_ratio": data["aviv_ratio"],
+                    "active_supply_btc": data["active_supply_btc"],
+                    "vaulted_supply_btc": data["vaulted_supply_btc"],
+                }
+            )
+
+        return {
+            "count": len(history),
+            "days": days,
+            "data": history,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "cointime" in error_msg or "does not exist" in error_msg:
+            logging.info("Cointime table not yet available in database schema")
+            raise HTTPException(
+                status_code=404,
+                detail="Cointime metrics not available. Schema migration pending.",
+            )
+        logging.error(f"Error fetching Cointime history: {e}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.get("/api/metrics/cointime/signal")
+async def get_cointime_signal():
+    """
+    Get current Cointime trading signal (spec-018).
+
+    Returns the AVIV-based valuation signal for fusion integration.
+    """
+    import duckdb
+
+    conn = None
+    try:
+        conn = duckdb.connect(DUCKDB_PATH, read_only=True)
+
+        # Get recent cointime metrics for signal generation
+        result = conn.execute(
+            """
+            SELECT
+                block_height,
+                timestamp,
+                liveliness,
+                aviv_ratio,
+                active_supply_btc
+            FROM cointime_metrics
+            ORDER BY block_height DESC
+            LIMIT 1
+            """
+        ).fetchone()
+
+        if not result:
+            raise HTTPException(
+                status_code=404,
+                detail="No Cointime metrics found for signal generation.",
+            )
+
+        columns = [desc[0] for desc in conn.description]
+        data = dict(zip(columns, result))
+
+        # Import signal generation from cointime module
+        from scripts.metrics.cointime import generate_cointime_signal
+
+        # Get historical data for rolling calculations (simplified)
+        signal = generate_cointime_signal(
+            liveliness=data["liveliness"],
+            liveliness_7d_change=0.0,  # Would need historical data
+            liveliness_30d_change=0.0,  # Would need historical data
+            aviv_ratio=data["aviv_ratio"] if data["aviv_ratio"] else 1.5,
+            active_supply_btc=data["active_supply_btc"],
+        )
+
+        return {
+            "block_height": data["block_height"],
+            "timestamp": data["timestamp"].isoformat() if data["timestamp"] else None,
+            "cointime_vote": signal["cointime_vote"],
+            "confidence": signal["confidence"],
+            "valuation_zone": signal["valuation_zone"],
+            "extreme_dormancy": signal["extreme_dormancy"],
+            "supply_squeeze": signal["supply_squeeze"],
+            "liveliness_trend": signal["liveliness_trend"],
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "cointime" in error_msg or "does not exist" in error_msg:
+            raise HTTPException(
+                status_code=404,
+                detail="Cointime metrics not available. Schema migration pending.",
+            )
+        logging.error(f"Error generating Cointime signal: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+# =============================================================================
 # Service Connectivity Helper Functions
 # =============================================================================
 

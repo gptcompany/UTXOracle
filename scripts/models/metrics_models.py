@@ -327,7 +327,7 @@ class FractalDimensionResult:
 @dataclass
 class EnhancedFusionResult:
     """
-    Result of enhanced Monte Carlo signal fusion with 8 components.
+    Result of enhanced Monte Carlo signal fusion with 9 components.
 
     Extends spec-007 MonteCarloFusionResult with:
     - Power Law vote (spec-009)
@@ -336,6 +336,7 @@ class EnhancedFusionResult:
     - Funding Rate vote (spec-008)
     - Open Interest vote (spec-008)
     - Wasserstein vote (spec-010)
+    - Cointime vote (spec-018)
     """
 
     # Base Monte Carlo fields
@@ -357,16 +358,21 @@ class EnhancedFusionResult:
     symbolic_vote: Optional[float] = None
     fractal_vote: Optional[float] = None
     wasserstein_vote: Optional[float] = None  # spec-010
+    cointime_vote: Optional[float] = None  # spec-018
 
-    # Component weights (updated for 8 components, sum = 1.0)
-    whale_weight: float = 0.23
-    utxo_weight: float = 0.14
-    funding_weight: float = 0.14
+    # Component weights (updated for 9 components, sum = 1.0)
+    # Rebalanced: whale 0.23→0.21, utxo 0.14→0.12, funding 0.14→0.12
+    # symbolic 0.14→0.12, oi/power_law/fractal/wasserstein unchanged
+    # Added cointime 0.12
+    whale_weight: float = 0.21
+    utxo_weight: float = 0.12
+    funding_weight: float = 0.12
     oi_weight: float = 0.09
     power_law_weight: float = 0.09
-    symbolic_weight: float = 0.14
+    symbolic_weight: float = 0.12
     fractal_weight: float = 0.09
-    wasserstein_weight: float = 0.08  # spec-010
+    wasserstein_weight: float = 0.04  # spec-010 (reduced from 0.08)
+    cointime_weight: float = 0.12  # spec-018
 
     # Metadata
     components_available: int = 0
@@ -557,4 +563,245 @@ class RollingWassersteinResult:
             "total_samples": self.total_samples,
             "windows_analyzed": self.windows_analyzed,
             "is_valid": self.is_valid,
+        }
+
+
+# =============================================================================
+# Spec-018: Cointime Economics Dataclasses
+# =============================================================================
+
+
+@dataclass
+class CoinblocksMetrics:
+    """
+    Per-block coinblocks metrics for Cointime Economics.
+
+    Coinblocks measure the economic weight of coins based on:
+    - Created: BTC × blocks held (accumulates as coins age)
+    - Destroyed: BTC × blocks since creation (when coins are spent)
+
+    Attributes:
+        block_height: Bitcoin block height
+        timestamp: Block timestamp
+        coinblocks_created: Coinblocks created this block
+        coinblocks_destroyed: Coinblocks destroyed this block
+        cumulative_created: Total coinblocks created (all time)
+        cumulative_destroyed: Total coinblocks destroyed (all time)
+        liveliness: destroyed / created ratio (0-1)
+        vaultedness: 1 - liveliness (0-1)
+    """
+
+    block_height: int
+    timestamp: datetime
+    coinblocks_created: float
+    coinblocks_destroyed: float
+    cumulative_created: float
+    cumulative_destroyed: float
+    liveliness: float
+    vaultedness: float
+
+    def __post_init__(self):
+        """Validate coinblocks metrics."""
+        if not 0.0 <= self.liveliness <= 1.0:
+            raise ValueError(f"liveliness must be in [0, 1]: {self.liveliness}")
+        if not 0.0 <= self.vaultedness <= 1.0:
+            raise ValueError(f"vaultedness must be in [0, 1]: {self.vaultedness}")
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "block_height": self.block_height,
+            "timestamp": self.timestamp.isoformat()
+            if hasattr(self.timestamp, "isoformat")
+            else str(self.timestamp),
+            "coinblocks_created": self.coinblocks_created,
+            "coinblocks_destroyed": self.coinblocks_destroyed,
+            "cumulative_created": self.cumulative_created,
+            "cumulative_destroyed": self.cumulative_destroyed,
+            "liveliness": self.liveliness,
+            "vaultedness": self.vaultedness,
+        }
+
+
+@dataclass
+class CointimeSupply:
+    """
+    Supply breakdown by activity level.
+
+    Active Supply = coins that have moved recently (economically active)
+    Vaulted Supply = coins that are dormant (long-term holders)
+
+    Attributes:
+        block_height: Bitcoin block height
+        timestamp: Block timestamp
+        total_supply_btc: Total Bitcoin supply
+        active_supply_btc: Supply × liveliness
+        vaulted_supply_btc: Supply × vaultedness
+        active_supply_pct: Percentage active (0-100)
+        vaulted_supply_pct: Percentage vaulted (0-100)
+    """
+
+    block_height: int
+    timestamp: datetime
+    total_supply_btc: float
+    active_supply_btc: float
+    vaulted_supply_btc: float
+    active_supply_pct: float
+    vaulted_supply_pct: float
+
+    def __post_init__(self):
+        """Validate supply metrics."""
+        if self.total_supply_btc < 0:
+            raise ValueError(f"total_supply_btc must be >= 0: {self.total_supply_btc}")
+        # Allow small floating point errors in sum validation
+        supply_sum = self.active_supply_btc + self.vaulted_supply_btc
+        if abs(supply_sum - self.total_supply_btc) > 0.01:
+            raise ValueError(
+                f"active + vaulted must equal total: {supply_sum} != {self.total_supply_btc}"
+            )
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "block_height": self.block_height,
+            "timestamp": self.timestamp.isoformat()
+            if hasattr(self.timestamp, "isoformat")
+            else str(self.timestamp),
+            "total_supply_btc": self.total_supply_btc,
+            "active_supply_btc": self.active_supply_btc,
+            "vaulted_supply_btc": self.vaulted_supply_btc,
+            "active_supply_pct": self.active_supply_pct,
+            "vaulted_supply_pct": self.vaulted_supply_pct,
+        }
+
+
+@dataclass
+class CointimeValuation:
+    """
+    AVIV and True Market Mean valuation metrics.
+
+    True Market Mean = Market Cap / Active Supply
+    AVIV = Current Price / True Market Mean (superior MVRV)
+
+    Attributes:
+        block_height: Bitcoin block height
+        timestamp: Block timestamp
+        current_price_usd: Current BTC price in USD
+        market_cap_usd: Total market capitalization
+        active_supply_btc: Active supply in BTC
+        true_market_mean_usd: Activity-adjusted price
+        aviv_ratio: AVIV ratio (price / TMM)
+        aviv_percentile: Historical percentile (0-100)
+        valuation_zone: "UNDERVALUED" | "FAIR" | "OVERVALUED"
+    """
+
+    block_height: int
+    timestamp: datetime
+    current_price_usd: float
+    market_cap_usd: float
+    active_supply_btc: float
+    true_market_mean_usd: float
+    aviv_ratio: float
+    aviv_percentile: float
+    valuation_zone: str
+
+    def __post_init__(self):
+        """Validate valuation metrics."""
+        valid_zones = {"UNDERVALUED", "FAIR", "OVERVALUED"}
+        if self.valuation_zone not in valid_zones:
+            raise ValueError(
+                f"valuation_zone must be one of {valid_zones}: {self.valuation_zone}"
+            )
+        if not 0.0 <= self.aviv_percentile <= 100.0:
+            raise ValueError(
+                f"aviv_percentile must be in [0, 100]: {self.aviv_percentile}"
+            )
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "block_height": self.block_height,
+            "timestamp": self.timestamp.isoformat()
+            if hasattr(self.timestamp, "isoformat")
+            else str(self.timestamp),
+            "current_price_usd": self.current_price_usd,
+            "market_cap_usd": self.market_cap_usd,
+            "active_supply_btc": self.active_supply_btc,
+            "true_market_mean_usd": self.true_market_mean_usd,
+            "aviv_ratio": self.aviv_ratio,
+            "aviv_percentile": self.aviv_percentile,
+            "valuation_zone": self.valuation_zone,
+        }
+
+
+@dataclass
+class CointimeSignal:
+    """
+    Trading signal from Cointime Economics analysis.
+
+    Combines liveliness trends, AVIV valuation, and pattern detection
+    to generate a fusion-compatible vote.
+
+    Attributes:
+        block_height: Bitcoin block height
+        timestamp: Block timestamp
+        liveliness_7d_change: 7-day change in liveliness
+        liveliness_30d_change: 30-day change in liveliness
+        liveliness_trend: "INCREASING" | "DECREASING" | "STABLE"
+        aviv_ratio: Current AVIV ratio
+        valuation_zone: "UNDERVALUED" | "FAIR" | "OVERVALUED"
+        extreme_dormancy: True if liveliness < 0.15
+        supply_squeeze: True if active supply declining
+        distribution_warning: True if AVIV > 2.0 + liveliness spike
+        cointime_vote: Signal vote (-1 to +1)
+        confidence: Signal confidence (0.5 to 1.0)
+    """
+
+    block_height: int
+    timestamp: datetime
+    liveliness_7d_change: float
+    liveliness_30d_change: float
+    liveliness_trend: str
+    aviv_ratio: float
+    valuation_zone: str
+    extreme_dormancy: bool
+    supply_squeeze: bool
+    distribution_warning: bool
+    cointime_vote: float
+    confidence: float
+
+    def __post_init__(self):
+        """Validate signal fields."""
+        valid_trends = {"INCREASING", "DECREASING", "STABLE"}
+        if self.liveliness_trend not in valid_trends:
+            raise ValueError(
+                f"liveliness_trend must be one of {valid_trends}: {self.liveliness_trend}"
+            )
+        valid_zones = {"UNDERVALUED", "FAIR", "OVERVALUED"}
+        if self.valuation_zone not in valid_zones:
+            raise ValueError(
+                f"valuation_zone must be one of {valid_zones}: {self.valuation_zone}"
+            )
+        if not -1.0 <= self.cointime_vote <= 1.0:
+            raise ValueError(f"cointime_vote must be in [-1, 1]: {self.cointime_vote}")
+        if not 0.0 <= self.confidence <= 1.0:
+            raise ValueError(f"confidence must be in [0, 1]: {self.confidence}")
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "block_height": self.block_height,
+            "timestamp": self.timestamp.isoformat()
+            if hasattr(self.timestamp, "isoformat")
+            else str(self.timestamp),
+            "liveliness_7d_change": self.liveliness_7d_change,
+            "liveliness_30d_change": self.liveliness_30d_change,
+            "liveliness_trend": self.liveliness_trend,
+            "aviv_ratio": self.aviv_ratio,
+            "valuation_zone": self.valuation_zone,
+            "extreme_dormancy": self.extreme_dormancy,
+            "supply_squeeze": self.supply_squeeze,
+            "distribution_warning": self.distribution_warning,
+            "cointime_vote": self.cointime_vote,
+            "confidence": self.confidence,
         }
