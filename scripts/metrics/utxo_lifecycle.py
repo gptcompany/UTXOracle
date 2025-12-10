@@ -505,8 +505,8 @@ def process_block_inputs(
         creation_price = row[5]
         btc_value = row[6]
 
-        # Calculate age
-        age_blocks = block_height - creation_block
+        # Calculate age (B6 fix: guard against negative age from reorg/data issues)
+        age_blocks = max(0, block_height - creation_block)
         age_days = age_blocks // BLOCKS_PER_DAY
 
         # Classify cohort

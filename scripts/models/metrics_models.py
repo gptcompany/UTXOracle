@@ -838,6 +838,10 @@ class AgeCohortsConfig:
             Tuple of (cohort, sub_cohort) where cohort is "STH" or "LTH"
             and sub_cohort is the specific age band.
         """
+        # B5 fix: Guard against negative age_days (defensive for invalid data)
+        if age_days < 0:
+            return "STH", "<1d"
+
         cohort = "STH" if age_days < self.sth_threshold_days else "LTH"
 
         for name, min_days, max_days in self.cohorts:

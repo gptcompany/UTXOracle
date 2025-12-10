@@ -92,7 +92,13 @@ def calculate_market_cap(total_supply_btc: float, current_price_usd: float) -> f
 
     Returns:
         Market Cap in USD.
+
+    Raises:
+        ValueError: If price is negative.
     """
+    # B7 fix: Guard against negative price values
+    if current_price_usd < 0:
+        raise ValueError(f"Invalid negative price: {current_price_usd}")
     return total_supply_btc * current_price_usd
 
 
