@@ -1,0 +1,31 @@
+{
+  "metric_name": "fractal_dimension",
+  "period_start": "2025-05-11",
+  "period_end": "2025-10-31",
+  "total_signals": 174,
+  "total_days": 174,
+  "sharpe_ratio": 0.22559787105800114,
+  "sortino_ratio": 0.16721791279618584,
+  "max_drawdown": 0.14768861155452367,
+  "win_rate": 0.5528455284552846,
+  "profit_factor": 1.0502907733094438,
+  "vs_random_sharpe": 0.36444652747233647,
+  "vs_random_excess": -0.13884865641433533,
+  "vs_buyhold_sharpe": 0.43231914343292926,
+  "vs_buyhold_excess": -0.20672127237492813,
+  "t_statistic": -6.551799168906533,
+  "p_value": 9.470668693722928e-11,
+  "confidence_interval_95": [
+    0.3245092131841303,
+    0.40743071378246976
+  ],
+  "effect_size_cohens_d": -0.20718608145742884,
+  "effect_size_interpretation": "Small effect (below baseline)",
+  "is_significant": true,
+  "cv_sharpe_mean": 0.40582146684379744,
+  "cv_sharpe_std": 0.3568365798781629,
+  "cv_folds": 3,
+  "cv_is_stable": true,
+  "cv_interpretation": "Stable positive performance (CV=0.88)",
+  "recommendation": "maintain_weight"
+}

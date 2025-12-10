@@ -1,0 +1,31 @@
+{
+  "metric_name": "symbolic_dynamics",
+  "period_start": "2025-05-11",
+  "period_end": "2025-10-31",
+  "total_signals": 174,
+  "total_days": 174,
+  "sharpe_ratio": 0.0,
+  "sortino_ratio": 0.0,
+  "max_drawdown": 0.0,
+  "win_rate": 0.0,
+  "profit_factor": 0.0,
+  "vs_random_sharpe": 0.0,
+  "vs_random_excess": 0.0,
+  "vs_buyhold_sharpe": 0.43231914343292926,
+  "vs_buyhold_excess": -0.43231914343292926,
+  "t_statistic": 0.0,
+  "p_value": 1.0,
+  "confidence_interval_95": [
+    0.0,
+    0.0
+  ],
+  "effect_size_cohens_d": 0.0,
+  "effect_size_interpretation": "Negligible effect (below baseline)",
+  "is_significant": false,
+  "cv_sharpe_mean": 0.0,
+  "cv_sharpe_std": 0.0,
+  "cv_folds": 3,
+  "cv_is_stable": true,
+  "cv_interpretation": "Stable zero performance",
+  "recommendation": "maintain_weight"
+}

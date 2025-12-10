@@ -2,7 +2,7 @@
 name: alpha-debug
 description: "AlphaEvolve-style iterative bug hunter. Use PROACTIVELY after implementation phases, before commits, or when user requests N rounds of verification. Performs evolutionary debugging cycles: analyze -> hypothesize -> verify -> fix -> repeat. Finds bugs even when tests pass."
 tools: Read, Bash, Glob, Grep, Edit, TodoWrite
-model: sonnet
+model: opus
 color: purple
 ---
 
