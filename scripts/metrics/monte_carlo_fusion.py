@@ -343,6 +343,9 @@ def enhanced_fusion(
     signal_mean = mean(samples)
     signal_std = stdev(samples) if len(samples) > 1 else 0.0
 
+    # Clamp signal_mean to [-1, 1] range (defensive - shouldn't happen with valid votes)
+    signal_mean = max(-1.0, min(1.0, signal_mean))
+
     # Calculate 95% CI
     sorted_samples = sorted(samples)
     ci_lower = sorted_samples[int(0.025 * n_samples)]

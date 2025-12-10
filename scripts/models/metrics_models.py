@@ -379,6 +379,15 @@ class EnhancedFusionResult:
     components_used: list = field(default_factory=list)
     timestamp: datetime = field(default_factory=datetime.utcnow)
 
+    def __post_init__(self):
+        """Validate signal bounds."""
+        if not -1.0 <= self.signal_mean <= 1.0:
+            raise ValueError(f"signal_mean out of range: {self.signal_mean}")
+        if not 0.0 <= self.action_confidence <= 1.0:
+            raise ValueError(
+                f"action_confidence out of range: {self.action_confidence}"
+            )
+
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
         return {
@@ -602,6 +611,22 @@ class CoinblocksMetrics:
 
     def __post_init__(self):
         """Validate coinblocks metrics."""
+        if self.coinblocks_created < 0:
+            raise ValueError(
+                f"coinblocks_created must be >= 0: {self.coinblocks_created}"
+            )
+        if self.coinblocks_destroyed < 0:
+            raise ValueError(
+                f"coinblocks_destroyed must be >= 0: {self.coinblocks_destroyed}"
+            )
+        if self.cumulative_created < 0:
+            raise ValueError(
+                f"cumulative_created must be >= 0: {self.cumulative_created}"
+            )
+        if self.cumulative_destroyed < 0:
+            raise ValueError(
+                f"cumulative_destroyed must be >= 0: {self.cumulative_destroyed}"
+            )
         if not 0.0 <= self.liveliness <= 1.0:
             raise ValueError(f"liveliness must be in [0, 1]: {self.liveliness}")
         if not 0.0 <= self.vaultedness <= 1.0:

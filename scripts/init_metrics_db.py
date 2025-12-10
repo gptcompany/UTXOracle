@@ -165,21 +165,21 @@ CREATE TABLE IF NOT EXISTS cointime_metrics (
     block_height INTEGER PRIMARY KEY,
     timestamp TIMESTAMP NOT NULL,
 
-    -- Coinblocks (per-block)
-    coinblocks_created DOUBLE NOT NULL,
-    coinblocks_destroyed DOUBLE NOT NULL,
+    -- Coinblocks (per-block) - must be non-negative
+    coinblocks_created DOUBLE NOT NULL CHECK (coinblocks_created >= 0),
+    coinblocks_destroyed DOUBLE NOT NULL CHECK (coinblocks_destroyed >= 0),
 
-    -- Coinblocks (cumulative)
-    cumulative_created DOUBLE NOT NULL,
-    cumulative_destroyed DOUBLE NOT NULL,
+    -- Coinblocks (cumulative) - must be non-negative
+    cumulative_created DOUBLE NOT NULL CHECK (cumulative_created >= 0),
+    cumulative_destroyed DOUBLE NOT NULL CHECK (cumulative_destroyed >= 0),
 
     -- Liveliness/Vaultedness (derived)
     liveliness DOUBLE NOT NULL CHECK (liveliness >= 0 AND liveliness <= 1),
     vaultedness DOUBLE NOT NULL CHECK (vaultedness >= 0 AND vaultedness <= 1),
 
-    -- Supply split
-    active_supply_btc DOUBLE NOT NULL,
-    vaulted_supply_btc DOUBLE NOT NULL,
+    -- Supply split - must be non-negative
+    active_supply_btc DOUBLE NOT NULL CHECK (active_supply_btc >= 0),
+    vaulted_supply_btc DOUBLE NOT NULL CHECK (vaulted_supply_btc >= 0),
 
     -- Valuation (optional - requires price data)
     true_market_mean_usd DOUBLE,

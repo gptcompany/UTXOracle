@@ -585,6 +585,7 @@ def generate_cointime_signal(
         "distribution_warning": distribution_warning,
         "supply_squeeze": supply_squeeze,
         "liveliness": liveliness,
+        "liveliness_trend": liveliness_trend,
         "aviv_ratio": aviv_ratio,
         "active_supply_btc": active_supply_btc,
     }
