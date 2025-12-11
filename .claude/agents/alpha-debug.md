@@ -4,6 +4,7 @@ description: "AlphaEvolve-style iterative bug hunter. Use PROACTIVELY after impl
 tools: Read, Bash, Glob, Grep, Edit, TodoWrite
 model: opus
 color: purple
+permissionMode: default
 ---
 
 # Alpha Debug - Evolutionary Bug Hunter

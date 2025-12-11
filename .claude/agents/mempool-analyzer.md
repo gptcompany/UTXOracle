@@ -3,7 +3,7 @@ name: mempool-analyzer
 description: Real-time price estimation specialist. Use proactively for Task 03 (mempool histogram management, statistical clustering, convergence algorithm). Expert in UTXOracle Steps 5-11 implementation.
 tools: Read, Write, Edit, Bash, Glob, Grep, mcp__serena__*, mcp__context7__get-library-docs, TodoWrite
 model: opus
-color: green
+color: teal
 ---
 
 # Mempool Analyzer

@@ -1,0 +1,562 @@
+openapi: 3.0.3
+info:
+  title: UTXOracle Advanced On-Chain Metrics API
+  description: |
+    REST API for professional-grade Bitcoin on-chain metrics.
+    Part of spec-021: Advanced On-Chain Metrics.
+
+    All metrics use local DuckDB data - no external API dependencies.
+  version: 1.0.0
+  contact:
+    name: UTXOracle Team
+servers:
+  - url: http://localhost:8000
+    description: Local development server
+
+tags:
+  - name: URPD
+    description: UTXO Realized Price Distribution
+  - name: Supply
+    description: Supply profit/loss metrics
+  - name: Reserve Risk
+    description: Long-term holder conviction
+  - name: Sell-side Risk
+    description: Distribution pressure detection
+  - name: CDD/VDD
+    description: Coindays and Value Days Destroyed
+
+paths:
+  /api/metrics/urpd:
+    get:
+      tags:
+        - URPD
+      summary: Get UTXO Realized Price Distribution
+      description: |
+        Returns distribution of unspent BTC by acquisition price (cost basis).
+        Useful for identifying support/resistance zones.
+      operationId: getURPD
+      parameters:
+        - name: bucket_size
+          in: query
+          description: Size of each price bucket in USD
+          required: false
+          schema:
+            type: number
+            default: 5000
+            minimum: 100
+            maximum: 50000
+        - name: current_price
+          in: query
+          description: Current BTC price for profit/loss calculation
+          required: true
+          schema:
+            type: number
+            minimum: 0
+      responses:
+        '200':
+          description: URPD distribution
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/URPDResult'
+        '400':
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/metrics/supply-profit-loss:
+    get:
+      tags:
+        - Supply
+      summary: Get Supply in Profit/Loss
+      description: |
+        Returns breakdown of circulating supply by profit/loss status.
+        Includes STH/LTH segmentation and market phase classification.
+      operationId: getSupplyProfitLoss
+      parameters:
+        - name: current_price
+          in: query
+          description: Current BTC price for profit/loss calculation
+          required: true
+          schema:
+            type: number
+            minimum: 0
+      responses:
+        '200':
+          description: Supply profit/loss breakdown
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupplyProfitLossResult'
+        '400':
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/metrics/reserve-risk:
+    get:
+      tags:
+        - Reserve Risk
+      summary: Get Reserve Risk metric
+      description: |
+        Measures confidence of long-term holders relative to price.
+        Low values indicate high conviction (good buy zones).
+      operationId: getReserveRisk
+      parameters:
+        - name: current_price
+          in: query
+          description: Current BTC price (optional, uses UTXOracle price if not provided)
+          required: false
+          schema:
+            type: number
+            minimum: 0
+      responses:
+        '200':
+          description: Reserve Risk metric
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReserveRiskResult'
+        '400':
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/metrics/sell-side-risk:
+    get:
+      tags:
+        - Sell-side Risk
+      summary: Get Sell-side Risk Ratio
+      description: |
+        Ratio of realized profit to market cap.
+        High values indicate aggressive profit-taking.
+      operationId: getSellSideRisk
+      parameters:
+        - name: window_days
+          in: query
+          description: Rolling window size in days
+          required: false
+          schema:
+            type: integer
+            default: 30
+            enum: [7, 30, 90]
+        - name: current_price
+          in: query
+          description: Current BTC price (optional)
+          required: false
+          schema:
+            type: number
+            minimum: 0
+      responses:
+        '200':
+          description: Sell-side Risk metric
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellSideRiskResult'
+        '400':
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/metrics/coindays:
+    get:
+      tags:
+        - CDD/VDD
+      summary: Get Coindays Destroyed (CDD) and Value Days Destroyed (VDD)
+      description: |
+        CDD measures "old money" movement. VDD = CDD weighted by price.
+        Spikes indicate long-term holder distribution.
+      operationId: getCoindays
+      parameters:
+        - name: window_days
+          in: query
+          description: Rolling window size in days
+          required: false
+          schema:
+            type: integer
+            default: 30
+            enum: [7, 30, 90, 365]
+        - name: current_price
+          in: query
+          description: Current BTC price for VDD calculation
+          required: true
+          schema:
+            type: number
+            minimum: 0
+      responses:
+        '200':
+          description: CDD/VDD metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CoinDaysDestroyedResult'
+        '400':
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    URPDBucket:
+      type: object
+      required:
+        - price_low
+        - price_high
+        - btc_amount
+        - utxo_count
+        - percentage
+      properties:
+        price_low:
+          type: number
+          description: Lower bound of bucket (USD)
+          example: 90000
+        price_high:
+          type: number
+          description: Upper bound of bucket (USD)
+          example: 95000
+        btc_amount:
+          type: number
+          description: Total BTC in bucket
+          example: 1250000.5
+        utxo_count:
+          type: integer
+          description: Number of UTXOs in bucket
+          example: 2847193
+        percentage:
+          type: number
+          description: Percentage of total supply
+          minimum: 0
+          maximum: 100
+          example: 6.41
+
+    URPDResult:
+      type: object
+      required:
+        - buckets
+        - bucket_size_usd
+        - total_supply_btc
+        - current_price_usd
+        - supply_above_price_btc
+        - supply_below_price_btc
+        - supply_above_price_pct
+        - supply_below_price_pct
+        - block_height
+        - timestamp
+      properties:
+        buckets:
+          type: array
+          items:
+            $ref: '#/components/schemas/URPDBucket'
+          description: Price buckets sorted by price descending
+        bucket_size_usd:
+          type: number
+          description: Size of each bucket in USD
+          example: 5000
+        total_supply_btc:
+          type: number
+          description: Total BTC in distribution
+          example: 19500000
+        current_price_usd:
+          type: number
+          description: Current BTC price
+          example: 100000
+        supply_above_price_btc:
+          type: number
+          description: BTC with cost basis above current price (in loss)
+          example: 2340000
+        supply_below_price_btc:
+          type: number
+          description: BTC with cost basis below current price (in profit)
+          example: 17160000
+        supply_above_price_pct:
+          type: number
+          description: Percentage of supply in loss
+          example: 12.0
+        supply_below_price_pct:
+          type: number
+          description: Percentage of supply in profit
+          example: 88.0
+        dominant_bucket:
+          $ref: '#/components/schemas/URPDBucket'
+        block_height:
+          type: integer
+          example: 870000
+        timestamp:
+          type: string
+          format: date-time
+
+    SupplyProfitLossResult:
+      type: object
+      required:
+        - current_price_usd
+        - total_supply_btc
+        - supply_in_profit_btc
+        - supply_in_loss_btc
+        - pct_in_profit
+        - pct_in_loss
+        - market_phase
+        - signal_strength
+        - block_height
+        - timestamp
+      properties:
+        current_price_usd:
+          type: number
+          example: 100000
+        total_supply_btc:
+          type: number
+          example: 19500000
+        supply_in_profit_btc:
+          type: number
+          example: 17160000
+        supply_in_loss_btc:
+          type: number
+          example: 2340000
+        supply_breakeven_btc:
+          type: number
+          example: 0
+        pct_in_profit:
+          type: number
+          minimum: 0
+          maximum: 100
+          example: 88.0
+        pct_in_loss:
+          type: number
+          minimum: 0
+          maximum: 100
+          example: 12.0
+        sth_in_profit_btc:
+          type: number
+          example: 4500000
+        sth_in_loss_btc:
+          type: number
+          example: 500000
+        sth_pct_in_profit:
+          type: number
+          example: 90.0
+        lth_in_profit_btc:
+          type: number
+          example: 12660000
+        lth_in_loss_btc:
+          type: number
+          example: 1840000
+        lth_pct_in_profit:
+          type: number
+          example: 87.3
+        market_phase:
+          type: string
+          enum: [EUPHORIA, BULL, TRANSITION, CAPITULATION]
+          description: Market phase based on % in profit
+          example: BULL
+        signal_strength:
+          type: number
+          minimum: 0
+          maximum: 1
+          example: 0.75
+        block_height:
+          type: integer
+          example: 870000
+        timestamp:
+          type: string
+          format: date-time
+
+    ReserveRiskResult:
+      type: object
+      required:
+        - reserve_risk
+        - current_price_usd
+        - hodl_bank
+        - circulating_supply_btc
+        - signal_zone
+        - confidence
+        - block_height
+        - timestamp
+      properties:
+        reserve_risk:
+          type: number
+          description: Reserve Risk value (typically 0.0001 to 0.05)
+          example: 0.0045
+        current_price_usd:
+          type: number
+          example: 100000
+        hodl_bank:
+          type: number
+          description: Cumulative coindays destroyed (scaled)
+          example: 450000000000
+        circulating_supply_btc:
+          type: number
+          example: 19500000
+        mvrv:
+          type: number
+          description: MVRV ratio for context
+          example: 2.1
+        liveliness:
+          type: number
+          description: Network liveliness (0-1)
+          example: 0.35
+        signal_zone:
+          type: string
+          enum: [STRONG_BUY, ACCUMULATION, FAIR_VALUE, DISTRIBUTION]
+          example: ACCUMULATION
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+          example: 0.82
+        block_height:
+          type: integer
+          example: 870000
+        timestamp:
+          type: string
+          format: date-time
+
+    SellSideRiskResult:
+      type: object
+      required:
+        - sell_side_risk
+        - sell_side_risk_pct
+        - realized_profit_usd
+        - market_cap_usd
+        - window_days
+        - signal_zone
+        - confidence
+        - block_height
+        - timestamp
+      properties:
+        sell_side_risk:
+          type: number
+          description: Sell-side risk ratio
+          example: 0.0023
+        sell_side_risk_pct:
+          type: number
+          description: Sell-side risk as percentage
+          example: 0.23
+        realized_profit_usd:
+          type: number
+          description: Profit realized in window
+          example: 4500000000
+        realized_loss_usd:
+          type: number
+          description: Loss realized in window
+          example: 1200000000
+        net_realized_pnl_usd:
+          type: number
+          description: Net realized P&L
+          example: 3300000000
+        market_cap_usd:
+          type: number
+          example: 1950000000000
+        window_days:
+          type: integer
+          example: 30
+        spent_utxos_in_window:
+          type: integer
+          example: 8500000
+        signal_zone:
+          type: string
+          enum: [LOW, NORMAL, ELEVATED, AGGRESSIVE]
+          example: NORMAL
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+          example: 0.78
+        block_height:
+          type: integer
+          example: 870000
+        timestamp:
+          type: string
+          format: date-time
+
+    CoinDaysDestroyedResult:
+      type: object
+      required:
+        - cdd_total
+        - cdd_daily_avg
+        - vdd_total
+        - vdd_daily_avg
+        - window_days
+        - current_price_usd
+        - signal_zone
+        - confidence
+        - block_height
+        - timestamp
+      properties:
+        cdd_total:
+          type: number
+          description: Total CDD in window
+          example: 45000000000
+        cdd_daily_avg:
+          type: number
+          description: Average daily CDD
+          example: 1500000000
+        vdd_total:
+          type: number
+          description: Total VDD (CDD x price)
+          example: 4500000000000000
+        vdd_daily_avg:
+          type: number
+          description: Average daily VDD
+          example: 150000000000000
+        vdd_multiple:
+          type: number
+          nullable: true
+          description: VDD / 365d MA, > 2.0 = significant
+          example: 1.45
+        window_days:
+          type: integer
+          example: 30
+        spent_utxos_count:
+          type: integer
+          example: 8500000
+        avg_utxo_age_days:
+          type: number
+          description: Average age of spent UTXOs
+          example: 245.3
+        max_single_day_cdd:
+          type: number
+          description: Peak CDD in a single day
+          example: 3500000000
+        max_single_day_date:
+          type: string
+          format: date
+          nullable: true
+          example: "2025-12-05"
+        current_price_usd:
+          type: number
+          example: 100000
+        signal_zone:
+          type: string
+          enum: [LOW_ACTIVITY, NORMAL, ELEVATED, SPIKE]
+          example: NORMAL
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+          example: 0.75
+        block_height:
+          type: integer
+          example: 870000
+        timestamp:
+          type: string
+          format: date-time
+
+    Error:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
+          description: Error message
+          example: "current_price is required"
