@@ -219,7 +219,8 @@ Values > 2.0 indicate significant long-term holder distribution.
 ### FR-002: Supply Profit/Loss
 - Real-time calculation given current price
 - Separate STH/LTH profit/loss breakdown
-- Historical time series
+- Historical time series: DEFERRED to spec-022 (metrics dashboard)
+  - Note: Current scope returns point-in-time calculations only
 
 ### FR-003: Reserve Risk
 - Daily calculation
@@ -301,7 +302,10 @@ Values > 2.0 indicate significant long-term holder distribution.
 | `scripts/metrics/sell_side_risk.py` | Sell-side Risk Ratio |
 | `scripts/metrics/coindays.py` | CDD + VDD metrics |
 | `tests/test_urpd.py` | URPD tests |
-| `tests/test_advanced_metrics.py` | Other metrics tests |
+| `tests/test_supply_profit_loss.py` | Supply P/L tests |
+| `tests/test_reserve_risk.py` | Reserve Risk tests |
+| `tests/test_sell_side_risk.py` | Sell-side Risk tests |
+| `tests/test_coindays.py` | CDD/VDD tests |
 
 ---
 

@@ -4,6 +4,7 @@ description: Real-time browser visualization specialist. Use proactively for Tas
 tools: Read, Write, Edit, Bash, Glob, Grep, WebFetch, mcp__context7__get-library-docs, mcp__gemini-cli__ask-gemini, mcp__playwright__browser_navigate, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_console_messages, mcp__chrome-devtools__navigate_page, mcp__chrome-devtools__take_screenshot, mcp__chrome-devtools__list_console_messages, mcp__chrome-devtools__evaluate_script, mcp__browserbase__navigate, mcp__browserbase__screenshot, mcp__browserbase__extract, mcp__browserbase__act, mcp__browserbase__observe, mcp__browserbase__session_create, TodoWrite
 model: opus
 color: cyan
+skills: github-workflow
 ---
 
 # Visualization Renderer

@@ -4,6 +4,7 @@ description: WebSocket API specialist. Use proactively for Task 04 (FastAPI WebS
 tools: Read, Write, Edit, Bash, Glob, Grep, WebFetch, mcp__serena__*, mcp__context7__get-library-docs, mcp__context7__resolve-library-id, TodoWrite
 model: opus
 color: blue
+skills: github-workflow, pydantic-model-generator
 ---
 
 # Data Streamer

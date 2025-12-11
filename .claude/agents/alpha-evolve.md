@@ -4,6 +4,7 @@ description: "AlphaEvolve-style implementation generator. Use when task has [E] 
 tools: Read, Write, Edit, Bash, Glob, Grep, TodoWrite
 model: opus
 color: green
+permissionMode: default
 ---
 
 # Alpha-Evolve - Multi-Implementation Generator

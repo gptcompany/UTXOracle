@@ -1652,6 +1652,588 @@ async def get_cointime_signal():
 
 
 # =============================================================================
+# spec-021: Advanced On-Chain Metrics - URPD
+# =============================================================================
+
+
+class URPDQueryParams(BaseModel):
+    """Query parameters for URPD endpoint."""
+
+    bucket_size: float = Field(
+        default=5000.0,
+        ge=100.0,
+        le=50000.0,
+        description="Size of each price bucket in USD (100-50000)",
+    )
+    current_price: float = Field(
+        default=100000.0,
+        ge=1.0,
+        description="Current BTC price for profit/loss calculation",
+    )
+
+
+class URPDBucketResponse(BaseModel):
+    """Single price bucket in URPD response."""
+
+    price_low: float
+    price_high: float
+    btc_amount: float
+    utxo_count: int
+    percentage: float
+
+
+class URPDResponse(BaseModel):
+    """URPD calculation response."""
+
+    buckets: List[URPDBucketResponse]
+    bucket_size_usd: float
+    total_supply_btc: float
+    current_price_usd: float
+    supply_above_price_btc: float
+    supply_below_price_btc: float
+    supply_above_price_pct: float
+    supply_below_price_pct: float
+    dominant_bucket: Optional[URPDBucketResponse]
+    block_height: int
+    timestamp: str
+
+
+# UTXO Lifecycle Database Path (separate from price_analysis DB)
+UTXO_DB_PATH = os.getenv(
+    "UTXO_DB_PATH",
+    "/media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxo_lifecycle.duckdb",
+)
+
+
+@app.get("/api/metrics/urpd", response_model=URPDResponse)
+async def get_urpd(
+    bucket_size: float = Query(
+        default=5000.0,
+        ge=100.0,
+        le=50000.0,
+        description="Size of each price bucket in USD",
+    ),
+    current_price: float = Query(
+        default=100000.0, ge=1.0, description="Current BTC price for profit/loss split"
+    ),
+):
+    """
+    Calculate UTXO Realized Price Distribution (URPD).
+
+    URPD groups unspent UTXOs into price buckets based on their creation price
+    (cost basis). This reveals support/resistance zones based on where holders
+    acquired their coins.
+
+    **Use Cases:**
+    - Identify price levels with high BTC concentration (support/resistance)
+    - Calculate supply in profit vs loss at current price
+    - Find the dominant price bucket (most BTC accumulated)
+
+    **Parameters:**
+    - `bucket_size`: Width of each price bucket (default: $5,000)
+    - `current_price`: Current BTC price for profit/loss calculation
+
+    **Response Fields:**
+    - `buckets`: List of price buckets with BTC amount and UTXO count
+    - `supply_above_price_btc`: BTC with cost basis > current price (in loss)
+    - `supply_below_price_btc`: BTC with cost basis < current price (in profit)
+    - `dominant_bucket`: Bucket with highest BTC concentration
+
+    Spec: 021-advanced-onchain-metrics
+    """
+    import duckdb
+
+    conn = None
+    try:
+        # Connect to UTXO lifecycle database
+        conn = duckdb.connect(UTXO_DB_PATH, read_only=True)
+
+        # Get latest block height
+        block_result = conn.execute(
+            "SELECT MAX(creation_block) FROM utxo_lifecycle"
+        ).fetchone()
+        block_height = block_result[0] if block_result and block_result[0] else 0
+
+        # Import and calculate URPD
+        from scripts.metrics.urpd import calculate_urpd
+
+        result = calculate_urpd(
+            conn=conn,
+            current_price_usd=current_price,
+            bucket_size_usd=bucket_size,
+            block_height=block_height,
+        )
+
+        # Convert to response model
+        return URPDResponse(
+            buckets=[
+                URPDBucketResponse(
+                    price_low=b.price_low,
+                    price_high=b.price_high,
+                    btc_amount=b.btc_amount,
+                    utxo_count=b.utxo_count,
+                    percentage=b.percentage,
+                )
+                for b in result.buckets
+            ],
+            bucket_size_usd=result.bucket_size_usd,
+            total_supply_btc=result.total_supply_btc,
+            current_price_usd=result.current_price_usd,
+            supply_above_price_btc=result.supply_above_price_btc,
+            supply_below_price_btc=result.supply_below_price_btc,
+            supply_above_price_pct=result.supply_above_price_pct,
+            supply_below_price_pct=result.supply_below_price_pct,
+            dominant_bucket=URPDBucketResponse(
+                price_low=result.dominant_bucket.price_low,
+                price_high=result.dominant_bucket.price_high,
+                btc_amount=result.dominant_bucket.btc_amount,
+                utxo_count=result.dominant_bucket.utxo_count,
+                percentage=result.dominant_bucket.percentage,
+            )
+            if result.dominant_bucket
+            else None,
+            block_height=result.block_height,
+            timestamp=result.timestamp.isoformat(),
+        )
+
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=503,
+            detail=f"UTXO lifecycle database not found at {UTXO_DB_PATH}. "
+            "Run utxo_lifecycle sync first.",
+        )
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "utxo_lifecycle" in error_msg or "does not exist" in error_msg:
+            raise HTTPException(
+                status_code=404,
+                detail="UTXO lifecycle table not found. Schema migration pending.",
+            )
+        logging.error(f"Error calculating URPD: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+# =============================================================================
+# spec-021: Advanced On-Chain Metrics - Supply Profit/Loss
+# =============================================================================
+
+
+class SupplyProfitLossResponse(BaseModel):
+    """Supply profit/loss calculation response."""
+
+    current_price_usd: float
+    total_supply_btc: float
+    supply_in_profit_btc: float
+    supply_in_loss_btc: float
+    supply_breakeven_btc: float
+    pct_in_profit: float
+    pct_in_loss: float
+    sth_in_profit_btc: float
+    sth_in_loss_btc: float
+    sth_pct_in_profit: float
+    lth_in_profit_btc: float
+    lth_in_loss_btc: float
+    lth_pct_in_profit: float
+    market_phase: str
+    signal_strength: float
+    block_height: int
+    timestamp: str
+
+
+@app.get("/api/metrics/supply-profit-loss", response_model=SupplyProfitLossResponse)
+async def get_supply_profit_loss(
+    current_price: float = Query(
+        default=100000.0,
+        ge=1.0,
+        description="Current BTC price for profit/loss calculation",
+    ),
+):
+    """
+    Calculate Supply Profit/Loss Distribution.
+
+    Classifies circulating supply by profit/loss status based on UTXO cost basis
+    vs current price, with STH/LTH cohort segmentation.
+
+    **Market Phases:**
+    - **EUPHORIA** (>95% in profit): Cycle top warning
+    - **BULL** (80-95% in profit): Strong uptrend
+    - **TRANSITION** (50-80% in profit): Uncertain market
+    - **CAPITULATION** (<50% in profit): Accumulation zone
+
+    **Use Cases:**
+    - Detect market cycle phases
+    - Identify overbought/oversold conditions
+    - Compare STH vs LTH profitability (sentiment divergence)
+
+    **Parameters:**
+    - `current_price`: Current BTC price for comparison (default: $100,000)
+
+    Spec: 021-advanced-onchain-metrics
+    """
+    import duckdb
+
+    conn = None
+    try:
+        conn = duckdb.connect(UTXO_DB_PATH, read_only=True)
+
+        # Get latest block height
+        block_result = conn.execute(
+            "SELECT MAX(creation_block) FROM utxo_lifecycle"
+        ).fetchone()
+        block_height = block_result[0] if block_result and block_result[0] else 0
+
+        from scripts.metrics.supply_profit_loss import calculate_supply_profit_loss
+
+        result = calculate_supply_profit_loss(
+            conn=conn,
+            current_price_usd=current_price,
+            block_height=block_height,
+        )
+
+        return SupplyProfitLossResponse(
+            current_price_usd=result.current_price_usd,
+            total_supply_btc=result.total_supply_btc,
+            supply_in_profit_btc=result.supply_in_profit_btc,
+            supply_in_loss_btc=result.supply_in_loss_btc,
+            supply_breakeven_btc=result.supply_breakeven_btc,
+            pct_in_profit=result.pct_in_profit,
+            pct_in_loss=result.pct_in_loss,
+            sth_in_profit_btc=result.sth_in_profit_btc,
+            sth_in_loss_btc=result.sth_in_loss_btc,
+            sth_pct_in_profit=result.sth_pct_in_profit,
+            lth_in_profit_btc=result.lth_in_profit_btc,
+            lth_in_loss_btc=result.lth_in_loss_btc,
+            lth_pct_in_profit=result.lth_pct_in_profit,
+            market_phase=result.market_phase,
+            signal_strength=result.signal_strength,
+            block_height=result.block_height,
+            timestamp=result.timestamp.isoformat(),
+        )
+
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=503,
+            detail=f"UTXO lifecycle database not found at {UTXO_DB_PATH}. "
+            "Run utxo_lifecycle sync first.",
+        )
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "utxo_lifecycle" in error_msg or "does not exist" in error_msg:
+            raise HTTPException(
+                status_code=404,
+                detail="UTXO lifecycle table not found. Schema migration pending.",
+            )
+        logging.error(f"Error calculating Supply P/L: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+# =============================================================================
+# spec-021: Advanced On-Chain Metrics - Reserve Risk
+# =============================================================================
+
+
+class ReserveRiskResponse(BaseModel):
+    """Reserve Risk calculation response."""
+
+    reserve_risk: float
+    current_price_usd: float
+    hodl_bank: float
+    circulating_supply_btc: float
+    mvrv: float
+    liveliness: float
+    signal_zone: str
+    confidence: float
+    block_height: int
+    timestamp: str
+
+
+@app.get("/api/metrics/reserve-risk", response_model=ReserveRiskResponse)
+async def get_reserve_risk(
+    current_price: float = Query(
+        default=100000.0, ge=1.0, description="Current BTC price"
+    ),
+):
+    """
+    Calculate Reserve Risk ratio.
+
+    Reserve Risk measures long-term holder confidence relative to price.
+    Lower values indicate higher conviction (historically good buy zones).
+
+    **Signal Zones:**
+    - **STRONG_BUY** (<0.002): Cycle bottom territory
+    - **ACCUMULATION** (0.002-0.008): Good accumulation zone
+    - **FAIR_VALUE** (0.008-0.02): Normal market
+    - **DISTRIBUTION** (>0.02): Cycle top warning
+
+    Spec: 021-advanced-onchain-metrics
+    """
+    import duckdb
+
+    conn = None
+    try:
+        conn = duckdb.connect(UTXO_DB_PATH, read_only=True)
+
+        block_result = conn.execute(
+            "SELECT MAX(creation_block) FROM utxo_lifecycle"
+        ).fetchone()
+        block_height = block_result[0] if block_result and block_result[0] else 0
+
+        from scripts.metrics.reserve_risk import calculate_reserve_risk
+
+        result = calculate_reserve_risk(
+            conn=conn,
+            current_price_usd=current_price,
+            block_height=block_height,
+        )
+
+        return ReserveRiskResponse(
+            reserve_risk=result.reserve_risk,
+            current_price_usd=result.current_price_usd,
+            hodl_bank=result.hodl_bank,
+            circulating_supply_btc=result.circulating_supply_btc,
+            mvrv=result.mvrv,
+            liveliness=result.liveliness,
+            signal_zone=result.signal_zone,
+            confidence=result.confidence,
+            block_height=result.block_height,
+            timestamp=result.timestamp.isoformat(),
+        )
+
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=503,
+            detail=f"UTXO lifecycle database not found at {UTXO_DB_PATH}. "
+            "Run utxo_lifecycle sync first.",
+        )
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "utxo_lifecycle" in error_msg or "does not exist" in error_msg:
+            raise HTTPException(
+                status_code=404,
+                detail="UTXO lifecycle table not found. Schema migration pending.",
+            )
+        logging.error(f"Error calculating Reserve Risk: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+# =============================================================================
+# spec-021: Advanced On-Chain Metrics - Sell-side Risk
+# =============================================================================
+
+
+class SellSideRiskResponse(BaseModel):
+    """Sell-side Risk calculation response."""
+
+    sell_side_risk: float
+    sell_side_risk_pct: float
+    realized_profit_usd: float
+    realized_loss_usd: float
+    net_realized_pnl_usd: float
+    market_cap_usd: float
+    window_days: int
+    spent_utxos_in_window: int
+    signal_zone: str
+    confidence: float
+    block_height: int
+    timestamp: str
+
+
+@app.get("/api/metrics/sell-side-risk", response_model=SellSideRiskResponse)
+async def get_sell_side_risk(
+    market_cap: float = Query(
+        default=2_000_000_000_000.0, ge=1.0, description="Current market cap in USD"
+    ),
+    window_days: int = Query(
+        default=30, ge=1, le=365, description="Rolling window in days"
+    ),
+):
+    """
+    Calculate Sell-side Risk ratio.
+
+    Ratio of realized profit to market cap. High values indicate
+    aggressive profit-taking (potential distribution phase).
+
+    **Signal Zones:**
+    - **LOW** (<0.1%): Low distribution, bullish
+    - **NORMAL** (0.1-0.3%): Normal profit-taking
+    - **ELEVATED** (0.3-1.0%): Elevated distribution
+    - **AGGRESSIVE** (>1.0%): Cycle top warning
+
+    Spec: 021-advanced-onchain-metrics
+    """
+    import duckdb
+
+    conn = None
+    try:
+        conn = duckdb.connect(UTXO_DB_PATH, read_only=True)
+
+        block_result = conn.execute(
+            "SELECT MAX(creation_block) FROM utxo_lifecycle"
+        ).fetchone()
+        block_height = block_result[0] if block_result and block_result[0] else 0
+
+        from scripts.metrics.sell_side_risk import calculate_sell_side_risk
+
+        result = calculate_sell_side_risk(
+            conn=conn,
+            market_cap_usd=market_cap,
+            block_height=block_height,
+            window_days=window_days,
+        )
+
+        return SellSideRiskResponse(
+            sell_side_risk=result.sell_side_risk,
+            sell_side_risk_pct=result.sell_side_risk_pct,
+            realized_profit_usd=result.realized_profit_usd,
+            realized_loss_usd=result.realized_loss_usd,
+            net_realized_pnl_usd=result.net_realized_pnl_usd,
+            market_cap_usd=result.market_cap_usd,
+            window_days=result.window_days,
+            spent_utxos_in_window=result.spent_utxos_in_window,
+            signal_zone=result.signal_zone,
+            confidence=result.confidence,
+            block_height=result.block_height,
+            timestamp=result.timestamp.isoformat(),
+        )
+
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=503,
+            detail=f"UTXO lifecycle database not found at {UTXO_DB_PATH}. "
+            "Run utxo_lifecycle sync first.",
+        )
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "utxo_lifecycle" in error_msg or "does not exist" in error_msg:
+            raise HTTPException(
+                status_code=404,
+                detail="UTXO lifecycle table not found. Schema migration pending.",
+            )
+        logging.error(f"Error calculating Sell-side Risk: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+# =============================================================================
+# spec-021: Advanced On-Chain Metrics - CDD/VDD
+# =============================================================================
+
+
+class CDDVDDResponse(BaseModel):
+    """CDD/VDD calculation response."""
+
+    cdd_total: float
+    cdd_daily_avg: float
+    vdd_total: float
+    vdd_daily_avg: float
+    vdd_multiple: Optional[float]
+    window_days: int
+    spent_utxos_count: int
+    avg_utxo_age_days: float
+    max_single_day_cdd: float
+    max_single_day_date: Optional[str]
+    current_price_usd: float
+    signal_zone: str
+    confidence: float
+    block_height: int
+    timestamp: str
+
+
+@app.get("/api/metrics/cdd-vdd", response_model=CDDVDDResponse)
+async def get_cdd_vdd(
+    current_price: float = Query(
+        default=100000.0, ge=1.0, description="Current BTC price"
+    ),
+    window_days: int = Query(
+        default=30, ge=1, le=365, description="Rolling window in days"
+    ),
+):
+    """
+    Calculate Coindays Destroyed (CDD) and Value Days Destroyed (VDD).
+
+    Measures "old money" movement. Spikes indicate long-term holders
+    moving coins (distribution or exchange deposit).
+
+    **Signal Zones:**
+    - **LOW_ACTIVITY**: Below average CDD (accumulation)
+    - **NORMAL**: Typical market activity
+    - **ELEVATED**: Above average (distribution possible)
+    - **SPIKE**: VDD multiple >2.0 (significant distribution)
+
+    Spec: 021-advanced-onchain-metrics
+    """
+    import duckdb
+
+    conn = None
+    try:
+        conn = duckdb.connect(UTXO_DB_PATH, read_only=True)
+
+        block_result = conn.execute(
+            "SELECT MAX(creation_block) FROM utxo_lifecycle"
+        ).fetchone()
+        block_height = block_result[0] if block_result and block_result[0] else 0
+
+        from scripts.metrics.cdd_vdd import calculate_cdd_vdd
+
+        result = calculate_cdd_vdd(
+            conn=conn,
+            current_price_usd=current_price,
+            block_height=block_height,
+            window_days=window_days,
+        )
+
+        return CDDVDDResponse(
+            cdd_total=result.cdd_total,
+            cdd_daily_avg=result.cdd_daily_avg,
+            vdd_total=result.vdd_total,
+            vdd_daily_avg=result.vdd_daily_avg,
+            vdd_multiple=result.vdd_multiple,
+            window_days=result.window_days,
+            spent_utxos_count=result.spent_utxos_count,
+            avg_utxo_age_days=result.avg_utxo_age_days,
+            max_single_day_cdd=result.max_single_day_cdd,
+            max_single_day_date=result.max_single_day_date.isoformat()
+            if result.max_single_day_date
+            else None,
+            current_price_usd=result.current_price_usd,
+            signal_zone=result.signal_zone,
+            confidence=result.confidence,
+            block_height=result.block_height,
+            timestamp=result.timestamp.isoformat(),
+        )
+
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=503,
+            detail=f"UTXO lifecycle database not found at {UTXO_DB_PATH}. "
+            "Run utxo_lifecycle sync first.",
+        )
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "utxo_lifecycle" in error_msg or "does not exist" in error_msg:
+            raise HTTPException(
+                status_code=404,
+                detail="UTXO lifecycle table not found. Schema migration pending.",
+            )
+        logging.error(f"Error calculating CDD/VDD: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+# =============================================================================
 # Service Connectivity Helper Functions
 # =============================================================================
 
