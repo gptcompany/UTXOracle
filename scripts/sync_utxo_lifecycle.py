@@ -113,10 +113,11 @@ def get_rpc_connection():
 def get_utxoracle_price(block_height: int, main_db: duckdb.DuckDBPyConnection) -> float:
     """Get UTXOracle price for a block height from main database."""
     try:
+        # Try intraday_prices first (has block_height)
         result = main_db.execute(
             """
-            SELECT utxoracle_price
-            FROM prices
+            SELECT price
+            FROM intraday_prices
             WHERE block_height <= ?
             ORDER BY block_height DESC
             LIMIT 1
@@ -127,9 +128,9 @@ def get_utxoracle_price(block_height: int, main_db: duckdb.DuckDBPyConnection) -
         if result and result[0]:
             return float(result[0])
 
-        # Fallback: use most recent price
+        # Fallback: use price_analysis (daily prices)
         result = main_db.execute(
-            "SELECT utxoracle_price FROM prices ORDER BY timestamp DESC LIMIT 1"
+            "SELECT utxoracle_price FROM price_analysis ORDER BY date DESC LIMIT 1"
         ).fetchone()
 
         if result and result[0]:

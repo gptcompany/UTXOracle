@@ -383,7 +383,7 @@ def process_block_outputs(
 
         vouts = tx.get("vout", [])
         for vout in vouts:
-            btc_value = vout.get("value", 0)
+            btc_value = float(vout.get("value", 0))  # Convert Decimal to float
             vout_index = vout.get("n", 0)
 
             # Skip zero-value outputs (OP_RETURN, etc.)
