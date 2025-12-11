@@ -191,6 +191,57 @@ ARK Invest + Glassnode's Cointime Economics framework for long-term valuation:
   * AVIV-based valuation signal
   * Confidence-weighted based on zone + dormancy
 
+### Advanced On-Chain Metrics Module (spec-021)
+
+Distribution and conviction metrics leveraging UTXO lifecycle data:
+
+- **URPD Calculator** (`scripts/metrics/urpd.py`)
+  * UTXO Realized Price Distribution for support/resistance detection
+  * DuckDB GROUP BY aggregation into configurable price buckets
+  * Supply above/below current price classification
+  * Dominant bucket identification (max BTC concentration)
+  * API: `GET /api/metrics/urpd`
+
+- **Supply Profit/Loss Calculator** (`scripts/metrics/supply_profit_loss.py`)
+  * Profit/Loss supply split based on creation vs current price
+  * STH/LTH cohort breakdown (155-day threshold)
+  * Market phase classification: EUPHORIA (>95%) | BULL (75-95%) | TRANSITION (50-75%) | CAPITULATION (<50%)
+  * Signal strength: distance from phase boundary
+  * API: `GET /api/metrics/supply-profit-loss`
+
+- **Reserve Risk Calculator** (`scripts/metrics/reserve_risk.py`)
+  * Reserve Risk = Price / (HODL Bank × Supply)
+  * HODL Bank: Cumulative coindays destroyed (from cointime)
+  * Liveliness integration for conviction measurement
+  * Signal zones: STRONG_BUY (<0.0005) | ACCUMULATION | FAIR_VALUE | DISTRIBUTION (>0.02)
+  * API: `GET /api/metrics/reserve-risk`
+
+- **Sell-side Risk Calculator** (`scripts/metrics/sell_side_risk.py`)
+  * Sell-side Risk = Realized Profit / Market Cap
+  * Rolling window aggregation (default 30 days)
+  * Realized profit/loss from spent UTXOs
+  * Signal zones: LOW (<0.1%) | NORMAL | ELEVATED | AGGRESSIVE (>1%)
+  * API: `GET /api/metrics/sell-side-risk`
+
+- **CDD/VDD Calculator** (`scripts/metrics/cdd_vdd.py`)
+  * Coindays Destroyed: age_days × btc_value for spent UTXOs
+  * Value Days Destroyed: CDD × spent_price
+  * VDD multiple vs 365-day MA
+  * Signal zones: LOW_ACTIVITY | NORMAL | ELEVATED | SPIKE (>2x)
+  * API: `GET /api/metrics/cdd-vdd`
+
+- **Data Models** (`scripts/models/metrics_models.py`)
+  * `URPDBucket`: Price range with BTC amount and percentage
+  * `URPDResult`: Full URPD distribution with dominant bucket
+  * `SupplyProfitLossResult`: P/L breakdown with market phase
+  * `ReserveRiskResult`: Reserve risk with HODL bank and liveliness
+  * `SellSideRiskResult`: Realized P/L with signal classification
+  * `CoinDaysDestroyedResult`: CDD/VDD with daily averages
+
+- **Database Requirements**
+  * Requires `utxo_lifecycle` table in DuckDB (from spec-017)
+  * Fields: creation_price_usd, btc_value, is_spent, spent_timestamp, spent_price_usd, age_days
+
 ### Derivatives Historical Module (spec-008)
 
 Historical derivatives data integration for enhanced signal fusion:
@@ -378,6 +429,7 @@ Comprehensive UTXO lifecycle tracking for Realized Cap, MVRV, NUPL, and HODL Wav
 | spec-016 | metrics/sopr | ✅ Complete | 1 |
 | spec-017 | metrics/utxo_lifecycle | ✅ Complete | 4 |
 | spec-018 | metrics/cointime | ✅ Complete | 1 |
+| spec-021 | metrics/advanced-onchain | ✅ Complete | 5+6 |
 
 ---
 

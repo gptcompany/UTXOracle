@@ -208,7 +208,7 @@
 - [ ] T073 Verify URPD performance < 30 seconds with production data (requires UTXO DB)
 - [ ] T074 Verify other metrics performance < 5 seconds each (requires UTXO DB)
 - [x] T075 [P] Run ruff check and format on all new modules
-- [ ] T076 [P] Update docs/ARCHITECTURE.md with new metrics documentation
+- [x] T076 [P] Update docs/ARCHITECTURE.md with new metrics documentation
 - [ ] T077 Run quickstart.md validation scenarios manually (requires UTXO DB)
 
 ---
