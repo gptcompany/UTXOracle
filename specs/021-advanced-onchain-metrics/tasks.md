@@ -37,14 +37,37 @@
 | 1 | bitcoin-utxo-dump | Current UTXOs only | URPD, Supply P&L, MVRV |
 | 2 | rpc-v3 (incremental) | Spent UTXOs | SOPR, CDD, VDD |
 
-### Bootstrap Tasks
+### API Endpoints Used
 
+| Endpoint | Source | Purpose | Example |
+|----------|--------|---------|---------|
+| `GET /api/v1/historical-price?currency=USD&timestamp={unix}` | mempool:8999 | Daily BTC/USD price | `curl "http://localhost:8999/api/v1/historical-price?currency=USD&timestamp=1310428800"` → `{"USD":16.45}` (Jul 2011) |
+| `GET /block-height/{height}` | electrs:3001 | Block hash from height | `curl http://localhost:3001/block-height/920000` → block hash |
+| `GET /block/{hash}` | electrs:3001 | Block metadata (timestamp) | Returns `{"timestamp": unix_ts, ...}` |
+
+### Performance Target Details
+
+**Tier 1 Bootstrap** (<50 min target):
+- **Hardware**: NVMe SSD, 32GB RAM, 8-core CPU
+- **Data volume**: ~180M UTXOs (~12GB chainstate)
+- **Bottleneck**: DuckDB COPY at 712K rows/sec
+- **Calculation**: 180M / 712K = 253 sec (~4 min) + overhead
+
+### Bootstrap Tasks (TDD Compliant)
+
+**Tests First (RED phase):**
+- [ ] T0001a Create `tests/test_bootstrap.py` with test fixtures
+- [ ] T0001b Add `test_build_price_table()` - verify 2011 data fetch
+- [ ] T0001c Add `test_build_block_heights()` - verify height→timestamp mapping
+- [ ] T0001d Add `test_import_chainstate()` - verify CSV→DuckDB COPY
+
+**Implementation (GREEN phase):**
 - [ ] T0001 Create `scripts/bootstrap/` directory structure
-- [ ] T0002 Implement `build_price_table.py` (mempool API → daily_prices table, 2011-present)
-- [ ] T0003 Implement `build_block_heights.py` (electrs → block_heights table for timestamp lookup)
+- [ ] T0002 Implement `build_price_table.py` (mempool `/api/v1/historical-price` → daily_prices table)
+- [ ] T0003 Implement `build_block_heights.py` (electrs `/block-height/{h}` + `/block/{hash}` → block_heights table)
 - [ ] T0004 Implement `import_chainstate.py` (bitcoin-utxo-dump CSV → DuckDB COPY)
 - [ ] T0005 Implement `bootstrap_utxo_lifecycle.py` (orchestrator script)
-- [ ] T0006 Test full Tier 1 bootstrap workflow (target: <50 min for 180M UTXOs)
+- [ ] T0006 Test full Tier 1 bootstrap workflow (target: <50 min on NVMe SSD, 180M UTXOs)
 - [ ] T0007 Implement incremental rpc-v3 sync for Tier 2 (spent UTXOs)
 
 **Checkpoint**: UTXO lifecycle database populated, Tier 1 metrics (URPD, Supply P&L) operational
@@ -53,6 +76,7 @@
 - Bitcoin Core fully synced (chainstate available)
 - `bitcoin-utxo-dump` installed (`go install github.com/in3rsha/bitcoin-utxo-dump@latest`)
 - mempool.space backend running (port 8999)
+- electrs HTTP API running (port 3001)
 
 ---
 
