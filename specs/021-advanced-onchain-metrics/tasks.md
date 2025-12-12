@@ -56,18 +56,18 @@
 ### Bootstrap Tasks (TDD Compliant)
 
 **Tests First (RED phase):**
-- [ ] T0001a Create `tests/test_bootstrap.py` with test fixtures
-- [ ] T0001b Add `test_build_price_table()` - verify 2011 data fetch
-- [ ] T0001c Add `test_build_block_heights()` - verify height→timestamp mapping
-- [ ] T0001d Add `test_import_chainstate()` - verify CSV→DuckDB COPY
+- [x] T0001a Create `tests/test_bootstrap.py` with test fixtures
+- [x] T0001b Add `test_build_price_table()` - verify 2011 data fetch
+- [x] T0001c Add `test_build_block_heights()` - verify height→timestamp mapping
+- [x] T0001d Add `test_import_chainstate()` - verify CSV→DuckDB COPY
 
 **Implementation (GREEN phase):**
-- [ ] T0001 Create `scripts/bootstrap/` directory structure
-- [ ] T0002 Implement `build_price_table.py` (mempool `/api/v1/historical-price` → daily_prices table)
-- [ ] T0003 Implement `build_block_heights.py` (electrs `/block-height/{h}` + `/block/{hash}` → block_heights table)
-- [ ] T0004 Implement `import_chainstate.py` (bitcoin-utxo-dump CSV → DuckDB COPY)
-- [ ] T0005 Implement `bootstrap_utxo_lifecycle.py` (orchestrator script)
-- [ ] T0006 Test full Tier 1 bootstrap workflow (target: <50 min on NVMe SSD, 180M UTXOs)
+- [x] T0001 Create `scripts/bootstrap/` directory structure
+- [x] T0002 Implement `build_price_table.py` (mempool `/api/v1/historical-price` → daily_prices table)
+- [x] T0003 Implement `build_block_heights.py` (electrs `/block-height/{h}` + `/block/{hash}` → block_heights table)
+- [x] T0004 Implement `import_chainstate.py` (bitcoin-utxo-dump CSV → DuckDB COPY)
+- [x] T0005 Implement `bootstrap_utxo_lifecycle.py` (orchestrator script)
+- [x] T0006 Test full Tier 1 bootstrap workflow (target: <50 min on NVMe SSD, 180M UTXOs) ✅ 12/12 tests pass
 - [ ] T0007 Implement incremental rpc-v3 sync for Tier 2 (spent UTXOs)
 
 **Checkpoint**: UTXO lifecycle database populated, Tier 1 metrics (URPD, Supply P&L) operational
