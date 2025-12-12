@@ -27,6 +27,56 @@ All metrics build on existing `utxo_lifecycle` (spec-017), `cointime` (spec-018)
 **Constraints**: Use DuckDB queries, not Python loops (NFR-001)
 **Scale/Scope**: ~19.5M BTC supply, ~180M UTXOs (historical)
 
+## ⚠️ Phase 0: Bootstrap Architecture (Added 2025-12-12)
+
+> **BLOCKING DEPENDENCY**: Block-by-block sync via electrs estimated at 98+ days.
+> This architecture reduces bootstrap to ~50 minutes for Tier 1 data.
+> See `docs/ARCHITECTURE.md` section "UTXO Lifecycle Bootstrap Architecture (spec-021, PROPOSED)"
+
+### Problem Statement
+
+Original spec assumed `utxo_lifecycle` data already populated. Performance testing revealed:
+- electrs block-by-block: ~180s/block → 920,000 blocks = **1,917 days**
+- DuckDB INSERT bottleneck: 240 rows/sec → too slow for 180M UTXOs
+
+### Solution: Two-Tier Architecture
+
+| Tier | Data Source | Coverage | Metrics Enabled |
+|------|-------------|----------|-----------------|
+| **Tier 1** | bitcoin-utxo-dump (chainstate) | Current UTXOs only | URPD, Supply P&L, MVRV |
+| **Tier 2** | rpc-v3 (incremental) | Spent UTXOs | SOPR, CDD, VDD |
+
+### Key Discoveries
+
+| Finding | Impact |
+|---------|--------|
+| electrs prevout lacks `block_height` | Cannot calculate SOPR via electrs |
+| rpc-v3 prevout includes `height` | Superior for SOPR calculation |
+| mempool price API from 2011 | 14+ years historical prices |
+| DuckDB COPY vs INSERT | 2,970x speedup (712K vs 240 rows/sec) |
+
+### Bootstrap Tasks (T0001-T0007)
+
+| Task | Script | Purpose |
+|------|--------|---------|
+| T0002 | `build_price_table.py` | mempool API → daily_prices (2011-present) |
+| T0003 | `build_block_heights.py` | electrs → block_heights table |
+| T0004 | `import_chainstate.py` | bitcoin-utxo-dump CSV → DuckDB COPY |
+| T0005 | `bootstrap_utxo_lifecycle.py` | Orchestrator script |
+
+### Performance Targets
+
+- **Tier 1 bootstrap**: ~50 min (180M UTXOs via chainstate dump + DuckDB COPY)
+- **Tier 2 incremental**: ~15s/block via rpc-v3 (for new blocks only)
+
+### Dependencies
+
+| Dependency | Required For | Status |
+|------------|--------------|--------|
+| `bitcoin-utxo-dump` | T0004 | `go install github.com/in3rsha/bitcoin-utxo-dump@latest` |
+| Bitcoin Core (synced) | chainstate access | ✅ Available |
+| mempool.space backend | price API | ✅ Port 8999 |
+
 ## Constitution Check (Pre-Phase 0)
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
