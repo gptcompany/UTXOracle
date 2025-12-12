@@ -16,6 +16,46 @@
 
 ---
 
+## Phase 0: Bootstrap (UTXO Lifecycle Data) 🚀 NEW
+
+**Purpose**: Fast bootstrap of UTXO lifecycle data using chainstate dump + rpc-v3 hybrid approach.
+
+**Architecture**: See `docs/ARCHITECTURE.md` section "UTXO Lifecycle Bootstrap Architecture (spec-021, PROPOSED)"
+
+**Context**: Block-by-block sync via electrs estimated at 98+ days. This architecture reduces to ~50 minutes for current UTXOs, plus incremental rpc-v3 sync for spent UTXOs.
+
+### Key Discoveries (2025-12-12)
+- **electrs limitation**: prevout does NOT include `block_height` (creation height) - critical for SOPR
+- **rpc-v3 advantage**: prevout DOES include `height` field - superior for SOPR calculation
+- **mempool price API**: Has exchange prices from 2011 (`/api/v1/historical-price`)
+- **Performance**: DuckDB COPY 2,970x faster than INSERT (712K vs 240 rows/sec)
+
+### Two-Tier Architecture
+
+| Tier | Data Source | Coverage | Use Case |
+|------|-------------|----------|----------|
+| 1 | bitcoin-utxo-dump | Current UTXOs only | URPD, Supply P&L, MVRV |
+| 2 | rpc-v3 (incremental) | Spent UTXOs | SOPR, CDD, VDD |
+
+### Bootstrap Tasks
+
+- [ ] T0001 Create `scripts/bootstrap/` directory structure
+- [ ] T0002 Implement `build_price_table.py` (mempool API → daily_prices table, 2011-present)
+- [ ] T0003 Implement `build_block_heights.py` (electrs → block_heights table for timestamp lookup)
+- [ ] T0004 Implement `import_chainstate.py` (bitcoin-utxo-dump CSV → DuckDB COPY)
+- [ ] T0005 Implement `bootstrap_utxo_lifecycle.py` (orchestrator script)
+- [ ] T0006 Test full Tier 1 bootstrap workflow (target: <50 min for 180M UTXOs)
+- [ ] T0007 Implement incremental rpc-v3 sync for Tier 2 (spent UTXOs)
+
+**Checkpoint**: UTXO lifecycle database populated, Tier 1 metrics (URPD, Supply P&L) operational
+
+**Dependencies**:
+- Bitcoin Core fully synced (chainstate available)
+- `bitcoin-utxo-dump` installed (`go install github.com/in3rsha/bitcoin-utxo-dump@latest`)
+- mempool.space backend running (port 8999)
+
+---
+
 ## Phase 1: Setup (Shared Infrastructure)
 
 **Purpose**: Verify dependencies and add dataclasses to metrics_models.py
@@ -217,9 +257,10 @@
 
 ### Phase Dependencies
 
-- **Setup (Phase 1)**: No dependencies - can start immediately
+- **Bootstrap (Phase 0)**: No dependencies - can start immediately ⚠️ BLOCKING for production data
+- **Setup (Phase 1)**: No dependencies - can start immediately (uses fixture data)
 - **Foundational (Phase 2)**: Depends on Setup completion
-- **User Stories (Phase 3-7)**: All depend on Setup + Foundational
+- **User Stories (Phase 3-7)**: All depend on Setup + Foundational + **Phase 0 for production data**
   - US1 (URPD): Independent - **MVP**
   - US2 (Supply P/L): Independent
   - US3 (Reserve Risk): Depends on cointime.py availability

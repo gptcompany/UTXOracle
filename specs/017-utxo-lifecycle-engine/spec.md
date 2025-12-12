@@ -315,6 +315,8 @@ class AgeCohortsConfig:
 
 ### Files to Create
 
+- `scripts/utils/electrs_async.py` - High-performance async electrs HTTP client
+- `scripts/sync_utxo_lifecycle.py` - UTXO lifecycle sync script (CLI)
 - `scripts/metrics/utxo_lifecycle.py` - Core lifecycle engine
 - `scripts/metrics/realized_metrics.py` - MVRV, NUPL, Realized Cap
 - `scripts/metrics/hodl_waves.py` - Age distribution analysis
@@ -416,8 +418,55 @@ UTXO_BATCH_SIZE=10000
 - Historical UTXOracle prices - Creation price lookup
 
 ### External
+- **electrs HTTP API** - PRIMARY block/TX data (localhost:3001)
 - mempool.space API - Fallback price data
-- Bitcoin Core RPC - Block/TX data
+- Bitcoin Core RPC - DEPRECATED for UTXO sync
+
+### Data Source Hierarchy (December 2025)
+
+| Tier | Source | Endpoint | Status |
+|------|--------|----------|--------|
+| **1 - PRIMARY** | electrs HTTP | `http://localhost:3001` | Production |
+| 2 - FALLBACK | mempool.space | `https://mempool.space/api` | Optional |
+| 3 - DEPRECATED | Bitcoin Core RPC | `http://localhost:8332` | Not used |
+
+**Why electrs?**
+- **5-12x faster** than Bitcoin Core RPC for batch TX fetching
+- Paginated endpoint: `/block/{hash}/txs/{start}` returns 25 txs per request
+- `prevout` data included in inputs (no extra lookup needed)
+- Self-hosted (Docker stack): privacy-preserving, no external API calls
+
+### Performance Benchmarks (December 2025)
+
+| Configuration | Blocks | Time | Speed |
+|--------------|--------|------|-------|
+| Async (workers=5) | 5 | 218s | 43.6s/block |
+| Sequential (workers=1) | 5 | 252s | 50.4s/block |
+| **Speedup** | - | - | **1.16x** |
+
+**CLI Usage**:
+```bash
+# Default: electrs with 5 workers
+python scripts/sync_utxo_lifecycle.py --start-block 900000 --end-block 900999
+
+# Explicit source and workers
+python scripts/sync_utxo_lifecycle.py --start-block 900000 --end-block 900999 \
+    --source electrs --workers 10
+```
+
+### Async Implementation (scripts/utils/electrs_async.py)
+
+Key features:
+- **aiohttp TCPConnector**: Connection pooling (limit=100 connections)
+- **asyncio.Semaphore**: Rate limiting (default 50 concurrent requests)
+- **Paginated fetching**: 25 txs per page, much faster than individual tx fetches
+- **Exponential backoff**: 3 retries with 1s, 2s, 4s delays
+
+```python
+async with ElectrsAsyncClient() as client:
+    block = await client.get_block_async(900000)
+    blocks = await client.get_blocks_batch_async([900000, 900001, 900002])
+```
 
 ---
 

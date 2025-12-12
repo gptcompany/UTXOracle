@@ -541,6 +541,131 @@ docker logs -f mempool-electrs
 
 ---
 
+## UTXO Lifecycle Bootstrap Architecture (spec-021, PROPOSED)
+
+> **Status**: PROPOSED - Pending validation. Does NOT replace existing architecture.
+> **Date**: 2025-12-12
+> **Context**: Block-by-block sync via electrs estimated at 98+ days. This architecture reduces to ~50 minutes.
+
+### Problem Statement
+
+The current `sync_utxo_lifecycle.py` approach has critical bottlenecks:
+
+| Component | Performance | Bottleneck |
+|-----------|-------------|------------|
+| electrs block fetch | ~0.5s/block | ✅ OK |
+| rpc-v3 block fetch | ~0.7s/block | ✅ OK |
+| DuckDB row INSERT | ~240 rows/sec | ❌ **CRITICAL** |
+
+With ~4,000 txs/block × 317K blocks = **billions of INSERTs** → ~98 days sync time.
+
+### Solution: Two-Tier Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ TIER 1: CURRENT UTXOS (chainstate dump, ~50 min one-time)          │
+│ ├── Source: bitcoin-utxo-dump (Go tool, 140K UTXO/sec)             │
+│ ├── Import: DuckDB COPY (712K rows/sec vs 240 INSERT)              │
+│ ├── Data: ~190M UTXOs with creation height                         │
+│ └── Enables: URPD, Supply P/L, Realized Cap, MVRV                  │
+├─────────────────────────────────────────────────────────────────────┤
+│ TIER 2: SPENT UTXOS (incremental, real-time via rpc-v3)            │
+│ ├── Source: Bitcoin Core getblock verbosity=3                      │
+│ ├── Key: prevout.height included natively (unlike electrs!)        │
+│ ├── Rate: ~33s/block (OK for 1 block/10 min)                       │
+│ └── Enables: SOPR, CDD/VDD, Cointime (from sync point forward)     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Data Source Comparison
+
+| Source | prevout.height? | prevout.value? | Speed | Use Case |
+|--------|-----------------|----------------|-------|----------|
+| electrs | ❌ NO | ✅ YES | Fast | Block metadata only |
+| **rpc-v3** | ✅ **YES** | ✅ YES | Medium | Incremental sync (SOPR) |
+| chainstate dump | ✅ YES | ✅ YES | **Fastest** | Bootstrap (current UTXOs) |
+
+### Lookup Tables (Built Once)
+
+```sql
+-- Price lookup (mempool.space API has data from 2011!)
+CREATE TABLE daily_prices (
+    date DATE PRIMARY KEY,
+    usd_price DECIMAL(12,2),
+    source VARCHAR  -- 'mempool' or 'utxoracle'
+);
+
+-- Block metadata (electrs)
+CREATE TABLE block_heights (
+    height INTEGER PRIMARY KEY,
+    timestamp BIGINT,
+    tx_count INTEGER
+);
+```
+
+### Bootstrap Workflow
+
+```bash
+# 1. Build lookup tables (~15 min parallel)
+python scripts/bootstrap/build_price_table.py      # mempool API
+python scripts/bootstrap/build_block_heights.py    # electrs
+
+# 2. Chainstate dump (~25 min, requires stopping Bitcoin Core)
+~/go/bin/bitcoin-utxo-dump \
+  -db /media/sam/3TB-WDC/Bitcoin/chainstate \
+  -f count,txid,vout,height,amount,type \
+  -o /tmp/utxodump.csv
+
+# 3. DuckDB import + enrichment (~10 min)
+python scripts/bootstrap/import_chainstate.py
+
+# 4. Continue with rpc-v3 for new blocks
+python scripts/sync_utxo_lifecycle.py --source rpc-v3
+```
+
+### Metrics Enablement Matrix
+
+| Metric | Tier 1 (Current) | Tier 2 (Spent) | Historical Coverage |
+|--------|------------------|----------------|---------------------|
+| URPD | ✅ | - | Full (genesis to now) |
+| Supply P/L | ✅ | - | Full |
+| Realized Cap | ✅ | - | Full |
+| MVRV/MVRV-Z | ✅ | - | Full |
+| Reserve Risk | ✅ | - | Full |
+| **SOPR** | - | ✅ | From sync point |
+| **CDD/VDD** | - | ✅ | From sync point |
+| **Cointime** | Partial | ✅ | Hybrid |
+
+### Performance Summary
+
+| Phase | Method | Time |
+|-------|--------|------|
+| Lookup tables | Parallel API | ~15 min |
+| Chainstate dump | bitcoin-utxo-dump | ~25 min |
+| DuckDB COPY | Bulk import | ~5 min |
+| Enrichment | JOIN | ~5 min |
+| **TOTAL** | | **~50 min** |
+
+**Speedup: 2,822x** (98 days → 50 minutes)
+
+### Dependencies
+
+- `bitcoin-utxo-dump`: `go install github.com/in3rsha/bitcoin-utxo-dump@latest`
+- Bitcoin Core must be stopped during chainstate dump
+- Mempool.space local instance for price API
+
+### Files to Create
+
+```
+scripts/bootstrap/
+├── build_price_table.py       # Mempool API → daily_prices
+├── build_block_heights.py     # electrs → block_heights
+├── import_chainstate.py       # CSV → DuckDB COPY
+└── bootstrap_utxo_lifecycle.py  # Orchestrator script
+```
+
+---
+
 ## Future Architecture Plans
 
 See **MODULAR_ARCHITECTURE.md** for planned Rust-based architecture:
