@@ -221,7 +221,7 @@ class TestImportChainstate:
     def sample_chainstate_csv(self, tmp_path):
         """Create sample chainstate CSV for testing."""
         csv_path = tmp_path / "utxos.csv"
-        csv_content = """txid,vout,height,coinbase,amount,script_type,address
+        csv_content = """txid,vout,height,coinbase,amount,type,address
 abc123,0,800000,0,100000000,p2wpkh,bc1qtest1
 def456,1,800001,0,50000000,p2sh,3TestAddress
 ghi789,0,800002,1,625000000,p2pk,unknown
@@ -285,7 +285,7 @@ ghi789,0,800002,1,625000000,p2pk,unknown
         # Generate 10K row CSV
         csv_path = tmp_path / "large_utxos.csv"
         with open(csv_path, "w") as f:
-            f.write("txid,vout,height,coinbase,amount,script_type,address\n")
+            f.write("txid,vout,height,coinbase,amount,type,address\n")
             for i in range(10000):
                 f.write(
                     f"tx{i:08d},{i % 10},{800000 + i},0,{100000 * i},p2wpkh,bc1q{i}\n"

@@ -5,14 +5,14 @@ DuckDB COPY is ~2,970x faster than INSERT (712K vs 240 rows/sec).
 
 Prerequisites:
     go install github.com/in3rsha/bitcoin-utxo-dump@latest
-    bitcoin-utxo-dump -o csv -f count,txid,vout,height,coinbase,amount,script > utxos.csv
+    bitcoin-utxo-dump -db ~/.bitcoin/chainstate -o utxos.csv -f txid,vout,height,coinbase,amount,type,address
 
 Usage:
     python -m scripts.bootstrap.import_chainstate --csv-path utxos.csv --db-path data/utxo_lifecycle.duckdb
 
 CSV Format (from bitcoin-utxo-dump):
-    count,txid,vout,height,coinbase,amount,script_type,address
-    1,abc123...,0,800000,0,100000000,p2wpkh,bc1q...
+    txid,vout,height,coinbase,amount,type,address
+    abc123...,0,800000,0,100000000,p2wpkh,bc1q...
 """
 
 from __future__ import annotations
@@ -26,14 +26,15 @@ import duckdb
 
 logger = logging.getLogger(__name__)
 
-# Expected CSV columns from bitcoin-utxo-dump
+# Expected CSV columns from bitcoin-utxo-dump (using -f txid,vout,height,coinbase,amount,type,address)
+# Note: The tool outputs 'type' not 'script_type' for the output type field
 EXPECTED_COLUMNS = [
     "txid",
     "vout",
     "height",
     "coinbase",
     "amount",
-    "script_type",
+    "type",  # bitcoin-utxo-dump uses 'type', mapped to 'script_type' in our schema
     "address",
 ]
 
@@ -227,9 +228,30 @@ def import_chainstate_csv(
         # Check row count before import
         count_before = conn.execute("SELECT COUNT(*) FROM utxo_lifecycle").fetchone()[0]
 
+        # First, count rows in CSV to detect corruption later
+        # Using DuckDB to count is fast even for large files
+        csv_row_count = conn.execute(f"""
+            SELECT COUNT(*) FROM read_csv(
+                '{csv_path}',
+                header=true,
+                columns={{
+                    'txid': 'VARCHAR',
+                    'vout': 'VARCHAR',
+                    'height': 'VARCHAR',
+                    'coinbase': 'VARCHAR',
+                    'amount': 'VARCHAR',
+                    'type': 'VARCHAR',
+                    'address': 'VARCHAR'
+                }},
+                ignore_errors=true
+            )
+        """).fetchone()[0]
+        logger.info(f"CSV contains {csv_row_count:,} rows (excluding header)")
+
         # Import CSV with column mapping to unified schema
-        # CSV columns: txid, vout, height, coinbase, amount, script_type, address
+        # CSV columns from bitcoin-utxo-dump: txid, vout, height, coinbase, amount, type, address
         # Table columns: txid, vout, creation_block, is_coinbase, amount, script_type, address
+        # Note: bitcoin-utxo-dump uses 'type' not 'script_type' for the output type field
         conn.execute(f"""
             INSERT INTO utxo_lifecycle (txid, vout, creation_block, is_coinbase, amount, script_type, address)
             SELECT
@@ -238,7 +260,7 @@ def import_chainstate_csv(
                 CAST(height AS INTEGER) AS creation_block,
                 CASE WHEN coinbase = '1' OR LOWER(coinbase) = 'true' THEN TRUE ELSE FALSE END AS is_coinbase,
                 CAST(amount AS BIGINT),
-                script_type,
+                type AS script_type,
                 address
             FROM read_csv(
                 '{csv_path}',
@@ -249,7 +271,7 @@ def import_chainstate_csv(
                     'height': 'VARCHAR',
                     'coinbase': 'VARCHAR',
                     'amount': 'VARCHAR',
-                    'script_type': 'VARCHAR',
+                    'type': 'VARCHAR',
                     'address': 'VARCHAR'
                 }},
                 ignore_errors=true
@@ -258,6 +280,25 @@ def import_chainstate_csv(
 
         count_after = conn.execute("SELECT COUNT(*) FROM utxo_lifecycle").fetchone()[0]
         rows_imported = count_after - count_before
+
+        # CORRUPTION DETECTION: Check if imported rows match CSV row count
+        # A significant mismatch indicates corrupted CSV (from bad chainstate read)
+        if csv_row_count > 0 and rows_imported < csv_row_count:
+            skipped_rows = csv_row_count - rows_imported
+            skip_percentage = (skipped_rows / csv_row_count) * 100
+            if skip_percentage > 1.0:  # More than 1% data loss is suspicious
+                logger.error(
+                    f"CORRUPTION WARNING: {skipped_rows:,} rows ({skip_percentage:.2f}%) "
+                    f"were skipped during import!"
+                )
+                logger.error(
+                    "This may indicate corrupted CSV from reading locked chainstate. "
+                    "Verify bitcoin-utxo-dump ran with chainstate UNLOCKED."
+                )
+            else:
+                logger.warning(
+                    f"Minor data loss: {skipped_rows:,} rows ({skip_percentage:.2f}%) skipped"
+                )
 
         logger.info(f"Imported {rows_imported:,} rows from CSV")
         return rows_imported
@@ -420,9 +461,9 @@ async def main():
         rows = import_chainstate_csv(conn, args.csv_path)
         elapsed = time.time() - start
 
+        rows_per_sec = rows / elapsed if elapsed > 0 else 0
         print(
-            f"Imported {rows:,} UTXOs in {elapsed:.1f}s "
-            f"({rows / elapsed:,.0f} rows/sec)"
+            f"Imported {rows:,} UTXOs in {elapsed:.1f}s ({rows_per_sec:,.0f} rows/sec)"
         )
 
         # Optionally create indexes

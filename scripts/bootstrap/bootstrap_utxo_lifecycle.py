@@ -48,6 +48,9 @@ logger = logging.getLogger(__name__)
 DEFAULT_MEMPOOL_URL = "http://localhost:8999"
 DEFAULT_ELECTRS_URL = "http://localhost:3001"
 DEFAULT_BITCOIN_DATADIR = os.path.expanduser("~/.bitcoin")
+DEFAULT_BITCOIND_STOP_TIMEOUT = 60  # seconds to wait for bitcoind to stop
+DEFAULT_BITCOIND_START_TIMEOUT = 120  # seconds to wait for bitcoind to start
+DEFAULT_LEVELDB_FLUSH_DELAY = 5  # seconds to wait after RPC stops for LevelDB flush
 
 
 def bootstrap_tier2_available() -> bool:
@@ -75,6 +78,197 @@ def bootstrap_tier2_available() -> bool:
         # Version 250000 = 25.0.0
         return version >= 250000
     except Exception:
+        return False
+
+
+def is_bitcoind_running() -> bool:
+    """Check if bitcoind is currently running.
+
+    Returns:
+        True if bitcoind is running and accepting RPC commands
+    """
+    try:
+        result = subprocess.run(
+            ["bitcoin-cli", "getblockchaininfo"],
+            capture_output=True,
+            timeout=10,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def is_chainstate_locked(bitcoin_datadir: str = DEFAULT_BITCOIN_DATADIR) -> bool:
+    """Check if LevelDB LOCK file exists in chainstate directory.
+
+    The LOCK file indicates bitcoind still has the database open.
+    Running bitcoin-utxo-dump while LOCK exists causes data corruption.
+
+    Args:
+        bitcoin_datadir: Bitcoin data directory
+
+    Returns:
+        True if LOCK file exists (database is locked), False otherwise
+    """
+    lock_path = os.path.join(bitcoin_datadir, "chainstate", "LOCK")
+    return os.path.exists(lock_path)
+
+
+def stop_bitcoind(
+    timeout: int = DEFAULT_BITCOIND_STOP_TIMEOUT,
+    bitcoin_datadir: str = DEFAULT_BITCOIN_DATADIR,
+) -> bool:
+    """Stop bitcoind gracefully and wait for it to fully stop.
+
+    This function ensures:
+    1. RPC is no longer responding
+    2. LevelDB LOCK file is released
+    3. Additional flush delay for disk writes
+
+    Args:
+        timeout: Maximum seconds to wait for bitcoind to stop
+        bitcoin_datadir: Bitcoin data directory (for LOCK file check)
+
+    Returns:
+        True if bitcoind stopped successfully and chainstate is unlocked
+    """
+    if not is_bitcoind_running():
+        # Verify chainstate is not locked even if bitcoind appears stopped
+        if is_chainstate_locked(bitcoin_datadir):
+            logger.warning("Bitcoin Core not running but chainstate LOCK file exists")
+            logger.warning("This may indicate unclean shutdown - waiting for release")
+            # Wait for LOCK file to be released
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                if not is_chainstate_locked(bitcoin_datadir):
+                    logger.info("Chainstate LOCK released")
+                    return True
+                time.sleep(2)
+            logger.error("Chainstate LOCK file still present - possible corruption")
+            return False
+        logger.info("Bitcoin Core is not running")
+        return True
+
+    logger.info("Stopping Bitcoin Core...")
+    try:
+        result = subprocess.run(
+            ["bitcoin-cli", "stop"],
+            capture_output=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            logger.error(f"Failed to send stop command: {result.stderr.decode()}")
+            return False
+
+        # Wait for bitcoind to fully stop (RPC becomes unavailable)
+        start_time = time.time()
+        rpc_stopped = False
+        while time.time() - start_time < timeout:
+            if not is_bitcoind_running():
+                rpc_stopped = True
+                logger.info("Bitcoin Core RPC stopped")
+                break
+            time.sleep(2)
+
+        if not rpc_stopped:
+            logger.error(f"Bitcoin Core RPC did not stop within {timeout}s")
+            return False
+
+        # CRITICAL: Wait for LevelDB LOCK file to be released
+        # RPC stops responding BEFORE LevelDB is fully flushed
+        logger.info("Waiting for chainstate LOCK file to be released...")
+        lock_wait_start = time.time()
+        while time.time() - lock_wait_start < timeout:
+            if not is_chainstate_locked(bitcoin_datadir):
+                # Additional safety delay for disk flush completion
+                logger.info(
+                    f"LOCK released, waiting {DEFAULT_LEVELDB_FLUSH_DELAY}s for disk flush..."
+                )
+                time.sleep(DEFAULT_LEVELDB_FLUSH_DELAY)
+                logger.info(
+                    "Bitcoin Core stopped successfully - chainstate safe to read"
+                )
+                return True
+            time.sleep(1)
+
+        logger.error(
+            f"Chainstate LOCK file not released within {timeout}s after RPC stop"
+        )
+        logger.error("Possible causes: unclean shutdown, disk I/O issues")
+        return False
+
+    except Exception as e:
+        logger.error(f"Error stopping Bitcoin Core: {e}")
+        return False
+
+
+def start_bitcoind(
+    bitcoin_datadir: str = DEFAULT_BITCOIN_DATADIR,
+    timeout: int = DEFAULT_BITCOIND_START_TIMEOUT,
+) -> bool:
+    """Start bitcoind and wait for it to be ready for RPC commands.
+
+    Args:
+        bitcoin_datadir: Bitcoin data directory
+        timeout: Maximum seconds to wait for bitcoind to start
+
+    Returns:
+        True if bitcoind started and is accepting RPC commands
+    """
+    if is_bitcoind_running():
+        logger.info("Bitcoin Core is already running")
+        return True
+
+    logger.info(f"Starting Bitcoin Core with datadir={bitcoin_datadir}...")
+    proc = None
+    try:
+        # Start bitcoind in background (daemon mode)
+        cmd = ["bitcoind", f"-datadir={bitcoin_datadir}", "-daemon"]
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            timeout=10,
+        )
+
+        if result.returncode != 0:
+            # bitcoind might not support -daemon, try without
+            logger.warning("Trying without -daemon flag...")
+            cmd = ["bitcoind", f"-datadir={bitcoin_datadir}"]
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
+        # Wait for bitcoind to be ready
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            if is_bitcoind_running():
+                logger.info("Bitcoin Core started and ready for RPC")
+                return True
+            time.sleep(5)
+
+        # Timeout reached - clean up orphan process if we started one
+        if proc is not None:
+            logger.warning("Terminating orphan bitcoind process after timeout")
+            proc.terminate()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+
+        logger.error(f"Bitcoin Core did not start within {timeout}s")
+        return False
+
+    except Exception as e:
+        # Clean up orphan process on exception
+        if proc is not None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        logger.error(f"Error starting Bitcoin Core: {e}")
         return False
 
 
@@ -157,6 +351,10 @@ def run_bitcoin_utxo_dump(
 ) -> bool:
     """Run bitcoin-utxo-dump to export chainstate to CSV.
 
+    IMPORTANT: This function verifies the chainstate is NOT locked before
+    attempting to read. Reading LevelDB while bitcoind has it open causes
+    data corruption.
+
     Args:
         output_path: Path for output CSV file
         bitcoin_datadir: Bitcoin data directory
@@ -171,39 +369,74 @@ def run_bitcoin_utxo_dump(
         logger.error(f"Chainstate directory not found: {chainstate_dir}")
         return False
 
+    # CRITICAL: Verify chainstate is NOT locked before reading
+    # This prevents corruption from reading inconsistent LevelDB state
+    if is_chainstate_locked(bitcoin_datadir):
+        logger.error("ABORT: Chainstate LOCK file exists!")
+        logger.error(f"LOCK file found at: {os.path.join(chainstate_dir, 'LOCK')}")
+        logger.error(
+            "Bitcoin Core may be running or did not shut down cleanly. "
+            "Reading chainstate now would cause data corruption."
+        )
+        logger.error(
+            "Solutions: 1) Stop bitcoind with 'bitcoin-cli stop' and wait "
+            "2) Use --auto-manage-bitcoind flag"
+        )
+        return False
+
+    logger.info("Chainstate LOCK check passed - safe to read")
+
     try:
         # Run bitcoin-utxo-dump
-        # Format: count,txid,vout,height,coinbase,amount,script_type,address
+        # Output format: txid,vout,height,coinbase,amount,type,address
+        # Note: bitcoin-utxo-dump uses 'type' field for script type (p2pkh, p2wpkh, etc.)
+        # The -o flag specifies output file path, not format
         cmd = [
             "bitcoin-utxo-dump",
             "-db",
             chainstate_dir,
             "-o",
-            "csv",
+            output_path,
             "-f",
-            "txid,vout,height,coinbase,amount,script,address",
+            "txid,vout,height,coinbase,amount,type,address",
+            "-nowarnings",
         ]
 
         logger.info(f"Running: {' '.join(cmd)}")
 
-        with open(output_path, "w") as f:
-            result = subprocess.run(
-                cmd,
-                stdout=f,
-                stderr=subprocess.PIPE,
-                timeout=7200,  # 2 hour timeout
-            )
+        # bitcoin-utxo-dump writes directly to the output file via -o flag
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            timeout=7200,  # 2 hour timeout
+        )
 
         if result.returncode != 0:
             logger.error(f"bitcoin-utxo-dump failed: {result.stderr.decode()}")
             return False
 
-        # Verify output
+        # Verify output exists and has reasonable size
         if os.path.exists(output_path):
             size = os.path.getsize(output_path)
-            logger.info(f"Generated CSV: {output_path} ({size / 1024 / 1024:.1f} MB)")
+            size_mb = size / 1024 / 1024
+
+            # Mainnet chainstate should be at least several GB
+            # A very small file indicates corruption or incomplete dump
+            MIN_EXPECTED_SIZE_MB = 100  # Minimum expected size for mainnet
+            if size_mb < MIN_EXPECTED_SIZE_MB:
+                logger.warning(
+                    f"CSV file is suspiciously small: {size_mb:.1f} MB "
+                    f"(expected > {MIN_EXPECTED_SIZE_MB} MB for mainnet)"
+                )
+                logger.warning(
+                    "This may indicate chainstate corruption or incomplete dump. "
+                    "Verify chainstate was not locked during dump."
+                )
+
+            logger.info(f"Generated CSV: {output_path} ({size_mb:.1f} MB)")
             return True
 
+        logger.error(f"Output file not created: {output_path}")
         return False
 
     except subprocess.TimeoutExpired:
@@ -348,6 +581,11 @@ async def main():
         help="Run bitcoin-utxo-dump to generate CSV (requires --csv-path)",
     )
     parser.add_argument(
+        "--auto-manage-bitcoind",
+        action="store_true",
+        help="Automatically stop bitcoind before dump and restart after (requires --run-dump)",
+    )
+    parser.add_argument(
         "--skip-prices",
         action="store_true",
         help="Skip building price table",
@@ -397,6 +635,7 @@ async def main():
             parser.error("--csv-path required (or use --run-dump)")
 
     # Run bitcoin-utxo-dump if requested
+    bitcoind_was_running = False
     if args.run_dump:
         if not deps["bitcoin_utxo_dump"]:
             print("ERROR: bitcoin-utxo-dump not available")
@@ -405,8 +644,27 @@ async def main():
             )
             return 1
 
+        # Auto-manage bitcoind if requested
+        if args.auto_manage_bitcoind:
+            bitcoind_was_running = is_bitcoind_running()
+            if bitcoind_was_running:
+                print("\n[Auto-manage] Stopping Bitcoin Core for chainstate dump...")
+                if not stop_bitcoind(
+                    timeout=DEFAULT_BITCOIND_STOP_TIMEOUT,
+                    bitcoin_datadir=args.bitcoin_datadir,
+                ):
+                    print("ERROR: Failed to stop Bitcoin Core")
+                    print("       Chainstate may be locked - cannot proceed safely")
+                    return 1
+                print("[Auto-manage] Bitcoin Core stopped successfully")
+                print("[Auto-manage] Chainstate LOCK released - safe to read")
+
         if not run_bitcoin_utxo_dump(args.csv_path, args.bitcoin_datadir):
             print("ERROR: Failed to run bitcoin-utxo-dump")
+            # Restart bitcoind even on failure if we stopped it
+            if args.auto_manage_bitcoind and bitcoind_was_running:
+                print("\n[Auto-manage] Restarting Bitcoin Core after failure...")
+                start_bitcoind(args.bitcoin_datadir)
             return 1
 
     # Verify CSV exists
@@ -420,6 +678,7 @@ async def main():
     print(f"  Database: {args.db_path}")
 
     conn = duckdb.connect(args.db_path)
+    bootstrap_success = False
 
     try:
         stats = await bootstrap_tier1(
@@ -440,11 +699,21 @@ async def main():
         print(f"  UTXOs: {stats['utxos_count']:,}")
         print(f"  Total BTC: {stats['total_btc']:,.2f}")
         print("=" * 60)
+        bootstrap_success = True
 
     finally:
         conn.close()
+        # Always restart bitcoind if we stopped it, even on exception
+        if args.auto_manage_bitcoind and bitcoind_was_running:
+            print("\n[Auto-manage] Restarting Bitcoin Core...")
+            if start_bitcoind(args.bitcoin_datadir):
+                print("[Auto-manage] Bitcoin Core restarted successfully")
+            else:
+                print("WARNING: Failed to restart Bitcoin Core - please start manually")
+                if bootstrap_success:
+                    return 1
 
-    return 0
+    return 0 if bootstrap_success else 1
 
 
 if __name__ == "__main__":
