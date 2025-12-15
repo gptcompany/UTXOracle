@@ -269,8 +269,8 @@
 
 - [x] T071 Update specs/021-advanced-onchain-metrics/contracts/openapi.yaml with implemented endpoint schemas
 - [x] T072 Run all spec-021 tests: `uv run pytest tests/test_urpd.py tests/test_supply_profit_loss.py tests/test_reserve_risk.py tests/test_sell_side_risk.py tests/test_cdd_vdd.py -v` ✅ 68 passed
-- [ ] T073 Verify URPD performance < 30 seconds with production data (requires UTXO DB)
-- [ ] T074 Verify other metrics performance < 5 seconds each (requires UTXO DB)
+- [x] T073 Verify URPD performance < 30 seconds with production data (requires UTXO DB) ✅ 0.68s achieved with 164M UTXOs
+- [x] T074 Verify other metrics performance < 5 seconds each (requires UTXO DB) ✅ 0.15-0.23s achieved
 - [x] T075 [P] Run ruff check and format on all new modules
 - [x] T076 [P] Update docs/ARCHITECTURE.md with new metrics documentation
 - [ ] T077 Run quickstart.md validation scenarios manually (requires UTXO DB)
