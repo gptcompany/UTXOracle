@@ -541,10 +541,10 @@ docker logs -f mempool-electrs
 
 ---
 
-## UTXO Lifecycle Bootstrap Architecture (spec-021, PROPOSED)
+## UTXO Lifecycle Bootstrap Architecture (spec-021, IMPLEMENTED)
 
-> **Status**: PROPOSED - Pending validation. Does NOT replace existing architecture.
-> **Date**: 2025-12-12
+> **Status**: ✅ IMPLEMENTED - Unified schema active.
+> **Date**: 2025-12-15
 > **Context**: Block-by-block sync via electrs estimated at 98+ days. This architecture reduces to ~50 minutes.
 
 ### Problem Statement
@@ -603,6 +603,57 @@ CREATE TABLE block_heights (
 );
 ```
 
+### Unified Schema (CANONICAL)
+
+Single table supporting ALL specs (017, 018, 020, 021):
+
+```sql
+-- Core table: minimal storage, raw data only
+CREATE TABLE utxo_lifecycle (
+    -- Primary key (composite, natural from chainstate)
+    txid VARCHAR NOT NULL,
+    vout INTEGER NOT NULL,
+
+    -- Tier 1: Creation data (from chainstate dump)
+    creation_block INTEGER NOT NULL,      -- Block height when created
+    amount BIGINT NOT NULL,               -- Value in satoshis
+    is_coinbase BOOLEAN DEFAULT FALSE,
+    script_type VARCHAR,
+    address VARCHAR,
+
+    -- Tier 2: Spent data (from rpc-v3 sync)
+    is_spent BOOLEAN DEFAULT FALSE,
+    spent_block INTEGER,
+    spent_timestamp BIGINT,               -- Unix timestamp
+    spent_price_usd DOUBLE,
+
+    -- Metadata
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (txid, vout)
+);
+
+-- VIEW with computed columns (for metric queries)
+CREATE VIEW utxo_lifecycle_full AS
+SELECT
+    u.*,
+    u.txid || ':' || CAST(u.vout AS VARCHAR) AS outpoint,
+    CAST(u.amount AS DOUBLE) / 100000000.0 AS btc_value,
+    bh.block_timestamp AS creation_timestamp,
+    dp.price_usd AS creation_price_usd,
+    (amount / 1e8) * dp.price_usd AS realized_value_usd,
+    CASE WHEN u.is_spent AND u.spent_price_usd > 0 AND dp.price_usd > 0
+         THEN u.spent_price_usd / dp.price_usd ELSE NULL END AS sopr
+FROM utxo_lifecycle u
+LEFT JOIN block_heights bh ON u.creation_block = bh.block_height
+LEFT JOIN daily_prices dp ON DATE(bh.block_timestamp) = dp.price_date;
+```
+
+**Design principles:**
+- Store ONLY raw data from chainstate + Tier 2 spent metadata
+- Compute derived fields at query time (`btc_value`, `creation_price_usd`, `sopr`)
+- No redundant columns across specs
+
 ### Bootstrap Workflow
 
 ```bash
@@ -654,15 +705,49 @@ python scripts/sync_utxo_lifecycle.py --source rpc-v3
 - Bitcoin Core must be stopped during chainstate dump
 - Mempool.space local instance for price API
 
-### Files to Create
+### Bootstrap Scripts
 
 ```
 scripts/bootstrap/
-├── build_price_table.py       # Mempool API → daily_prices
-├── build_block_heights.py     # electrs → block_heights
-├── import_chainstate.py       # CSV → DuckDB COPY
-└── bootstrap_utxo_lifecycle.py  # Orchestrator script
+├── build_price_table.py       # Mempool API → daily_prices (T0002)
+├── build_block_heights.py     # electrs → block_heights (T0003)
+├── import_chainstate.py       # CSV → DuckDB COPY (T0004)
+├── bootstrap_utxo_lifecycle.py  # Orchestrator script (T0005)
+└── sync_spent_utxos.py        # Tier 2 rpc-v3 spent UTXO sync (T0007)
 ```
+
+### Sync Strategy Selection
+
+**For Bootstrap (First Run):**
+```bash
+# Requires Bitcoin Core stopped during chainstate dump
+~/go/bin/bitcoin-utxo-dump -db ~/.bitcoin/chainstate -f count,txid,vout,height,amount,type -o utxos.csv
+python -m scripts.bootstrap.bootstrap_utxo_lifecycle --csv-path utxos.csv
+```
+- **Time**: ~50 minutes for complete historical sync
+- **Output**: Full `utxo_lifecycle` table with all current UTXOs
+
+**For Incremental Updates (Daily):**
+```bash
+python scripts/sync_utxo_lifecycle.py --source rpc-v3 --workers 10
+```
+- **Time**: ~1.7 minutes/day (144 blocks)
+- **Requirement**: Bitcoin Core 25.0+ (for `getblock` verbosity=3)
+
+**Legacy (NOT RECOMMENDED):**
+```bash
+python scripts/sync_utxo_lifecycle.py --source electrs  # ~98 days bootstrap
+```
+- Use only if Bitcoin Core < 25.0 AND cannot use chainstate dump
+
+### Architecture Decision: FAST as Default
+
+| Method | Speed | Default? | When to Use |
+|--------|-------|----------|-------------|
+| **Tier 1 (chainstate)** | 712K rows/sec | ✅ Bootstrap | First run, full historical |
+| **Tier 2 (rpc-v3)** | ~0.7s/block | ✅ Incremental | Daily sync, new blocks |
+| electrs block-by-block | ~0.5s/block | ❌ Legacy | Backward compatibility only |
+| RPC v2 block-by-block | ~0.7s/block | ❌ Legacy | Backward compatibility only |
 
 ---
 

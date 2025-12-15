@@ -324,8 +324,8 @@ ghi789,0,800002,1,625000000,p2pk,unknown
 
         columns = [row[0] for row in result]
 
-        # Required columns for Tier 1 metrics
-        required = ["txid", "vout", "height", "amount"]
+        # Required columns for Tier 1 metrics (unified schema)
+        required = ["txid", "vout", "creation_block", "amount"]
         for col in required:
             assert col in columns, f"Missing required column: {col}"
 
@@ -387,34 +387,43 @@ class TestTier2IncrementalSync:
 
     @pytest.fixture
     def sample_utxo_db(self, temp_db_path):
-        """Create sample UTXO database with unspent UTXOs."""
+        """Create sample UTXO database with unspent UTXOs.
+
+        Uses unified schema (spec-021):
+        - creation_block (not height)
+        - amount in satoshis (btc_value computed at query time)
+        """
         import duckdb
 
         conn = duckdb.connect(temp_db_path)
+        # Unified schema from import_chainstate.py
         conn.execute(
             """
             CREATE TABLE utxo_lifecycle (
-                txid VARCHAR,
-                vout INTEGER,
-                height INTEGER,
-                amount BIGINT,
-                btc_value DOUBLE,
-                creation_price_usd DOUBLE,
+                txid VARCHAR NOT NULL,
+                vout INTEGER NOT NULL,
+                creation_block INTEGER NOT NULL,
+                amount BIGINT NOT NULL,
+                is_coinbase BOOLEAN DEFAULT FALSE,
+                script_type VARCHAR,
+                address VARCHAR,
                 is_spent BOOLEAN DEFAULT FALSE,
                 spent_block INTEGER,
-                spent_timestamp INTEGER,
-                spent_price_usd DOUBLE
+                spent_timestamp BIGINT,
+                spent_price_usd DOUBLE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (txid, vout)
             )
             """
         )
-        # Insert unspent UTXOs
+        # Insert unspent UTXOs (amount in satoshis)
         conn.execute(
             """
-            INSERT INTO utxo_lifecycle (txid, vout, height, amount, btc_value, creation_price_usd)
+            INSERT INTO utxo_lifecycle (txid, vout, creation_block, amount)
             VALUES
-                ('abc123', 0, 800000, 100000000, 1.0, 50000.0),
-                ('def456', 1, 800001, 50000000, 0.5, 51000.0),
-                ('ghi789', 0, 800002, 200000000, 2.0, 52000.0)
+                ('abc123', 0, 800000, 100000000),
+                ('def456', 1, 800001, 50000000),
+                ('ghi789', 0, 800002, 200000000)
             """
         )
         conn.close()

@@ -210,7 +210,7 @@ async def sync_spent_utxos_range(
     )
 
     with ThreadPoolExecutor(max_workers=workers) as executor:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         for chunk_start in range(0, len(heights), chunk_size):
             chunk_heights = heights[chunk_start : chunk_start + chunk_size]

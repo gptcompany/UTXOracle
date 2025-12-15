@@ -37,8 +37,6 @@ import duckdb
 from scripts.bootstrap.build_block_heights import build_block_heights_table
 from scripts.bootstrap.build_price_table import build_price_table
 from scripts.bootstrap.import_chainstate import (
-    compute_btc_values,
-    compute_creation_prices,
     create_indexes,
     get_import_stats,
     import_chainstate_csv,
@@ -282,12 +280,26 @@ async def bootstrap_tier1(
     stats["utxos_count"] = import_chainstate_csv(conn, csv_path)
     logger.info(f"Completed in {time.time() - start:.1f}s")
 
-    # Step 4: Compute derived values
-    logger.info("Step 4/4: Computing BTC values and creation prices...")
+    # Step 4: Create indexes and VIEW
+    logger.info("Step 4/4: Creating indexes and computed VIEW...")
     start = time.time()
-    compute_btc_values(conn)
-    compute_creation_prices(conn)
     create_indexes(conn)
+
+    # Create VIEW with computed columns (btc_value, creation_price, etc.)
+    # VIEW joins with block_heights and daily_prices tables
+    from scripts.bootstrap.import_chainstate import (
+        create_utxo_lifecycle_view,
+        verify_supporting_tables,
+    )
+
+    table_status = verify_supporting_tables(conn)
+    if table_status["view_functional"]:
+        create_utxo_lifecycle_view(conn)
+        logger.info("Created utxo_lifecycle_full VIEW for metrics queries")
+    else:
+        logger.warning(
+            "VIEW not created - metrics will use base table with inline calculations"
+        )
     logger.info(f"Completed in {time.time() - start:.1f}s")
 
     # Get final stats

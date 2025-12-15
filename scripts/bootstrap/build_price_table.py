@@ -246,7 +246,7 @@ def get_price_for_block_height(
             f"""
             SELECT p.price_usd
             FROM daily_prices p
-            JOIN {block_heights_table} b ON DATE(FROM_UNIXTIME(b.timestamp)) = p.date
+            JOIN {block_heights_table} b ON CAST(to_timestamp(b.timestamp) AS DATE) = p.date
             WHERE b.height = ?
             """,
             [block_height],
