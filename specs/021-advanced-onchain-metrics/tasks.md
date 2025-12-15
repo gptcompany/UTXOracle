@@ -274,6 +274,10 @@
 - [x] T075 [P] Run ruff check and format on all new modules
 - [x] T076 [P] Update docs/ARCHITECTURE.md with new metrics documentation
 - [ ] T077 Run quickstart.md validation scenarios manually (requires UTXO DB)
+      ⚠️ BLOCKED: Requires Bitcoin Core online + daily_prices + block_heights tables
+      - DB validation passed: 164,640,689 UTXOs, 4 indexes
+      - URPD metrics require `creation_price_usd` (computed from supporting tables)
+      - See: `scripts/bootstrap/build_price_table.py`, `scripts/bootstrap/build_block_heights.py`
 
 ---
 
