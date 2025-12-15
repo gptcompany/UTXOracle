@@ -81,7 +81,12 @@ async def fetch_historical_price(
                 return None
 
             data = await response.json()
-            price = data.get("USD")
+            # API returns: {"prices":[{"time":..., "USD":...}], "exchangeRates":{...}}
+            prices = data.get("prices", [])
+            if not prices:
+                return None
+
+            price = prices[0].get("USD")
 
             if price is None or price == 0:
                 return None

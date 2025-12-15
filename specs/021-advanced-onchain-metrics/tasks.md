@@ -80,6 +80,102 @@
 
 ---
 
+## Phase 0.5: Post-Reindex Bootstrap Continuation 🔄
+
+**Status**: BLOCKED - Waiting for Bitcoin Core reindex to complete
+
+**Current Progress** (as of 2025-12-15):
+- ✅ `utxo_lifecycle`: 164,640,689 rows imported from chainstate
+- ✅ `daily_prices`: 5,462 rows (2011-07-17 → 2025-12-14)
+- ⏳ `block_heights`: 0 rows (BLOCKED - electrs requires Bitcoin Core)
+- ⏳ `utxo_lifecycle_full` VIEW: Not created yet (requires block_heights)
+
+**Blocker**: Bitcoin Core is reindexing (`-reindex`). electrs cannot serve data until reindex completes.
+
+**Verification** (run when Bitcoin Core is ready):
+```bash
+# Check electrs connectivity
+curl -s http://localhost:3001/blocks/tip/height && echo " ← tip height (should return a number)"
+
+# Check Bitcoin Core status (no reindex warnings)
+docker logs mempool-electrs 2>&1 | tail -5
+```
+
+### Continuation Tasks
+
+- [ ] T0008 Build `block_heights` table from electrs (~928K blocks)
+      ```bash
+      cd /media/sam/1TB/UTXOracle
+      python -m scripts.bootstrap.build_block_heights \
+        --db-path data/utxo_lifecycle.duckdb \
+        --start-height 0 \
+        --end-height 928000 \
+        --batch-size 100 \
+        --rate-limit 30 \
+        -v
+      ```
+      **Duration**: ~2-3 hours (2 API calls per block, rate limited)
+      **Output**: ~928,000 height→timestamp mappings
+
+- [ ] T0009 Create `utxo_lifecycle_full` VIEW with computed columns
+      ```bash
+      cd /media/sam/1TB/UTXOracle
+      python -c "
+      import duckdb
+      from scripts.bootstrap.import_chainstate import create_utxo_lifecycle_view, verify_supporting_tables
+
+      conn = duckdb.connect('data/utxo_lifecycle.duckdb')
+      status = verify_supporting_tables(conn)
+      print(f'Supporting tables: {status}')
+
+      if status['view_functional']:
+          create_utxo_lifecycle_view(conn)
+          print('✅ VIEW created successfully')
+      else:
+          print('❌ Missing supporting tables - cannot create VIEW')
+      conn.close()
+      "
+      ```
+      **Depends on**: T0008 (block_heights table)
+      **Output**: `utxo_lifecycle_full` VIEW with `creation_price_usd`, `btc_value`, `sopr`, etc.
+
+- [ ] T0010 Run T077 quickstart validation scenarios
+      ```bash
+      cd /media/sam/1TB/UTXOracle
+      # Validate URPD with production data
+      uv run pytest tests/test_urpd.py -v -k "not fixture"
+
+      # Manual validation (from quickstart.md)
+      curl "http://localhost:8000/api/metrics/urpd?bucket_size=5000&current_price=100000"
+      ```
+      **Depends on**: T0009 (VIEW must exist)
+      **Validates**: URPD metrics return real support/resistance zones
+
+### Quick Resume Checklist
+
+When Bitcoin Core reindex completes, run these in order:
+
+```bash
+# 1. Verify electrs is connected
+curl -s http://localhost:3001/blocks/tip/height
+
+# 2. Build block_heights (~2-3 hours)
+cd /media/sam/1TB/UTXOracle
+python -m scripts.bootstrap.build_block_heights \
+  --db-path data/utxo_lifecycle.duckdb \
+  --batch-size 100 --rate-limit 30 -v
+
+# 3. Create VIEW (seconds)
+python -c "import duckdb; from scripts.bootstrap.import_chainstate import create_utxo_lifecycle_view; conn = duckdb.connect('data/utxo_lifecycle.duckdb'); create_utxo_lifecycle_view(conn); print('VIEW created')"
+
+# 4. Validate
+uv run pytest tests/test_urpd.py -v
+```
+
+**Checkpoint**: All supporting tables built, VIEW functional, T077 validation passed
+
+---
+
 ## Phase 1: Setup (Shared Infrastructure)
 
 **Purpose**: Verify dependencies and add dataclasses to metrics_models.py
