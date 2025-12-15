@@ -52,6 +52,34 @@ DEFAULT_ELECTRS_URL = "http://localhost:3001"
 DEFAULT_BITCOIN_DATADIR = os.path.expanduser("~/.bitcoin")
 
 
+def bootstrap_tier2_available() -> bool:
+    """Check if Tier 2 bootstrap (rpc-v3) is available.
+
+    Tier 2 requires Bitcoin Core 25.0+ which supports getblock verbosity=3.
+
+    Returns:
+        True if rpc-v3 is available, False otherwise
+    """
+    try:
+        result = subprocess.run(
+            ["bitcoin-cli", "getnetworkinfo"],
+            capture_output=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return False
+
+        # Parse version from output
+        import json
+
+        info = json.loads(result.stdout)
+        version = info.get("version", 0)
+        # Version 250000 = 25.0.0
+        return version >= 250000
+    except Exception:
+        return False
+
+
 def create_all_schemas(conn: duckdb.DuckDBPyConnection) -> None:
     """Create all required table schemas.
 

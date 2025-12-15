@@ -68,7 +68,7 @@
 - [x] T0004 Implement `import_chainstate.py` (bitcoin-utxo-dump CSV → DuckDB COPY)
 - [x] T0005 Implement `bootstrap_utxo_lifecycle.py` (orchestrator script)
 - [x] T0006 Test full Tier 1 bootstrap workflow (target: <50 min on NVMe SSD, 180M UTXOs) ✅ 12/12 tests pass
-- [ ] T0007 Implement incremental rpc-v3 sync for Tier 2 (spent UTXOs)
+- [x] T0007 Implement incremental rpc-v3 sync for Tier 2 (spent UTXOs) ✅ 17/17 bootstrap tests pass
 
 **Checkpoint**: UTXO lifecycle database populated, Tier 1 metrics (URPD, Supply P&L) operational
 
