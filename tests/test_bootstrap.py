@@ -22,8 +22,11 @@ class TestBuildPriceTable:
 
     @pytest.fixture
     def mock_mempool_response(self):
-        """Mock mempool API response for historical price."""
-        return {"USD": 16.45}  # July 2011 price
+        """Mock mempool API response for historical price.
+
+        API returns: {"prices":[{"time":unix_ts, "USD":price}], "exchangeRates":{...}}
+        """
+        return {"prices": [{"time": 1310428800, "USD": 16.45}]}  # July 2011 price
 
     @pytest.fixture
     def temp_db_path(self, tmp_path):

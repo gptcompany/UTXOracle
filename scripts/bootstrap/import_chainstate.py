@@ -309,54 +309,66 @@ def import_chainstate_csv(
 
 
 def verify_supporting_tables(conn: duckdb.DuckDBPyConnection) -> dict:
-    """Verify supporting tables exist for VIEW (block_heights, daily_prices).
+    """Verify supporting tables exist AND have data for VIEW.
 
     The utxo_lifecycle_full VIEW requires:
-    - block_heights: Maps block height to timestamp
-    - daily_prices: Maps date to BTC/USD price
+    - block_heights: Maps block height to timestamp (should have ~900K+ rows)
+    - daily_prices: Maps date to BTC/USD price (should have ~5K+ rows)
 
     Args:
         conn: DuckDB connection
 
     Returns:
-        Dict with table existence status
+        Dict with table existence and row count status
     """
     status = {
         "block_heights": False,
+        "block_heights_count": 0,
         "daily_prices": False,
+        "daily_prices_count": 0,
         "view_functional": False,
     }
 
     try:
-        # Check block_heights table
+        # Check block_heights table exists and has data
         result = conn.execute("""
             SELECT COUNT(*) FROM information_schema.tables
             WHERE table_name = 'block_heights'
         """).fetchone()[0]
-        status["block_heights"] = result > 0
+        if result > 0:
+            count = conn.execute("SELECT COUNT(*) FROM block_heights").fetchone()[0]
+            status["block_heights"] = count > 0
+            status["block_heights_count"] = count
 
-        # Check daily_prices table
+        # Check daily_prices table exists and has data
         result = conn.execute("""
             SELECT COUNT(*) FROM information_schema.tables
             WHERE table_name = 'daily_prices'
         """).fetchone()[0]
-        status["daily_prices"] = result > 0
+        if result > 0:
+            count = conn.execute("SELECT COUNT(*) FROM daily_prices").fetchone()[0]
+            status["daily_prices"] = count > 0
+            status["daily_prices_count"] = count
 
-        # Both required for VIEW to be functional
+        # Both required for VIEW to be functional (with data)
         status["view_functional"] = status["block_heights"] and status["daily_prices"]
 
         if status["view_functional"]:
             logger.info(
-                "Supporting tables verified - VIEW will compute derived columns"
+                f"Supporting tables verified - VIEW will compute derived columns "
+                f"(block_heights: {status['block_heights_count']:,}, "
+                f"daily_prices: {status['daily_prices_count']:,})"
             )
         else:
             missing = []
             if not status["block_heights"]:
-                missing.append("block_heights")
+                missing.append(
+                    f"block_heights ({status['block_heights_count']:,} rows)"
+                )
             if not status["daily_prices"]:
-                missing.append("daily_prices")
+                missing.append(f"daily_prices ({status['daily_prices_count']:,} rows)")
             logger.warning(
-                f"Missing tables for VIEW: {missing}. "
+                f"Missing/empty tables for VIEW: {missing}. "
                 f"Run build_block_heights.py and build_price_table.py first."
             )
 

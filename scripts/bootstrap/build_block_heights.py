@@ -1,12 +1,17 @@
-"""Build block heights table from electrs API.
+"""Build block heights table from electrs API or Bitcoin Core RPC.
 
 Maps block height -> timestamp for UTXO lifecycle price lookups.
-Uses electrs /block-height/{h} and /block/{hash} endpoints.
+
+Primary: Bitcoin Core RPC `getblockheader` (fastest, 1 call per block)
+Fallback: electrs /block-height/{h} and /block/{hash} endpoints (2 calls per block)
 
 Usage:
     python -m scripts.bootstrap.build_block_heights --db-path data/utxo_lifecycle.duckdb
 
-API Endpoints:
+    # Use Bitcoin Core RPC (faster)
+    python -m scripts.bootstrap.build_block_heights --use-rpc --rpc-cookie ~/.bitcoin/.cookie
+
+API Endpoints (electrs fallback):
     GET /block-height/{height} -> block hash (text)
     GET /block/{hash} -> {"timestamp": unix_ts, "height": int, ...}
 """
@@ -17,6 +22,7 @@ import argparse
 import asyncio
 import logging
 import os
+from pathlib import Path
 from typing import Optional
 
 import aiohttp
@@ -26,8 +32,10 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 DEFAULT_ELECTRS_URL = "http://localhost:3001"
-DEFAULT_BATCH_SIZE = 100  # heights per batch
-DEFAULT_RATE_LIMIT = 30  # max concurrent requests
+DEFAULT_RPC_URL = "http://localhost:8332"
+DEFAULT_BATCH_SIZE = 500  # heights per batch (increased from 100)
+DEFAULT_RATE_LIMIT = 50  # max concurrent requests (increased from 30)
+DEFAULT_INSERT_BATCH_SIZE = 1000  # rows per INSERT batch
 
 
 def create_block_heights_schema(conn: duckdb.DuckDBPyConnection) -> None:
@@ -50,6 +58,266 @@ def create_block_heights_schema(conn: duckdb.DuckDBPyConnection) -> None:
         ON block_heights(timestamp)
     """)
     logger.info("Created block_heights table schema")
+
+
+def batch_insert_heights(
+    conn: duckdb.DuckDBPyConnection,
+    records: list[tuple[int, int, Optional[str]]],
+) -> int:
+    """Batch insert block height records.
+
+    Args:
+        conn: DuckDB connection
+        records: List of (height, timestamp, block_hash) tuples
+
+    Returns:
+        Number of rows inserted
+    """
+    if not records:
+        return 0
+
+    # Use INSERT OR IGNORE to skip duplicates
+    inserted = 0
+    for height, timestamp, block_hash in records:
+        try:
+            conn.execute(
+                "INSERT OR IGNORE INTO block_heights (height, timestamp, block_hash) VALUES (?, ?, ?)",
+                [height, timestamp, block_hash],
+            )
+            inserted += 1
+        except Exception:
+            pass  # Skip duplicates
+    return inserted
+
+
+# =============================================================================
+# Bitcoin Core RPC Functions (Primary - faster, 1 call per block)
+# =============================================================================
+
+
+def parse_bitcoin_cookie(cookie_path: str) -> tuple[str, str]:
+    """Parse Bitcoin Core cookie file for RPC auth.
+
+    Args:
+        cookie_path: Path to .cookie file
+
+    Returns:
+        Tuple of (username, password)
+    """
+    cookie_file = Path(cookie_path)
+    if not cookie_file.exists():
+        raise FileNotFoundError(f"Cookie file not found: {cookie_path}")
+
+    content = cookie_file.read_text().strip()
+    if ":" not in content:
+        raise ValueError(f"Invalid cookie format: {cookie_path}")
+
+    return tuple(content.split(":", 1))
+
+
+async def rpc_getblockheader(
+    height: int,
+    session: aiohttp.ClientSession,
+    rpc_url: str,
+    auth: aiohttp.BasicAuth,
+) -> Optional[tuple[int, str]]:
+    """Get block header via Bitcoin Core RPC.
+
+    Args:
+        height: Block height
+        session: aiohttp session
+        rpc_url: Bitcoin Core RPC URL
+        auth: Basic auth credentials
+
+    Returns:
+        Tuple of (timestamp, block_hash) or None if failed
+    """
+    # First get block hash from height
+    payload_hash = {
+        "jsonrpc": "1.0",
+        "id": f"getblockhash_{height}",
+        "method": "getblockhash",
+        "params": [height],
+    }
+
+    try:
+        async with session.post(rpc_url, json=payload_hash, auth=auth) as resp:
+            if resp.status != 200:
+                return None
+            data = await resp.json()
+            if "error" in data and data["error"]:
+                return None
+            block_hash = data["result"]
+
+        # Now get block header
+        payload_header = {
+            "jsonrpc": "1.0",
+            "id": f"getblockheader_{height}",
+            "method": "getblockheader",
+            "params": [block_hash],
+        }
+
+        async with session.post(rpc_url, json=payload_header, auth=auth) as resp:
+            if resp.status != 200:
+                return None
+            data = await resp.json()
+            if "error" in data and data["error"]:
+                return None
+            header = data["result"]
+            return (header["time"], block_hash)
+
+    except Exception as e:
+        logger.debug(f"RPC error for height {height}: {e}")
+        return None
+
+
+async def batch_fetch_rpc(
+    heights: list[int],
+    session: aiohttp.ClientSession,
+    rpc_url: str,
+    auth: aiohttp.BasicAuth,
+    semaphore: asyncio.Semaphore,
+) -> dict[int, tuple[int, str]]:
+    """Batch fetch block headers via RPC.
+
+    Args:
+        heights: List of heights to fetch
+        session: aiohttp session
+        rpc_url: Bitcoin Core RPC URL
+        auth: Basic auth credentials
+        semaphore: Concurrency limiter
+
+    Returns:
+        Dict mapping height -> (timestamp, block_hash)
+    """
+    results: dict[int, tuple[int, str]] = {}
+
+    async def fetch_one(h: int) -> tuple[int, Optional[tuple[int, str]]]:
+        async with semaphore:
+            result = await rpc_getblockheader(h, session, rpc_url, auth)
+            return h, result
+
+    tasks = [fetch_one(h) for h in heights]
+    completed = await asyncio.gather(*tasks, return_exceptions=True)
+
+    for item in completed:
+        if isinstance(item, Exception):
+            logger.debug(f"RPC batch error: {item}")
+        elif item[1] is not None:
+            h, data = item
+            results[h] = data
+
+    return results
+
+
+async def build_block_heights_table_rpc(
+    conn: duckdb.DuckDBPyConnection,
+    start_height: int = 0,
+    end_height: Optional[int] = None,
+    rpc_url: str = DEFAULT_RPC_URL,
+    cookie_path: Optional[str] = None,
+    batch_size: int = DEFAULT_BATCH_SIZE,
+    rate_limit: int = DEFAULT_RATE_LIMIT,
+) -> int:
+    """Build block heights table using Bitcoin Core RPC (faster).
+
+    Args:
+        conn: DuckDB connection
+        start_height: First block height
+        end_height: Last block height (default: from RPC)
+        rpc_url: Bitcoin Core RPC URL
+        cookie_path: Path to .cookie file
+        batch_size: Heights per batch
+        rate_limit: Max concurrent requests
+
+    Returns:
+        Number of heights inserted
+    """
+    # Create schema
+    create_block_heights_schema(conn)
+
+    # Parse cookie for auth
+    if cookie_path is None:
+        # Try default locations
+        for path in [
+            Path.home() / ".bitcoin" / ".cookie",
+            Path("/media/sam/3TB-WDC/Bitcoin/.cookie"),
+        ]:
+            if path.exists():
+                cookie_path = str(path)
+                break
+
+    if cookie_path is None:
+        raise FileNotFoundError("Could not find Bitcoin Core cookie file")
+
+    user, password = parse_bitcoin_cookie(cookie_path)
+    auth = aiohttp.BasicAuth(user, password)
+    logger.info(f"Using RPC auth from: {cookie_path}")
+
+    # Get current tip if end_height not specified
+    if end_height is None:
+        async with aiohttp.ClientSession() as session:
+            payload = {
+                "jsonrpc": "1.0",
+                "id": "getblockcount",
+                "method": "getblockcount",
+                "params": [],
+            }
+            async with session.post(rpc_url, json=payload, auth=auth) as resp:
+                if resp.status != 200:
+                    raise RuntimeError(f"RPC getblockcount failed: HTTP {resp.status}")
+                data = await resp.json()
+                end_height = data["result"]
+        logger.info(f"Current blockchain tip: {end_height}")
+
+    # Check existing heights
+    existing = set()
+    try:
+        result = conn.execute("SELECT height FROM block_heights").fetchall()
+        existing = {row[0] for row in result}
+        logger.info(f"Found {len(existing)} existing height records")
+    except Exception:
+        pass
+
+    # Heights to fetch
+    all_heights = [h for h in range(start_height, end_height + 1) if h not in existing]
+    logger.info(f"Need to fetch {len(all_heights)} heights via RPC")
+
+    if not all_heights:
+        logger.info("All heights already fetched")
+        return 0
+
+    # Fetch with RPC
+    total_inserted = 0
+    semaphore = asyncio.Semaphore(rate_limit)
+
+    connector = aiohttp.TCPConnector(limit=rate_limit, limit_per_host=rate_limit)
+    timeout = aiohttp.ClientTimeout(total=60)
+
+    async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+        for i in range(0, len(all_heights), batch_size):
+            batch = all_heights[i : i + batch_size]
+
+            results = await batch_fetch_rpc(batch, session, rpc_url, auth, semaphore)
+
+            # Batch insert
+            records = [(h, ts, hash_) for h, (ts, hash_) in results.items()]
+            inserted = batch_insert_heights(conn, records)
+            total_inserted += inserted
+
+            # Progress
+            progress = min(i + batch_size, len(all_heights)) / len(all_heights) * 100
+            logger.info(
+                f"Progress: {progress:.1f}% ({total_inserted}/{len(all_heights)} inserted)"
+            )
+
+    logger.info(f"Completed via RPC: {total_inserted} heights inserted")
+    return total_inserted
+
+
+# =============================================================================
+# Electrs API Functions (Fallback - slower, 2 calls per block)
+# =============================================================================
 
 
 async def fetch_block_timestamp(
@@ -224,17 +492,10 @@ async def build_block_heights_table(
                 batch, session, electrs_url, semaphore
             )
 
-            # Insert heights
-            for h, ts in timestamps.items():
-                if ts is not None:
-                    try:
-                        conn.execute(
-                            "INSERT INTO block_heights (height, timestamp) VALUES (?, ?)",
-                            [h, ts],
-                        )
-                        total_inserted += 1
-                    except Exception as e:
-                        logger.warning(f"Failed to insert height {h}: {e}")
+            # Batch insert (electrs doesn't give us hash, so use None)
+            records = [(h, ts, None) for h, ts in timestamps.items() if ts is not None]
+            inserted = batch_insert_heights(conn, records)
+            total_inserted += inserted
 
             # Progress update
             progress = min(i + batch_size, len(all_heights)) / len(all_heights) * 100
@@ -303,18 +564,48 @@ def get_height_for_timestamp(
 async def main():
     """CLI entry point."""
     parser = argparse.ArgumentParser(
-        description="Build block heights table from electrs API"
+        description="Build block heights table from electrs API or Bitcoin Core RPC"
     )
     parser.add_argument(
         "--db-path",
         default=os.getenv("DUCKDB_PATH", "data/utxo_lifecycle.duckdb"),
         help="Path to DuckDB database",
     )
+
+    # Source selection
+    source_group = parser.add_mutually_exclusive_group()
+    source_group.add_argument(
+        "--use-rpc",
+        action="store_true",
+        help="Use Bitcoin Core RPC (faster, requires running node)",
+    )
+    source_group.add_argument(
+        "--use-electrs",
+        action="store_true",
+        default=True,
+        help="Use electrs HTTP API (default, slower)",
+    )
+
+    # RPC options
+    parser.add_argument(
+        "--rpc-url",
+        default=os.getenv("BITCOIN_RPC_URL", DEFAULT_RPC_URL),
+        help="Bitcoin Core RPC URL",
+    )
+    parser.add_argument(
+        "--rpc-cookie",
+        default=os.getenv("BITCOIN_COOKIE_PATH"),
+        help="Path to Bitcoin Core .cookie file",
+    )
+
+    # Electrs options
     parser.add_argument(
         "--electrs-url",
         default=os.getenv("ELECTRS_HTTP_URL", DEFAULT_ELECTRS_URL),
         help="Electrs HTTP API URL",
     )
+
+    # Common options
     parser.add_argument(
         "--start-height",
         type=int,
@@ -331,13 +622,13 @@ async def main():
         "--batch-size",
         type=int,
         default=DEFAULT_BATCH_SIZE,
-        help="Heights per batch",
+        help="Heights per batch (default: 500)",
     )
     parser.add_argument(
         "--rate-limit",
         type=int,
         default=DEFAULT_RATE_LIMIT,
-        help="Max concurrent requests",
+        help="Max concurrent requests (default: 50)",
     )
     parser.add_argument(
         "-v",
@@ -358,14 +649,27 @@ async def main():
     conn = duckdb.connect(args.db_path)
 
     try:
-        count = await build_block_heights_table(
-            conn,
-            start_height=args.start_height,
-            end_height=args.end_height,
-            electrs_url=args.electrs_url,
-            batch_size=args.batch_size,
-            rate_limit=args.rate_limit,
-        )
+        if args.use_rpc:
+            logger.info("Using Bitcoin Core RPC mode (faster)")
+            count = await build_block_heights_table_rpc(
+                conn,
+                start_height=args.start_height,
+                end_height=args.end_height,
+                rpc_url=args.rpc_url,
+                cookie_path=args.rpc_cookie,
+                batch_size=args.batch_size,
+                rate_limit=args.rate_limit,
+            )
+        else:
+            logger.info("Using electrs API mode (fallback)")
+            count = await build_block_heights_table(
+                conn,
+                start_height=args.start_height,
+                end_height=args.end_height,
+                electrs_url=args.electrs_url,
+                batch_size=args.batch_size,
+                rate_limit=args.rate_limit,
+            )
         print(f"Successfully inserted {count} block heights")
     finally:
         conn.close()

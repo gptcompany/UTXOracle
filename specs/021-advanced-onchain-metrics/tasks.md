@@ -101,7 +101,30 @@ curl -s http://localhost:3001/blocks/tip/height && echo " ← tip height (should
 docker logs mempool-electrs 2>&1 | tail -5
 ```
 
-### Continuation Tasks
+### Preparatory Tasks (While Waiting for Bitcoin Core)
+
+- [x] T0011 Optimize `build_block_heights.py` for faster execution ✅
+      **Completed**: Added Bitcoin Core RPC mode (--use-rpc), increased batch size 100→500,
+      rate limit 30→50, batch INSERT instead of individual inserts.
+      **New usage**:
+      ```bash
+      # Faster: Use Bitcoin Core RPC (1 call/block vs 2 for electrs)
+      python -m scripts.bootstrap.build_block_heights --use-rpc --db-path data/utxo_lifecycle.duckdb
+      # Fallback: Use electrs (if RPC unavailable)
+      python -m scripts.bootstrap.build_block_heights --use-electrs --db-path data/utxo_lifecycle.duckdb
+      ```
+
+- [x] T0012 Verify test suite passes (179 tests) ✅
+      **Result**: 179/179 tests pass (fixed mock API format in test_bootstrap.py)
+
+- [x] T0013 Verify VIEW SQL in `import_chainstate.py` ✅
+      **Verified**:
+      - JOIN logic correct (block_heights→timestamp, daily_prices→price)
+      - COALESCE for NULL handling
+      - SOPR calculation correct
+      - Improved `verify_supporting_tables()` to check row counts
+
+### Continuation Tasks (After Bitcoin Core Ready)
 
 - [ ] T0008 Build `block_heights` table from electrs (~928K blocks)
       ```bash
