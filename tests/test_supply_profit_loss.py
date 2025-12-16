@@ -37,6 +37,9 @@ def test_db():
         """
     )
 
+    # Create VIEW alias for production code compatibility
+    conn.execute("CREATE VIEW utxo_lifecycle_full AS SELECT * FROM utxo_lifecycle")
+
     # Insert test data with various age cohorts and profit/loss states
     # Current price: $100,000
     # STH threshold: 155 days
@@ -256,6 +259,8 @@ class TestSupplyProfitLossCalculation:
             )
             """
         )
+        # Create VIEW alias for production code compatibility
+        conn.execute("CREATE VIEW utxo_lifecycle_full AS SELECT * FROM utxo_lifecycle")
 
         result = calculate_supply_profit_loss(
             conn=conn,

@@ -49,6 +49,9 @@ def test_db():
         """
     )
 
+    # Create VIEW alias for production code compatibility
+    conn.execute("CREATE VIEW utxo_lifecycle_full AS SELECT * FROM utxo_lifecycle")
+
     # Insert unspent UTXOs (total: 10 BTC)
     conn.execute(
         """
@@ -202,6 +205,8 @@ class TestReserveRiskCalculation:
             )
             """
         )
+        # Create VIEW alias for production code compatibility
+        conn.execute("CREATE VIEW utxo_lifecycle_full AS SELECT * FROM utxo_lifecycle")
 
         result = calculate_reserve_risk(
             conn=conn,

@@ -78,7 +78,7 @@ def calculate_cdd_vdd(
             COALESCE(SUM(COALESCE(age_days, 0) * btc_value * COALESCE(spent_price_usd, 0)), 0) AS vdd_total,
             COUNT(*) AS spent_count,
             COALESCE(AVG(COALESCE(age_days, 0)), 0) AS avg_age
-        FROM utxo_lifecycle
+        FROM utxo_lifecycle_full
         WHERE is_spent = TRUE
           AND spent_timestamp >= ?
     """
@@ -99,7 +99,7 @@ def calculate_cdd_vdd(
         SELECT
             DATE(spent_timestamp) AS spent_date,
             SUM(COALESCE(age_days, 0) * btc_value) AS day_cdd
-        FROM utxo_lifecycle
+        FROM utxo_lifecycle_full
         WHERE is_spent = TRUE
           AND spent_timestamp >= ?
         GROUP BY DATE(spent_timestamp)

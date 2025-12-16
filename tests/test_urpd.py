@@ -4,7 +4,6 @@ spec-021: Advanced On-Chain Metrics
 TDD: Tests written BEFORE implementation.
 """
 
-
 import duckdb
 import pytest
 
@@ -43,6 +42,9 @@ def test_db():
         )
         """
     )
+
+    # Create VIEW alias for production code compatibility
+    conn.execute("CREATE VIEW utxo_lifecycle_full AS SELECT * FROM utxo_lifecycle")
 
     # Insert test data spanning multiple price buckets
     # 5 UTXOs at different acquisition prices
@@ -217,6 +219,7 @@ class TestURPDCalculation:
             )
             """
         )
+        conn.execute("CREATE VIEW utxo_lifecycle_full AS SELECT * FROM utxo_lifecycle")
 
         result = calculate_urpd(
             conn=conn,

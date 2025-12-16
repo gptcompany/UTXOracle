@@ -35,6 +35,9 @@ def test_db():
         """
     )
 
+    # Create VIEW alias for production code compatibility
+    conn.execute("CREATE VIEW utxo_lifecycle_full AS SELECT * FROM utxo_lifecycle")
+
     # Use relative timestamps within the 30-day window
     now = datetime.utcnow()
     day_1 = (now - timedelta(days=10)).strftime("%Y-%m-%d %H:%M:%S")
@@ -223,6 +226,8 @@ class TestSellSideRiskCalculation:
             )
             """
         )
+        # Create VIEW alias for production code compatibility
+        conn.execute("CREATE VIEW utxo_lifecycle_full AS SELECT * FROM utxo_lifecycle")
 
         result = calculate_sell_side_risk(
             conn=conn,

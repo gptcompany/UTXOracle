@@ -74,7 +74,7 @@ def calculate_urpd(
             FLOOR(creation_price_usd / ?) * ? AS price_bucket,
             SUM(btc_value) AS btc_in_bucket,
             COUNT(*) AS utxo_count
-        FROM utxo_lifecycle
+        FROM utxo_lifecycle_full
         WHERE is_spent = FALSE
           AND creation_price_usd IS NOT NULL
         GROUP BY price_bucket

@@ -229,7 +229,7 @@ def load_utxo(conn: duckdb.DuckDBPyConnection, outpoint: str) -> UTXOLifecycle |
                spent_block, spent_timestamp, spent_price_usd, spending_txid,
                age_blocks, age_days, cohort, sub_cohort, sopr,
                is_coinbase, is_spent, price_source
-        FROM utxo_lifecycle
+        FROM utxo_lifecycle_full
         WHERE outpoint = ?
         """,
         [outpoint],
@@ -489,7 +489,7 @@ def process_block_inputs(
                creation_block, creation_timestamp, creation_price_usd,
                btc_value, realized_value_usd,
                is_coinbase, price_source
-        FROM utxo_lifecycle
+        FROM utxo_lifecycle_full
         WHERE outpoint IN ({placeholders})
         AND is_spent = FALSE
     """
@@ -763,7 +763,7 @@ def get_supply_by_cohort(
     results = conn.execute(
         """
         SELECT creation_block, btc_value
-        FROM utxo_lifecycle
+        FROM utxo_lifecycle_full
         WHERE is_spent = FALSE
         """
     ).fetchall()
@@ -805,7 +805,7 @@ def get_sth_lth_supply(
     sth_result = conn.execute(
         """
         SELECT COALESCE(SUM(btc_value), 0)
-        FROM utxo_lifecycle
+        FROM utxo_lifecycle_full
         WHERE is_spent = FALSE
         AND creation_block > ?
         """,
@@ -816,7 +816,7 @@ def get_sth_lth_supply(
     lth_result = conn.execute(
         """
         SELECT COALESCE(SUM(btc_value), 0)
-        FROM utxo_lifecycle
+        FROM utxo_lifecycle_full
         WHERE is_spent = FALSE
         AND creation_block <= ?
         """,
@@ -858,7 +858,7 @@ def prune_old_utxos(
     count_result = conn.execute(
         """
         SELECT COUNT(*)
-        FROM utxo_lifecycle
+        FROM utxo_lifecycle_full
         WHERE is_spent = TRUE
         AND spent_block < ?
         """,

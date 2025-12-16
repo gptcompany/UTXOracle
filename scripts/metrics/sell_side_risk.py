@@ -84,7 +84,7 @@ def calculate_sell_side_risk(
                 ELSE 0
             END), 0) AS realized_loss,
             COUNT(*) AS spent_count
-        FROM utxo_lifecycle
+        FROM utxo_lifecycle_full
         WHERE is_spent = TRUE
           AND spent_timestamp >= ?
     """

@@ -88,7 +88,7 @@ def calculate_supply_profit_loss(
                     WHEN COALESCE(age_days, 0) < ? THEN 'STH'
                     ELSE 'LTH'
                 END AS holder_cohort
-            FROM utxo_lifecycle
+            FROM utxo_lifecycle_full
             WHERE is_spent = FALSE
               AND creation_price_usd IS NOT NULL
         )

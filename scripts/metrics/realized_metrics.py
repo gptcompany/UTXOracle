@@ -73,7 +73,7 @@ def calculate_realized_cap(conn: duckdb.DuckDBPyConnection) -> float:
     result = conn.execute(
         """
         SELECT COALESCE(SUM(realized_value_usd), 0)
-        FROM utxo_lifecycle
+        FROM utxo_lifecycle_full
         WHERE is_spent = FALSE
         """,
     ).fetchone()
@@ -160,7 +160,7 @@ def get_total_unspent_supply(conn: duckdb.DuckDBPyConnection) -> float:
     result = conn.execute(
         """
         SELECT COALESCE(SUM(btc_value), 0)
-        FROM utxo_lifecycle
+        FROM utxo_lifecycle_full
         WHERE is_spent = FALSE
         """,
     ).fetchone()
@@ -506,7 +506,7 @@ def calculate_cohort_realized_cap(
         result = conn.execute(
             """
             SELECT COALESCE(SUM(realized_value_usd), 0)
-            FROM utxo_lifecycle
+            FROM utxo_lifecycle_full
             WHERE is_spent = FALSE
               AND creation_block > ?
             """,
@@ -517,7 +517,7 @@ def calculate_cohort_realized_cap(
         result = conn.execute(
             """
             SELECT COALESCE(SUM(realized_value_usd), 0)
-            FROM utxo_lifecycle
+            FROM utxo_lifecycle_full
             WHERE is_spent = FALSE
               AND creation_block <= ?
             """,

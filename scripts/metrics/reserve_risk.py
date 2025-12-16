@@ -70,7 +70,7 @@ def calculate_reserve_risk(
     # Get circulating supply (unspent UTXOs)
     supply_query = """
         SELECT COALESCE(SUM(btc_value), 0) AS circulating_supply
-        FROM utxo_lifecycle
+        FROM utxo_lifecycle_full
         WHERE is_spent = FALSE
     """
     supply_result = conn.execute(supply_query).fetchone()
@@ -79,7 +79,7 @@ def calculate_reserve_risk(
     # Get HODL Bank (cumulative CDD from spent UTXOs, scaled)
     hodl_bank_query = """
         SELECT COALESCE(SUM(COALESCE(age_days, 0) * btc_value), 0) / ? AS hodl_bank
-        FROM utxo_lifecycle
+        FROM utxo_lifecycle_full
         WHERE is_spent = TRUE
     """
     hodl_result = conn.execute(hodl_bank_query, [HODL_BANK_SCALE]).fetchone()

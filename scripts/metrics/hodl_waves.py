@@ -165,7 +165,7 @@ def calculate_hodl_waves(
         SELECT
             btc_value,
             ({current_block} - creation_block) AS age_blocks
-        FROM utxo_lifecycle
+        FROM utxo_lifecycle_full
         WHERE is_spent = FALSE
     ),
     cohort_totals AS (
@@ -309,7 +309,7 @@ def calculate_hodl_waves_full(
 
     # Get total supply
     result = conn.execute(
-        "SELECT COALESCE(SUM(btc_value), 0) FROM utxo_lifecycle WHERE is_spent = FALSE"
+        "SELECT COALESCE(SUM(btc_value), 0) FROM utxo_lifecycle_full WHERE is_spent = FALSE"
     ).fetchone()
     total_supply = result[0] if result else 0.0
 
