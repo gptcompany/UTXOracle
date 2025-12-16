@@ -127,6 +127,16 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
         """
     )
 
+    # VIEW alias for production queries
+    # This VIEW allows SELECT queries to reference utxo_lifecycle_full
+    # while INSERT/UPDATE/DELETE operate on the raw utxo_lifecycle table
+    conn.execute(
+        """
+        CREATE VIEW IF NOT EXISTS utxo_lifecycle_full AS
+        SELECT * FROM utxo_lifecycle
+        """
+    )
+
 
 def init_indexes(conn: duckdb.DuckDBPyConnection) -> None:
     """Create indexes for performance optimization.
