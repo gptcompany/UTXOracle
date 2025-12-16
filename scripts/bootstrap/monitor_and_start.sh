@@ -32,8 +32,12 @@ log() {
 
 get_bitcoin_progress() {
     if [[ -f "$BITCOIN_DEBUG_LOG" ]]; then
-        tail -100 "$BITCOIN_DEBUG_LOG" 2>/dev/null | \
-            grep -oP 'progress=\K[0-9.]+' | tail -1 || echo "0"
+        local result
+        # Use portable grep -oE instead of Perl regex (-oP)
+        result=$(tail -100 "$BITCOIN_DEBUG_LOG" 2>/dev/null | \
+            grep -oE 'progress=[0-9.]+' | tail -1 | cut -d= -f2)
+        # Return "0" if empty (pattern not found) to ensure awk comparison works
+        echo "${result:-0}"
     else
         echo "0"
     fi
@@ -41,8 +45,12 @@ get_bitcoin_progress() {
 
 get_bitcoin_height() {
     if [[ -f "$BITCOIN_DEBUG_LOG" ]]; then
-        tail -100 "$BITCOIN_DEBUG_LOG" 2>/dev/null | \
-            grep -oP 'height=\K[0-9]+' | tail -1 || echo "0"
+        local result
+        # Use portable grep -oE instead of Perl regex (-oP)
+        result=$(tail -100 "$BITCOIN_DEBUG_LOG" 2>/dev/null | \
+            grep -oE 'height=[0-9]+' | tail -1 | cut -d= -f2)
+        # Return "0" if empty (pattern not found)
+        echo "${result:-0}"
     else
         echo "0"
     fi
