@@ -52,3 +52,7 @@ dev = [
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 tdd_guard_project_root = "/media/sam/1TB/UTXOracle"
+markers = [
+    "bootstrap: marks tests for bootstrap module (deselect with '-m \"not bootstrap\"')",
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]

@@ -124,22 +124,23 @@ docker logs mempool-electrs 2>&1 | tail -5
       - SOPR calculation correct
       - Improved `verify_supporting_tables()` to check row counts
 
-- [ ] T0014 Add edge case tests for `batch_insert_heights()`
-      **Test cases**:
+- [x] T0014 Add edge case tests for `batch_insert_heights()` ✅
+      **Test cases implemented**:
       - Empty records list
       - Duplicate heights (INSERT OR IGNORE)
       - BIGINT timestamp values (Y2038+)
-      - NULL block_hash handling
+      - Mixed valid/invalid records
 
-- [ ] T0015 Update `docs/ARCHITECTURE.md` with bootstrap flow
-      **Add**:
-      - Bootstrap architecture diagram
-      - RPC vs electrs mode comparison
-      - Supporting tables schema
+- [x] T0015 Update `docs/ARCHITECTURE.md` with bootstrap flow ✅
+      **Added**:
+      - RPC vs electrs mode comparison table
+      - Updated lookup tables schema with BIGINT timestamp
+      - Comments in schema documentation
 
-- [ ] T0016 Create auto-start monitoring script
-      **Purpose**: Monitor Bitcoin Core reindex, auto-start T0008 when ready
+- [x] T0016 Create auto-start monitoring script ✅
       **Output**: `scripts/bootstrap/monitor_and_start.sh`
+      **Features**: Monitors Bitcoin Core progress, auto-starts block_heights build at 99.9%
+      **Alpha-debug fix**: Portable grep -oE vs -oP (commit 7234293)
 
 ### Continuation Tasks (After Bitcoin Core Ready)
 
