@@ -2,8 +2,8 @@
 
 Maps block height -> timestamp for UTXO lifecycle price lookups.
 
-Primary: Bitcoin Core RPC `getblockheader` (fastest, 1 call per block)
-Fallback: electrs /block-height/{h} and /block/{hash} endpoints (2 calls per block)
+Primary: Bitcoin Core RPC (getblockhash + getblockheader, 2 calls per block, local)
+Fallback: electrs /block-height/{h} and /block/{hash} endpoints (2 calls per block, HTTP)
 
 Usage:
     python -m scripts.bootstrap.build_block_heights --db-path data/utxo_lifecycle.duckdb
@@ -47,7 +47,7 @@ def create_block_heights_schema(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute("""
         CREATE TABLE IF NOT EXISTS block_heights (
             height INTEGER PRIMARY KEY,
-            timestamp INTEGER NOT NULL,
+            timestamp BIGINT NOT NULL,
             block_hash VARCHAR,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -71,27 +71,31 @@ def batch_insert_heights(
         records: List of (height, timestamp, block_hash) tuples
 
     Returns:
-        Number of rows inserted
+        Number of rows actually inserted (excludes duplicates)
     """
     if not records:
         return 0
 
+    # Count rows before insertion to track actual inserts
+    count_before = conn.execute("SELECT COUNT(*) FROM block_heights").fetchone()[0]
+
     # Use INSERT OR IGNORE to skip duplicates
-    inserted = 0
     for height, timestamp, block_hash in records:
         try:
             conn.execute(
                 "INSERT OR IGNORE INTO block_heights (height, timestamp, block_hash) VALUES (?, ?, ?)",
                 [height, timestamp, block_hash],
             )
-            inserted += 1
         except Exception:
             pass  # Skip duplicates
-    return inserted
+
+    # Return actual rows inserted
+    count_after = conn.execute("SELECT COUNT(*) FROM block_heights").fetchone()[0]
+    return count_after - count_before
 
 
 # =============================================================================
-# Bitcoin Core RPC Functions (Primary - faster, 1 call per block)
+# Bitcoin Core RPC Functions (Primary - faster local calls vs HTTP)
 # =============================================================================
 
 
@@ -167,7 +171,7 @@ async def rpc_getblockheader(
             return (header["time"], block_hash)
 
     except Exception as e:
-        logger.debug(f"RPC error for height {height}: {e}")
+        logger.debug("RPC error for height %d: %s", height, type(e).__name__)
         return None
 
 
