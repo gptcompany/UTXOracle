@@ -13,6 +13,7 @@ Spec-009 additions:
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 from typing import Optional, Literal
 
 
@@ -1597,4 +1598,91 @@ class CoinDaysDestroyedResult:
             "timestamp": self.timestamp.isoformat()
             if hasattr(self.timestamp, "isoformat")
             else str(self.timestamp),
+        }
+
+
+# =============================================================================
+# Spec-022: NUPL Oscillator Dataclasses
+# =============================================================================
+
+
+class NUPLZone(str, Enum):
+    """NUPL market cycle zones based on Glassnode thresholds.
+
+    Interpretation:
+    - CAPITULATION: < 0 (network underwater, extreme fear, historically cycle bottoms)
+    - HOPE_FEAR: 0 - 0.25 (recovery phase)
+    - OPTIMISM: 0.25 - 0.5 (bull market building)
+    - BELIEF: 0.5 - 0.75 (strong conviction)
+    - EUPHORIA: > 0.75 (extreme greed, historically cycle tops)
+
+    Spec: spec-022
+    """
+
+    CAPITULATION = "CAPITULATION"
+    HOPE_FEAR = "HOPE_FEAR"
+    OPTIMISM = "OPTIMISM"
+    BELIEF = "BELIEF"
+    EUPHORIA = "EUPHORIA"
+
+
+@dataclass
+class NUPLResult:
+    """NUPL Oscillator result with zone classification.
+
+    Net Unrealized Profit/Loss = (Market Cap - Realized Cap) / Market Cap
+
+    Interpretation:
+    - NUPL > 0.75: Euphoria (historically cycle tops)
+    - NUPL 0.5-0.75: Belief
+    - NUPL 0.25-0.5: Optimism
+    - NUPL 0-0.25: Hope/Fear
+    - NUPL < 0: Capitulation (historically cycle bottoms)
+
+    Spec: spec-022
+    """
+
+    nupl: float
+    zone: NUPLZone
+    market_cap_usd: float
+    realized_cap_usd: float
+    unrealized_profit_usd: float
+    pct_supply_in_profit: float
+    block_height: int
+    timestamp: datetime = field(default_factory=datetime.utcnow)
+    confidence: float = 0.85  # Default high confidence for Tier A metric
+
+    def __post_init__(self):
+        """Validate NUPL result fields."""
+        if self.market_cap_usd < 0:
+            raise ValueError(f"market_cap_usd must be >= 0: {self.market_cap_usd}")
+        if self.realized_cap_usd < 0:
+            raise ValueError(f"realized_cap_usd must be >= 0: {self.realized_cap_usd}")
+        if not 0.0 <= self.confidence <= 1.0:
+            raise ValueError(f"confidence must be in [0, 1]: {self.confidence}")
+        if not isinstance(self.zone, NUPLZone):
+            raise ValueError(f"zone must be NUPLZone enum: {self.zone}")
+        # B1 fix: Validate pct_supply_in_profit range
+        if not 0.0 <= self.pct_supply_in_profit <= 100.0:
+            raise ValueError(
+                f"pct_supply_in_profit must be in [0, 100]: {self.pct_supply_in_profit}"
+            )
+        # B2 fix: Validate block_height is non-negative
+        if self.block_height < 0:
+            raise ValueError(f"block_height must be >= 0: {self.block_height}")
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "nupl": self.nupl,
+            "zone": self.zone.value,
+            "market_cap_usd": self.market_cap_usd,
+            "realized_cap_usd": self.realized_cap_usd,
+            "unrealized_profit_usd": self.unrealized_profit_usd,
+            "pct_supply_in_profit": self.pct_supply_in_profit,
+            "block_height": self.block_height,
+            "timestamp": self.timestamp.isoformat()
+            if hasattr(self.timestamp, "isoformat")
+            else str(self.timestamp),
+            "confidence": self.confidence,
         }

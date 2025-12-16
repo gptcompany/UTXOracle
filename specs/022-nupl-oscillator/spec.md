@@ -13,7 +13,7 @@ NUPL = (Market Cap - Realized Cap) / Market Cap
 | Zone | NUPL Range | Interpretation |
 |------|------------|----------------|
 | CAPITULATION | < 0 | Underwater, extreme fear |
-| HOPE/FEAR | 0 - 0.25 | Recovery phase |
+| HOPE_FEAR | 0 - 0.25 | Recovery phase |
 | OPTIMISM | 0.25 - 0.5 | Bull market building |
 | BELIEF | 0.5 - 0.75 | Strong conviction |
 | EUPHORIA | > 0.75 | Extreme greed, top signal |

@@ -2234,6 +2234,111 @@ async def get_cdd_vdd(
 
 
 # =============================================================================
+# spec-022: NUPL Oscillator
+# =============================================================================
+
+
+class NUPLResponse(BaseModel):
+    """NUPL Oscillator response model (spec-022)."""
+
+    nupl: float = Field(..., description="NUPL value (-1 to 1 range)")
+    zone: str = Field(
+        ...,
+        description="Market cycle zone: CAPITULATION|HOPE_FEAR|OPTIMISM|BELIEF|EUPHORIA",
+    )
+    market_cap_usd: float = Field(..., description="Market cap in USD")
+    realized_cap_usd: float = Field(..., description="Realized cap in USD")
+    unrealized_profit_usd: float = Field(
+        ..., description="Unrealized profit (Market Cap - Realized Cap)"
+    )
+    pct_supply_in_profit: float = Field(
+        ..., description="Approximate % of supply in profit"
+    )
+    confidence: float = Field(..., description="Signal confidence (0-1)")
+    block_height: int = Field(..., description="Block height at calculation")
+    timestamp: str = Field(..., description="ISO timestamp of calculation")
+
+
+@app.get("/api/metrics/nupl", response_model=NUPLResponse)
+async def get_nupl(
+    current_price: float = Query(
+        default=100000.0,
+        ge=1.0,
+        description="Current BTC price for market cap calculation",
+    ),
+):
+    """
+    Calculate NUPL (Net Unrealized Profit/Loss) Oscillator.
+
+    NUPL = (Market Cap - Realized Cap) / Market Cap
+
+    **Market Cycle Zones:**
+    - **CAPITULATION** (< 0): Network underwater, extreme fear
+    - **HOPE_FEAR** (0-0.25): Recovery phase
+    - **OPTIMISM** (0.25-0.5): Bull market building
+    - **BELIEF** (0.5-0.75): Strong conviction
+    - **EUPHORIA** (> 0.75): Extreme greed, historically cycle tops
+
+    **Use Cases:**
+    - Identify market cycle phases
+    - Detect overbought/oversold conditions
+    - Compare with MVRV and other on-chain metrics
+
+    Spec: 022-nupl-oscillator
+    """
+    import duckdb
+
+    conn = None
+    try:
+        conn = duckdb.connect(UTXO_DB_PATH, read_only=True)
+
+        # Get latest block height
+        block_result = conn.execute(
+            "SELECT MAX(creation_block) FROM utxo_lifecycle_full"
+        ).fetchone()
+        block_height = block_result[0] if block_result and block_result[0] else 0
+
+        from scripts.metrics.nupl import calculate_nupl_signal
+
+        result = calculate_nupl_signal(
+            conn=conn,
+            block_height=block_height,
+            current_price_usd=current_price,
+        )
+
+        return NUPLResponse(
+            nupl=result.nupl,
+            zone=result.zone.value,
+            market_cap_usd=result.market_cap_usd,
+            realized_cap_usd=result.realized_cap_usd,
+            unrealized_profit_usd=result.unrealized_profit_usd,
+            pct_supply_in_profit=result.pct_supply_in_profit,
+            confidence=result.confidence,
+            block_height=result.block_height,
+            timestamp=result.timestamp.isoformat(),
+        )
+
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=503,
+            detail=f"UTXO lifecycle database not found at {UTXO_DB_PATH}. "
+            "Run utxo_lifecycle sync first.",
+        )
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "utxo_lifecycle" in error_msg or "does not exist" in error_msg:
+            raise HTTPException(
+                status_code=404,
+                detail="UTXO lifecycle table not found. Schema migration pending.",
+            )
+        logging.error(f"Error calculating NUPL: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+# =============================================================================
 # Service Connectivity Helper Functions
 # =============================================================================
 

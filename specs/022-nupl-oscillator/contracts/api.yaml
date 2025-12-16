@@ -1,0 +1,128 @@
+openapi: 3.0.3
+info:
+  title: NUPL Oscillator API
+  description: Net Unrealized Profit/Loss endpoint for CheckOnChain metrics
+  version: 1.0.0
+
+paths:
+  /api/metrics/nupl:
+    get:
+      summary: Get current NUPL value with zone classification
+      description: |
+        Returns the Net Unrealized Profit/Loss oscillator value and market cycle zone.
+
+        NUPL = (Market Cap - Realized Cap) / Market Cap
+
+        Zone interpretation:
+        - CAPITULATION: < 0 (network underwater, extreme fear)
+        - HOPE_FEAR: 0-0.25 (recovery phase)
+        - OPTIMISM: 0.25-0.5 (bull market building)
+        - BELIEF: 0.5-0.75 (strong conviction)
+        - EUPHORIA: > 0.75 (extreme greed, cycle top signal)
+      operationId: getNupl
+      tags:
+        - metrics
+      responses:
+        '200':
+          description: NUPL result with zone classification
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NUPLResponse'
+              example:
+                nupl: 0.42
+                zone: "OPTIMISM"
+                market_cap_usd: 2100000000000
+                realized_cap_usd: 1218000000000
+                unrealized_profit_usd: 882000000000
+                pct_supply_in_profit: 75.3
+                block_height: 872500
+                timestamp: "2025-12-16T10:30:00Z"
+                confidence: 0.85
+        '503':
+          description: UTXO lifecycle data not available
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "UTXO lifecycle data not available"
+                detail: "Run sync first to populate utxo_lifecycle_full"
+
+components:
+  schemas:
+    NUPLResponse:
+      type: object
+      required:
+        - nupl
+        - zone
+        - market_cap_usd
+        - realized_cap_usd
+        - unrealized_profit_usd
+        - block_height
+        - timestamp
+        - confidence
+      properties:
+        nupl:
+          type: number
+          format: float
+          description: Net Unrealized Profit/Loss value (-1.0 to 1.0 typical range)
+          example: 0.42
+        zone:
+          type: string
+          enum:
+            - CAPITULATION
+            - HOPE_FEAR
+            - OPTIMISM
+            - BELIEF
+            - EUPHORIA
+          description: Market cycle zone classification
+          example: OPTIMISM
+        market_cap_usd:
+          type: number
+          format: double
+          description: Current market capitalization in USD
+          example: 2100000000000
+        realized_cap_usd:
+          type: number
+          format: double
+          description: Realized capitalization in USD
+          example: 1218000000000
+        unrealized_profit_usd:
+          type: number
+          format: double
+          description: Market Cap - Realized Cap (can be negative)
+          example: 882000000000
+        pct_supply_in_profit:
+          type: number
+          format: float
+          description: Percentage of supply with cost basis below current price
+          example: 75.3
+        block_height:
+          type: integer
+          description: Block height at calculation
+          example: 872500
+        timestamp:
+          type: string
+          format: date-time
+          description: Calculation timestamp (ISO 8601)
+          example: "2025-12-16T10:30:00Z"
+        confidence:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+          description: Signal confidence score
+          example: 0.85
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: Error message
+        detail:
+          type: string
+          description: Additional error details
