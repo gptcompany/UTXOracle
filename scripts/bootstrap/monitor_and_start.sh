@@ -86,24 +86,33 @@ run_block_heights_build() {
 
     cd /media/sam/1TB/UTXOracle
 
+    local build_cmd
+    local mode
+
     # Use RPC mode if Bitcoin Core is available, otherwise electrs
     if curl -s --connect-timeout 2 "http://localhost:8332" &>/dev/null; then
-        log "Using RPC mode (faster)"
-        python -m scripts.bootstrap.build_block_heights \
-            --use-rpc \
-            --db-path "$DB_PATH" \
-            --batch-size 500 \
-            --rate-limit 50 \
-            -v
+        mode="RPC"
+        build_cmd="python -m scripts.bootstrap.build_block_heights --use-rpc --db-path $DB_PATH --batch-size 500 --rate-limit 50 -v"
     else
-        log "Using electrs mode (RPC unavailable)"
-        python -m scripts.bootstrap.build_block_heights \
-            --use-electrs \
-            --db-path "$DB_PATH" \
-            --batch-size 500 \
-            --rate-limit 50 \
-            -v
+        mode="electrs"
+        build_cmd="python -m scripts.bootstrap.build_block_heights --use-electrs --db-path $DB_PATH --batch-size 500 --rate-limit 50 -v"
     fi
+
+    log "Using $mode mode"
+
+    # Run build with error handling (B6 fix)
+    set +e  # Temporarily disable exit on error
+    $build_cmd
+    local exit_code=$?
+    set -e  # Re-enable exit on error
+
+    if [[ $exit_code -ne 0 ]]; then
+        send_notification "Bootstrap FAILED" "block_heights build failed with exit code $exit_code"
+        log "${YELLOW}Build failed with exit code $exit_code${NC}"
+        return $exit_code
+    fi
+
+    return 0
 }
 
 main() {
