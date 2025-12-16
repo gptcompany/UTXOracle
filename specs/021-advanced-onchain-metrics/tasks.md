@@ -144,53 +144,22 @@ docker logs mempool-electrs 2>&1 | tail -5
 
 ### Continuation Tasks (After Bitcoin Core Ready)
 
-- [ ] T0008 Build `block_heights` table from electrs (~928K blocks)
-      ```bash
-      cd /media/sam/1TB/UTXOracle
-      python -m scripts.bootstrap.build_block_heights \
-        --db-path data/utxo_lifecycle.duckdb \
-        --start-height 0 \
-        --end-height 928000 \
-        --batch-size 100 \
-        --rate-limit 30 \
-        -v
-      ```
-      **Duration**: ~2-3 hours (2 API calls per block, rate limited)
-      **Output**: ~928,000 height→timestamp mappings
+- [x] T0008 Build `block_heights` table via RPC ✅
+      **Completed**: 2025-12-16, 928,139 rows via Bitcoin Core RPC mode
+      **Duration**: ~2 hours (RPC faster than electrs)
 
-- [ ] T0009 Create `utxo_lifecycle_full` VIEW with computed columns
-      ```bash
-      cd /media/sam/1TB/UTXOracle
-      python -c "
-      import duckdb
-      from scripts.bootstrap.import_chainstate import create_utxo_lifecycle_view, verify_supporting_tables
+- [x] T0009 Create `utxo_lifecycle_full` VIEW ✅
+      **Completed**: 2025-12-16
+      **Result**: 164,640,689 UTXOs with creation_price_usd (100% coverage)
+      **Avg creation price**: $48,932.57
 
-      conn = duckdb.connect('data/utxo_lifecycle.duckdb')
-      status = verify_supporting_tables(conn)
-      print(f'Supporting tables: {status}')
-
-      if status['view_functional']:
-          create_utxo_lifecycle_view(conn)
-          print('✅ VIEW created successfully')
-      else:
-          print('❌ Missing supporting tables - cannot create VIEW')
-      conn.close()
-      "
-      ```
-      **Depends on**: T0008 (block_heights table)
-      **Output**: `utxo_lifecycle_full` VIEW with `creation_price_usd`, `btc_value`, `sopr`, etc.
-
-- [ ] T0010 Run T077 quickstart validation scenarios
-      ```bash
-      cd /media/sam/1TB/UTXOracle
-      # Validate URPD with production data
-      uv run pytest tests/test_urpd.py -v -k "not fixture"
-
-      # Manual validation (from quickstart.md)
-      curl "http://localhost:8000/api/metrics/urpd?bucket_size=5000&current_price=100000"
-      ```
-      **Depends on**: T0009 (VIEW must exist)
-      **Validates**: URPD metrics return real support/resistance zones
+- [x] T0010 Run T077 quickstart validation ✅
+      **Completed**: 2025-12-16
+      **Result**: 14/14 URPD tests passed
+      **URPD validation** (@ $105,000):
+      - Supply in Profit: 16.1M BTC (81.0%)
+      - Supply in Loss: 3.8M BTC (19.0%)
+      - Major support: $85K-$100K range
 
 ### Quick Resume Checklist
 
@@ -410,11 +379,11 @@ uv run pytest tests/test_urpd.py -v
 - [x] T074 Verify other metrics performance < 5 seconds each (requires UTXO DB) ✅ 0.15-0.23s achieved
 - [x] T075 [P] Run ruff check and format on all new modules
 - [x] T076 [P] Update docs/ARCHITECTURE.md with new metrics documentation
-- [ ] T077 Run quickstart.md validation scenarios manually (requires UTXO DB)
-      ⚠️ BLOCKED: Requires Bitcoin Core online + daily_prices + block_heights tables
-      - DB validation passed: 164,640,689 UTXOs, 4 indexes
-      - URPD metrics require `creation_price_usd` (computed from supporting tables)
-      - See: `scripts/bootstrap/build_price_table.py`, `scripts/bootstrap/build_block_heights.py`
+- [x] T077 Run quickstart.md validation scenarios manually ✅
+      **Completed**: 2025-12-16
+      - DB validation: 164,640,689 UTXOs, 928,139 block_heights, 5,462 daily_prices
+      - URPD metrics: 14/14 tests passed
+      - Production validation: 81% supply in profit @ $105K
 
 ---
 
