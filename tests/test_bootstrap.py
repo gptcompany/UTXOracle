@@ -216,6 +216,125 @@ class TestBuildBlockHeights:
             assert len(results) == 3
             assert all(ts == 1690000000 for ts in results.values())
 
+    # =========================================================================
+    # T0014: Edge case tests for batch_insert_heights
+    # =========================================================================
+
+    def test_batch_insert_heights_empty_records(self, temp_db_path):
+        """Verify batch_insert_heights handles empty records list."""
+        import duckdb
+
+        from scripts.bootstrap.build_block_heights import (
+            batch_insert_heights,
+            create_block_heights_schema,
+        )
+
+        conn = duckdb.connect(temp_db_path)
+        create_block_heights_schema(conn)
+
+        # Empty list should return 0
+        inserted = batch_insert_heights(conn, [])
+        assert inserted == 0
+
+        # Verify table is still empty
+        count = conn.execute("SELECT COUNT(*) FROM block_heights").fetchone()[0]
+        assert count == 0
+
+        conn.close()
+
+    def test_batch_insert_heights_duplicates(self, temp_db_path):
+        """Verify batch_insert_heights skips duplicates (INSERT OR IGNORE)."""
+        import duckdb
+
+        from scripts.bootstrap.build_block_heights import (
+            batch_insert_heights,
+            create_block_heights_schema,
+        )
+
+        conn = duckdb.connect(temp_db_path)
+        create_block_heights_schema(conn)
+
+        # Insert initial records
+        records = [
+            (800000, 1690000000, "hash1"),
+            (800001, 1690001000, "hash2"),
+        ]
+        inserted1 = batch_insert_heights(conn, records)
+        assert inserted1 == 2
+
+        # Insert duplicates + one new
+        records_with_dups = [
+            (800000, 1690000000, "hash1"),  # Duplicate
+            (800001, 1690001000, "hash2"),  # Duplicate
+            (800002, 1690002000, "hash3"),  # New
+        ]
+        inserted2 = batch_insert_heights(conn, records_with_dups)
+        assert inserted2 == 1  # Only the new one
+
+        # Verify total count
+        count = conn.execute("SELECT COUNT(*) FROM block_heights").fetchone()[0]
+        assert count == 3
+
+        conn.close()
+
+    def test_batch_insert_heights_bigint_timestamp(self, temp_db_path):
+        """Verify BIGINT timestamp handles Y2038+ values."""
+        import duckdb
+
+        from scripts.bootstrap.build_block_heights import (
+            batch_insert_heights,
+            create_block_heights_schema,
+        )
+
+        conn = duckdb.connect(temp_db_path)
+        create_block_heights_schema(conn)
+
+        # Y2038 problem: Unix timestamps > 2^31-1 (2147483647)
+        # Jan 19, 2038 03:14:07 UTC = 2147483647
+        # Test with timestamp from year 2040
+        timestamp_2040 = 2208988800  # Jan 1, 2040
+
+        records = [(999999, timestamp_2040, "future_hash")]
+        inserted = batch_insert_heights(conn, records)
+        assert inserted == 1
+
+        # Verify timestamp stored correctly
+        result = conn.execute(
+            "SELECT timestamp FROM block_heights WHERE height = 999999"
+        ).fetchone()
+        assert result[0] == timestamp_2040
+
+        conn.close()
+
+    def test_batch_insert_heights_null_block_hash(self, temp_db_path):
+        """Verify NULL block_hash is handled correctly."""
+        import duckdb
+
+        from scripts.bootstrap.build_block_heights import (
+            batch_insert_heights,
+            create_block_heights_schema,
+        )
+
+        conn = duckdb.connect(temp_db_path)
+        create_block_heights_schema(conn)
+
+        # electrs mode doesn't provide block_hash, uses None
+        records = [
+            (800000, 1690000000, None),
+            (800001, 1690001000, "has_hash"),
+            (800002, 1690002000, None),
+        ]
+        inserted = batch_insert_heights(conn, records)
+        assert inserted == 3
+
+        # Verify NULL values stored correctly
+        null_count = conn.execute(
+            "SELECT COUNT(*) FROM block_heights WHERE block_hash IS NULL"
+        ).fetchone()[0]
+        assert null_count == 2
+
+        conn.close()
+
 
 class TestImportChainstate:
     """Tests for import_chainstate.py - T0001d."""

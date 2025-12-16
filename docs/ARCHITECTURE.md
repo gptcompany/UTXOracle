@@ -588,19 +588,26 @@ With ~4,000 txs/block × 317K blocks = **billions of INSERTs** → ~98 days sync
 ### Lookup Tables (Built Once)
 
 ```sql
--- Price lookup (mempool.space API has data from 2011!)
+-- Price lookup (mempool.space /api/v1/historical-price, data from 2011-07-17)
 CREATE TABLE daily_prices (
     date DATE PRIMARY KEY,
-    usd_price DECIMAL(12,2),
-    source VARCHAR  -- 'mempool' or 'utxoracle'
+    price_usd DOUBLE NOT NULL,      -- BTC/USD price
+    block_height INTEGER,            -- Optional: reference block
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+-- Expected rows: ~5,000+ (2011-07-17 to present)
 
--- Block metadata (electrs)
+-- Block metadata (electrs or Bitcoin Core RPC)
 CREATE TABLE block_heights (
     height INTEGER PRIMARY KEY,
-    timestamp BIGINT,
-    tx_count INTEGER
+    timestamp BIGINT NOT NULL,       -- Unix timestamp (BIGINT for Y2038+)
+    block_hash VARCHAR,              -- Optional: block hash (from RPC mode)
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+-- Expected rows: ~900,000+ (genesis to current tip)
+
+-- Index for timestamp lookups (date → price JOIN)
+CREATE INDEX idx_block_heights_timestamp ON block_heights(timestamp);
 ```
 
 ### Unified Schema (CANONICAL)
@@ -710,11 +717,33 @@ python scripts/sync_utxo_lifecycle.py --source rpc-v3
 ```
 scripts/bootstrap/
 ├── build_price_table.py       # Mempool API → daily_prices (T0002)
-├── build_block_heights.py     # electrs → block_heights (T0003)
+├── build_block_heights.py     # electrs/RPC → block_heights (T0003, T0011)
 ├── import_chainstate.py       # CSV → DuckDB COPY (T0004)
 ├── bootstrap_utxo_lifecycle.py  # Orchestrator script (T0005)
 └── sync_spent_utxos.py        # Tier 2 rpc-v3 spent UTXO sync (T0007)
 ```
+
+#### build_block_heights.py Options (T0011 Optimizations)
+
+| Mode | Command | Speed | Use Case |
+|------|---------|-------|----------|
+| **RPC** (recommended) | `--use-rpc` | ~500 blocks/sec | Bitcoin Core running |
+| electrs | `--use-electrs` | ~30 blocks/sec | RPC unavailable |
+
+```bash
+# Faster: Bitcoin Core RPC (auto-detects .cookie auth)
+python -m scripts.bootstrap.build_block_heights --use-rpc -v
+
+# Fallback: electrs HTTP API
+python -m scripts.bootstrap.build_block_heights --use-electrs -v
+```
+
+**Key optimizations** (T0011):
+- RPC mode uses local calls vs HTTP
+- Batch size: 500 (up from 100)
+- Rate limit: 50 concurrent (up from 30)
+- BIGINT timestamps (Y2038+ safe)
+- Batch INSERT with duplicate detection
 
 ### Sync Strategy Selection
 
