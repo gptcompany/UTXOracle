@@ -1,0 +1,153 @@
+openapi: 3.1.0
+info:
+  title: UTXOracle Cost Basis API
+  description: |
+    Cost Basis metrics endpoint for STH/LTH holder cohorts.
+    Part of spec-023: STH/LTH Cost Basis implementation.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000
+    description: Local development server
+
+paths:
+  /api/metrics/cost-basis:
+    get:
+      operationId: getCostBasis
+      summary: Get STH/LTH Cost Basis Metrics
+      description: |
+        Returns weighted average cost basis for Short-Term Holders (STH) and
+        Long-Term Holders (LTH), along with cohort-specific MVRV ratios.
+
+        **Signal Interpretation:**
+        - Price < STH Cost Basis: STH underwater, capitulation risk
+        - Price > LTH Cost Basis: LTH in profit, distribution risk
+        - STH Cost Basis: Key support level
+        - LTH Cost Basis: Macro support level
+      tags:
+        - Metrics
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CostBasisResult'
+              example:
+                sth_cost_basis: 65432.10
+                lth_cost_basis: 28500.00
+                total_cost_basis: 42150.75
+                sth_mvrv: 1.45
+                lth_mvrv: 3.32
+                sth_supply_btc: 2500000.0
+                lth_supply_btc: 17000000.0
+                current_price_usd: 95000.0
+                block_height: 875000
+                timestamp: "2025-12-16T10:00:00Z"
+                confidence: 0.85
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Database unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    CostBasisResult:
+      type: object
+      description: Cost basis metrics for STH/LTH cohorts
+      required:
+        - sth_cost_basis
+        - lth_cost_basis
+        - total_cost_basis
+        - sth_mvrv
+        - lth_mvrv
+        - sth_supply_btc
+        - lth_supply_btc
+        - current_price_usd
+        - block_height
+        - timestamp
+        - confidence
+      properties:
+        sth_cost_basis:
+          type: number
+          format: double
+          description: Weighted average acquisition price for STH (<155 days)
+          minimum: 0
+          example: 65432.10
+        lth_cost_basis:
+          type: number
+          format: double
+          description: Weighted average acquisition price for LTH (>=155 days)
+          minimum: 0
+          example: 28500.00
+        total_cost_basis:
+          type: number
+          format: double
+          description: Overall realized price (all unspent UTXOs)
+          minimum: 0
+          example: 42150.75
+        sth_mvrv:
+          type: number
+          format: double
+          description: Price / STH Cost Basis ratio
+          minimum: 0
+          example: 1.45
+        lth_mvrv:
+          type: number
+          format: double
+          description: Price / LTH Cost Basis ratio
+          minimum: 0
+          example: 3.32
+        sth_supply_btc:
+          type: number
+          format: double
+          description: Total BTC held by Short-Term Holders
+          minimum: 0
+          example: 2500000.0
+        lth_supply_btc:
+          type: number
+          format: double
+          description: Total BTC held by Long-Term Holders
+          minimum: 0
+          example: 17000000.0
+        current_price_usd:
+          type: number
+          format: double
+          description: BTC price used for MVRV calculation
+          exclusiveMinimum: 0
+          example: 95000.0
+        block_height:
+          type: integer
+          description: Block height at calculation time
+          minimum: 0
+          example: 875000
+        timestamp:
+          type: string
+          format: date-time
+          description: Calculation timestamp (ISO 8601)
+          example: "2025-12-16T10:00:00Z"
+        confidence:
+          type: number
+          format: double
+          description: Data quality confidence (0.0-1.0)
+          minimum: 0
+          maximum: 1
+          example: 0.85
+
+    Error:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
+          description: Error message
+          example: "Database connection failed"

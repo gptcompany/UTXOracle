@@ -27,17 +27,29 @@ Cost Basis (cohort) = SUM(creation_price_usd × btc_value) / SUM(btc_value)
 ## Implementation
 
 ### Data Source
-- `utxo_lifecycle_full` VIEW (creation_price_usd, btc_value, cohort)
+- `utxo_lifecycle_full` VIEW (creation_price_usd, btc_value, creation_block, is_spent)
 
 ### Query
 ```sql
+-- STH Cost Basis (UTXOs < 155 days old)
 SELECT
-    cohort,
-    SUM(creation_price_usd * btc_value) / SUM(btc_value) AS cost_basis,
-    SUM(btc_value) AS total_btc
+    COALESCE(SUM(realized_value_usd) / NULLIF(SUM(btc_value), 0), 0) AS sth_cost_basis,
+    COALESCE(SUM(btc_value), 0) AS sth_supply_btc
 FROM utxo_lifecycle_full
-WHERE is_spent = FALSE AND creation_price_usd IS NOT NULL
-GROUP BY cohort
+WHERE is_spent = FALSE
+  AND creation_block > (current_block - 22320)  -- 155 days × 144 blocks/day
+  AND creation_price_usd IS NOT NULL
+  AND btc_value > 0
+
+-- LTH Cost Basis (UTXOs >= 155 days old)
+SELECT
+    COALESCE(SUM(realized_value_usd) / NULLIF(SUM(btc_value), 0), 0) AS lth_cost_basis,
+    COALESCE(SUM(btc_value), 0) AS lth_supply_btc
+FROM utxo_lifecycle_full
+WHERE is_spent = FALSE
+  AND creation_block <= (current_block - 22320)
+  AND creation_price_usd IS NOT NULL
+  AND btc_value > 0
 ```
 
 ### Files

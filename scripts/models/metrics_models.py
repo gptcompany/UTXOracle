@@ -1686,3 +1686,97 @@ class NUPLResult:
             else str(self.timestamp),
             "confidence": self.confidence,
         }
+
+
+# =============================================================================
+# Spec-023: STH/LTH Cost Basis Dataclasses
+# =============================================================================
+
+
+@dataclass
+class CostBasisResult:
+    """Weighted average cost basis for STH/LTH holder cohorts.
+
+    Cost Basis = SUM(creation_price_usd × btc_value) / SUM(btc_value)
+
+    Key Support/Resistance Levels:
+    - STH Cost Basis: Short-term support (often tested during corrections)
+    - LTH Cost Basis: Macro support (rarely breached in bull markets)
+
+    MVRV Interpretation:
+    - sth_mvrv < 1: STH underwater → capitulation risk
+    - lth_mvrv > 1: LTH in profit → distribution risk
+
+    Spec: spec-023
+    """
+
+    # Cost basis metrics
+    sth_cost_basis: float  # Weighted avg acquisition price for STH (<155 days)
+    lth_cost_basis: float  # Weighted avg acquisition price for LTH (>=155 days)
+    total_cost_basis: float  # Overall realized price (all unspent UTXOs)
+
+    # Cohort MVRV
+    sth_mvrv: float  # current_price / sth_cost_basis
+    lth_mvrv: float  # current_price / lth_cost_basis
+
+    # Supply breakdown
+    sth_supply_btc: float  # Total BTC held by STH cohort
+    lth_supply_btc: float  # Total BTC held by LTH cohort
+
+    # Context
+    current_price_usd: float  # Price used for MVRV calculation
+    block_height: int
+    timestamp: datetime = field(default_factory=datetime.utcnow)
+    confidence: float = 0.85  # Default high confidence for Tier A metric
+
+    def __post_init__(self):
+        """Validate cost basis result fields."""
+        # Cost basis values must be non-negative
+        if self.sth_cost_basis < 0:
+            raise ValueError(f"sth_cost_basis must be >= 0: {self.sth_cost_basis}")
+        if self.lth_cost_basis < 0:
+            raise ValueError(f"lth_cost_basis must be >= 0: {self.lth_cost_basis}")
+        if self.total_cost_basis < 0:
+            raise ValueError(f"total_cost_basis must be >= 0: {self.total_cost_basis}")
+
+        # MVRV values must be non-negative
+        if self.sth_mvrv < 0:
+            raise ValueError(f"sth_mvrv must be >= 0: {self.sth_mvrv}")
+        if self.lth_mvrv < 0:
+            raise ValueError(f"lth_mvrv must be >= 0: {self.lth_mvrv}")
+
+        # Supply must be non-negative
+        if self.sth_supply_btc < 0:
+            raise ValueError(f"sth_supply_btc must be >= 0: {self.sth_supply_btc}")
+        if self.lth_supply_btc < 0:
+            raise ValueError(f"lth_supply_btc must be >= 0: {self.lth_supply_btc}")
+
+        # Price must be positive
+        if self.current_price_usd <= 0:
+            raise ValueError(f"current_price_usd must be > 0: {self.current_price_usd}")
+
+        # Block height must be non-negative
+        if self.block_height < 0:
+            raise ValueError(f"block_height must be >= 0: {self.block_height}")
+
+        # Confidence must be in [0, 1]
+        if not 0.0 <= self.confidence <= 1.0:
+            raise ValueError(f"confidence must be in [0, 1]: {self.confidence}")
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "sth_cost_basis": self.sth_cost_basis,
+            "lth_cost_basis": self.lth_cost_basis,
+            "total_cost_basis": self.total_cost_basis,
+            "sth_mvrv": self.sth_mvrv,
+            "lth_mvrv": self.lth_mvrv,
+            "sth_supply_btc": self.sth_supply_btc,
+            "lth_supply_btc": self.lth_supply_btc,
+            "current_price_usd": self.current_price_usd,
+            "block_height": self.block_height,
+            "timestamp": self.timestamp.isoformat()
+            if hasattr(self.timestamp, "isoformat")
+            else str(self.timestamp),
+            "confidence": self.confidence,
+        }

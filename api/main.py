@@ -2339,6 +2339,112 @@ async def get_nupl(
 
 
 # =============================================================================
+# spec-023: STH/LTH Cost Basis
+# =============================================================================
+
+
+class CostBasisResponse(BaseModel):
+    """STH/LTH Cost Basis response model (spec-023)."""
+
+    sth_cost_basis: float = Field(
+        ..., description="STH weighted average cost basis (USD)"
+    )
+    lth_cost_basis: float = Field(
+        ..., description="LTH weighted average cost basis (USD)"
+    )
+    total_cost_basis: float = Field(
+        ..., description="Total weighted average cost basis (USD)"
+    )
+    sth_mvrv: float = Field(..., description="STH MVRV ratio (price/cost_basis)")
+    lth_mvrv: float = Field(..., description="LTH MVRV ratio (price/cost_basis)")
+    sth_supply_btc: float = Field(..., description="STH supply in BTC")
+    lth_supply_btc: float = Field(..., description="LTH supply in BTC")
+    current_price_usd: float = Field(..., description="Current BTC price used")
+    block_height: int = Field(..., description="Block height at calculation")
+    timestamp: str = Field(..., description="ISO timestamp of calculation")
+    confidence: float = Field(..., description="Signal confidence (0-1)")
+
+
+@app.get("/api/metrics/cost-basis", response_model=CostBasisResponse)
+async def get_cost_basis(
+    current_price: float = Query(
+        default=100000.0,
+        ge=1.0,
+        description="Current BTC price for MVRV calculation",
+    ),
+):
+    """
+    Calculate STH/LTH Cost Basis (weighted average acquisition price per cohort).
+
+    Cost Basis = SUM(realized_value_usd) / SUM(btc_value)
+
+    **Cohort Definitions:**
+    - **STH (Short-Term Holders)**: UTXOs created < 155 days ago
+    - **LTH (Long-Term Holders)**: UTXOs created >= 155 days ago
+
+    **Signal Interpretation:**
+    - Price < STH Cost Basis → STH underwater → capitulation risk
+    - Price > LTH Cost Basis → LTH in profit → distribution risk
+    - STH Cost Basis = key short-term support level
+    - LTH Cost Basis = macro support level
+
+    Spec: 023-cost-basis-cohorts
+    """
+    import duckdb
+
+    conn = None
+    try:
+        conn = duckdb.connect(UTXO_DB_PATH, read_only=True)
+
+        # Get latest block height
+        block_result = conn.execute(
+            "SELECT MAX(creation_block) FROM utxo_lifecycle_full"
+        ).fetchone()
+        block_height = block_result[0] if block_result and block_result[0] else 0
+
+        from scripts.metrics.cost_basis import calculate_cost_basis_signal
+
+        result = calculate_cost_basis_signal(
+            conn=conn,
+            current_block=block_height,
+            current_price_usd=current_price,
+        )
+
+        return CostBasisResponse(
+            sth_cost_basis=result.sth_cost_basis,
+            lth_cost_basis=result.lth_cost_basis,
+            total_cost_basis=result.total_cost_basis,
+            sth_mvrv=result.sth_mvrv,
+            lth_mvrv=result.lth_mvrv,
+            sth_supply_btc=result.sth_supply_btc,
+            lth_supply_btc=result.lth_supply_btc,
+            current_price_usd=result.current_price_usd,
+            block_height=result.block_height,
+            timestamp=result.timestamp.isoformat(),
+            confidence=result.confidence,
+        )
+
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=503,
+            detail=f"UTXO lifecycle database not found at {UTXO_DB_PATH}. "
+            "Run utxo_lifecycle sync first.",
+        )
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "utxo_lifecycle" in error_msg or "does not exist" in error_msg:
+            raise HTTPException(
+                status_code=404,
+                detail="UTXO lifecycle table not found. Schema migration pending.",
+            )
+        logging.error(f"Error calculating Cost Basis: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+# =============================================================================
 # Service Connectivity Helper Functions
 # =============================================================================
 
