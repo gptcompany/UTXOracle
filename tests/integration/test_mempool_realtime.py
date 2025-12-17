@@ -115,7 +115,7 @@ class TestMempoolWhaleMonitorIntegration:
         # Transaction with only 50 BTC
         tx_message = json.dumps(
             {
-                "txid": "small123" + "0" * 56,
+                "txid": "5ca11123" + "0" * 56,  # Valid hex (looks like "small123")
                 "fee": 10000,
                 "vsize": 200,
                 "value": 5_000_000_000,  # 50 BTC
@@ -137,7 +137,7 @@ class TestMempoolWhaleMonitorIntegration:
 
         tx_message = json.dumps(
             {
-                "txid": "duplicate123" + "0" * 52,
+                "txid": "d0b1eca7e123" + "0" * 52,  # Valid hex
                 "fee": 75000,
                 "vsize": 300,
                 "value": 20_000_000_000,  # 200 BTC
@@ -170,7 +170,7 @@ class TestMempoolWhaleMonitorIntegration:
 
         # 5 sat/vB = low urgency
         tx_data = {
-            "txid": "lowfee123" + "0" * 54,
+            "txid": "10fee123" + "0" * 56,  # Valid hex
             "btc_value": 150.0,
             "fee_rate": 5.0,
             "urgency_score": 0.0,  # Will be recalculated
@@ -244,7 +244,7 @@ class TestMempoolWhaleMonitorIntegration:
 
         tx_message = json.dumps(
             {
-                "txid": "retry123" + "0" * 56,
+                "txid": "ae7abe7a123" + "0" * 53,  # Valid hex
                 "fee": 60000,
                 "vsize": 300,
                 "value": 12_000_000_000,  # 120 BTC
@@ -279,7 +279,7 @@ class TestMempoolWhaleMonitorIntegration:
 
         tx_message = json.dumps(
             {
-                "txid": "nobcast123" + "0" * 54,
+                "txid": "b0bca57123" + "0" * 54,  # Valid hex
                 "fee": 80000,
                 "vsize": 400,
                 "value": 25_000_000_000,  # 250 BTC
@@ -423,7 +423,7 @@ class TestMempoolWhaleMonitorIntegration:
 
         # Test with rbf=true
         tx_data_rbf = {
-            "txid": "rbf1" + "0" * 60,
+            "txid": "abf1" + "0" * 60,  # Valid hex
             "fee": 50000,
             "vsize": 250,
             "value": 11_000_000_000,  # 110 BTC
@@ -435,7 +435,7 @@ class TestMempoolWhaleMonitorIntegration:
 
         # Test with bip125-replaceable
         tx_data_bip125 = {
-            "txid": "rbf2" + "0" * 60,
+            "txid": "abf2" + "0" * 60,  # Valid hex
             "fee": 50000,
             "vsize": 250,
             "value": 11_000_000_000,
@@ -447,7 +447,7 @@ class TestMempoolWhaleMonitorIntegration:
 
         # Test without RBF
         tx_data_no_rbf = {
-            "txid": "rbf3" + "0" * 60,
+            "txid": "abf3" + "0" * 60,  # Valid hex
             "fee": 50000,
             "vsize": 250,
             "value": 11_000_000_000,
@@ -526,7 +526,7 @@ class TestMempoolWhaleMonitorEdgeCases:
 
         tx_message = json.dumps(
             {
-                "txid": "exact100" + "0" * 56,
+                "txid": "e4ac7100" + "0" * 56,  # Valid hex
                 "fee": 50000,
                 "vsize": 250,
                 "value": 10_000_000_000,  # Exactly 100 BTC
@@ -578,7 +578,7 @@ class TestMempoolWhaleMonitorEdgeCases:
 
         tx_message = json.dumps(
             {
-                "txid": "zerovsize" + "0" * 55,
+                "txid": "0e00a51ce" + "0" * 55,  # Valid hex
                 "fee": 50000,
                 "vsize": 0,  # Invalid
                 "value": 12_000_000_000,  # 120 BTC
@@ -598,7 +598,7 @@ class TestMempoolWhaleMonitorEdgeCases:
 
         tx_message = json.dumps(
             {
-                "txid": "negative" + "0" * 56,
+                "txid": "0e6a71be" + "0" * 56,  # Valid hex
                 "fee": -50000,  # Invalid
                 "vsize": 250,
                 "value": -12_000_000_000,  # Invalid
