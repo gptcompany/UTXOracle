@@ -1,0 +1,159 @@
+openapi: 3.0.3
+info:
+  title: UTXOracle Revived Supply API
+  description: API for tracking dormant coin movement (spec-024)
+  version: 1.0.0
+
+paths:
+  /api/metrics/revived-supply:
+    get:
+      summary: Get revived supply metrics
+      description: |
+        Returns metrics for dormant coins being spent, indicating long-term holder
+        behavior changes. Supports configurable age thresholds and lookback windows.
+      operationId: getRevivedSupply
+      tags:
+        - Metrics
+      parameters:
+        - name: threshold
+          in: query
+          description: Minimum age in days for "dormant" classification (default 365)
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 3650
+            default: 365
+        - name: window
+          in: query
+          description: Lookback window in days for spent UTXOs (default 30)
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+            default: 30
+      responses:
+        '200':
+          description: Successful response with revived supply metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevivedSupplyResponse'
+              example:
+                revived_1y: 5432.50
+                revived_2y: 1234.75
+                revived_5y: 567.25
+                revived_total_usd: 516087500.00
+                revived_avg_age: 892.5
+                zone: "elevated"
+                utxo_count: 15234
+                window_days: 30
+                current_price_usd: 95000.0
+                block_height: 875000
+                timestamp: "2025-12-17T10:00:00Z"
+                confidence: 0.85
+        '404':
+          description: No data available
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    RevivedSupplyResponse:
+      type: object
+      required:
+        - revived_1y
+        - revived_2y
+        - revived_5y
+        - revived_total_usd
+        - revived_avg_age
+        - zone
+        - utxo_count
+        - window_days
+        - current_price_usd
+        - block_height
+        - timestamp
+        - confidence
+      properties:
+        revived_1y:
+          type: number
+          format: float
+          description: BTC revived after 1+ year dormancy
+          example: 5432.50
+        revived_2y:
+          type: number
+          format: float
+          description: BTC revived after 2+ year dormancy
+          example: 1234.75
+        revived_5y:
+          type: number
+          format: float
+          description: BTC revived after 5+ year dormancy
+          example: 567.25
+        revived_total_usd:
+          type: number
+          format: float
+          description: USD value of revived supply (using 1y threshold)
+          example: 516087500.00
+        revived_avg_age:
+          type: number
+          format: float
+          description: Average age of revived UTXOs in days
+          example: 892.5
+        zone:
+          type: string
+          enum:
+            - dormant
+            - normal
+            - elevated
+            - spike
+          description: Behavioral zone classification
+          example: "elevated"
+        utxo_count:
+          type: integer
+          description: Number of revived UTXOs
+          example: 15234
+        window_days:
+          type: integer
+          description: Lookback window used for calculation
+          example: 30
+        current_price_usd:
+          type: number
+          format: float
+          description: Current BTC price used for USD calculation
+          example: 95000.0
+        block_height:
+          type: integer
+          description: Block height at calculation time
+          example: 875000
+        timestamp:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp of calculation
+          example: "2025-12-17T10:00:00Z"
+        confidence:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          description: Data quality confidence score
+          example: 0.85
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error message
+        detail:
+          type: string
+          description: Detailed error information

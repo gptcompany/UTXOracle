@@ -1780,3 +1780,141 @@ class CostBasisResult:
             else str(self.timestamp),
             "confidence": self.confidence,
         }
+
+
+# =============================================================================
+# Spec-024: Revived Supply Dataclasses
+# =============================================================================
+
+
+class RevivedZone(str, Enum):
+    """Behavioral zone classification for revived supply activity.
+
+    Classifies daily revived supply (BTC) into activity zones based on
+    long-term holder movement thresholds.
+
+    Interpretation:
+    - DORMANT: < 1000 BTC/day (low LTH activity, stable holding)
+    - NORMAL: 1000-5000 BTC/day (baseline movement)
+    - ELEVATED: 5000-10000 BTC/day (increased LTH selling, watch closely)
+    - SPIKE: > 10000 BTC/day (major distribution event, potential top signal)
+
+    Spec: spec-024
+    """
+
+    DORMANT = "dormant"
+    NORMAL = "normal"
+    ELEVATED = "elevated"
+    SPIKE = "spike"
+
+
+@dataclass
+class RevivedSupplyResult:
+    """Revived supply metrics for dormant coin movement tracking.
+
+    Tracks coins that have been dormant for specified thresholds (1y, 2y, 5y)
+    and are now being spent. Rising revived supply during rallies indicates
+    LTH distribution to late buyers (bearish), while low revived supply during
+    dips indicates LTH holding strong (bullish conviction).
+
+    Key Signals:
+    - Rising revived supply during rally: LTH distributing to late buyers
+    - Low revived supply during dip: LTH holding strong
+    - 5Y+ coins moving: Extremely rare, significant holder behavior shift
+    - Sustained elevated zone: Distribution phase, potential trend reversal
+
+    Spec: spec-024
+    """
+
+    # Revived BTC by dormancy threshold
+    revived_1y: float  # BTC revived after 1+ year dormancy
+    revived_2y: float  # BTC revived after 2+ year dormancy
+    revived_5y: float  # BTC revived after 5+ year dormancy
+
+    # Derived metrics
+    revived_total_usd: float  # USD value of revived supply (using 1y threshold)
+    revived_avg_age: float  # Average age of revived UTXOs (days)
+
+    # Classification
+    zone: RevivedZone  # Behavioral zone classification
+    utxo_count: int  # Number of revived UTXOs
+
+    # Context
+    window_days: int  # Lookback window used
+    current_price_usd: float  # Price for USD calculation
+    block_height: int
+    timestamp: datetime = field(default_factory=datetime.utcnow)
+    confidence: float = 0.85  # Default high confidence for Tier A metric
+
+    def __post_init__(self):
+        """Validate revived supply result fields."""
+        # Revived values must be non-negative
+        if self.revived_1y < 0:
+            raise ValueError(f"revived_1y must be >= 0: {self.revived_1y}")
+        if self.revived_2y < 0:
+            raise ValueError(f"revived_2y must be >= 0: {self.revived_2y}")
+        if self.revived_5y < 0:
+            raise ValueError(f"revived_5y must be >= 0: {self.revived_5y}")
+
+        # Hierarchy constraint: 5y <= 2y <= 1y
+        if self.revived_5y > self.revived_2y:
+            raise ValueError(
+                f"revived_5y ({self.revived_5y}) cannot exceed revived_2y ({self.revived_2y})"
+            )
+        if self.revived_2y > self.revived_1y:
+            raise ValueError(
+                f"revived_2y ({self.revived_2y}) cannot exceed revived_1y ({self.revived_1y})"
+            )
+
+        # USD value must be non-negative
+        if self.revived_total_usd < 0:
+            raise ValueError(
+                f"revived_total_usd must be >= 0: {self.revived_total_usd}"
+            )
+
+        # Average age must be non-negative
+        if self.revived_avg_age < 0:
+            raise ValueError(f"revived_avg_age must be >= 0: {self.revived_avg_age}")
+
+        # Zone must be RevivedZone enum
+        if not isinstance(self.zone, RevivedZone):
+            raise ValueError(f"zone must be RevivedZone enum: {self.zone}")
+
+        # UTXO count must be non-negative
+        if self.utxo_count < 0:
+            raise ValueError(f"utxo_count must be >= 0: {self.utxo_count}")
+
+        # Window days must be positive
+        if self.window_days <= 0:
+            raise ValueError(f"window_days must be > 0: {self.window_days}")
+
+        # Price must be positive
+        if self.current_price_usd <= 0:
+            raise ValueError(f"current_price_usd must be > 0: {self.current_price_usd}")
+
+        # Block height must be non-negative
+        if self.block_height < 0:
+            raise ValueError(f"block_height must be >= 0: {self.block_height}")
+
+        # Confidence must be in [0, 1]
+        if not 0.0 <= self.confidence <= 1.0:
+            raise ValueError(f"confidence must be in [0, 1]: {self.confidence}")
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "revived_1y": self.revived_1y,
+            "revived_2y": self.revived_2y,
+            "revived_5y": self.revived_5y,
+            "revived_total_usd": self.revived_total_usd,
+            "revived_avg_age": self.revived_avg_age,
+            "zone": self.zone.value,
+            "utxo_count": self.utxo_count,
+            "window_days": self.window_days,
+            "current_price_usd": self.current_price_usd,
+            "block_height": self.block_height,
+            "timestamp": self.timestamp.isoformat()
+            if hasattr(self.timestamp, "isoformat")
+            else str(self.timestamp),
+            "confidence": self.confidence,
+        }

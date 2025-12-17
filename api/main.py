@@ -2339,6 +2339,141 @@ async def get_nupl(
 
 
 # =============================================================================
+# spec-024: Revived Supply
+# =============================================================================
+
+
+class RevivedSupplyResponse(BaseModel):
+    """Revived Supply response model (spec-024)."""
+
+    revived_1y: float = Field(..., description="BTC revived after 1+ year dormancy")
+    revived_2y: float = Field(..., description="BTC revived after 2+ year dormancy")
+    revived_5y: float = Field(..., description="BTC revived after 5+ year dormancy")
+    revived_total_usd: float = Field(
+        ..., description="USD value of revived supply (1y threshold)"
+    )
+    revived_avg_age: float = Field(
+        ..., description="Weighted average age of revived UTXOs (days)"
+    )
+    zone: str = Field(..., description="Behavioral zone: dormant|normal|elevated|spike")
+    utxo_count: int = Field(..., description="Number of revived UTXOs")
+    window_days: int = Field(..., description="Lookback window used")
+    current_price_usd: float = Field(..., description="Current BTC price used")
+    block_height: int = Field(..., description="Block height at calculation")
+    timestamp: str = Field(..., description="ISO timestamp of calculation")
+    confidence: float = Field(..., description="Signal confidence (0-1)")
+
+
+@app.get("/api/metrics/revived-supply", response_model=RevivedSupplyResponse)
+async def get_revived_supply(
+    window: int = Query(
+        default=30,
+        ge=1,
+        le=365,
+        description="Lookback window in days for spent UTXOs",
+    ),
+):
+    """
+    Calculate Revived Supply metrics for dormant coin movement tracking.
+
+    Tracks coins that have been dormant for fixed thresholds (1y, 2y, 5y)
+    and are now being spent. Rising revived supply during rallies indicates
+    LTH distribution.
+
+    **Fixed Dormancy Thresholds:**
+    - **revived_1y**: BTC dormant >= 365 days before spending
+    - **revived_2y**: BTC dormant >= 730 days before spending
+    - **revived_5y**: BTC dormant >= 1825 days before spending
+
+    **Behavioral Zones (based on daily revived BTC):**
+    - **DORMANT** (< 1000): Low LTH activity, stable holding
+    - **NORMAL** (1000-5000): Baseline movement
+    - **ELEVATED** (5000-10000): Increased LTH selling, watch closely
+    - **SPIKE** (> 10000): Major distribution event, potential top signal
+
+    **Key Signals:**
+    - Rising revived supply during rally: LTH distributing (bearish)
+    - Low revived supply during dip: LTH holding strong (bullish)
+    - 5Y+ coins moving: Extremely rare, significant behavior shift
+
+    Spec: 024-revived-supply
+    """
+    import duckdb
+    from datetime import datetime
+
+    conn = None
+    try:
+        conn = duckdb.connect(UTXO_DB_PATH, read_only=True)
+
+        # Get latest block height
+        block_result = conn.execute(
+            "SELECT MAX(creation_block) FROM utxo_lifecycle_full"
+        ).fetchone()
+        block_height = block_result[0] if block_result and block_result[0] else 0
+
+        # Get current price (average of 1000 most recent spent UTXOs)
+        price_result = conn.execute(
+            """
+            SELECT AVG(spent_price_usd)
+            FROM (
+                SELECT spent_price_usd
+                FROM utxo_lifecycle_full
+                WHERE is_spent = TRUE AND spent_price_usd > 0
+                ORDER BY spent_timestamp DESC
+                LIMIT 1000
+            ) recent_spent
+            """
+        ).fetchone()
+        current_price = (
+            price_result[0] if price_result and price_result[0] else 100000.0
+        )
+
+        from scripts.metrics.revived_supply import calculate_revived_supply_signal
+
+        result = calculate_revived_supply_signal(
+            conn=conn,
+            current_block=block_height,
+            current_price_usd=current_price,
+            timestamp=datetime.utcnow(),
+            window_days=window,
+        )
+
+        return RevivedSupplyResponse(
+            revived_1y=result.revived_1y,
+            revived_2y=result.revived_2y,
+            revived_5y=result.revived_5y,
+            revived_total_usd=result.revived_total_usd,
+            revived_avg_age=result.revived_avg_age,
+            zone=result.zone.value,
+            utxo_count=result.utxo_count,
+            window_days=result.window_days,
+            current_price_usd=result.current_price_usd,
+            block_height=result.block_height,
+            timestamp=result.timestamp.isoformat(),
+            confidence=result.confidence,
+        )
+
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=503,
+            detail=f"UTXO lifecycle database not found at {UTXO_DB_PATH}. "
+            "Run utxo_lifecycle sync first.",
+        )
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "utxo_lifecycle" in error_msg or "does not exist" in error_msg:
+            raise HTTPException(
+                status_code=404,
+                detail="UTXO lifecycle table not found. Schema migration pending.",
+            )
+        logging.error(f"Error calculating revived supply: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+# =============================================================================
 # spec-023: STH/LTH Cost Basis
 # =============================================================================
 

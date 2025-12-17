@@ -48,7 +48,7 @@ WHERE is_spent = TRUE
 ### Files
 - `scripts/metrics/revived_supply.py` - Calculator
 - `tests/test_revived_supply.py` - TDD tests
-- `scripts/models/metrics_models.py` - Add RevivedSupplyResult dataclass
+- `scripts/models/metrics_models.py` - Add RevivedZone enum + RevivedSupplyResult dataclass
 
 ### API
 - `GET /api/metrics/revived-supply?threshold=365&window=30`
