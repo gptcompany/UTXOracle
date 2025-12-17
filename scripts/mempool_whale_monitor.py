@@ -347,7 +347,9 @@ class MempoolWhaleMonitor:
                 [
                     signal.prediction_id,
                     signal.transaction_id,
-                    signal.flow_type.value,
+                    signal.flow_type
+                    if isinstance(signal.flow_type, str)
+                    else signal.flow_type.value,
                     signal.btc_value,
                     signal.fee_rate,
                     signal.urgency_score,
@@ -383,7 +385,7 @@ class MempoolWhaleMonitor:
 
         try:
             # Convert signal to dict for broadcasting
-            alert_data = signal.to_broadcast_format()
+            alert_data = signal.to_broadcast_dict()
 
             # Broadcast to all authenticated clients with 'read' permission
             await self.broadcaster.broadcast_whale_alert(alert_data)

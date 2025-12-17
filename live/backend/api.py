@@ -45,10 +45,6 @@ logger = logging.getLogger("live.api")
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup/shutdown"""
     # Startup
-    # DEBUG: Write to file to verify lifespan is called
-    with open("/tmp/lifespan_debug.txt", "w") as f:
-        f.write("LIFESPAN CALLED!\n")
-
     logger.info("=" * 60)
     logger.info("LIFESPAN: Starting up...")
     logger.info("=" * 60)

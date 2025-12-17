@@ -335,7 +335,8 @@ class TestMempoolWhaleMonitorIntegration:
             # Whale 1 (valid)
             json.dumps(
                 {
-                    "txid": "stat1" + "0" * 59,
+                    "txid": "5a71"
+                    + "0" * 60,  # Valid hex (5a71 = 'stat1' in hex-like form)
                     "fee": 100000,
                     "vsize": 500,
                     "value": 30_000_000_000,  # 300 BTC
@@ -345,7 +346,7 @@ class TestMempoolWhaleMonitorIntegration:
             # Whale 2 (valid)
             json.dumps(
                 {
-                    "txid": "stat2" + "0" * 59,
+                    "txid": "5a72" + "0" * 60,  # Valid hex
                     "fee": 80000,
                     "vsize": 400,
                     "value": 15_000_000_000,  # 150 BTC
@@ -355,7 +356,7 @@ class TestMempoolWhaleMonitorIntegration:
             # Not a whale (skipped)
             json.dumps(
                 {
-                    "txid": "stat3" + "0" * 59,
+                    "txid": "5a73" + "0" * 60,  # Valid hex
                     "fee": 50000,
                     "vsize": 250,
                     "value": 5_000_000_000,  # 50 BTC
@@ -365,7 +366,9 @@ class TestMempoolWhaleMonitorIntegration:
             # Whale 3 (duplicate of whale 1)
             json.dumps(
                 {
-                    "txid": "stat1" + "0" * 59,  # Same as whale 1
+                    "txid": "5a71"
+                    + "0"
+                    * 60,  # Valid hex (5a71 = 'stat1' in hex-like form)  # Same as whale 1
                     "fee": 100000,
                     "vsize": 500,
                     "value": 30_000_000_000,
@@ -548,7 +551,7 @@ class TestMempoolWhaleMonitorEdgeCases:
 
         tx_message = json.dumps(
             {
-                "txid": "verylarge" + "0" * 55,
+                "txid": "abcdef12" + "0" * 56,  # Valid hex
                 "fee": 1_000_000,  # 1M sats
                 "vsize": 5000,
                 "value": 1_500_000_000_000,  # 15,000 BTC
