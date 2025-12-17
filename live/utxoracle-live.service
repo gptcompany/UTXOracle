@@ -1,0 +1,50 @@
+[Unit]
+Description=UTXOracle Live - Real-time Mempool Price Oracle
+Documentation=https://github.com/username/UTXOracle
+After=network.target bitcoind.service
+Requires=network.target
+Wants=bitcoind.service
+
+[Service]
+Type=simple
+User=utxoracle
+Group=utxoracle
+WorkingDirectory=/opt/UTXOracle
+
+# Environment
+Environment="UTXORACLE_ENV=production"
+Environment="LOG_LEVEL=INFO"
+Environment="PATH=/home/utxoracle/.cargo/bin:/usr/local/bin:/usr/bin:/bin"
+
+# Start command using UV
+ExecStart=/home/utxoracle/.cargo/bin/uv run uvicorn live.backend.api:app \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --workers 1 \
+    --log-level info \
+    --access-log
+
+# Restart policy
+Restart=always
+RestartSec=5
+StartLimitInterval=60
+StartLimitBurst=3
+
+# Resource limits
+MemoryMax=512M
+CPUQuota=100%
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/UTXOracle/logs
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=utxoracle-live
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UTXOracle Live - Mempool Price Oracle</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>UTXOracle Live - Mempool Price Oracle</h1>
+
+        <div class="status-bar">
+            <div id="price-display">
+                <span class="label">Avg:</span>
+                <span id="price">$--,---</span>
+                <span id="connection-status" class="status-indicator">● Connecting...</span>
+            </div>
+            <div id="confidence-display">
+                <span class="label">Confidence:</span>
+                <span id="confidence">--</span>
+                <span id="confidence-label">(--)</span>
+                <div id="confidence-warning" class="confidence-warning">⚠ Low confidence - warming up</div>
+            </div>
+        </div>
+
+        <div class="canvas-container">
+            <canvas id="mempool-canvas" width="1000" height="660"></canvas>
+        </div>
+
+        <div class="stats-panel">
+            <div class="stat-item">
+                <span class="stat-label">Received:</span>
+                <span id="stat-received">0</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Filtered:</span>
+                <span id="stat-filtered">0</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Active:</span>
+                <span id="stat-active">0</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Uptime:</span>
+                <span id="stat-uptime">0s</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Task 05: Visualization Renderer - Agent: visualization-renderer -->
+    <script src="mempool-viz.js"></script>
+</body>
+</html>

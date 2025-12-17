@@ -1,0 +1,97 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# ///
+"""
+Session Outcome Tracker - PostToolUse Hook Enhancement
+
+Captures:
+1. Tool failures (auto)
+2. Hook blocks (auto)
+3. Error patterns (auto)
+4. Manual outcome (.session_outcome file)
+
+Saves to: .claude/stats/session_events.jsonl
+
+USAGE:
+Add to PostToolUse hooks in settings.local.json:
+{
+  "matcher": "",
+  "hooks": [{
+    "type": "command",
+    "command": ".claude/hooks/session-outcome-tracker.py"
+  }]
+}
+"""
+
+import json
+import sys
+from datetime import datetime
+from pathlib import Path
+
+def track_event():
+    """Track significant events (errors, blocks, failures)"""
+    try:
+        input_data = json.loads(sys.stdin.read())
+
+        session_id = input_data.get('session_id', 'unknown')
+        tool_name = input_data.get('tool_name', 'unknown')
+        tool_response = input_data.get('tool_response', {})
+
+        # Detect failure/error
+        success = tool_response.get('success', True)
+        error_msg = tool_response.get('error')
+
+        # Skip if successful and no error
+        if success and not error_msg:
+            return
+
+        # Create event entry
+        event = {
+            "timestamp": datetime.now().isoformat(),
+            "session_id": session_id,
+            "tool_name": tool_name,
+            "event_type": "error" if error_msg else "failure",
+            "success": success,
+            "error_message": str(error_msg)[:200] if error_msg else None
+        }
+
+        # Detect specific event types
+        if error_msg:
+            error_lower = str(error_msg).lower()
+
+            # TDD guard block
+            if "premature implementation" in error_lower or "tdd" in error_lower:
+                event["event_type"] = "tdd_block"
+
+            # Hook block
+            elif "hook" in error_lower and "block" in error_lower:
+                event["event_type"] = "hook_block"
+
+            # Test failure
+            elif "test" in error_lower and "fail" in error_lower:
+                event["event_type"] = "test_failure"
+
+            # Timeout
+            elif "timeout" in error_lower:
+                event["event_type"] = "timeout"
+
+        # Save to events log
+        stats_dir = Path(".claude/stats")
+        stats_dir.mkdir(parents=True, exist_ok=True)
+
+        events_file = stats_dir / "session_events.jsonl"
+
+        with open(events_file, "a") as f:
+            f.write(json.dumps(event) + "\n")
+
+    except Exception:
+        # Fail silently
+        pass
+
+def main():
+    track_event()
+    sys.exit(0)
+
+if __name__ == '__main__':
+    main()

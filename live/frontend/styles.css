@@ -1,0 +1,195 @@
+/**
+ * UTXOracle Live - Styles (matching UTXOracle.py HTML output style)
+ */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background-color: #000000;
+    color: #CCCCCC;
+    font-family: Arial, sans-serif;
+    text-align: center;
+    margin: 0;
+}
+
+.container {
+    width: 95%;
+    max-width: 1000px;
+    margin: 20px auto;
+}
+
+h1 {
+    color: #FF8C00;
+    font-size: 28px;
+    margin-bottom: 20px;
+}
+
+/* Status Bar */
+.status-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding: 15px;
+    background-color: rgba(255, 140, 0, 0.1);
+    border-radius: 5px;
+}
+
+#price-display {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.label {
+    color: #CCCCCC;
+    font-size: 18px;
+}
+
+#price {
+    color: #00CED1;
+    font-size: 48px;
+    font-weight: bold;
+    font-family: 'Courier New', monospace;
+}
+
+#connection-status {
+    font-size: 14px;
+    padding: 5px 10px;
+    border-radius: 3px;
+}
+
+#connection-status.connected {
+    color: #00FF00;
+}
+
+#connection-status.disconnected {
+    color: #FF0000;
+}
+
+#connection-status.reconnecting {
+    color: #FFFF00;
+}
+
+#confidence-display {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 18px;
+}
+
+#confidence {
+    font-size: 24px;
+    font-weight: bold;
+}
+
+#confidence.high {
+    color: #00CED1;
+}
+
+#confidence.medium {
+    color: #FFFF00;
+}
+
+#confidence.low {
+    color: #FF8C00;
+}
+
+#confidence-label {
+    color: #CCCCCC;
+    font-size: 14px;
+}
+
+/* Confidence color-coding (US3: T079) */
+.confidence-label.confidence-high {
+    color: #00FF00; /* Green */
+    font-weight: bold;
+}
+
+.confidence-label.confidence-medium {
+    color: #FFFF00; /* Yellow */
+    font-weight: bold;
+}
+
+.confidence-label.confidence-low {
+    color: #FF8C00; /* Orange */
+    font-weight: bold;
+}
+
+/* Low confidence warning (US3: T080) */
+.confidence-warning {
+    color: #FF8C00;
+    font-size: 14px;
+    font-style: italic;
+    margin-top: 5px;
+    display: none;
+}
+
+.confidence-warning.show {
+    display: block;
+}
+
+/* Canvas Container */
+.canvas-container {
+    position: relative;
+    width: 100%;
+    margin: 20px auto;
+}
+
+#mempool-canvas {
+    background-color: #000000;
+    width: 100%;
+    height: auto;
+    display: block;
+    border: 1px solid #333333;
+}
+
+/* Stats Panel */
+.stats-panel {
+    display: flex;
+    justify-content: space-around;
+    margin-top: 20px;
+    padding: 15px;
+    background-color: rgba(255, 255, 255, 0.05);
+    border-radius: 5px;
+    font-family: 'Courier New', monospace;
+}
+
+.stat-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+}
+
+.stat-label {
+    color: #CCCCCC;
+    font-size: 14px;
+}
+
+.stat-item span:last-child {
+    color: #00CED1;
+    font-size: 20px;
+    font-weight: bold;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    #price {
+        font-size: 32px;
+    }
+
+    .status-bar {
+        flex-direction: column;
+        gap: 15px;
+    }
+
+    .stats-panel {
+        flex-wrap: wrap;
+        gap: 15px;
+    }
+}

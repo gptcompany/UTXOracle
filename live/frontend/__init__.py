@@ -1,0 +1,1 @@
+"""UTXOracle Live - Frontend Assets"""
