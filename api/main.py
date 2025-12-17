@@ -2366,12 +2366,6 @@ class RevivedSupplyResponse(BaseModel):
 
 @app.get("/api/metrics/revived-supply", response_model=RevivedSupplyResponse)
 async def get_revived_supply(
-    threshold: int = Query(
-        default=365,
-        ge=1,
-        le=3650,
-        description="Minimum age in days for 'dormant' classification",
-    ),
     window: int = Query(
         default=30,
         ge=1,
@@ -2382,9 +2376,14 @@ async def get_revived_supply(
     """
     Calculate Revived Supply metrics for dormant coin movement tracking.
 
-    Tracks coins that have been dormant for specified thresholds (1y, 2y, 5y)
+    Tracks coins that have been dormant for fixed thresholds (1y, 2y, 5y)
     and are now being spent. Rising revived supply during rallies indicates
     LTH distribution.
+
+    **Fixed Dormancy Thresholds:**
+    - **revived_1y**: BTC dormant >= 365 days before spending
+    - **revived_2y**: BTC dormant >= 730 days before spending
+    - **revived_5y**: BTC dormant >= 1825 days before spending
 
     **Behavioral Zones (based on daily revived BTC):**
     - **DORMANT** (< 1000): Low LTH activity, stable holding
@@ -2412,14 +2411,17 @@ async def get_revived_supply(
         ).fetchone()
         block_height = block_result[0] if block_result and block_result[0] else 0
 
-        # Get current price (estimate from recent spent UTXOs or default)
+        # Get current price (average of 1000 most recent spent UTXOs)
         price_result = conn.execute(
             """
             SELECT AVG(spent_price_usd)
-            FROM utxo_lifecycle_full
-            WHERE is_spent = TRUE AND spent_price_usd > 0
-            ORDER BY spent_timestamp DESC
-            LIMIT 1000
+            FROM (
+                SELECT spent_price_usd
+                FROM utxo_lifecycle_full
+                WHERE is_spent = TRUE AND spent_price_usd > 0
+                ORDER BY spent_timestamp DESC
+                LIMIT 1000
+            ) recent_spent
             """
         ).fetchone()
         current_price = (

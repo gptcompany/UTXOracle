@@ -51,10 +51,25 @@ def classify_revived_zone(revived_btc_per_day: float) -> RevivedZone:
 
     Args:
         revived_btc_per_day: Daily average of revived BTC (1y+ dormant).
+            Must be a finite non-negative number.
 
     Returns:
         RevivedZone enum member.
+
+    Raises:
+        ValueError: If revived_btc_per_day is NaN, infinite, or negative.
     """
+    import math
+
+    if math.isnan(revived_btc_per_day) or math.isinf(revived_btc_per_day):
+        raise ValueError(
+            f"revived_btc_per_day must be finite, got {revived_btc_per_day}"
+        )
+    if revived_btc_per_day < 0:
+        raise ValueError(
+            f"revived_btc_per_day must be non-negative, got {revived_btc_per_day}"
+        )
+
     if revived_btc_per_day < ZONE_THRESHOLD_NORMAL:
         return RevivedZone.DORMANT
     elif revived_btc_per_day < ZONE_THRESHOLD_ELEVATED:
@@ -100,70 +115,37 @@ def calculate_revived_supply_signal(
         window_days,
     )
 
-    # Calculate window start timestamp (Unix epoch seconds)
+    # Calculate window start timestamp
     window_start = timestamp - timedelta(days=window_days)
-    window_start_epoch = int(window_start.timestamp())
 
     # Query revived UTXOs: spent within window, age >= 1 year at time of spending
-    # Note: spent_timestamp is stored as Unix epoch (BIGINT) in some schemas
-    # We need to handle both TIMESTAMP and BIGINT formats
-    try:
-        result = conn.execute(
-            """
-            SELECT
-                SUM(CASE WHEN age_days >= ? THEN btc_value ELSE 0 END) AS revived_1y,
-                SUM(CASE WHEN age_days >= ? THEN btc_value ELSE 0 END) AS revived_2y,
-                SUM(CASE WHEN age_days >= ? THEN btc_value ELSE 0 END) AS revived_5y,
-                SUM(CASE WHEN age_days >= ? THEN btc_value * age_days ELSE 0 END) AS weighted_age_sum,
-                COUNT(CASE WHEN age_days >= ? THEN 1 END) AS utxo_count
-            FROM utxo_lifecycle_full
-            WHERE is_spent = TRUE
-              AND age_days >= ?
-              AND (
-                  -- Handle TIMESTAMP format
-                  (spent_timestamp IS NOT NULL AND spent_timestamp >= ?)
-                  OR
-                  -- Handle BIGINT epoch format (check if it's a large number)
-                  (spent_timestamp IS NOT NULL AND spent_timestamp >= ?)
-              )
-            """,
-            [
-                THRESHOLD_1Y,  # revived_1y threshold
-                THRESHOLD_2Y,  # revived_2y threshold
-                THRESHOLD_5Y,  # revived_5y threshold
-                THRESHOLD_1Y,  # for weighted age (only 1y+ UTXOs)
-                THRESHOLD_1Y,  # utxo_count threshold
-                THRESHOLD_1Y,  # minimum age filter
-                window_start,  # TIMESTAMP comparison
-                window_start_epoch,  # BIGINT epoch comparison
-            ],
-        ).fetchone()
-    except duckdb.Error as e:
-        # Fallback: simpler query if the complex one fails
-        logger.warning("Complex query failed, trying simplified query: %s", e)
-        result = conn.execute(
-            """
-            SELECT
-                SUM(CASE WHEN age_days >= ? THEN btc_value ELSE 0 END) AS revived_1y,
-                SUM(CASE WHEN age_days >= ? THEN btc_value ELSE 0 END) AS revived_2y,
-                SUM(CASE WHEN age_days >= ? THEN btc_value ELSE 0 END) AS revived_5y,
-                SUM(CASE WHEN age_days >= ? THEN btc_value * age_days ELSE 0 END) AS weighted_age_sum,
-                COUNT(CASE WHEN age_days >= ? THEN 1 END) AS utxo_count
-            FROM utxo_lifecycle_full
-            WHERE is_spent = TRUE
-              AND age_days >= ?
-              AND spent_timestamp >= ?
-            """,
-            [
-                THRESHOLD_1Y,
-                THRESHOLD_2Y,
-                THRESHOLD_5Y,
-                THRESHOLD_1Y,
-                THRESHOLD_1Y,
-                THRESHOLD_1Y,
-                window_start,
-            ],
-        ).fetchone()
+    # DuckDB handles TIMESTAMP comparisons automatically - pass datetime directly
+    # Note: btc_value IS NOT NULL ensures we only count UTXOs with valid BTC values
+    result = conn.execute(
+        """
+        SELECT
+            SUM(CASE WHEN age_days >= ? THEN btc_value ELSE 0 END) AS revived_1y,
+            SUM(CASE WHEN age_days >= ? THEN btc_value ELSE 0 END) AS revived_2y,
+            SUM(CASE WHEN age_days >= ? THEN btc_value ELSE 0 END) AS revived_5y,
+            SUM(CASE WHEN age_days >= ? THEN btc_value * age_days ELSE 0 END) AS weighted_age_sum,
+            COUNT(CASE WHEN age_days >= ? AND btc_value IS NOT NULL THEN 1 END) AS utxo_count
+        FROM utxo_lifecycle_full
+        WHERE is_spent = TRUE
+          AND age_days >= ?
+          AND btc_value IS NOT NULL
+          AND spent_timestamp IS NOT NULL
+          AND spent_timestamp >= ?
+        """,
+        [
+            THRESHOLD_1Y,  # revived_1y threshold
+            THRESHOLD_2Y,  # revived_2y threshold
+            THRESHOLD_5Y,  # revived_5y threshold
+            THRESHOLD_1Y,  # for weighted age (only 1y+ UTXOs)
+            THRESHOLD_1Y,  # utxo_count threshold
+            THRESHOLD_1Y,  # minimum age filter
+            window_start,  # TIMESTAMP comparison
+        ],
+    ).fetchone()
 
     # Extract results with null handling
     revived_1y = float(result[0] or 0.0)

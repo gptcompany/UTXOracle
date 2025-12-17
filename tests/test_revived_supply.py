@@ -484,12 +484,12 @@ class TestRevivedSupplyAPIEndpoint:
             assert data["zone"] in ["dormant", "normal", "elevated", "spike"]
 
     def test_revived_supply_endpoint_with_params(self):
-        """T009: Test endpoint accepts threshold and window query params."""
+        """T009: Test endpoint accepts window query param."""
         from fastapi.testclient import TestClient
         from api.main import app
 
         client = TestClient(app, raise_server_exceptions=False)
-        response = client.get("/api/metrics/revived-supply?threshold=730&window=7")
+        response = client.get("/api/metrics/revived-supply?window=7")
 
         # Should accept params without 422 Unprocessable Entity
         assert response.status_code != 422
