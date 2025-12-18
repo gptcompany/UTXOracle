@@ -1918,3 +1918,282 @@ class RevivedSupplyResult:
             else str(self.timestamp),
             "confidence": self.confidence,
         }
+
+
+# =============================================================================
+# Spec-025: Wallet Waves & Absorption Rates Dataclasses
+# =============================================================================
+
+
+class WalletBand(str, Enum):
+    """Wallet size classification bands.
+
+    Standard 6-band classification aligned with industry standards (Glassnode/IntoTheBlock):
+    - SHRIMP: < 1 BTC (sub-retail, casual holders)
+    - CRAB: 1-10 BTC (retail accumulation target)
+    - FISH: 10-100 BTC (high net worth individuals)
+    - SHARK: 100-1,000 BTC (small institutions, funds)
+    - WHALE: 1,000-10,000 BTC (major institutions)
+    - HUMPBACK: > 10,000 BTC (exchanges, ETF custodians)
+
+    Spec: spec-025
+    """
+
+    SHRIMP = "shrimp"
+    CRAB = "crab"
+    FISH = "fish"
+    SHARK = "shark"
+    WHALE = "whale"
+    HUMPBACK = "humpback"
+
+
+# Threshold constants for wallet band classification (min_btc, max_btc exclusive)
+BAND_THRESHOLDS: dict[WalletBand, tuple[float, float]] = {
+    WalletBand.SHRIMP: (0, 1),
+    WalletBand.CRAB: (1, 10),
+    WalletBand.FISH: (10, 100),
+    WalletBand.SHARK: (100, 1000),
+    WalletBand.WHALE: (1000, 10000),
+    WalletBand.HUMPBACK: (10000, float("inf")),
+}
+
+
+@dataclass
+class WalletBandMetrics:
+    """Metrics for a single wallet band.
+
+    Represents supply distribution within a specific wallet size range.
+
+    Attributes:
+        band: Wallet band classification (shrimp to humpback)
+        supply_btc: Total BTC held by addresses in this band
+        supply_pct: Percentage of total supply in this band (0-100)
+        address_count: Number of addresses in this band
+        avg_balance: Average balance per address in this band
+
+    Spec: spec-025
+    """
+
+    band: WalletBand
+    supply_btc: float
+    supply_pct: float
+    address_count: int
+    avg_balance: float
+
+    def __post_init__(self):
+        """Validate wallet band metrics."""
+        if self.supply_btc < 0:
+            raise ValueError(f"supply_btc must be non-negative: {self.supply_btc}")
+        if not 0 <= self.supply_pct <= 100:
+            raise ValueError(f"supply_pct must be between 0 and 100: {self.supply_pct}")
+        if self.address_count < 0:
+            raise ValueError(
+                f"address_count must be non-negative: {self.address_count}"
+            )
+        if self.avg_balance < 0:
+            raise ValueError(f"avg_balance must be non-negative: {self.avg_balance}")
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "band": self.band.value,
+            "supply_btc": self.supply_btc,
+            "supply_pct": self.supply_pct,
+            "address_count": self.address_count,
+            "avg_balance": self.avg_balance,
+        }
+
+
+@dataclass
+class WalletWavesResult:
+    """Complete wallet waves distribution snapshot.
+
+    Point-in-time snapshot of supply distribution across 6 wallet size bands.
+    Used for HODL wave analysis and tracking retail vs institutional accumulation.
+
+    Attributes:
+        timestamp: When snapshot was calculated
+        block_height: Bitcoin block height at calculation
+        total_supply_btc: Total circulating supply (unspent)
+        bands: List of 6 WalletBandMetrics (one per band)
+        retail_supply_pct: Combined percentage for bands 1-3 (shrimp+crab+fish)
+        institutional_supply_pct: Combined percentage for bands 4-6 (shark+whale+humpback)
+        address_count_total: Total number of addresses with balance > 0
+        null_address_btc: BTC in UTXOs without decoded address (OP_RETURN, etc)
+        confidence: Data quality score (0.0-1.0)
+
+    Spec: spec-025
+    """
+
+    timestamp: datetime
+    block_height: int
+    total_supply_btc: float
+    bands: list  # list[WalletBandMetrics]
+    retail_supply_pct: float
+    institutional_supply_pct: float
+    address_count_total: int
+    null_address_btc: float
+    confidence: float
+
+    def __post_init__(self):
+        """Validate wallet waves result."""
+        if len(self.bands) != 6:
+            raise ValueError(f"Must have exactly 6 bands, got {len(self.bands)}")
+        if self.total_supply_btc <= 0:
+            raise ValueError(
+                f"total_supply_btc must be positive: {self.total_supply_btc}"
+            )
+        if self.block_height < 0:
+            raise ValueError(f"block_height must be non-negative: {self.block_height}")
+        if self.address_count_total < 0:
+            raise ValueError(
+                f"address_count_total must be non-negative: {self.address_count_total}"
+            )
+        if self.null_address_btc < 0:
+            raise ValueError(
+                f"null_address_btc must be non-negative: {self.null_address_btc}"
+            )
+        if not 0.0 <= self.confidence <= 1.0:
+            raise ValueError(f"confidence must be in [0, 1]: {self.confidence}")
+
+        # Validate band percentages sum correctly (accounting for null addresses)
+        # When null_address_btc > 0, bands won't sum to 100% - that's correct!
+        band_sum = sum(b.supply_pct for b in self.bands)
+        expected_sum = 100.0 * (1 - self.null_address_btc / self.total_supply_btc)
+        tolerance = 1.0  # Allow ±1% for floating point
+        if abs(band_sum - expected_sum) > tolerance:
+            raise ValueError(
+                f"Band percentages must sum to ~{expected_sum:.1f}% "
+                f"(accounting for null addresses), got {band_sum:.2f}%"
+            )
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "timestamp": self.timestamp.isoformat()
+            if hasattr(self.timestamp, "isoformat")
+            else str(self.timestamp),
+            "block_height": self.block_height,
+            "total_supply_btc": self.total_supply_btc,
+            "bands": [b.to_dict() for b in self.bands],
+            "retail_supply_pct": self.retail_supply_pct,
+            "institutional_supply_pct": self.institutional_supply_pct,
+            "address_count_total": self.address_count_total,
+            "null_address_btc": self.null_address_btc,
+            "confidence": self.confidence,
+        }
+
+
+@dataclass
+class AbsorptionRateMetrics:
+    """Absorption rate for a single wallet band.
+
+    Tracks how much of newly mined supply each wallet band has absorbed
+    over a given time window.
+
+    Attributes:
+        band: Wallet band classification
+        absorption_rate: Rate of new supply absorbed (0.0-1.0+), None if no historical data
+        supply_delta_btc: Change in BTC held over window
+        supply_start_btc: BTC held at window start
+        supply_end_btc: BTC held at window end
+
+    Spec: spec-025
+    """
+
+    band: WalletBand
+    absorption_rate: Optional[float]  # None if no historical data
+    supply_delta_btc: float
+    supply_start_btc: float
+    supply_end_btc: float
+
+    def __post_init__(self):
+        """Validate absorption rate metrics."""
+        if self.absorption_rate is not None and self.absorption_rate < -10:
+            raise ValueError(
+                f"absorption_rate suspiciously negative: {self.absorption_rate}"
+            )
+        if self.supply_start_btc < 0:
+            raise ValueError(
+                f"supply_start_btc must be non-negative: {self.supply_start_btc}"
+            )
+        if self.supply_end_btc < 0:
+            raise ValueError(
+                f"supply_end_btc must be non-negative: {self.supply_end_btc}"
+            )
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "band": self.band.value,
+            "absorption_rate": self.absorption_rate,
+            "supply_delta_btc": self.supply_delta_btc,
+            "supply_start_btc": self.supply_start_btc,
+            "supply_end_btc": self.supply_end_btc,
+        }
+
+
+@dataclass
+class AbsorptionRatesResult:
+    """Absorption rates across all wallet bands.
+
+    Tracks the rate at which each wallet band absorbs newly mined supply.
+    Used to identify which cohorts are accumulating (conviction) vs distributing.
+
+    Attributes:
+        timestamp: When calculation was performed
+        block_height: Bitcoin block height at calculation
+        window_days: Lookback window in days (7, 30, 90)
+        mined_supply_btc: New BTC mined during window
+        bands: List of 6 AbsorptionRateMetrics (one per band)
+        dominant_absorber: Band with highest absorption rate
+        retail_absorption: Combined absorption for bands 1-3
+        institutional_absorption: Combined absorption for bands 4-6
+        confidence: Data quality score (0.0-1.0)
+        has_historical_data: False if baseline snapshot unavailable
+
+    Spec: spec-025
+    """
+
+    timestamp: datetime
+    block_height: int
+    window_days: int
+    mined_supply_btc: float
+    bands: list  # list[AbsorptionRateMetrics]
+    dominant_absorber: WalletBand
+    retail_absorption: float
+    institutional_absorption: float
+    confidence: float
+    has_historical_data: bool
+
+    def __post_init__(self):
+        """Validate absorption rates result."""
+        if len(self.bands) != 6:
+            raise ValueError(f"Must have exactly 6 bands, got {len(self.bands)}")
+        if self.window_days <= 0:
+            raise ValueError(f"window_days must be positive: {self.window_days}")
+        if self.mined_supply_btc < 0:
+            raise ValueError(
+                f"mined_supply_btc must be non-negative: {self.mined_supply_btc}"
+            )
+        if self.block_height < 0:
+            raise ValueError(f"block_height must be non-negative: {self.block_height}")
+        if not 0.0 <= self.confidence <= 1.0:
+            raise ValueError(f"confidence must be in [0, 1]: {self.confidence}")
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "timestamp": self.timestamp.isoformat()
+            if hasattr(self.timestamp, "isoformat")
+            else str(self.timestamp),
+            "block_height": self.block_height,
+            "window_days": self.window_days,
+            "mined_supply_btc": self.mined_supply_btc,
+            "bands": [b.to_dict() for b in self.bands],
+            "dominant_absorber": self.dominant_absorber.value,
+            "retail_absorption": self.retail_absorption,
+            "institutional_absorption": self.institutional_absorption,
+            "confidence": self.confidence,
+            "has_historical_data": self.has_historical_data,
+        }

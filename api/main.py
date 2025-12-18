@@ -2580,6 +2580,334 @@ async def get_cost_basis(
 
 
 # =============================================================================
+# Spec-025: Wallet Waves & Absorption Rates Endpoints
+# =============================================================================
+
+
+class WalletBandResponse(BaseModel):
+    """Response model for a single wallet band metrics."""
+
+    band: str = Field(
+        ..., description="Wallet band name (shrimp, crab, fish, shark, whale, humpback)"
+    )
+    supply_btc: float = Field(
+        ..., description="Total BTC held by addresses in this band"
+    )
+    supply_pct: float = Field(
+        ..., description="Percentage of total supply in this band (0-100)"
+    )
+    address_count: int = Field(..., description="Number of addresses in this band")
+    avg_balance: float = Field(
+        ..., description="Average balance per address in this band"
+    )
+
+
+class WalletWavesResponse(BaseModel):
+    """Response model for wallet waves distribution snapshot."""
+
+    timestamp: str = Field(..., description="ISO timestamp of calculation")
+    block_height: int = Field(..., description="Bitcoin block height at calculation")
+    total_supply_btc: float = Field(
+        ..., description="Total circulating supply (unspent)"
+    )
+    bands: List[WalletBandResponse] = Field(
+        ..., description="List of 6 wallet band metrics"
+    )
+    retail_supply_pct: float = Field(
+        ..., description="Combined percentage for bands 1-3 (shrimp+crab+fish)"
+    )
+    institutional_supply_pct: float = Field(
+        ..., description="Combined percentage for bands 4-6 (shark+whale+humpback)"
+    )
+    address_count_total: int = Field(
+        ..., description="Total number of addresses with balance > 0"
+    )
+    null_address_btc: float = Field(
+        ..., description="BTC in UTXOs without decoded address"
+    )
+    confidence: float = Field(..., description="Data quality score (0.0-1.0)")
+
+
+class AbsorptionBandResponse(BaseModel):
+    """Response model for a single band absorption rate."""
+
+    band: str = Field(..., description="Wallet band name")
+    absorption_rate: Optional[float] = Field(
+        None, description="Rate of new supply absorbed (None if no historical data)"
+    )
+    supply_delta_btc: float = Field(..., description="Change in BTC held over window")
+    supply_start_btc: float = Field(..., description="BTC held at window start")
+    supply_end_btc: float = Field(..., description="BTC held at window end")
+
+
+class AbsorptionRatesResponse(BaseModel):
+    """Response model for absorption rates across all wallet bands."""
+
+    timestamp: str = Field(..., description="ISO timestamp of calculation")
+    block_height: int = Field(..., description="Bitcoin block height at calculation")
+    window_days: int = Field(..., description="Lookback window in days")
+    mined_supply_btc: float = Field(..., description="New BTC mined during window")
+    bands: List[AbsorptionBandResponse] = Field(
+        ..., description="List of 6 absorption rate metrics"
+    )
+    dominant_absorber: str = Field(..., description="Band with highest absorption rate")
+    retail_absorption: float = Field(
+        ..., description="Combined absorption for bands 1-3"
+    )
+    institutional_absorption: float = Field(
+        ..., description="Combined absorption for bands 4-6"
+    )
+    confidence: float = Field(..., description="Data quality score (0.0-1.0)")
+    has_historical_data: bool = Field(
+        ..., description="False if baseline snapshot unavailable"
+    )
+
+
+@app.get("/api/metrics/wallet-waves", response_model=WalletWavesResponse)
+async def get_wallet_waves():
+    """
+    Get current wallet waves distribution (spec-025).
+
+    Returns supply distribution across 6 wallet size bands:
+    - **shrimp**: < 1 BTC (sub-retail, casual holders)
+    - **crab**: 1-10 BTC (retail accumulation target)
+    - **fish**: 10-100 BTC (high net worth individuals)
+    - **shark**: 100-1,000 BTC (small institutions, funds)
+    - **whale**: 1,000-10,000 BTC (major institutions)
+    - **humpback**: > 10,000 BTC (exchanges, ETF custodians)
+
+    **Retail vs Institutional:**
+    - Retail = shrimp + crab + fish
+    - Institutional = shark + whale + humpback
+
+    Performance: <5s query time on ~50M unique addresses.
+
+    Spec: 025-wallet-waves
+    """
+    import duckdb
+
+    conn = None
+    try:
+        conn = duckdb.connect(UTXO_DB_PATH, read_only=True)
+
+        from scripts.metrics.wallet_waves import calculate_wallet_waves
+
+        result = calculate_wallet_waves(conn=conn)
+
+        return WalletWavesResponse(
+            timestamp=result.timestamp.isoformat(),
+            block_height=result.block_height,
+            total_supply_btc=result.total_supply_btc,
+            bands=[
+                WalletBandResponse(
+                    band=b.band.value,
+                    supply_btc=b.supply_btc,
+                    supply_pct=b.supply_pct,
+                    address_count=b.address_count,
+                    avg_balance=b.avg_balance,
+                )
+                for b in result.bands
+            ],
+            retail_supply_pct=result.retail_supply_pct,
+            institutional_supply_pct=result.institutional_supply_pct,
+            address_count_total=result.address_count_total,
+            null_address_btc=result.null_address_btc,
+            confidence=result.confidence,
+        )
+
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=503,
+            detail=f"UTXO lifecycle database not found at {UTXO_DB_PATH}. "
+            "Run utxo_lifecycle sync first.",
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "utxo_lifecycle" in error_msg or "does not exist" in error_msg:
+            raise HTTPException(
+                status_code=404,
+                detail="UTXO lifecycle table not found. Schema migration pending.",
+            )
+        logging.error(f"Error calculating Wallet Waves: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.get("/api/metrics/wallet-waves/history")
+async def get_wallet_waves_history(
+    days: int = Query(
+        default=30,
+        ge=1,
+        le=365,
+        description="Days of history to return (max 365)",
+    ),
+):
+    """
+    Get historical wallet waves data (spec-025).
+
+    Returns daily wallet waves snapshots for the specified period.
+
+    Note: This endpoint requires pre-computed historical snapshots.
+    Currently returns a placeholder response until snapshot storage is implemented.
+
+    Spec: 025-wallet-waves
+    """
+    # MVP: Return current snapshot only (historical storage not implemented yet)
+    import duckdb
+
+    conn = None
+    try:
+        conn = duckdb.connect(UTXO_DB_PATH, read_only=True)
+
+        from scripts.metrics.wallet_waves import calculate_wallet_waves
+
+        result = calculate_wallet_waves(conn=conn)
+
+        # Return single snapshot as list (historical storage TBD)
+        return [
+            WalletWavesResponse(
+                timestamp=result.timestamp.isoformat(),
+                block_height=result.block_height,
+                total_supply_btc=result.total_supply_btc,
+                bands=[
+                    WalletBandResponse(
+                        band=b.band.value,
+                        supply_btc=b.supply_btc,
+                        supply_pct=b.supply_pct,
+                        address_count=b.address_count,
+                        avg_balance=b.avg_balance,
+                    )
+                    for b in result.bands
+                ],
+                retail_supply_pct=result.retail_supply_pct,
+                institutional_supply_pct=result.institutional_supply_pct,
+                address_count_total=result.address_count_total,
+                null_address_btc=result.null_address_btc,
+                confidence=result.confidence,
+            )
+        ]
+
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=503,
+            detail=f"UTXO lifecycle database not found at {UTXO_DB_PATH}. "
+            "Run utxo_lifecycle sync first.",
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logging.error(f"Error calculating Wallet Waves history: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.get("/api/metrics/absorption-rates", response_model=AbsorptionRatesResponse)
+async def get_absorption_rates(
+    window: str = Query(
+        default="30d",
+        description="Lookback window (7d, 30d, or 90d)",
+        pattern="^(7d|30d|90d)$",
+    ),
+):
+    """
+    Get absorption rates by wallet band (spec-025).
+
+    Returns the rate at which each wallet band absorbs newly mined supply.
+
+    **Window Options:**
+    - 7d: 7-day lookback (~3,150 BTC mined, post-2024 halving)
+    - 30d: 30-day lookback (~13,500 BTC mined)
+    - 90d: 90-day lookback (~40,500 BTC mined)
+
+    **Absorption Rate Interpretation:**
+    - Rate > 1.0: Band absorbed more than its share of new supply
+    - Rate ~ 0: Band supply unchanged
+    - Rate < 0: Band is distributing (reducing holdings)
+
+    **Dominant Absorber:** Identifies which cohort is accumulating most aggressively.
+
+    Note: Requires historical snapshot for comparison. Returns has_historical_data=false
+    if baseline is unavailable (first run).
+
+    Spec: 025-wallet-waves
+    """
+    import duckdb
+
+    # Parse window parameter
+    window_days = int(window.rstrip("d"))
+
+    conn = None
+    try:
+        conn = duckdb.connect(UTXO_DB_PATH, read_only=True)
+
+        from scripts.metrics.wallet_waves import calculate_wallet_waves
+        from scripts.metrics.absorption_rates import calculate_absorption_rates
+
+        # Calculate current snapshot
+        current_snapshot = calculate_wallet_waves(conn=conn)
+
+        # For MVP, we don't have historical snapshots stored
+        # Future: Query stored snapshots from `window_days` ago
+        historical_snapshot = None
+
+        result = calculate_absorption_rates(
+            conn=conn,
+            current_snapshot=current_snapshot,
+            historical_snapshot=historical_snapshot,
+            window_days=window_days,
+        )
+
+        return AbsorptionRatesResponse(
+            timestamp=result.timestamp.isoformat(),
+            block_height=result.block_height,
+            window_days=result.window_days,
+            mined_supply_btc=result.mined_supply_btc,
+            bands=[
+                AbsorptionBandResponse(
+                    band=b.band.value,
+                    absorption_rate=b.absorption_rate,
+                    supply_delta_btc=b.supply_delta_btc,
+                    supply_start_btc=b.supply_start_btc,
+                    supply_end_btc=b.supply_end_btc,
+                )
+                for b in result.bands
+            ],
+            dominant_absorber=result.dominant_absorber.value,
+            retail_absorption=result.retail_absorption,
+            institutional_absorption=result.institutional_absorption,
+            confidence=result.confidence,
+            has_historical_data=result.has_historical_data,
+        )
+
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=503,
+            detail=f"UTXO lifecycle database not found at {UTXO_DB_PATH}. "
+            "Run utxo_lifecycle sync first.",
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "utxo_lifecycle" in error_msg or "does not exist" in error_msg:
+            raise HTTPException(
+                status_code=404,
+                detail="UTXO lifecycle table not found. Schema migration pending.",
+            )
+        logging.error(f"Error calculating Absorption Rates: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+# =============================================================================
 # Service Connectivity Helper Functions
 # =============================================================================
 

@@ -1,0 +1,294 @@
+openapi: 3.0.3
+info:
+  title: Wallet Waves API
+  description: Supply distribution by wallet size bands and absorption rate tracking
+  version: 1.0.0
+
+paths:
+  /api/metrics/wallet-waves:
+    get:
+      summary: Get current wallet waves distribution
+      description: Returns supply distribution across 6 wallet size bands (shrimp to humpback)
+      operationId: getWalletWaves
+      responses:
+        '200':
+          description: Wallet waves snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletWavesResponse'
+        '503':
+          description: Database unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/metrics/wallet-waves/history:
+    get:
+      summary: Get historical wallet waves
+      description: Returns daily wallet waves snapshots for the specified period
+      operationId: getWalletWavesHistory
+      parameters:
+        - name: days
+          in: query
+          description: Number of days of history to return
+          required: false
+          schema:
+            type: integer
+            default: 30
+            minimum: 1
+            maximum: 365
+      responses:
+        '200':
+          description: Historical wallet waves data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WalletWavesResponse'
+        '400':
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/metrics/absorption-rates:
+    get:
+      summary: Get absorption rates by wallet band
+      description: Returns rate at which each wallet band absorbs new supply
+      operationId: getAbsorptionRates
+      parameters:
+        - name: window
+          in: query
+          description: Lookback window (7d, 30d, 90d)
+          required: false
+          schema:
+            type: string
+            default: 30d
+            enum: [7d, 30d, 90d]
+      responses:
+        '200':
+          description: Absorption rates result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AbsorptionRatesResponse'
+        '400':
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Historical data unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    WalletBand:
+      type: string
+      enum: [shrimp, crab, fish, shark, whale, humpback]
+      description: |
+        Wallet size classification:
+        - shrimp: < 1 BTC
+        - crab: 1-10 BTC
+        - fish: 10-100 BTC
+        - shark: 100-1,000 BTC
+        - whale: 1,000-10,000 BTC
+        - humpback: > 10,000 BTC
+
+    WalletBandMetrics:
+      type: object
+      required:
+        - band
+        - supply_btc
+        - supply_pct
+        - address_count
+        - avg_balance
+      properties:
+        band:
+          $ref: '#/components/schemas/WalletBand'
+        supply_btc:
+          type: number
+          format: double
+          description: Total BTC held by addresses in this band
+          example: 1234567.89
+        supply_pct:
+          type: number
+          format: double
+          description: Percentage of total supply in this band
+          minimum: 0
+          maximum: 100
+          example: 6.27
+        address_count:
+          type: integer
+          description: Number of addresses in this band
+          minimum: 0
+          example: 45000000
+        avg_balance:
+          type: number
+          format: double
+          description: Average balance per address in this band
+          example: 0.027
+
+    WalletWavesResponse:
+      type: object
+      required:
+        - timestamp
+        - block_height
+        - total_supply_btc
+        - bands
+        - retail_supply_pct
+        - institutional_supply_pct
+        - address_count_total
+        - confidence
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          example: "2025-12-17T12:00:00Z"
+        block_height:
+          type: integer
+          example: 876543
+        total_supply_btc:
+          type: number
+          format: double
+          description: Total circulating supply
+          example: 19700000.0
+        bands:
+          type: array
+          items:
+            $ref: '#/components/schemas/WalletBandMetrics'
+          minItems: 6
+          maxItems: 6
+        retail_supply_pct:
+          type: number
+          format: double
+          description: Combined percentage for shrimp+crab+fish
+          example: 25.5
+        institutional_supply_pct:
+          type: number
+          format: double
+          description: Combined percentage for shark+whale+humpback
+          example: 74.5
+        address_count_total:
+          type: integer
+          description: Total number of addresses with balance > 0
+          example: 50000000
+        null_address_btc:
+          type: number
+          format: double
+          description: BTC in UTXOs without decoded address (OP_RETURN, etc)
+          example: 12345.67
+        confidence:
+          type: number
+          format: double
+          description: Data quality score
+          minimum: 0
+          maximum: 1
+          example: 0.85
+
+    AbsorptionRateMetrics:
+      type: object
+      required:
+        - band
+        - supply_delta_btc
+        - supply_start_btc
+        - supply_end_btc
+      properties:
+        band:
+          $ref: '#/components/schemas/WalletBand'
+        absorption_rate:
+          type: number
+          format: double
+          nullable: true
+          description: Rate of new supply absorbed (null if no historical data)
+          example: 0.35
+        supply_delta_btc:
+          type: number
+          format: double
+          description: Change in BTC held over window
+          example: 15000.5
+        supply_start_btc:
+          type: number
+          format: double
+          description: BTC at window start
+          example: 1200000.0
+        supply_end_btc:
+          type: number
+          format: double
+          description: BTC at window end
+          example: 1215000.5
+
+    AbsorptionRatesResponse:
+      type: object
+      required:
+        - timestamp
+        - block_height
+        - window_days
+        - mined_supply_btc
+        - bands
+        - dominant_absorber
+        - retail_absorption
+        - institutional_absorption
+        - confidence
+        - has_historical_data
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        block_height:
+          type: integer
+        window_days:
+          type: integer
+          example: 30
+        mined_supply_btc:
+          type: number
+          format: double
+          description: New BTC mined during window
+          example: 27000.0
+        bands:
+          type: array
+          items:
+            $ref: '#/components/schemas/AbsorptionRateMetrics'
+          minItems: 6
+          maxItems: 6
+        dominant_absorber:
+          $ref: '#/components/schemas/WalletBand'
+        retail_absorption:
+          type: number
+          format: double
+          description: Combined absorption rate for bands 1-3
+          example: 0.25
+        institutional_absorption:
+          type: number
+          format: double
+          description: Combined absorption rate for bands 4-6
+          example: 0.75
+        confidence:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        has_historical_data:
+          type: boolean
+          description: False if baseline snapshot unavailable
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          example: "DATABASE_UNAVAILABLE"
+        message:
+          type: string
+          example: "Unable to connect to DuckDB"
