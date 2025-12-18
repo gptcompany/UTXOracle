@@ -2343,3 +2343,93 @@ class ExchangeNetflowResult:
             else str(self.timestamp),
             "confidence": self.confidence,
         }
+
+
+@dataclass
+class BinaryCDDResult:
+    """Binary CDD statistical significance result.
+
+    Converts raw CDD (Coin Days Destroyed) into actionable binary signals
+    based on z-score threshold exceeding N-sigma. Filters out noise from
+    normal LTH activity.
+
+    Key Signals:
+    - binary_cdd=0: Normal long-term holder activity (noise)
+    - binary_cdd=1: Significant event (z-score >= threshold sigma)
+
+    Z-Score Interpretation:
+    - < 2σ (97.5%): Normal noise, binary=0
+    - >= 2σ (97.5%): Significant event, binary=1
+    - >= 3σ (99.9%): Extreme event, binary=1 (high conviction)
+
+    Attributes:
+        cdd_today: Today's total Coin Days Destroyed
+        cdd_mean: Mean CDD over lookback window
+        cdd_std: Standard deviation of CDD over window
+        cdd_zscore: Z-score (null if insufficient data or zero std)
+        cdd_percentile: Percentile rank (0-100)
+        binary_cdd: Binary flag (0 or 1)
+        threshold_used: Sigma threshold applied
+        window_days: Lookback window size
+        data_points: Actual data points available
+        insufficient_data: True if < 30 days history
+        block_height: Block height at calculation
+        timestamp: Calculation timestamp
+
+    Spec: spec-027
+    """
+
+    cdd_today: float
+    cdd_mean: float
+    cdd_std: float
+    cdd_zscore: Optional[float]
+    cdd_percentile: Optional[float]
+    binary_cdd: int  # 0 or 1
+    threshold_used: float
+    window_days: int
+    data_points: int
+    insufficient_data: bool
+    block_height: int
+    timestamp: datetime = field(default_factory=datetime.utcnow)
+
+    def __post_init__(self):
+        """Validate Binary CDD fields."""
+        if self.cdd_today < 0:
+            raise ValueError(f"cdd_today must be >= 0: {self.cdd_today}")
+        if self.cdd_mean < 0:
+            raise ValueError(f"cdd_mean must be >= 0: {self.cdd_mean}")
+        if self.cdd_std < 0:
+            raise ValueError(f"cdd_std must be >= 0: {self.cdd_std}")
+        if self.cdd_percentile is not None and not 0 <= self.cdd_percentile <= 100:
+            raise ValueError(
+                f"cdd_percentile must be in [0, 100]: {self.cdd_percentile}"
+            )
+        if self.binary_cdd not in (0, 1):
+            raise ValueError(f"binary_cdd must be 0 or 1: {self.binary_cdd}")
+        if not 1.0 <= self.threshold_used <= 4.0:
+            raise ValueError(
+                f"threshold_used must be in [1.0, 4.0]: {self.threshold_used}"
+            )
+        if not 30 <= self.window_days <= 730:
+            raise ValueError(f"window_days must be in [30, 730]: {self.window_days}")
+        if self.data_points < 1:
+            raise ValueError(f"data_points must be > 0: {self.data_points}")
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "cdd_today": self.cdd_today,
+            "cdd_mean": self.cdd_mean,
+            "cdd_std": self.cdd_std,
+            "cdd_zscore": self.cdd_zscore,
+            "cdd_percentile": self.cdd_percentile,
+            "binary_cdd": self.binary_cdd,
+            "threshold_used": self.threshold_used,
+            "window_days": self.window_days,
+            "data_points": self.data_points,
+            "insufficient_data": self.insufficient_data,
+            "block_height": self.block_height,
+            "timestamp": self.timestamp.isoformat()
+            if hasattr(self.timestamp, "isoformat")
+            else str(self.timestamp),
+        }

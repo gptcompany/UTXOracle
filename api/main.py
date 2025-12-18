@@ -2955,6 +2955,38 @@ class ExchangeNetflowHistoryResponse(BaseModel):
 
 
 # =============================================================================
+# Binary CDD Response Model (spec-027)
+# =============================================================================
+
+
+class BinaryCDDResponse(BaseModel):
+    """Binary CDD response model (spec-027).
+
+    Statistical significance flag for CDD events.
+    Transforms noisy CDD data into actionable binary signals.
+    """
+
+    cdd_today: float = Field(..., description="Today's total CDD")
+    cdd_mean: float = Field(..., description="Mean CDD over lookback window")
+    cdd_std: float = Field(..., description="Std dev of CDD over window")
+    cdd_zscore: Optional[float] = Field(
+        None, description="Z-score (null if insufficient data)"
+    )
+    cdd_percentile: Optional[float] = Field(None, description="Percentile rank (0-100)")
+    binary_cdd: int = Field(
+        ..., ge=0, le=1, description="Binary flag (0=noise, 1=significant)"
+    )
+    threshold_used: float = Field(
+        ..., ge=1.0, le=4.0, description="Sigma threshold applied"
+    )
+    window_days: int = Field(..., ge=30, le=730, description="Lookback window size")
+    data_points: int = Field(..., gt=0, description="Available data points")
+    insufficient_data: bool = Field(..., description="True if < 30 days history")
+    block_height: int = Field(..., description="Block height at calculation")
+    timestamp: str = Field(..., description="ISO timestamp of calculation")
+
+
+# =============================================================================
 # Exchange Netflow Endpoints (spec-026)
 # =============================================================================
 
@@ -3151,6 +3183,113 @@ async def get_exchange_netflow_history(
                 detail="UTXO lifecycle table not found. Schema migration pending.",
             )
         logging.error(f"Error getting exchange netflow history: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+# =============================================================================
+# Binary CDD Endpoint (spec-027)
+# =============================================================================
+
+
+@app.get("/api/metrics/binary-cdd", response_model=BinaryCDDResponse)
+async def get_binary_cdd(
+    threshold: float = Query(
+        default=2.0,
+        ge=1.0,
+        le=4.0,
+        description="Z-score threshold for binary flag (sigma)",
+    ),
+    window: int = Query(
+        default=365,
+        ge=30,
+        le=730,
+        description="Lookback window in days (30-730)",
+    ),
+):
+    """
+    Calculate Binary CDD (Coin Days Destroyed) indicator.
+
+    Transforms noisy CDD data into actionable binary signals based on
+    z-score threshold exceeding N-sigma. Filters out normal long-term
+    holder activity.
+
+    **Binary CDD Formula:**
+    - z = (cdd_today - mean) / std
+    - binary_cdd = 1 if z >= threshold, else 0
+
+    **Signal Interpretation:**
+    - **binary_cdd=0**: Normal LTH activity (noise)
+    - **binary_cdd=1 (z >= 2σ)**: Significant event (97.5th percentile)
+    - **binary_cdd=1 (z >= 3σ)**: Extreme event (99.9th percentile)
+
+    **Thresholds:**
+    - **1.0σ**: ~85th percentile (more sensitive)
+    - **2.0σ**: ~97.5th percentile (default, balanced)
+    - **3.0σ**: ~99.9th percentile (conservative, extreme only)
+    - **4.0σ**: Very rare events only
+
+    **Use Cases:**
+    - Alert trigger for significant LTH movement
+    - Filter for trading signals (only act on binary_cdd=1)
+    - Combine with other metrics for confluence
+
+    **Data Requirements:**
+    - Minimum 30 days of UTXO lifecycle data
+    - Returns insufficient_data=true if below threshold
+    """
+    import duckdb
+
+    conn = None
+    try:
+        conn = duckdb.connect(UTXO_DB_PATH, read_only=True)
+
+        # Get latest block height
+        block_result = conn.execute(
+            "SELECT MAX(creation_block) FROM utxo_lifecycle_full"
+        ).fetchone()
+        block_height = block_result[0] if block_result and block_result[0] else 0
+
+        from scripts.metrics.binary_cdd import calculate_binary_cdd
+
+        result = calculate_binary_cdd(
+            conn=conn,
+            block_height=block_height,
+            threshold=threshold,
+            window_days=window,
+        )
+
+        return BinaryCDDResponse(
+            cdd_today=result.cdd_today,
+            cdd_mean=result.cdd_mean,
+            cdd_std=result.cdd_std,
+            cdd_zscore=result.cdd_zscore,
+            cdd_percentile=result.cdd_percentile,
+            binary_cdd=result.binary_cdd,
+            threshold_used=result.threshold_used,
+            window_days=result.window_days,
+            data_points=result.data_points,
+            insufficient_data=result.insufficient_data,
+            block_height=result.block_height,
+            timestamp=result.timestamp.isoformat(),
+        )
+
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=503,
+            detail=f"UTXO lifecycle database not found at {UTXO_DB_PATH}. "
+            "Run utxo_lifecycle sync first.",
+        )
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "utxo_lifecycle" in error_msg or "does not exist" in error_msg:
+            raise HTTPException(
+                status_code=404,
+                detail="UTXO lifecycle table not found. Schema migration pending.",
+            )
+        logging.error(f"Error calculating binary CDD: {e}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
     finally:
         if conn:
