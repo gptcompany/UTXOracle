@@ -2908,6 +2908,256 @@ async def get_absorption_rates(
 
 
 # =============================================================================
+# Exchange Netflow Response Models (spec-026)
+# =============================================================================
+
+
+class ExchangeNetflowResponse(BaseModel):
+    """Exchange Netflow response model (spec-026)."""
+
+    exchange_inflow: float = Field(..., description="BTC flowing into exchanges")
+    exchange_outflow: float = Field(..., description="BTC flowing out of exchanges")
+    netflow: float = Field(
+        ...,
+        description="Inflow - Outflow (positive = selling, negative = accumulation)",
+    )
+    netflow_7d_ma: float = Field(..., description="7-day moving average of netflow")
+    netflow_30d_ma: float = Field(..., description="30-day moving average of netflow")
+    zone: str = Field(
+        ...,
+        description="Behavioral zone: strong_outflow|weak_outflow|weak_inflow|strong_inflow",
+    )
+    window_hours: int = Field(..., description="Lookback window in hours")
+    exchange_count: int = Field(..., description="Number of exchanges tracked")
+    address_count: int = Field(..., description="Number of exchange addresses tracked")
+    current_price_usd: float = Field(..., description="Current BTC price used")
+    inflow_usd: float = Field(..., description="USD value of inflow")
+    outflow_usd: float = Field(..., description="USD value of outflow")
+    block_height: int = Field(..., description="Block height at calculation")
+    timestamp: str = Field(..., description="ISO timestamp of calculation")
+    confidence: float = Field(..., description="Signal confidence (0-1)")
+
+
+class NetflowHistoryEntry(BaseModel):
+    """Daily netflow history entry."""
+
+    date: str = Field(..., description="Date (YYYY-MM-DD)")
+    inflow: float = Field(..., description="Daily inflow BTC")
+    outflow: float = Field(..., description="Daily outflow BTC")
+    netflow: float = Field(..., description="Daily netflow BTC")
+
+
+class ExchangeNetflowHistoryResponse(BaseModel):
+    """Exchange Netflow history response."""
+
+    days: int = Field(..., description="Number of days requested")
+    data: list[NetflowHistoryEntry] = Field(..., description="Daily netflow data")
+
+
+# =============================================================================
+# Exchange Netflow Endpoints (spec-026)
+# =============================================================================
+
+
+# Exchange addresses CSV path
+EXCHANGE_ADDRESSES_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(__file__)),
+    "data",
+    "exchange_addresses.csv",
+)
+
+
+@app.get("/api/metrics/exchange-netflow", response_model=ExchangeNetflowResponse)
+async def get_exchange_netflow(
+    window: int = Query(
+        default=24,
+        ge=1,
+        le=168,
+        description="Lookback window in hours (1-168)",
+    ),
+):
+    """
+    Calculate Exchange Netflow metrics for capital flow tracking.
+
+    Tracks BTC movement to/from known exchange addresses to identify
+    selling pressure vs accumulation. Primary indicator for exchange
+    deposit/withdrawal behavior.
+
+    **Netflow Formula:** netflow = inflow - outflow
+    - **Positive netflow**: BTC flowing into exchanges (selling pressure)
+    - **Negative netflow**: BTC flowing out of exchanges (accumulation)
+
+    **Behavioral Zones (based on daily netflow BTC):**
+    - **STRONG_OUTFLOW** (< -1000): Heavy accumulation, bullish
+    - **WEAK_OUTFLOW** (-1000 to 0): Mild accumulation, neutral-bullish
+    - **WEAK_INFLOW** (0 to 1000): Mild selling, neutral-bearish
+    - **STRONG_INFLOW** (> 1000): Heavy selling pressure, bearish
+
+    **Key Signals:**
+    - Rising 7d MA with positive netflow: Sustained selling
+    - Falling 7d MA with negative netflow: Sustained accumulation
+    - Strong outflow during dips: Smart money accumulating (bullish)
+    - Strong inflow at tops: Distribution phase (bearish)
+
+    **Confidence Rating:** 0.75 (B-C grade metric)
+    - Limited to known public exchange addresses
+    - Does not include all exchange addresses
+    - Some addresses may be misattributed
+    """
+    import duckdb
+    from datetime import datetime
+
+    conn = None
+    try:
+        conn = duckdb.connect(UTXO_DB_PATH, read_only=True)
+
+        # Get latest block height
+        block_result = conn.execute(
+            "SELECT MAX(creation_block) FROM utxo_lifecycle_full"
+        ).fetchone()
+        block_height = block_result[0] if block_result and block_result[0] else 0
+
+        # Get current price (average of 1000 most recent spent UTXOs)
+        price_result = conn.execute(
+            """
+            SELECT AVG(spent_price_usd)
+            FROM (
+                SELECT spent_price_usd
+                FROM utxo_lifecycle_full
+                WHERE is_spent = TRUE AND spent_price_usd > 0
+                ORDER BY spent_timestamp DESC
+                LIMIT 1000
+            ) recent_spent
+            """
+        ).fetchone()
+        current_price = (
+            price_result[0] if price_result and price_result[0] else 100000.0
+        )
+
+        from scripts.metrics.exchange_netflow import calculate_exchange_netflow
+
+        result = calculate_exchange_netflow(
+            conn=conn,
+            window_hours=window,
+            current_price_usd=current_price,
+            block_height=block_height,
+            timestamp=datetime.utcnow(),
+            exchange_addresses_path=EXCHANGE_ADDRESSES_PATH,
+        )
+
+        return ExchangeNetflowResponse(
+            exchange_inflow=result.exchange_inflow,
+            exchange_outflow=result.exchange_outflow,
+            netflow=result.netflow,
+            netflow_7d_ma=result.netflow_7d_ma,
+            netflow_30d_ma=result.netflow_30d_ma,
+            zone=result.zone.value,
+            window_hours=result.window_hours,
+            exchange_count=result.exchange_count,
+            address_count=result.address_count,
+            current_price_usd=result.current_price_usd,
+            inflow_usd=result.inflow_usd,
+            outflow_usd=result.outflow_usd,
+            block_height=result.block_height,
+            timestamp=result.timestamp.isoformat(),
+            confidence=result.confidence,
+        )
+
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=503,
+            detail=f"UTXO lifecycle database not found at {UTXO_DB_PATH}. "
+            "Run utxo_lifecycle sync first.",
+        )
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "utxo_lifecycle" in error_msg or "does not exist" in error_msg:
+            raise HTTPException(
+                status_code=404,
+                detail="UTXO lifecycle table not found. Schema migration pending.",
+            )
+        logging.error(f"Error calculating exchange netflow: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.get(
+    "/api/metrics/exchange-netflow/history",
+    response_model=ExchangeNetflowHistoryResponse,
+)
+async def get_exchange_netflow_history(
+    days: int = Query(
+        default=30,
+        ge=1,
+        le=365,
+        description="Number of historical days to retrieve (1-365)",
+    ),
+):
+    """
+    Get historical daily exchange netflow data for charting.
+
+    Returns daily inflow, outflow, and netflow for the specified period.
+    Useful for trend analysis and visualization.
+
+    **Response Fields:**
+    - **date**: Date (YYYY-MM-DD)
+    - **inflow**: Daily BTC inflow to exchanges
+    - **outflow**: Daily BTC outflow from exchanges
+    - **netflow**: Daily netflow (inflow - outflow)
+    """
+    import duckdb
+
+    conn = None
+    try:
+        conn = duckdb.connect(UTXO_DB_PATH, read_only=True)
+
+        from scripts.metrics.exchange_netflow import (
+            load_exchange_addresses,
+            get_daily_netflow_history,
+        )
+
+        # Load exchange addresses
+        load_exchange_addresses(conn, EXCHANGE_ADDRESSES_PATH)
+
+        # Get historical data
+        history = get_daily_netflow_history(conn, days=days)
+
+        return ExchangeNetflowHistoryResponse(
+            days=days,
+            data=[
+                NetflowHistoryEntry(
+                    date=entry["date"] or "",
+                    inflow=entry["inflow"],
+                    outflow=entry["outflow"],
+                    netflow=entry["netflow"],
+                )
+                for entry in history
+            ],
+        )
+
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=503,
+            detail=f"UTXO lifecycle database not found at {UTXO_DB_PATH}. "
+            "Run utxo_lifecycle sync first.",
+        )
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "utxo_lifecycle" in error_msg or "does not exist" in error_msg:
+            raise HTTPException(
+                status_code=404,
+                detail="UTXO lifecycle table not found. Schema migration pending.",
+            )
+        logging.error(f"Error getting exchange netflow history: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+# =============================================================================
 # Service Connectivity Helper Functions
 # =============================================================================
 

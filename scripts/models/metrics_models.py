@@ -2197,3 +2197,149 @@ class AbsorptionRatesResult:
             "confidence": self.confidence,
             "has_historical_data": self.has_historical_data,
         }
+
+
+# =============================================================================
+# Spec-026: Exchange Netflow Dataclasses
+# =============================================================================
+
+
+class NetflowZone(str, Enum):
+    """Exchange netflow behavioral zone classification.
+
+    Classifies daily netflow (inflow - outflow) into sentiment zones.
+    Positive netflow = BTC flowing into exchanges (selling pressure).
+    Negative netflow = BTC flowing out of exchanges (accumulation).
+
+    Zone Thresholds (BTC/day):
+    - STRONG_OUTFLOW: < -1000 (heavy accumulation, bullish)
+    - WEAK_OUTFLOW: -1000 to 0 (mild accumulation, neutral-bullish)
+    - WEAK_INFLOW: 0 to 1000 (mild selling, neutral-bearish)
+    - STRONG_INFLOW: > 1000 (heavy selling pressure, bearish)
+
+    Spec: spec-026
+    """
+
+    STRONG_OUTFLOW = "strong_outflow"
+    WEAK_OUTFLOW = "weak_outflow"
+    WEAK_INFLOW = "weak_inflow"
+    STRONG_INFLOW = "strong_inflow"
+
+
+@dataclass
+class ExchangeNetflowResult:
+    """Exchange netflow metrics for capital flow tracking.
+
+    Tracks BTC movement to/from known exchange addresses to identify
+    selling pressure vs accumulation. Primary indicator for exchange
+    deposit/withdrawal behavior.
+
+    Key Signals:
+    - Positive netflow: BTC flowing into exchanges (selling pressure)
+    - Negative netflow: BTC flowing out of exchanges (accumulation)
+    - Rising 7d MA with positive netflow: Sustained selling
+    - Falling 7d MA with negative netflow: Sustained accumulation
+
+    Attributes:
+        exchange_inflow: BTC flowing into exchanges (sell pressure)
+        exchange_outflow: BTC flowing out of exchanges (accumulation)
+        netflow: Inflow - Outflow (positive = selling, negative = accumulation)
+        netflow_7d_ma: 7-day moving average of daily netflow
+        netflow_30d_ma: 30-day moving average of daily netflow
+        zone: Behavioral zone classification
+        window_hours: Lookback window in hours (default 24)
+        exchange_count: Number of exchanges in address dataset
+        address_count: Number of exchange addresses matched
+        current_price_usd: Price for USD value calculation
+        inflow_usd: USD value of exchange inflow
+        outflow_usd: USD value of exchange outflow
+        block_height: Bitcoin block height at calculation
+        timestamp: Calculation timestamp
+        confidence: Data quality indicator (0.0-1.0), default 0.75 (B-C grade)
+
+    Spec: spec-026
+    """
+
+    exchange_inflow: float
+    exchange_outflow: float
+    netflow: float
+    netflow_7d_ma: float
+    netflow_30d_ma: float
+
+    zone: NetflowZone
+
+    window_hours: int
+    exchange_count: int
+    address_count: int
+
+    current_price_usd: float
+    inflow_usd: float
+    outflow_usd: float
+
+    block_height: int
+    timestamp: datetime
+    confidence: float = 0.75  # B-C grade metric (limited address coverage)
+
+    def __post_init__(self):
+        """Validate field constraints."""
+        # Inflow/outflow must be non-negative
+        if self.exchange_inflow < 0:
+            raise ValueError(f"exchange_inflow must be >= 0: {self.exchange_inflow}")
+        if self.exchange_outflow < 0:
+            raise ValueError(f"exchange_outflow must be >= 0: {self.exchange_outflow}")
+
+        # USD values must be non-negative
+        if self.inflow_usd < 0:
+            raise ValueError(f"inflow_usd must be >= 0: {self.inflow_usd}")
+        if self.outflow_usd < 0:
+            raise ValueError(f"outflow_usd must be >= 0: {self.outflow_usd}")
+
+        # Price must be positive (or zero if unavailable)
+        if self.current_price_usd < 0:
+            raise ValueError(
+                f"current_price_usd must be >= 0: {self.current_price_usd}"
+            )
+
+        # Window must be positive
+        if self.window_hours <= 0:
+            raise ValueError(f"window_hours must be > 0: {self.window_hours}")
+
+        # Counts must be non-negative
+        if self.exchange_count < 0:
+            raise ValueError(f"exchange_count must be >= 0: {self.exchange_count}")
+        if self.address_count < 0:
+            raise ValueError(f"address_count must be >= 0: {self.address_count}")
+
+        # Block height must be non-negative
+        if self.block_height < 0:
+            raise ValueError(f"block_height must be >= 0: {self.block_height}")
+
+        # Confidence must be in [0, 1]
+        if not 0.0 <= self.confidence <= 1.0:
+            raise ValueError(f"confidence must be in [0, 1]: {self.confidence}")
+
+        # Zone must be NetflowZone enum
+        if not isinstance(self.zone, NetflowZone):
+            raise ValueError(f"zone must be NetflowZone enum: {self.zone}")
+
+    def to_dict(self) -> dict:
+        """Convert to JSON-serializable dictionary."""
+        return {
+            "exchange_inflow": self.exchange_inflow,
+            "exchange_outflow": self.exchange_outflow,
+            "netflow": self.netflow,
+            "netflow_7d_ma": self.netflow_7d_ma,
+            "netflow_30d_ma": self.netflow_30d_ma,
+            "zone": self.zone.value,
+            "window_hours": self.window_hours,
+            "exchange_count": self.exchange_count,
+            "address_count": self.address_count,
+            "current_price_usd": self.current_price_usd,
+            "inflow_usd": self.inflow_usd,
+            "outflow_usd": self.outflow_usd,
+            "block_height": self.block_height,
+            "timestamp": self.timestamp.isoformat()
+            if hasattr(self.timestamp, "isoformat")
+            else str(self.timestamp),
+            "confidence": self.confidence,
+        }

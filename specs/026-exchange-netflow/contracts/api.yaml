@@ -1,0 +1,242 @@
+openapi: 3.0.3
+info:
+  title: UTXOracle Exchange Netflow API
+  description: REST API endpoints for exchange netflow metrics (spec-026)
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000
+    description: Local development server
+
+paths:
+  /api/metrics/exchange-netflow:
+    get:
+      summary: Get current exchange netflow metrics
+      description: |
+        Calculate exchange netflow (inflow - outflow) for a given time window.
+        Positive netflow indicates selling pressure, negative indicates accumulation.
+      operationId: getExchangeNetflow
+      parameters:
+        - name: window
+          in: query
+          description: Lookback window in hours (default 24, max 168)
+          required: false
+          schema:
+            type: integer
+            default: 24
+            minimum: 1
+            maximum: 168
+      responses:
+        '200':
+          description: Exchange netflow metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExchangeNetflowResult'
+              example:
+                exchange_inflow: 5432.50
+                exchange_outflow: 4234.75
+                netflow: 1197.75
+                netflow_7d_ma: 856.25
+                netflow_30d_ma: 523.10
+                zone: "weak_inflow"
+                window_hours: 24
+                exchange_count: 4
+                address_count: 10
+                current_price_usd: 105000.0
+                inflow_usd: 570412500.00
+                outflow_usd: 444648750.00
+                block_height: 875000
+                timestamp: "2025-12-18T10:00:00Z"
+                confidence: 0.75
+        '503':
+          description: Database unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/metrics/exchange-netflow/history:
+    get:
+      summary: Get historical exchange netflow data
+      description: |
+        Retrieve daily netflow values for the specified number of days.
+        Used for charting netflow trends over time.
+      operationId: getExchangeNetflowHistory
+      parameters:
+        - name: days
+          in: query
+          description: Number of historical days to retrieve (default 30, max 90)
+          required: false
+          schema:
+            type: integer
+            default: 30
+            minimum: 1
+            maximum: 90
+      responses:
+        '200':
+          description: Historical netflow data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExchangeNetflowHistory'
+              example:
+                days: 30
+                data:
+                  - date: "2025-12-18"
+                    netflow: 1197.75
+                    inflow: 5432.50
+                    outflow: 4234.75
+                  - date: "2025-12-17"
+                    netflow: -523.40
+                    inflow: 3210.60
+                    outflow: 3734.00
+        '503':
+          description: Database unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    ExchangeNetflowResult:
+      type: object
+      required:
+        - exchange_inflow
+        - exchange_outflow
+        - netflow
+        - netflow_7d_ma
+        - netflow_30d_ma
+        - zone
+        - window_hours
+        - exchange_count
+        - address_count
+        - current_price_usd
+        - inflow_usd
+        - outflow_usd
+        - block_height
+        - timestamp
+        - confidence
+      properties:
+        exchange_inflow:
+          type: number
+          format: double
+          description: BTC flowing into exchanges (sell pressure indicator)
+          minimum: 0
+        exchange_outflow:
+          type: number
+          format: double
+          description: BTC flowing out of exchanges (accumulation indicator)
+          minimum: 0
+        netflow:
+          type: number
+          format: double
+          description: Net flow (inflow - outflow). Positive = selling, negative = accumulation
+        netflow_7d_ma:
+          type: number
+          format: double
+          description: 7-day simple moving average of daily netflow
+        netflow_30d_ma:
+          type: number
+          format: double
+          description: 30-day simple moving average of daily netflow
+        zone:
+          type: string
+          enum:
+            - strong_outflow
+            - weak_outflow
+            - weak_inflow
+            - strong_inflow
+          description: Behavioral zone classification
+        window_hours:
+          type: integer
+          description: Lookback window in hours
+          minimum: 1
+        exchange_count:
+          type: integer
+          description: Number of exchanges in the address dataset
+          minimum: 0
+        address_count:
+          type: integer
+          description: Number of exchange addresses matched in query
+          minimum: 0
+        current_price_usd:
+          type: number
+          format: double
+          description: Current BTC price used for USD calculations
+          minimum: 0
+        inflow_usd:
+          type: number
+          format: double
+          description: USD value of exchange inflow
+          minimum: 0
+        outflow_usd:
+          type: number
+          format: double
+          description: USD value of exchange outflow
+          minimum: 0
+        block_height:
+          type: integer
+          description: Bitcoin block height at calculation time
+          minimum: 0
+        timestamp:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp of calculation
+        confidence:
+          type: number
+          format: double
+          description: Data quality indicator (0.0-1.0)
+          minimum: 0
+          maximum: 1
+
+    ExchangeNetflowHistory:
+      type: object
+      required:
+        - days
+        - data
+      properties:
+        days:
+          type: integer
+          description: Number of days requested
+          minimum: 1
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/DailyNetflow'
+          description: Daily netflow values, newest first
+
+    DailyNetflow:
+      type: object
+      required:
+        - date
+        - netflow
+        - inflow
+        - outflow
+      properties:
+        date:
+          type: string
+          format: date
+          description: Date in YYYY-MM-DD format
+        netflow:
+          type: number
+          format: double
+          description: Daily net flow (inflow - outflow)
+        inflow:
+          type: number
+          format: double
+          description: Daily BTC inflow to exchanges
+        outflow:
+          type: number
+          format: double
+          description: Daily BTC outflow from exchanges
+
+    Error:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
+          description: Error message
