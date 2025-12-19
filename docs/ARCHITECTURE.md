@@ -430,6 +430,35 @@ Comprehensive UTXO lifecycle tracking for Realized Cap, MVRV, NUPL, and HODL Wav
 | spec-017 | metrics/utxo_lifecycle | ✅ Complete | 4 |
 | spec-018 | metrics/cointime | ✅ Complete | 1 |
 | spec-021 | metrics/advanced-onchain | ✅ Complete | 5+6 |
+| spec-030 | metrics/mining_economics | ✅ Complete | 4 |
+
+---
+
+## Mining Economics Module (spec-030)
+
+Miner stress and hashrate analysis combining on-chain and external data:
+
+* **Hash Ribbons**: 30d/60d MA crossover for miner capitulation/recovery signals
+  - Miner stress detection (30d < 60d)
+  - Recovery signals (historically bullish)
+  - Capitulation days counting
+* **Mining Pulse**: Real-time block interval analysis (RPC-only)
+  - Zone classification: FAST (<540s), NORMAL (540-660s), SLOW (>660s)
+  - Implied hashrate change detection
+  - Works without external dependencies
+* **Combined Signal**: Aggregated miner health assessment
+  - Priority: recovery > miner_stress > healthy > unknown
+  - Graceful degradation when API unavailable
+
+**API Endpoints:**
+- `GET /api/metrics/mining-pulse` - Real-time hashrate indicator
+- `GET /api/metrics/hash-ribbons` - Miner stress/recovery signals
+- `GET /api/metrics/mining-economics` - Combined view
+- `GET /api/metrics/mining-economics/history` - Historical data
+
+**Data Sources:**
+- Mining Pulse: Bitcoin Core RPC (block timestamps)
+- Hash Ribbons: mempool.space API (5-min TTL cache)
 
 ---
 

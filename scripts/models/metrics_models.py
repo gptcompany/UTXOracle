@@ -2723,3 +2723,211 @@ class PLRatioHistoryPoint:
             "realized_profit_usd": self.realized_profit_usd,
             "realized_loss_usd": self.realized_loss_usd,
         }
+
+
+# =============================================================================
+# Spec-030: Mining Economics (Hash Ribbons + Mining Pulse)
+# =============================================================================
+
+
+class MiningPulseZone(str, Enum):
+    """Classification of mining network status based on block intervals (spec-030).
+
+    Determines network hashrate trend from average block interval:
+    - FAST: Hashrate increasing (blocks found faster than expected)
+    - NORMAL: Stable mining conditions
+    - SLOW: Hashrate decreasing or difficulty spike
+    """
+
+    FAST = "FAST"  # Avg interval < 540s (-10% from 600s target)
+    NORMAL = "NORMAL"  # Avg interval 540-660s (±10% from target)
+    SLOW = "SLOW"  # Avg interval > 660s (+10% from target)
+
+
+@dataclass
+class HashRibbonsResult:
+    """Hash Ribbons miner stress indicator (spec-030).
+
+    Detects miner capitulation/recovery via 30d/60d MA crossovers:
+    - ribbon_signal=True: 30d MA < 60d MA (miner stress active)
+    - recovery_signal=True: Just crossed back up (bullish)
+
+    Signal Interpretation:
+    - No ribbon: Normal mining, no stress
+    - Ribbon < 7 days: Early miner stress, watch
+    - Ribbon 7-30 days: Confirmed capitulation
+    - Ribbon > 30 days: Extended stress, potential bottom
+    - Recovery: Miners recovering, bullish signal
+
+    Attributes:
+        hashrate_current: Current network hashrate (EH/s)
+        hashrate_ma_30d: 30-day moving average hashrate (EH/s)
+        hashrate_ma_60d: 60-day moving average hashrate (EH/s)
+        ribbon_signal: True if 30d < 60d (miner stress active)
+        capitulation_days: Consecutive days in stress state
+        recovery_signal: True if just crossed back up
+        data_source: "api" or "difficulty_estimated"
+        timestamp: Calculation timestamp
+
+    Spec: spec-030
+    """
+
+    hashrate_current: float  # EH/s
+    hashrate_ma_30d: float  # EH/s
+    hashrate_ma_60d: float  # EH/s
+    ribbon_signal: bool
+    capitulation_days: int
+    recovery_signal: bool
+    data_source: str  # "api" | "difficulty_estimated"
+    timestamp: datetime = field(default_factory=datetime.utcnow)
+
+    def __post_init__(self):
+        """Validate Hash Ribbons fields."""
+        if self.hashrate_current < 0:
+            raise ValueError(f"hashrate_current must be >= 0: {self.hashrate_current}")
+        if self.hashrate_ma_30d < 0:
+            raise ValueError(f"hashrate_ma_30d must be >= 0: {self.hashrate_ma_30d}")
+        if self.hashrate_ma_60d < 0:
+            raise ValueError(f"hashrate_ma_60d must be >= 0: {self.hashrate_ma_60d}")
+        if self.capitulation_days < 0:
+            raise ValueError(
+                f"capitulation_days must be >= 0: {self.capitulation_days}"
+            )
+        if self.data_source not in ("api", "difficulty_estimated"):
+            raise ValueError(
+                f"data_source must be 'api' or 'difficulty_estimated': {self.data_source}"
+            )
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "hashrate_current": self.hashrate_current,
+            "hashrate_ma_30d": self.hashrate_ma_30d,
+            "hashrate_ma_60d": self.hashrate_ma_60d,
+            "ribbon_signal": self.ribbon_signal,
+            "capitulation_days": self.capitulation_days,
+            "recovery_signal": self.recovery_signal,
+            "data_source": self.data_source,
+            "timestamp": self.timestamp.isoformat()
+            if hasattr(self.timestamp, "isoformat")
+            else str(self.timestamp),
+        }
+
+
+@dataclass
+class MiningPulseResult:
+    """Mining Pulse real-time hashrate indicator (spec-030).
+
+    Analyzes block intervals to detect hashrate changes before
+    difficulty adjusts. Works RPC-only, no external dependencies.
+
+    Pulse Zones:
+    - FAST (< 540s avg): Hashrate increasing rapidly
+    - NORMAL (540-660s avg): Stable mining
+    - SLOW (> 660s avg): Hashrate dropping or difficulty spike
+
+    Attributes:
+        avg_block_interval: Average interval (seconds)
+        interval_deviation_pct: Deviation from 600s target (%)
+        blocks_fast: Blocks < 600s in window
+        blocks_slow: Blocks >= 600s in window
+        implied_hashrate_change: Inferred % hashrate delta
+        pulse_zone: FAST | NORMAL | SLOW classification
+        window_blocks: Number of blocks analyzed
+        tip_height: Current block height
+        timestamp: Calculation timestamp
+
+    Spec: spec-030
+    """
+
+    avg_block_interval: float  # seconds
+    interval_deviation_pct: float  # percentage
+    blocks_fast: int
+    blocks_slow: int
+    implied_hashrate_change: float  # percentage
+    pulse_zone: MiningPulseZone
+    window_blocks: int
+    tip_height: int
+    timestamp: datetime = field(default_factory=datetime.utcnow)
+
+    def __post_init__(self):
+        """Validate Mining Pulse fields."""
+        if self.avg_block_interval <= 0:
+            raise ValueError(
+                f"avg_block_interval must be > 0: {self.avg_block_interval}"
+            )
+        if not -50 <= self.interval_deviation_pct <= 100:
+            raise ValueError(
+                f"interval_deviation_pct must be in [-50, 100]: {self.interval_deviation_pct}"
+            )
+        if self.blocks_fast < 0:
+            raise ValueError(f"blocks_fast must be >= 0: {self.blocks_fast}")
+        if self.blocks_slow < 0:
+            raise ValueError(f"blocks_slow must be >= 0: {self.blocks_slow}")
+        if self.window_blocks < 2:
+            raise ValueError(f"window_blocks must be >= 2: {self.window_blocks}")
+        if self.tip_height <= 0:
+            raise ValueError(f"tip_height must be > 0: {self.tip_height}")
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "avg_block_interval": self.avg_block_interval,
+            "interval_deviation_pct": self.interval_deviation_pct,
+            "blocks_fast": self.blocks_fast,
+            "blocks_slow": self.blocks_slow,
+            "implied_hashrate_change": self.implied_hashrate_change,
+            "pulse_zone": self.pulse_zone.value,
+            "window_blocks": self.window_blocks,
+            "tip_height": self.tip_height,
+            "timestamp": self.timestamp.isoformat()
+            if hasattr(self.timestamp, "isoformat")
+            else str(self.timestamp),
+        }
+
+
+@dataclass
+class MiningEconomicsResult:
+    """Combined mining economics view (spec-030).
+
+    Aggregates Hash Ribbons (external API) and Mining Pulse (RPC-only)
+    into a unified signal for miner health assessment.
+
+    Combined Signal Logic:
+    - "recovery": Ribbons show recovery signal (bullish)
+    - "miner_stress": Ribbons active 7+ days OR pulse zone SLOW
+    - "healthy": Pulse FAST or no stress indicators
+    - "unknown": No ribbon data available
+
+    Attributes:
+        hash_ribbons: Hash Ribbons analysis (None if API unavailable)
+        mining_pulse: Mining Pulse analysis (always available via RPC)
+        combined_signal: Aggregated interpretation
+        timestamp: Calculation timestamp
+
+    Spec: spec-030
+    """
+
+    hash_ribbons: Optional[HashRibbonsResult]
+    mining_pulse: MiningPulseResult
+    combined_signal: str  # "miner_stress" | "recovery" | "healthy" | "unknown"
+    timestamp: datetime = field(default_factory=datetime.utcnow)
+
+    def __post_init__(self):
+        """Validate Mining Economics fields."""
+        valid_signals = ("miner_stress", "recovery", "healthy", "unknown")
+        if self.combined_signal not in valid_signals:
+            raise ValueError(
+                f"combined_signal must be one of {valid_signals}: {self.combined_signal}"
+            )
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "hash_ribbons": self.hash_ribbons.to_dict() if self.hash_ribbons else None,
+            "mining_pulse": self.mining_pulse.to_dict(),
+            "combined_signal": self.combined_signal,
+            "timestamp": self.timestamp.isoformat()
+            if hasattr(self.timestamp, "isoformat")
+            else str(self.timestamp),
+        }

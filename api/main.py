@@ -4075,6 +4075,313 @@ async def startup_event():
     logging.info("=" * 60)
 
 
+# =============================================================================
+# Spec-030: Mining Economics (Hash Ribbons + Mining Pulse)
+# =============================================================================
+
+
+class MiningPulseResponse(BaseModel):
+    """Mining Pulse real-time hashrate indicator (spec-030)."""
+
+    avg_block_interval: float = Field(
+        ..., gt=0, description="Average interval (seconds)"
+    )
+    interval_deviation_pct: float = Field(
+        ..., ge=-50, le=100, description="Deviation from 600s target (%)"
+    )
+    blocks_fast: int = Field(..., ge=0, description="Blocks < 600s in window")
+    blocks_slow: int = Field(..., ge=0, description="Blocks >= 600s in window")
+    implied_hashrate_change: float = Field(..., description="Inferred % hashrate delta")
+    pulse_zone: str = Field(..., description="FAST | NORMAL | SLOW classification")
+    window_blocks: int = Field(..., ge=2, description="Number of blocks analyzed")
+    tip_height: int = Field(..., gt=0, description="Current block height")
+    timestamp: str = Field(..., description="Calculation timestamp (ISO format)")
+
+
+class HashRibbonsResponse(BaseModel):
+    """Hash Ribbons miner stress indicator (spec-030)."""
+
+    hashrate_current: float = Field(..., ge=0, description="Current hashrate (EH/s)")
+    hashrate_ma_30d: float = Field(..., ge=0, description="30-day MA hashrate (EH/s)")
+    hashrate_ma_60d: float = Field(..., ge=0, description="60-day MA hashrate (EH/s)")
+    ribbon_signal: bool = Field(..., description="True if 30d < 60d (stress)")
+    capitulation_days: int = Field(..., ge=0, description="Days in stress state")
+    recovery_signal: bool = Field(..., description="True if just crossed back up")
+    data_source: str = Field(..., description="api | difficulty_estimated")
+    timestamp: str = Field(..., description="Calculation timestamp (ISO format)")
+
+
+class MiningEconomicsResponse(BaseModel):
+    """Combined mining economics view (spec-030)."""
+
+    hash_ribbons: Optional[HashRibbonsResponse] = Field(
+        None, description="Hash Ribbons (None if API unavailable)"
+    )
+    mining_pulse: MiningPulseResponse = Field(..., description="Mining Pulse data")
+    combined_signal: str = Field(
+        ..., description="miner_stress | recovery | healthy | unknown"
+    )
+    timestamp: str = Field(..., description="Calculation timestamp (ISO format)")
+
+
+@app.get("/api/metrics/mining-pulse", response_model=MiningPulseResponse)
+async def get_mining_pulse(
+    window: int = Query(
+        default=144,
+        ge=10,
+        le=2016,
+        description="Number of blocks to analyze (10-2016, default 144 = ~1 day)",
+    ),
+):
+    """
+    Get Mining Pulse real-time hashrate indicator.
+
+    Analyzes block intervals to detect hashrate changes before
+    difficulty adjusts. Works RPC-only with no external dependencies.
+
+    **Pulse Zones:**
+    - **FAST** (< 540s avg): Hashrate increasing rapidly
+    - **NORMAL** (540-660s avg): Stable mining
+    - **SLOW** (> 660s avg): Hashrate dropping or difficulty spike
+
+    **Use Cases:**
+    - Detect hashrate changes before difficulty adjusts
+    - Monitor miner migration after halving
+    - Identify network stress from miner shutdowns
+    """
+    from scripts.metrics.mining_economics import calculate_mining_pulse
+
+    # Get RPC client from existing connection
+    # For now, create mock result for testing
+    try:
+        # Try to use existing RPC connection
+        from scripts.bitcoin_rpc import get_rpc_client
+
+        rpc = get_rpc_client()
+        result = calculate_mining_pulse(rpc, window_blocks=window)
+    except Exception as e:
+        # If RPC unavailable, return error
+        raise HTTPException(
+            status_code=503,
+            detail=f"Bitcoin Core RPC unavailable: {str(e)}",
+        )
+
+    return MiningPulseResponse(
+        avg_block_interval=result.avg_block_interval,
+        interval_deviation_pct=result.interval_deviation_pct,
+        blocks_fast=result.blocks_fast,
+        blocks_slow=result.blocks_slow,
+        implied_hashrate_change=result.implied_hashrate_change,
+        pulse_zone=result.pulse_zone.value,
+        window_blocks=result.window_blocks,
+        tip_height=result.tip_height,
+        timestamp=result.timestamp.isoformat(),
+    )
+
+
+@app.get("/api/metrics/hash-ribbons", response_model=HashRibbonsResponse)
+async def get_hash_ribbons():
+    """
+    Get Hash Ribbons miner stress indicator.
+
+    Uses 30-day and 60-day hashrate moving averages to detect
+    miner capitulation (30d < 60d) and recovery signals.
+
+    **Signals:**
+    - **ribbon_signal=True**: Miner stress (30d MA < 60d MA)
+    - **recovery_signal=True**: Just crossed back up (buy signal)
+    - **capitulation_days**: Days in continuous stress state
+
+    **Data Source:** mempool.space hashrate API (5-min cache)
+
+    **Use Cases:**
+    - Identify miner capitulation events
+    - Detect recovery signals (historically bullish)
+    - Track mining industry health
+    """
+    from scripts.data.hashrate_fetcher import fetch_hashrate_data
+    from scripts.metrics.mining_economics import calculate_hash_ribbons
+
+    try:
+        hashrate_data = fetch_hashrate_data()
+        result = calculate_hash_ribbons(hashrate_data)
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Hashrate API unavailable: {str(e)}",
+        )
+
+    return HashRibbonsResponse(
+        hashrate_current=result.hashrate_current,
+        hashrate_ma_30d=result.hashrate_ma_30d,
+        hashrate_ma_60d=result.hashrate_ma_60d,
+        ribbon_signal=result.ribbon_signal,
+        capitulation_days=result.capitulation_days,
+        recovery_signal=result.recovery_signal,
+        data_source=result.data_source,
+        timestamp=result.timestamp.isoformat(),
+    )
+
+
+@app.get("/api/metrics/mining-economics", response_model=MiningEconomicsResponse)
+async def get_mining_economics(
+    window: int = Query(
+        default=144,
+        ge=10,
+        le=2016,
+        description="Number of blocks for Mining Pulse (10-2016, default 144)",
+    ),
+):
+    """
+    Get combined Mining Economics view.
+
+    Combines Hash Ribbons (external API) with Mining Pulse (RPC-only)
+    for comprehensive miner health assessment.
+
+    **Combined Signal Logic (priority order):**
+    1. **recovery**: Hash Ribbons recovery signal (bullish)
+    2. **miner_stress**: Ribbons 7+ days OR pulse SLOW
+    3. **healthy**: Pulse FAST or no stress indicators
+    4. **unknown**: No ribbon data and normal pulse
+
+    **Graceful Degradation:**
+    If external API is unavailable, returns Mining Pulse only
+    with hash_ribbons=null.
+    """
+    from scripts.metrics.mining_economics import calculate_mining_economics
+
+    try:
+        from scripts.bitcoin_rpc import get_rpc_client
+
+        rpc = get_rpc_client()
+        result = calculate_mining_economics(rpc, window_blocks=window)
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Bitcoin Core RPC unavailable: {str(e)}",
+        )
+
+    # Build response
+    hash_ribbons_response = None
+    if result.hash_ribbons:
+        hash_ribbons_response = HashRibbonsResponse(
+            hashrate_current=result.hash_ribbons.hashrate_current,
+            hashrate_ma_30d=result.hash_ribbons.hashrate_ma_30d,
+            hashrate_ma_60d=result.hash_ribbons.hashrate_ma_60d,
+            ribbon_signal=result.hash_ribbons.ribbon_signal,
+            capitulation_days=result.hash_ribbons.capitulation_days,
+            recovery_signal=result.hash_ribbons.recovery_signal,
+            data_source=result.hash_ribbons.data_source,
+            timestamp=result.hash_ribbons.timestamp.isoformat(),
+        )
+
+    return MiningEconomicsResponse(
+        hash_ribbons=hash_ribbons_response,
+        mining_pulse=MiningPulseResponse(
+            avg_block_interval=result.mining_pulse.avg_block_interval,
+            interval_deviation_pct=result.mining_pulse.interval_deviation_pct,
+            blocks_fast=result.mining_pulse.blocks_fast,
+            blocks_slow=result.mining_pulse.blocks_slow,
+            implied_hashrate_change=result.mining_pulse.implied_hashrate_change,
+            pulse_zone=result.mining_pulse.pulse_zone.value,
+            window_blocks=result.mining_pulse.window_blocks,
+            tip_height=result.mining_pulse.tip_height,
+            timestamp=result.mining_pulse.timestamp.isoformat(),
+        ),
+        combined_signal=result.combined_signal,
+        timestamp=result.timestamp.isoformat(),
+    )
+
+
+class MiningEconomicsHistoryEntry(BaseModel):
+    """Single entry in mining economics history."""
+
+    timestamp: str = Field(..., description="Entry timestamp (ISO format)")
+    combined_signal: str = Field(..., description="Signal at this time")
+    pulse_zone: str = Field(..., description="Mining pulse zone")
+    ribbon_signal: Optional[bool] = Field(None, description="Hash ribbons signal")
+
+
+class MiningEconomicsHistoryResponse(BaseModel):
+    """Historical mining economics data."""
+
+    entries: list[MiningEconomicsHistoryEntry] = Field(
+        ..., description="Historical entries"
+    )
+    period_days: int = Field(..., description="Period covered in days")
+
+
+@app.get(
+    "/api/metrics/mining-economics/history",
+    response_model=MiningEconomicsHistoryResponse,
+)
+async def get_mining_economics_history(
+    days: int = Query(
+        default=30, ge=1, le=365, description="Number of days of history (1-365)"
+    ),
+):
+    """
+    Get historical mining economics data.
+
+    Returns daily snapshots of mining economics signals.
+
+    **Note:** This endpoint returns cached/historical data, not real-time
+    calculations. Data availability depends on historical API data.
+    """
+    from scripts.data.hashrate_fetcher import fetch_hashrate_data
+    from scripts.metrics.mining_economics import calculate_hash_ribbons
+
+    entries = []
+
+    try:
+        hashrate_data = fetch_hashrate_data()
+        hashrates = hashrate_data.get("hashrates", [])
+
+        # Sort by timestamp descending
+        sorted_data = sorted(hashrates, key=lambda x: x["timestamp"], reverse=True)
+
+        # Get daily entries up to requested days
+        for i, entry in enumerate(sorted_data[:days]):
+            # Calculate ribbons at this point in time
+            if len(sorted_data) >= i + 60:
+                subset = {
+                    "hashrates": sorted_data[i : i + 90],
+                    "currentHashrate": entry.get("avgHashrate", 0),
+                }
+                ribbons = calculate_hash_ribbons(subset)
+
+                # Derive simple signal based on ribbon
+                if ribbons.recovery_signal:
+                    signal = "recovery"
+                elif ribbons.ribbon_signal and ribbons.capitulation_days >= 7:
+                    signal = "miner_stress"
+                elif not ribbons.ribbon_signal:
+                    signal = "healthy"
+                else:
+                    signal = "unknown"
+
+                from datetime import datetime
+
+                entries.append(
+                    MiningEconomicsHistoryEntry(
+                        timestamp=datetime.utcfromtimestamp(
+                            entry["timestamp"]
+                        ).isoformat(),
+                        combined_signal=signal,
+                        pulse_zone="NORMAL",  # Historical pulse not available
+                        ribbon_signal=ribbons.ribbon_signal,
+                    )
+                )
+            else:
+                break
+
+    except Exception:
+        # Return empty history if API unavailable
+        pass
+
+    return MiningEconomicsHistoryResponse(entries=entries, period_days=days)
+
+
 @app.on_event("shutdown")
 async def shutdown_event():
     """Log shutdown information"""

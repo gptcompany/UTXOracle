@@ -1,0 +1,332 @@
+openapi: 3.1.0
+info:
+  title: UTXOracle Mining Economics API
+  description: Hash Ribbons and Mining Pulse endpoints for miner stress analysis
+  version: 1.0.0
+  contact:
+    name: UTXOracle
+    url: https://github.com/utxoracle/utxoracle
+
+servers:
+  - url: http://localhost:8000
+    description: Local development server
+
+paths:
+  /api/metrics/hash-ribbons:
+    get:
+      summary: Get Hash Ribbons status
+      description: |
+        Returns Hash Ribbons miner stress indicator from 30d/60d MA crossover.
+        Requires external API (mempool.space) for hashrate data.
+      operationId: getHashRibbons
+      tags:
+        - Mining Economics
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HashRibbonsResponse'
+              example:
+                hashrate_current: 1180.5
+                hashrate_ma_30d: 1150.2
+                hashrate_ma_60d: 1120.8
+                ribbon_signal: false
+                capitulation_days: 0
+                recovery_signal: false
+                data_source: api
+                timestamp: "2025-12-19T12:00:00Z"
+        '503':
+          description: External API unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/metrics/mining-pulse:
+    get:
+      summary: Get Mining Pulse status
+      description: |
+        Returns real-time block interval analysis for hashrate change detection.
+        Works RPC-only, no external dependencies.
+      operationId: getMiningPulse
+      tags:
+        - Mining Economics
+      parameters:
+        - name: window
+          in: query
+          description: Number of blocks to analyze (default 144 = ~1 day)
+          required: false
+          schema:
+            type: integer
+            default: 144
+            minimum: 10
+            maximum: 2016
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MiningPulseResponse'
+              example:
+                avg_block_interval: 585.3
+                interval_deviation_pct: -2.45
+                blocks_fast: 82
+                blocks_slow: 61
+                implied_hashrate_change: 2.45
+                pulse_zone: FAST
+                window_blocks: 144
+                tip_height: 875000
+                timestamp: "2025-12-19T12:00:00Z"
+        '500':
+          description: RPC error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/metrics/mining-economics:
+    get:
+      summary: Get combined mining economics view
+      description: |
+        Returns combined Hash Ribbons + Mining Pulse analysis with
+        aggregated signal interpretation.
+      operationId: getMiningEconomics
+      tags:
+        - Mining Economics
+      parameters:
+        - name: window
+          in: query
+          description: Number of blocks for Mining Pulse (default 144)
+          required: false
+          schema:
+            type: integer
+            default: 144
+            minimum: 10
+            maximum: 2016
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MiningEconomicsResponse'
+              example:
+                hash_ribbons:
+                  hashrate_current: 1180.5
+                  hashrate_ma_30d: 1150.2
+                  hashrate_ma_60d: 1120.8
+                  ribbon_signal: false
+                  capitulation_days: 0
+                  recovery_signal: false
+                  data_source: api
+                  timestamp: "2025-12-19T12:00:00Z"
+                mining_pulse:
+                  avg_block_interval: 585.3
+                  interval_deviation_pct: -2.45
+                  blocks_fast: 82
+                  blocks_slow: 61
+                  implied_hashrate_change: 2.45
+                  pulse_zone: FAST
+                  window_blocks: 144
+                  tip_height: 875000
+                  timestamp: "2025-12-19T12:00:00Z"
+                combined_signal: healthy
+                timestamp: "2025-12-19T12:00:00Z"
+        '500':
+          description: RPC error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/metrics/mining-economics/history:
+    get:
+      summary: Get historical mining economics data
+      description: |
+        Returns historical Hash Ribbons and Mining Pulse data for charting.
+      operationId: getMiningEconomicsHistory
+      tags:
+        - Mining Economics
+      parameters:
+        - name: days
+          in: query
+          description: Number of days of history to return
+          required: false
+          schema:
+            type: integer
+            default: 90
+            minimum: 7
+            maximum: 365
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MiningEconomicsHistoryResponse'
+        '503':
+          description: External API unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    HashRibbonsResponse:
+      type: object
+      required:
+        - hashrate_current
+        - hashrate_ma_30d
+        - hashrate_ma_60d
+        - ribbon_signal
+        - capitulation_days
+        - recovery_signal
+        - data_source
+        - timestamp
+      properties:
+        hashrate_current:
+          type: number
+          format: float
+          description: Current network hashrate in EH/s
+        hashrate_ma_30d:
+          type: number
+          format: float
+          description: 30-day moving average hashrate in EH/s
+        hashrate_ma_60d:
+          type: number
+          format: float
+          description: 60-day moving average hashrate in EH/s
+        ribbon_signal:
+          type: boolean
+          description: True if 30d MA < 60d MA (miner stress)
+        capitulation_days:
+          type: integer
+          description: Consecutive days in stress state
+        recovery_signal:
+          type: boolean
+          description: True if just crossed back up (bullish)
+        data_source:
+          type: string
+          enum: [api, difficulty_estimated]
+          description: Source of hashrate data
+        timestamp:
+          type: string
+          format: date-time
+          description: Calculation timestamp
+
+    MiningPulseResponse:
+      type: object
+      required:
+        - avg_block_interval
+        - interval_deviation_pct
+        - blocks_fast
+        - blocks_slow
+        - implied_hashrate_change
+        - pulse_zone
+        - window_blocks
+        - tip_height
+        - timestamp
+      properties:
+        avg_block_interval:
+          type: number
+          format: float
+          description: Average block interval in seconds
+        interval_deviation_pct:
+          type: number
+          format: float
+          description: Deviation from 600s target as percentage
+        blocks_fast:
+          type: integer
+          description: Number of blocks found faster than 10 min
+        blocks_slow:
+          type: integer
+          description: Number of blocks found slower than 10 min
+        implied_hashrate_change:
+          type: number
+          format: float
+          description: Inferred hashrate change as percentage
+        pulse_zone:
+          type: string
+          enum: [FAST, NORMAL, SLOW]
+          description: Classification of network status
+        window_blocks:
+          type: integer
+          description: Number of blocks analyzed
+        tip_height:
+          type: integer
+          description: Current block height
+        timestamp:
+          type: string
+          format: date-time
+          description: Calculation timestamp
+
+    MiningEconomicsResponse:
+      type: object
+      required:
+        - mining_pulse
+        - combined_signal
+        - timestamp
+      properties:
+        hash_ribbons:
+          $ref: '#/components/schemas/HashRibbonsResponse'
+          nullable: true
+          description: Hash Ribbons data (null if API unavailable)
+        mining_pulse:
+          $ref: '#/components/schemas/MiningPulseResponse'
+        combined_signal:
+          type: string
+          enum: [miner_stress, recovery, healthy, unknown]
+          description: Aggregated interpretation
+        timestamp:
+          type: string
+          format: date-time
+          description: Calculation timestamp
+
+    MiningEconomicsHistoryResponse:
+      type: object
+      required:
+        - data
+        - period_days
+        - timestamp
+      properties:
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+                format: date
+              hashrate:
+                type: number
+                format: float
+              ribbon_signal:
+                type: boolean
+              avg_block_interval:
+                type: number
+                format: float
+        period_days:
+          type: integer
+        timestamp:
+          type: string
+          format: date-time
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Error type
+        message:
+          type: string
+          description: Human-readable error message
+        details:
+          type: object
+          description: Additional error details
