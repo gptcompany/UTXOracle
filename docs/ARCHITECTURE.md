@@ -430,7 +430,80 @@ Comprehensive UTXO lifecycle tracking for Realized Cap, MVRV, NUPL, and HODL Wav
 | spec-017 | metrics/utxo_lifecycle | ✅ Complete | 4 |
 | spec-018 | metrics/cointime | ✅ Complete | 1 |
 | spec-021 | metrics/advanced-onchain | ✅ Complete | 5+6 |
+| spec-025 | metrics/wallet_waves | ✅ Complete | 3 |
+| spec-026 | metrics/exchange_netflow | ✅ Complete | 3 |
+| spec-027 | metrics/binary_cdd | ✅ Complete | 2 |
+| spec-028 | metrics/net_realized_pnl | ✅ Complete | 3 |
+| spec-029 | metrics/pl_ratio | ✅ Complete | 3 |
 | spec-030 | metrics/mining_economics | ✅ Complete | 4 |
+
+---
+
+## Wallet Waves & Absorption Rates (spec-025)
+
+Supply distribution analysis by wallet age cohorts:
+
+* **Wallet Waves**: UTXO distribution across age bands (1d, 1w, 1m, 3m, 6m, 1y, 2y, 3y, 5y+)
+* **Absorption Rates**: Rate of supply transition between age cohorts
+* **Conviction Score**: Composite metric measuring long-term holder conviction
+
+**API Endpoints:**
+- `GET /api/metrics/wallet-waves` - Current distribution
+- `GET /api/metrics/wallet-waves/history` - Historical data
+- `GET /api/metrics/absorption-rates` - Transition rates
+
+---
+
+## Exchange Netflow (spec-026)
+
+Exchange flow analysis for accumulation/distribution detection:
+
+* **Netflow**: Inflows - Outflows (positive = selling pressure)
+* **Flow Dominance**: Which direction dominates current activity
+* **7-day Trend**: Rolling netflow trend analysis
+
+**API Endpoints:**
+- `GET /api/metrics/exchange-netflow` - Current netflow metrics
+
+---
+
+## Binary CDD Indicator (spec-027)
+
+Statistical significance filter for Coin Days Destroyed:
+
+* **CDD Z-Score**: Standard deviations from 365-day mean
+* **Binary Signal**: 1 when CDD exceeds threshold (default 2σ)
+* **Event Detection**: Filters noise, highlights significant holder movements
+
+**API Endpoints:**
+- `GET /api/metrics/binary-cdd` - Current CDD significance
+
+---
+
+## Net Realized P/L (spec-028)
+
+Aggregate profit/loss from on-chain transactions:
+
+* **Realized Profit**: Gains from coins moved above cost basis
+* **Realized Loss**: Losses from coins moved below cost basis
+* **Net Realized P/L**: Profit - Loss (market sentiment indicator)
+
+**API Endpoints:**
+- `GET /api/metrics/net-realized-pnl` - Current P/L metrics
+
+---
+
+## P/L Ratio (Dominance) (spec-029)
+
+Profit/Loss ratio measuring market sentiment dominance:
+
+* **P/L Ratio**: Realized Profit / Realized Loss
+* **Dominance Zone**: Profit-dominant (>1) vs Loss-dominant (<1)
+* **Historical Context**: Ratio vs historical percentiles
+
+**API Endpoints:**
+- `GET /api/metrics/pl-ratio` - Current ratio
+- `GET /api/metrics/pl-ratio/history` - Historical data
 
 ---
 

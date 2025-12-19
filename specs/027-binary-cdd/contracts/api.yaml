@@ -1,0 +1,169 @@
+openapi: 3.0.3
+info:
+  title: Binary CDD API
+  description: |
+    Statistical significance flag for Coin Days Destroyed.
+    Converts noisy CDD data into actionable binary signals based on z-score thresholds.
+
+    Spec: 027-binary-cdd
+  version: 1.0.0
+
+paths:
+  /api/metrics/binary-cdd:
+    get:
+      summary: Get Binary CDD indicator
+      description: |
+        Calculate Binary CDD flag based on z-score threshold.
+
+        Returns 1 if current CDD exceeds threshold sigma above the rolling mean,
+        otherwise returns 0 (normal activity / noise).
+
+        Signal interpretation:
+        - binary_cdd=0: Normal long-term holder activity
+        - binary_cdd=1 (z >= 2σ): Significant LTH movement event
+        - binary_cdd=1 (z >= 3σ): Extreme event, high conviction signal
+      operationId: getBinaryCDD
+      tags:
+        - Metrics
+      parameters:
+        - name: threshold
+          in: query
+          description: Z-score threshold for binary flag (sigma)
+          required: false
+          schema:
+            type: number
+            format: float
+            default: 2.0
+            minimum: 1.0
+            maximum: 4.0
+        - name: window
+          in: query
+          description: Lookback window in days for baseline statistics
+          required: false
+          schema:
+            type: integer
+            default: 365
+            minimum: 30
+            maximum: 730
+      responses:
+        '200':
+          description: Binary CDD calculation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BinaryCDDResponse'
+              example:
+                cdd_today: 12543.75
+                cdd_mean: 8234.21
+                cdd_std: 2156.73
+                cdd_zscore: 1.998
+                cdd_percentile: 97.28
+                binary_cdd: 0
+                threshold_used: 2.0
+                window_days: 365
+                data_points: 365
+                insufficient_data: false
+                block_height: 875000
+                timestamp: "2025-12-18T10:30:00Z"
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Database unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    BinaryCDDResponse:
+      type: object
+      required:
+        - cdd_today
+        - cdd_mean
+        - cdd_std
+        - binary_cdd
+        - threshold_used
+        - window_days
+        - data_points
+        - insufficient_data
+        - block_height
+        - timestamp
+      properties:
+        cdd_today:
+          type: number
+          format: float
+          description: Today's total Coin Days Destroyed
+          example: 12543.75
+        cdd_mean:
+          type: number
+          format: float
+          description: Mean CDD over lookback window
+          example: 8234.21
+        cdd_std:
+          type: number
+          format: float
+          description: Standard deviation of CDD over window
+          example: 2156.73
+        cdd_zscore:
+          type: number
+          format: float
+          nullable: true
+          description: Z-score (null if insufficient data or zero std dev)
+          example: 1.998
+        cdd_percentile:
+          type: number
+          format: float
+          nullable: true
+          description: Percentile rank (0-100)
+          example: 97.28
+        binary_cdd:
+          type: integer
+          enum: [0, 1]
+          description: Binary flag (0=noise, 1=significant event)
+          example: 0
+        threshold_used:
+          type: number
+          format: float
+          description: Sigma threshold that was applied
+          minimum: 1.0
+          maximum: 4.0
+          example: 2.0
+        window_days:
+          type: integer
+          description: Lookback window size in days
+          minimum: 30
+          maximum: 730
+          example: 365
+        data_points:
+          type: integer
+          description: Actual number of daily data points used
+          minimum: 1
+          example: 365
+        insufficient_data:
+          type: boolean
+          description: True if fewer than 30 days of history available
+          example: false
+        block_height:
+          type: integer
+          description: Block height at time of calculation
+          example: 875000
+        timestamp:
+          type: string
+          format: date-time
+          description: ISO timestamp of calculation
+          example: "2025-12-18T10:30:00Z"
+
+    ErrorResponse:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
+          description: Error message
+          example: "UTXO lifecycle database not found"
