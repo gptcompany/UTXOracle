@@ -429,13 +429,77 @@ Comprehensive UTXO lifecycle tracking for Realized Cap, MVRV, NUPL, and HODL Wav
 | spec-016 | metrics/sopr | ✅ Complete | 1 |
 | spec-017 | metrics/utxo_lifecycle | ✅ Complete | 4 |
 | spec-018 | metrics/cointime | ✅ Complete | 1 |
+| spec-019 | derivatives/ (weight adjustment) | ✅ Complete | - |
+| spec-020 | metrics/ (MVRV variants) | ✅ Complete | - |
 | spec-021 | metrics/advanced-onchain | ✅ Complete | 5+6 |
+| spec-022 | metrics/nupl | ✅ Complete | 1 |
+| spec-023 | metrics/cost_basis | ✅ Complete | 2 |
+| spec-024 | metrics/revived_supply | ✅ Complete | 2 |
 | spec-025 | metrics/wallet_waves | ✅ Complete | 3 |
 | spec-026 | metrics/exchange_netflow | ✅ Complete | 3 |
 | spec-027 | metrics/binary_cdd | ✅ Complete | 2 |
 | spec-028 | metrics/net_realized_pnl | ✅ Complete | 3 |
 | spec-029 | metrics/pl_ratio | ✅ Complete | 3 |
 | spec-030 | metrics/mining_economics | ✅ Complete | 4 |
+
+---
+
+## Derivatives Weight Adjustment (spec-019)
+
+Refined evidence weighting for derivatives data integration:
+
+* **Weight Reduction**: Reduced derivatives influence in composite signals
+* **SOPR Integration**: Better correlation with on-chain SOPR metrics
+* **Quality Scoring**: Improved signal quality measurement
+
+---
+
+## MVRV-Z Score Variants (spec-020)
+
+Market Value to Realized Value analysis with STH/LTH segmentation:
+
+* **MVRV-Z Score**: Standard deviation from historical mean
+* **STH-MVRV**: Short-term holder variant (< 155 days)
+* **LTH-MVRV**: Long-term holder variant (≥ 155 days)
+
+---
+
+## NUPL Oscillator (spec-022)
+
+Net Unrealized Profit/Loss indicator:
+
+* **NUPL Value**: (Market Cap - Realized Cap) / Market Cap
+* **Zone Classification**: Capitulation, Fear, Optimism, Belief, Euphoria
+* **Historical Percentile**: Current NUPL vs historical distribution
+
+**API Endpoints:**
+- `GET /api/metrics/nupl` - Current NUPL metrics
+
+---
+
+## Cost Basis Cohorts (spec-023)
+
+STH/LTH cost basis analysis:
+
+* **STH Cost Basis**: Average acquisition price for short-term holders
+* **LTH Cost Basis**: Average acquisition price for long-term holders
+* **MVRV by Cohort**: Separate profit/loss analysis per holder type
+
+**API Endpoints:**
+- `GET /api/metrics/cost-basis` - Current cost basis metrics
+
+---
+
+## Revived Supply (spec-024)
+
+Dormant supply reactivation tracking:
+
+* **Revived Supply**: Previously dormant UTXOs that moved
+* **Dormancy Bands**: 1y+, 2y+, 3y+, 5y+ reactivation tracking
+* **Velocity Signal**: Rate of old supply entering circulation
+
+**API Endpoints:**
+- `GET /api/metrics/revived-supply` - Current revived supply metrics
 
 ---
 
