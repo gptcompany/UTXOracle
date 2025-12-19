@@ -12,7 +12,7 @@ Spec-009 additions:
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, date
 from enum import Enum
 from typing import Optional, Literal
 
@@ -2432,4 +2432,152 @@ class BinaryCDDResult:
             "timestamp": self.timestamp.isoformat()
             if hasattr(self.timestamp, "isoformat")
             else str(self.timestamp),
+        }
+
+
+# =============================================================================
+# Spec-028: Net Realized Profit/Loss
+# =============================================================================
+
+
+@dataclass
+class NetRealizedPnLResult:
+    """
+    Net Realized Profit/Loss metric result (spec-028).
+
+    Aggregates realized gains/losses from spent UTXOs to show actual
+    capital flows during the specified time window.
+
+    Attributes:
+        realized_profit_usd: Total profit realized (USD) from profitable UTXOs
+        realized_loss_usd: Total loss realized (USD) from unprofitable UTXOs
+        net_realized_pnl_usd: Net P/L = profit - loss
+        realized_profit_btc: Profit in BTC terms (volume of profitable UTXOs)
+        realized_loss_btc: Loss in BTC terms (volume of unprofitable UTXOs)
+        net_realized_pnl_btc: Net BTC volume (profit - loss)
+        profit_utxo_count: Number of UTXOs spent at profit
+        loss_utxo_count: Number of UTXOs spent at loss
+        profit_loss_ratio: Profit/Loss ratio (> 1 = profit dominant)
+        signal: Interpretation (PROFIT_DOMINANT, LOSS_DOMINANT, NEUTRAL)
+        window_hours: Time window for calculation
+        timestamp: When metric was calculated
+    """
+
+    realized_profit_usd: float
+    realized_loss_usd: float
+    net_realized_pnl_usd: float
+    realized_profit_btc: float
+    realized_loss_btc: float
+    net_realized_pnl_btc: float
+    profit_utxo_count: int
+    loss_utxo_count: int
+    profit_loss_ratio: float
+    signal: Literal["PROFIT_DOMINANT", "LOSS_DOMINANT", "NEUTRAL"]
+    window_hours: int
+    timestamp: datetime
+
+    def __post_init__(self):
+        """Validate field constraints."""
+        if self.realized_profit_usd < 0:
+            raise ValueError(
+                f"realized_profit_usd must be >= 0: {self.realized_profit_usd}"
+            )
+        if self.realized_loss_usd < 0:
+            raise ValueError(
+                f"realized_loss_usd must be >= 0: {self.realized_loss_usd}"
+            )
+        if self.realized_profit_btc < 0:
+            raise ValueError(
+                f"realized_profit_btc must be >= 0: {self.realized_profit_btc}"
+            )
+        if self.realized_loss_btc < 0:
+            raise ValueError(
+                f"realized_loss_btc must be >= 0: {self.realized_loss_btc}"
+            )
+        if self.profit_utxo_count < 0:
+            raise ValueError(
+                f"profit_utxo_count must be >= 0: {self.profit_utxo_count}"
+            )
+        if self.loss_utxo_count < 0:
+            raise ValueError(f"loss_utxo_count must be >= 0: {self.loss_utxo_count}")
+        if self.profit_loss_ratio < 0:
+            raise ValueError(
+                f"profit_loss_ratio must be >= 0: {self.profit_loss_ratio}"
+            )
+        if self.window_hours < 1:
+            raise ValueError(f"window_hours must be > 0: {self.window_hours}")
+        if self.signal not in ("PROFIT_DOMINANT", "LOSS_DOMINANT", "NEUTRAL"):
+            raise ValueError(f"Invalid signal: {self.signal}")
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "realized_profit_usd": self.realized_profit_usd,
+            "realized_loss_usd": self.realized_loss_usd,
+            "net_realized_pnl_usd": self.net_realized_pnl_usd,
+            "realized_profit_btc": self.realized_profit_btc,
+            "realized_loss_btc": self.realized_loss_btc,
+            "net_realized_pnl_btc": self.net_realized_pnl_btc,
+            "profit_utxo_count": self.profit_utxo_count,
+            "loss_utxo_count": self.loss_utxo_count,
+            "profit_loss_ratio": self.profit_loss_ratio,
+            "signal": self.signal,
+            "window_hours": self.window_hours,
+            "timestamp": self.timestamp.isoformat()
+            if hasattr(self.timestamp, "isoformat")
+            else str(self.timestamp),
+        }
+
+
+@dataclass
+class NetRealizedPnLHistoryPoint:
+    """
+    Single data point in Net Realized P/L history (spec-028).
+
+    Used for daily aggregated P/L data for trend analysis.
+
+    Attributes:
+        date: Date for this data point
+        realized_profit_usd: Total profit realized (USD)
+        realized_loss_usd: Total loss realized (USD)
+        net_realized_pnl_usd: Net P/L (profit - loss)
+        profit_utxo_count: Number of UTXOs spent at profit
+        loss_utxo_count: Number of UTXOs spent at loss
+    """
+
+    date: date
+    realized_profit_usd: float
+    realized_loss_usd: float
+    net_realized_pnl_usd: float
+    profit_utxo_count: int
+    loss_utxo_count: int
+
+    def __post_init__(self):
+        """Validate field constraints."""
+        if self.realized_profit_usd < 0:
+            raise ValueError(
+                f"realized_profit_usd must be >= 0: {self.realized_profit_usd}"
+            )
+        if self.realized_loss_usd < 0:
+            raise ValueError(
+                f"realized_loss_usd must be >= 0: {self.realized_loss_usd}"
+            )
+        if self.profit_utxo_count < 0:
+            raise ValueError(
+                f"profit_utxo_count must be >= 0: {self.profit_utxo_count}"
+            )
+        if self.loss_utxo_count < 0:
+            raise ValueError(f"loss_utxo_count must be >= 0: {self.loss_utxo_count}")
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "date": self.date.isoformat()
+            if hasattr(self.date, "isoformat")
+            else str(self.date),
+            "realized_profit_usd": self.realized_profit_usd,
+            "realized_loss_usd": self.realized_loss_usd,
+            "net_realized_pnl_usd": self.net_realized_pnl_usd,
+            "profit_utxo_count": self.profit_utxo_count,
+            "loss_utxo_count": self.loss_utxo_count,
         }

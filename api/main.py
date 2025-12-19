@@ -2987,6 +2987,81 @@ class BinaryCDDResponse(BaseModel):
 
 
 # =============================================================================
+# Net Realized P/L Response Models (spec-028)
+# =============================================================================
+
+
+class NetRealizedPnLResponse(BaseModel):
+    """Net Realized P/L response model (spec-028).
+
+    Aggregates realized gains/losses from spent UTXOs to show actual
+    capital flows during the specified time window.
+    """
+
+    realized_profit_usd: float = Field(
+        ..., ge=0, description="Total profit realized (USD)"
+    )
+    realized_loss_usd: float = Field(..., ge=0, description="Total loss realized (USD)")
+    net_realized_pnl_usd: float = Field(..., description="Net P/L (profit - loss)")
+    realized_profit_btc: float = Field(
+        ..., ge=0, description="BTC volume from profitable UTXOs"
+    )
+    realized_loss_btc: float = Field(
+        ..., ge=0, description="BTC volume from unprofitable UTXOs"
+    )
+    net_realized_pnl_btc: float = Field(
+        ..., description="Net BTC volume (profit - loss)"
+    )
+    profit_utxo_count: int = Field(..., ge=0, description="UTXOs spent at profit")
+    loss_utxo_count: int = Field(..., ge=0, description="UTXOs spent at loss")
+    profit_loss_ratio: float = Field(..., ge=0, description="Profit/Loss ratio")
+    signal: str = Field(..., description="PROFIT_DOMINANT, LOSS_DOMINANT, or NEUTRAL")
+    window_hours: int = Field(..., gt=0, description="Time window in hours")
+    timestamp: str = Field(..., description="Calculation timestamp (ISO format)")
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "realized_profit_usd": 1234567.89,
+                "realized_loss_usd": 987654.32,
+                "net_realized_pnl_usd": 246913.57,
+                "realized_profit_btc": 12.34,
+                "realized_loss_btc": 9.87,
+                "net_realized_pnl_btc": 2.47,
+                "profit_utxo_count": 15234,
+                "loss_utxo_count": 12456,
+                "profit_loss_ratio": 1.25,
+                "signal": "PROFIT_DOMINANT",
+                "window_hours": 24,
+                "timestamp": "2025-12-18T12:00:00Z",
+            }
+        }
+    }
+
+
+class NetRealizedPnLHistoryPointResponse(BaseModel):
+    """Single day in Net Realized P/L history (spec-028)."""
+
+    date: str = Field(..., description="Date (YYYY-MM-DD)")
+    realized_profit_usd: float = Field(..., ge=0, description="Total profit (USD)")
+    realized_loss_usd: float = Field(..., ge=0, description="Total loss (USD)")
+    net_realized_pnl_usd: float = Field(..., description="Net P/L (profit - loss)")
+    profit_utxo_count: int = Field(..., ge=0, description="UTXOs spent at profit")
+    loss_utxo_count: int = Field(..., ge=0, description="UTXOs spent at loss")
+
+
+class NetRealizedPnLHistoryResponse(BaseModel):
+    """Net Realized P/L history response (spec-028)."""
+
+    history: List[NetRealizedPnLHistoryPointResponse] = Field(
+        ..., description="Daily P/L data points"
+    )
+    days: int = Field(..., gt=0, description="Number of days in history")
+    start_date: str = Field(..., description="First date (YYYY-MM-DD)")
+    end_date: str = Field(..., description="Last date (YYYY-MM-DD)")
+
+
+# =============================================================================
 # Exchange Netflow Endpoints (spec-026)
 # =============================================================================
 
@@ -3290,6 +3365,169 @@ async def get_binary_cdd(
                 detail="UTXO lifecycle table not found. Schema migration pending.",
             )
         logging.error(f"Error calculating binary CDD: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+# =============================================================================
+# Net Realized P/L Endpoints (spec-028)
+# =============================================================================
+
+
+@app.get("/api/metrics/net-realized-pnl", response_model=NetRealizedPnLResponse)
+async def get_net_realized_pnl(
+    window: int = Query(
+        default=24,
+        ge=1,
+        le=720,
+        description="Time window in hours (1-720, default 24)",
+    ),
+):
+    """
+    Calculate Net Realized Profit/Loss for spent UTXOs.
+
+    Aggregates realized gains/losses from all UTXOs spent within the time window
+    to show actual capital flows (not paper P/L).
+
+    **Formula:**
+    - Realized Profit = SUM((spent_price - creation_price) * btc_value) for profitable UTXOs
+    - Realized Loss = SUM((creation_price - spent_price) * btc_value) for loss UTXOs
+    - Net P/L = Realized Profit - Realized Loss
+
+    **Signals:**
+    - **PROFIT_DOMINANT**: Net P/L > 0 (more value realized as profit)
+    - **LOSS_DOMINANT**: Net P/L < 0 (more value realized as loss)
+    - **NEUTRAL**: Net P/L = 0 (balanced)
+
+    **Market Context:**
+    - Strong positive during bull markets = healthy profit-taking
+    - Strong negative during bear markets = capitulation, potential bottom
+    - Neutral = consolidation, indecision
+    """
+    import duckdb
+
+    conn = None
+    try:
+        conn = duckdb.connect(UTXO_DB_PATH, read_only=True)
+
+        from scripts.metrics.net_realized_pnl import calculate_net_realized_pnl
+
+        result = calculate_net_realized_pnl(conn=conn, window_hours=window)
+
+        return NetRealizedPnLResponse(
+            realized_profit_usd=result.realized_profit_usd,
+            realized_loss_usd=result.realized_loss_usd,
+            net_realized_pnl_usd=result.net_realized_pnl_usd,
+            realized_profit_btc=result.realized_profit_btc,
+            realized_loss_btc=result.realized_loss_btc,
+            net_realized_pnl_btc=result.net_realized_pnl_btc,
+            profit_utxo_count=result.profit_utxo_count,
+            loss_utxo_count=result.loss_utxo_count,
+            profit_loss_ratio=result.profit_loss_ratio,
+            signal=result.signal,
+            window_hours=result.window_hours,
+            timestamp=result.timestamp.isoformat(),
+        )
+
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=503,
+            detail=f"UTXO lifecycle database not found at {UTXO_DB_PATH}. "
+            "Run utxo_lifecycle sync first.",
+        )
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "utxo_lifecycle" in error_msg or "does not exist" in error_msg:
+            raise HTTPException(
+                status_code=404,
+                detail="UTXO lifecycle table not found. Schema migration pending.",
+            )
+        logging.error(f"Error calculating net realized P/L: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.get(
+    "/api/metrics/net-realized-pnl/history",
+    response_model=NetRealizedPnLHistoryResponse,
+)
+async def get_net_realized_pnl_history(
+    days: int = Query(
+        default=30,
+        ge=1,
+        le=365,
+        description="Number of days of history (1-365, default 30)",
+    ),
+):
+    """
+    Get daily Net Realized P/L history for trend analysis.
+
+    Returns one data point per day with aggregated profit/loss metrics,
+    sorted by date (oldest first).
+
+    **Use Cases:**
+    - Identify capitulation events (large negative days)
+    - Track profit-taking patterns over time
+    - Find correlation with price action
+    """
+    import duckdb
+
+    conn = None
+    try:
+        conn = duckdb.connect(UTXO_DB_PATH, read_only=True)
+
+        from scripts.metrics.net_realized_pnl import get_net_realized_pnl_history
+
+        history = get_net_realized_pnl_history(conn=conn, days=days)
+
+        # Convert to response format
+        history_response = [
+            NetRealizedPnLHistoryPointResponse(
+                date=point.date.isoformat(),
+                realized_profit_usd=point.realized_profit_usd,
+                realized_loss_usd=point.realized_loss_usd,
+                net_realized_pnl_usd=point.net_realized_pnl_usd,
+                profit_utxo_count=point.profit_utxo_count,
+                loss_utxo_count=point.loss_utxo_count,
+            )
+            for point in history
+        ]
+
+        # Calculate date range
+        if history_response:
+            start_date = history_response[0].date
+            end_date = history_response[-1].date
+        else:
+            from datetime import date, timedelta
+
+            end_date = date.today().isoformat()
+            start_date = (date.today() - timedelta(days=days)).isoformat()
+
+        return NetRealizedPnLHistoryResponse(
+            history=history_response,
+            days=days,
+            start_date=start_date,
+            end_date=end_date,
+        )
+
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=503,
+            detail=f"UTXO lifecycle database not found at {UTXO_DB_PATH}. "
+            "Run utxo_lifecycle sync first.",
+        )
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "utxo_lifecycle" in error_msg or "does not exist" in error_msg:
+            raise HTTPException(
+                status_code=404,
+                detail="UTXO lifecycle table not found. Schema migration pending.",
+            )
+        logging.error(f"Error getting net realized P/L history: {e}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
     finally:
         if conn:

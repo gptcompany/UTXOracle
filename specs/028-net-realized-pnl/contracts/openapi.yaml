@@ -1,0 +1,235 @@
+openapi: 3.0.3
+info:
+  title: UTXOracle Net Realized P/L API
+  description: API endpoints for Net Realized Profit/Loss metric (spec-028)
+  version: 1.0.0
+
+paths:
+  /api/metrics/net-realized-pnl:
+    get:
+      summary: Get Net Realized P/L
+      description: |
+        Calculate Net Realized Profit/Loss for spent UTXOs within the specified time window.
+        Shows actual capital flows by comparing spent price vs creation price.
+      operationId: getNetRealizedPnL
+      tags:
+        - metrics
+      parameters:
+        - name: window
+          in: query
+          description: Time window in hours (1-720)
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 720
+            default: 24
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NetRealizedPnLResponse'
+              example:
+                realized_profit_usd: 1234567.89
+                realized_loss_usd: 987654.32
+                net_realized_pnl_usd: 246913.57
+                realized_profit_btc: 12.34
+                realized_loss_btc: 9.87
+                net_realized_pnl_btc: 2.47
+                profit_utxo_count: 15234
+                loss_utxo_count: 12456
+                profit_loss_ratio: 1.25
+                signal: PROFIT_DOMINANT
+                window_hours: 24
+                timestamp: "2025-12-18T12:00:00Z"
+        '400':
+          description: Invalid window parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Database error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/metrics/net-realized-pnl/history:
+    get:
+      summary: Get Net Realized P/L History
+      description: |
+        Get daily Net Realized P/L data for the specified number of days.
+        Returns one data point per day.
+      operationId: getNetRealizedPnLHistory
+      tags:
+        - metrics
+      parameters:
+        - name: days
+          in: query
+          description: Number of days of history (1-365)
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+            default: 30
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NetRealizedPnLHistoryResponse'
+        '400':
+          description: Invalid days parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Database error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    NetRealizedPnLResponse:
+      type: object
+      required:
+        - realized_profit_usd
+        - realized_loss_usd
+        - net_realized_pnl_usd
+        - realized_profit_btc
+        - realized_loss_btc
+        - net_realized_pnl_btc
+        - profit_utxo_count
+        - loss_utxo_count
+        - profit_loss_ratio
+        - signal
+        - window_hours
+        - timestamp
+      properties:
+        realized_profit_usd:
+          type: number
+          format: double
+          minimum: 0
+          description: Total profit realized in USD from profitable UTXOs
+        realized_loss_usd:
+          type: number
+          format: double
+          minimum: 0
+          description: Total loss realized in USD from unprofitable UTXOs
+        net_realized_pnl_usd:
+          type: number
+          format: double
+          description: Net P/L (profit - loss) in USD
+        realized_profit_btc:
+          type: number
+          format: double
+          minimum: 0
+          description: Total BTC volume from profitable UTXOs
+        realized_loss_btc:
+          type: number
+          format: double
+          minimum: 0
+          description: Total BTC volume from unprofitable UTXOs
+        net_realized_pnl_btc:
+          type: number
+          format: double
+          description: Net BTC volume (profit - loss)
+        profit_utxo_count:
+          type: integer
+          minimum: 0
+          description: Number of UTXOs spent at profit
+        loss_utxo_count:
+          type: integer
+          minimum: 0
+          description: Number of UTXOs spent at loss
+        profit_loss_ratio:
+          type: number
+          format: double
+          minimum: 0
+          description: Ratio of profit to loss (>1 = profit dominant)
+        signal:
+          type: string
+          enum: [PROFIT_DOMINANT, LOSS_DOMINANT, NEUTRAL]
+          description: Market sentiment signal
+        window_hours:
+          type: integer
+          minimum: 1
+          description: Time window used for calculation
+        timestamp:
+          type: string
+          format: date-time
+          description: When the metric was calculated
+
+    NetRealizedPnLHistoryResponse:
+      type: object
+      required:
+        - history
+        - days
+        - start_date
+        - end_date
+      properties:
+        history:
+          type: array
+          items:
+            $ref: '#/components/schemas/NetRealizedPnLHistoryPoint'
+        days:
+          type: integer
+          minimum: 1
+          description: Number of days in history
+        start_date:
+          type: string
+          format: date
+          description: First date in history
+        end_date:
+          type: string
+          format: date
+          description: Last date in history
+
+    NetRealizedPnLHistoryPoint:
+      type: object
+      required:
+        - date
+        - realized_profit_usd
+        - realized_loss_usd
+        - net_realized_pnl_usd
+        - profit_utxo_count
+        - loss_utxo_count
+      properties:
+        date:
+          type: string
+          format: date
+          description: Date for this data point
+        realized_profit_usd:
+          type: number
+          format: double
+          minimum: 0
+        realized_loss_usd:
+          type: number
+          format: double
+          minimum: 0
+        net_realized_pnl_usd:
+          type: number
+          format: double
+        profit_utxo_count:
+          type: integer
+          minimum: 0
+        loss_utxo_count:
+          type: integer
+          minimum: 0
+
+    ErrorResponse:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
+          description: Error message
