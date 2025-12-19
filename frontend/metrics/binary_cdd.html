@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Binary CDD | UTXOracle Metrics</title>
+    <meta name="description" content="Binary Coin Days Destroyed - Track when old coins are moving with 30d/60d signal indicators">
+    <link rel="stylesheet" href="../css/metrics.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+</head>
+<body>
+    <div class="metrics-page">
+        <header class="metrics-header">
+            <h1><span class="btc-icon">&#8383;</span> Binary CDD</h1>
+            <div id="last-updated"></div>
+        </header>
+
+        <nav class="metrics-nav">
+            <a href="mvrv.html">MVRV</a>
+            <a href="nupl.html">NUPL</a>
+            <a href="sopr.html">SOPR</a>
+            <a href="cost_basis.html">Cost Basis</a>
+            <a href="hash_ribbons.html">Hash Ribbons</a>
+            <a href="binary_cdd.html" class="active">Binary CDD</a>
+            <a href="wallet_waves.html">Wallet Waves</a>
+            <a href="exchange_netflow.html">Exchange Netflow</a>
+        </nav>
+
+        <div id="info-boxes" class="info-boxes"></div>
+
+        <div id="chart" class="chart-container"></div>
+
+        <section class="legend-section">
+            <h3>Signal Interpretation</h3>
+            <div class="legend-items">
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #00d4ff;"></div>
+                    <span>30d Signal - Short-term holder activity</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ff6b6b;"></div>
+                    <span>60d Signal - Long-term holder activity</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color profit"></div>
+                    <span>Active (1) - Old coins moving</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color neutral"></div>
+                    <span>Inactive (0) - Coins dormant</span>
+                </div>
+            </div>
+        </section>
+
+        <footer class="metrics-footer">
+            <p>Data from UTXOracle API | Reference: <a href="https://charts.checkonchain.com/btconchain/lifespan/cdd_all/cdd_all_light.html" target="_blank">CheckOnChain CDD</a></p>
+        </footer>
+    </div>
+
+    <script src="../js/chart-themes.js"></script>
+    <script src="../js/metrics-common.js"></script>
+    <script>
+        (async function() {
+            const chartId = 'chart';
+            const infoId = 'info-boxes';
+
+            MetricsCommon.showLoading(chartId);
+
+            try {
+                // Fetch current Binary CDD data
+                const currentData = await MetricsCommon.fetchData('/api/metrics/binary-cdd');
+
+                if (!currentData) {
+                    MetricsCommon.showNoData(chartId);
+                    return;
+                }
+
+                // API returns: cdd_today, cdd_mean, cdd_std, binary_cdd (0 or 1), threshold_used
+                const binarySignal = currentData.binary_cdd === 1;
+                const cddRaw = currentData.cdd_today || 0;
+                const cddMean = currentData.cdd_mean || 0;
+                const cddStd = currentData.cdd_std || 0;
+                const zScore = currentData.cdd_zscore || 0;
+                const percentile = currentData.cdd_percentile || 0;
+
+                // Determine overall signal based on z-score and binary flag
+                let overallSignal = 'Normal';
+                let signalDescription = 'Below threshold';
+                if (binarySignal) {
+                    overallSignal = 'SIGNIFICANT';
+                    signalDescription = 'Above ' + (currentData.threshold_used || 2) + ' sigma';
+                }
+
+                // Update info boxes
+                MetricsCommon.updateInfoBoxes(infoId, [
+                    { title: 'Binary Signal', value: binarySignal ? 'ACTIVE' : 'Inactive', subtitle: signalDescription },
+                    { title: "Today's CDD", value: MetricsCommon.formatNumber(cddRaw), subtitle: 'Coin Days Destroyed' },
+                    { title: 'Z-Score', value: zScore !== null ? zScore.toFixed(2) : 'N/A', subtitle: 'Statistical deviation' },
+                    { title: 'Percentile', value: percentile !== null ? percentile.toFixed(1) + '%' : 'N/A', subtitle: 'Historical rank' }
+                ]);
+
+                // Update last-updated timestamp
+                document.getElementById('last-updated').textContent =
+                    'Updated: ' + MetricsCommon.formatDate(currentData.timestamp || new Date().toISOString());
+
+                // Build gauge-style visualization for z-score
+                const traces = [{
+                    type: 'indicator',
+                    mode: 'gauge+number',
+                    value: Math.abs(zScore) || 0,
+                    title: { text: 'CDD Z-Score', font: { color: '#e0e0e0', size: 16 } },
+                    number: { font: { color: '#e0e0e0' }, valueformat: '.2f' },
+                    gauge: {
+                        axis: { range: [0, 4], tickwidth: 1, tickcolor: '#e0e0e0', dtick: 1 },
+                        bar: { color: binarySignal ? '#00ff88' : '#888888' },
+                        bgcolor: '#1a1a2e',
+                        borderwidth: 2,
+                        bordercolor: '#2d2d44',
+                        steps: [
+                            { range: [0, 1], color: '#2d2d44' },
+                            { range: [1, 2], color: 'rgba(255, 204, 0, 0.1)' },
+                            { range: [2, 3], color: 'rgba(255, 204, 0, 0.2)' },
+                            { range: [3, 4], color: 'rgba(0, 255, 136, 0.2)' }
+                        ],
+                        threshold: {
+                            line: { color: '#ff4444', width: 4 },
+                            thickness: 0.75,
+                            value: currentData.threshold_used || 2
+                        }
+                    }
+                }];
+
+                // Add bar chart for CDD values comparison
+                traces.push({
+                    x: ["Today's CDD", 'Mean CDD', 'Threshold'],
+                    y: [cddRaw, cddMean, cddMean + (currentData.threshold_used || 2) * cddStd],
+                    type: 'bar',
+                    marker: { color: ['#00d4ff', '#ff6b6b', '#ffd93d'] },
+                    text: [MetricsCommon.formatNumber(cddRaw), MetricsCommon.formatNumber(cddMean), MetricsCommon.formatNumber(cddMean + (currentData.threshold_used || 2) * cddStd)],
+                    textposition: 'outside',
+                    textfont: { color: '#e0e0e0' },
+                    xaxis: 'x2',
+                    yaxis: 'y2'
+                });
+
+                // Build layout with two subplots
+                const layout = {
+                    ...ChartThemes.dark.layout,
+                    title: { text: 'Binary CDD Signals', font: { size: 18, color: '#e0e0e0' } },
+                    grid: { rows: 1, columns: 2, pattern: 'independent' },
+                    xaxis2: {
+                        ...ChartThemes.dark.layout.xaxis,
+                        domain: [0.55, 1],
+                        anchor: 'y2'
+                    },
+                    yaxis2: {
+                        ...ChartThemes.dark.layout.yaxis,
+                        domain: [0, 1],
+                        anchor: 'x2',
+                        title: 'CDD Value'
+                    },
+                    margin: { l: 60, r: 60, t: 80, b: 60 },
+                    showlegend: false
+                };
+
+                // Render chart
+                MetricsCommon.render(chartId, traces, layout);
+
+            } catch (error) {
+                console.error('Error loading Binary CDD data:', error);
+                MetricsCommon.showError(chartId, error.message);
+            }
+        })();
+    </script>
+</body>
+</html>

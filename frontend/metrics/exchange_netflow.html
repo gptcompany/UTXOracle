@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Exchange Netflow | UTXOracle Metrics</title>
+    <meta name="description" content="Exchange Netflow - Track BTC flowing into and out of exchanges for supply/demand analysis">
+    <link rel="stylesheet" href="../css/metrics.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+</head>
+<body>
+    <div class="metrics-page">
+        <header class="metrics-header">
+            <h1><span class="btc-icon">&#8383;</span> Exchange Netflow</h1>
+            <div id="last-updated"></div>
+        </header>
+
+        <nav class="metrics-nav">
+            <a href="mvrv.html">MVRV</a>
+            <a href="nupl.html">NUPL</a>
+            <a href="sopr.html">SOPR</a>
+            <a href="cost_basis.html">Cost Basis</a>
+            <a href="hash_ribbons.html">Hash Ribbons</a>
+            <a href="binary_cdd.html">Binary CDD</a>
+            <a href="wallet_waves.html">Wallet Waves</a>
+            <a href="exchange_netflow.html" class="active">Exchange Netflow</a>
+        </nav>
+
+        <div id="info-boxes" class="info-boxes"></div>
+
+        <div id="chart" class="chart-container"></div>
+
+        <section class="legend-section">
+            <h3>Flow Interpretation</h3>
+            <div class="legend-items">
+                <div class="legend-item">
+                    <div class="legend-color profit"></div>
+                    <span>Outflow (negative) - Accumulation signal</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color capitulation"></div>
+                    <span>Inflow (positive) - Selling pressure</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #00d4ff;"></div>
+                    <span>Inflow - BTC entering exchanges</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ff6b6b;"></div>
+                    <span>Outflow - BTC leaving exchanges</span>
+                </div>
+            </div>
+        </section>
+
+        <footer class="metrics-footer">
+            <p>Data from UTXOracle API | Exchange flow analysis</p>
+        </footer>
+    </div>
+
+    <script src="../js/chart-themes.js"></script>
+    <script src="../js/metrics-common.js"></script>
+    <script>
+        (async function() {
+            const chartId = 'chart';
+            const infoId = 'info-boxes';
+
+            MetricsCommon.showLoading(chartId);
+
+            try {
+                // Fetch current exchange netflow data
+                const currentData = await MetricsCommon.fetchData('/api/metrics/exchange-netflow');
+
+                if (!currentData) {
+                    MetricsCommon.showNoData(chartId);
+                    return;
+                }
+
+                const inflow = currentData.exchange_inflow || 0;
+                const outflow = currentData.exchange_outflow || 0;
+                const netflow = currentData.netflow || (inflow - outflow);
+                const netflowUsd = currentData.inflow_usd - currentData.outflow_usd || 0;
+                const zone = currentData.zone || 'NEUTRAL';
+                // Note: exchange_balance_btc not available in API, using address_count as proxy
+                const exchangeAddressCount = currentData.address_count || 0;
+
+                // Determine signal
+                let signal = 'Neutral';
+                let signalColor = '#888888';
+                if (netflow < -100) {
+                    signal = 'Strong Outflow';
+                    signalColor = '#00ff88';
+                } else if (netflow < 0) {
+                    signal = 'Outflow';
+                    signalColor = '#88cc00';
+                } else if (netflow > 100) {
+                    signal = 'Strong Inflow';
+                    signalColor = '#ff4444';
+                } else if (netflow > 0) {
+                    signal = 'Inflow';
+                    signalColor = '#ff8844';
+                }
+
+                // Update info boxes
+                MetricsCommon.updateInfoBoxes(infoId, [
+                    { title: 'Net Flow', value: (netflow >= 0 ? '+' : '') + netflow.toFixed(2) + ' BTC', subtitle: signal },
+                    { title: 'Inflow', value: '+' + inflow.toFixed(2) + ' BTC', subtitle: 'To exchanges' },
+                    { title: 'Outflow', value: '-' + outflow.toFixed(2) + ' BTC', subtitle: 'From exchanges' },
+                    { title: 'Exchange Addresses', value: exchangeAddressCount.toString(), subtitle: 'Tracked addresses' }
+                ]);
+
+                // Update last-updated timestamp
+                document.getElementById('last-updated').textContent =
+                    'Updated: ' + MetricsCommon.formatDate(currentData.timestamp || new Date().toISOString());
+
+                // Try to fetch history
+                let historyData = [];
+                try {
+                    const historyResponse = await MetricsCommon.fetchData('/api/metrics/exchange-netflow/history', { days: 30 });
+                    // API returns { days: N, data: [...] }
+                    if (historyResponse && historyResponse.data) {
+                        historyData = historyResponse.data;
+                    }
+                } catch (histErr) {
+                    console.log('History not available:', histErr);
+                }
+
+                // Build traces
+                const traces = [];
+
+                if (historyData.length > 0) {
+                    // Historical bar chart for netflow
+                    // API fields: date, inflow, outflow, netflow (no _btc suffix)
+                    traces.push({
+                        x: historyData.map(d => d.date),
+                        y: historyData.map(d => d.netflow),
+                        type: 'bar',
+                        name: 'Net Flow',
+                        marker: {
+                            color: historyData.map(d => d.netflow >= 0 ? '#ff4444' : '#00ff88')
+                        },
+                        hovertemplate: '%{x}<br>Net Flow: %{y:.2f} BTC<extra></extra>'
+                    });
+
+                    // Add moving average line
+                    const maValues = [];
+                    const maPeriod = 7;
+                    for (let i = 0; i < historyData.length; i++) {
+                        if (i < maPeriod - 1) {
+                            maValues.push(null);
+                        } else {
+                            let sum = 0;
+                            for (let j = 0; j < maPeriod; j++) {
+                                sum += historyData[i - j].netflow;
+                            }
+                            maValues.push(sum / maPeriod);
+                        }
+                    }
+
+                    traces.push({
+                        x: historyData.map(d => d.date),
+                        y: maValues,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: '7d MA',
+                        line: { color: '#ffd93d', width: 2 }
+                    });
+                } else {
+                    // Current values as bar chart
+                    traces.push({
+                        x: ['Inflow', 'Outflow', 'Net Flow'],
+                        y: [inflow, -outflow, netflow],
+                        type: 'bar',
+                        marker: {
+                            color: ['#ff4444', '#00ff88', netflow >= 0 ? '#ff4444' : '#00ff88']
+                        },
+                        text: ['+' + inflow.toFixed(2), '-' + outflow.toFixed(2), (netflow >= 0 ? '+' : '') + netflow.toFixed(2)],
+                        textposition: 'outside',
+                        textfont: { color: '#e0e0e0' },
+                        hovertemplate: '%{x}: %{y:.2f} BTC<extra></extra>'
+                    });
+                }
+
+                // Build layout
+                const layout = ChartThemes.getLayout('Exchange Net Flow', 'BTC', {
+                    showlegend: historyData.length > 0,
+                    yaxis: {
+                        ...ChartThemes.dark.layout.yaxis,
+                        title: 'Net Flow (BTC)',
+                        zeroline: true,
+                        zerolinecolor: '#ffffff',
+                        zerolinewidth: 2
+                    },
+                    bargap: 0.2
+                });
+
+                // Add reference line at zero
+                layout.shapes = [{
+                    type: 'line',
+                    xref: 'paper',
+                    yref: 'y',
+                    x0: 0,
+                    x1: 1,
+                    y0: 0,
+                    y1: 0,
+                    line: { color: '#ffffff', width: 1, dash: 'dash' }
+                }];
+
+                // Render chart
+                MetricsCommon.render(chartId, traces, layout);
+
+            } catch (error) {
+                console.error('Error loading Exchange Netflow data:', error);
+                MetricsCommon.showError(chartId, error.message);
+            }
+        })();
+    </script>
+</body>
+</html>

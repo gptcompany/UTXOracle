@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SOPR | UTXOracle Metrics</title>
+    <meta name="description" content="Spent Output Profit Ratio - Track whether coins are moving at profit or loss">
+    <link rel="stylesheet" href="../css/metrics.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+</head>
+<body>
+    <div class="metrics-page">
+        <header class="metrics-header">
+            <h1><span class="btc-icon">&#8383;</span> SOPR</h1>
+            <div id="last-updated"></div>
+        </header>
+
+        <nav class="metrics-nav">
+            <a href="mvrv.html">MVRV</a>
+            <a href="nupl.html">NUPL</a>
+            <a href="sopr.html" class="active">SOPR</a>
+            <a href="cost_basis.html">Cost Basis</a>
+            <a href="hash_ribbons.html">Hash Ribbons</a>
+            <a href="binary_cdd.html">Binary CDD</a>
+            <a href="wallet_waves.html">Wallet Waves</a>
+            <a href="exchange_netflow.html">Exchange Netflow</a>
+        </nav>
+
+        <div id="info-boxes" class="info-boxes"></div>
+
+        <div id="chart" class="chart-container"></div>
+
+        <section class="legend-section">
+            <h3>Profit/Loss Zones</h3>
+            <div class="legend-items">
+                <div class="legend-item">
+                    <div class="legend-color loss"></div>
+                    <span>Loss (&lt;1) - Coins sold at loss</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color profit"></div>
+                    <span>Profit (&gt;1) - Coins sold at profit</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ffffff;"></div>
+                    <span>Break-even (=1) - Reference line</span>
+                </div>
+            </div>
+        </section>
+
+        <footer class="metrics-footer">
+            <p>Data from UTXOracle API | Visual comparison: <a href="https://charts.checkonchain.com/btconchain/realised/sopr/sopr_light.html" target="_blank">CheckOnChain SOPR</a></p>
+        </footer>
+    </div>
+
+    <script src="../js/chart-themes.js"></script>
+    <script src="../js/metrics-common.js"></script>
+    <script>
+        (async function() {
+            const chartId = 'chart';
+            const infoId = 'info-boxes';
+
+            MetricsCommon.showLoading(chartId);
+
+            try {
+                // Fetch current P/L ratio data (similar to SOPR concept)
+                const currentData = await MetricsCommon.fetchData('/api/metrics/pl-ratio');
+
+                if (!currentData) {
+                    MetricsCommon.showNoData(chartId);
+                    return;
+                }
+
+                // API fields: pl_ratio, dominance_zone, pl_dominance, profit_dominant, realized_profit_usd, realized_loss_usd
+                const plRatio = currentData.pl_ratio || 1.0;
+                const zone = currentData.dominance_zone || 'NEUTRAL';
+                const profitDominant = currentData.profit_dominant || false;
+                const realizedProfit = currentData.realized_profit_usd || 0;
+                const realizedLoss = currentData.realized_loss_usd || 0;
+                const netPnL = realizedProfit - realizedLoss;
+
+                // Update info boxes
+                MetricsCommon.updateInfoBoxes(infoId, [
+                    { title: 'P/L Ratio', value: plRatio.toFixed(3), subtitle: 'Profit/Loss Ratio' },
+                    { title: 'Zone', value: zone.replace('_', ' '), subtitle: profitDominant ? 'Profit Dominant' : 'Loss Dominant' },
+                    { title: 'Realized Profit', value: '$' + MetricsCommon.formatNumber(realizedProfit), subtitle: 'Total profit USD' },
+                    { title: 'Realized Loss', value: '$' + MetricsCommon.formatNumber(realizedLoss), subtitle: 'Total loss USD' }
+                ]);
+
+                // Update last-updated timestamp
+                document.getElementById('last-updated').textContent =
+                    'Updated: ' + MetricsCommon.formatDate(currentData.timestamp || new Date().toISOString());
+
+                // Try to fetch history
+                let historyData = [];
+                try {
+                    const historyResponse = await MetricsCommon.fetchData('/api/metrics/pl-ratio/history', { days: 30 });
+                    if (historyResponse && historyResponse.history) {
+                        historyData = historyResponse.history;
+                    }
+                } catch (histErr) {
+                    console.log('History not available:', histErr);
+                }
+
+                // Build traces
+                const traces = [];
+
+                if (historyData.length > 0) {
+                    // Plot historical P/L ratio
+                    traces.push({
+                        x: historyData.map(d => d.date),
+                        y: historyData.map(d => d.pl_ratio),
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'P/L Ratio',
+                        line: { color: ChartThemes.lines.primary, width: 2 },
+                        fill: 'tozeroy',
+                        fillcolor: 'rgba(0, 212, 255, 0.1)',
+                        hovertemplate: 'P/L Ratio: %{y:.3f}<extra></extra>'
+                    });
+                } else {
+                    // Show current value as single point
+                    traces.push({
+                        x: [currentData.timestamp || new Date().toISOString()],
+                        y: [plRatio],
+                        type: 'scatter',
+                        mode: 'markers+text',
+                        name: 'Current P/L Ratio',
+                        marker: { size: 20, color: plRatio >= 1 ? '#00ff88' : '#ff4444' },
+                        text: [plRatio.toFixed(3)],
+                        textposition: 'top center',
+                        textfont: { color: '#e0e0e0', size: 14 },
+                        hovertemplate: 'P/L Ratio: %{y:.3f}<extra></extra>'
+                    });
+                }
+
+                // Build layout
+                const yMin = historyData.length > 0
+                    ? Math.min(...historyData.map(d => d.pl_ratio), 0.5)
+                    : Math.min(0.5, plRatio - 0.2);
+                const yMax = historyData.length > 0
+                    ? Math.max(...historyData.map(d => d.pl_ratio), 1.5)
+                    : Math.max(1.5, plRatio + 0.2);
+
+                const layout = ChartThemes.getLayout('SOPR / P/L Ratio', 'Ratio', {
+                    showlegend: historyData.length > 0,
+                    yaxis: {
+                        ...ChartThemes.dark.layout.yaxis,
+                        title: 'P/L Ratio',
+                        range: [yMin, yMax]
+                    }
+                });
+
+                // Add SOPR zone coloring and reference line at 1.0
+                MetricsCommon.addZoneColoring(layout, 'sopr', yMin, yMax);
+                MetricsCommon.addReferenceLine(layout, 1.0, '#ffffff', 'Break-even');
+
+                // Render chart
+                MetricsCommon.render(chartId, traces, layout);
+
+            } catch (error) {
+                console.error('Error loading SOPR data:', error);
+                MetricsCommon.showError(chartId, error.message);
+            }
+        })();
+    </script>
+</body>
+</html>

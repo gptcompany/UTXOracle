@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MVRV-Z Score | UTXOracle Metrics</title>
+    <meta name="description" content="MVRV-Z Score indicator - Market Value to Realized Value ratio with zone coloring for identifying overbought/oversold conditions">
+    <link rel="stylesheet" href="../css/metrics.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+</head>
+<body>
+    <div class="metrics-page">
+        <header class="metrics-header">
+            <h1><span class="btc-icon">&#8383;</span> MVRV-Z Score</h1>
+            <div id="last-updated"></div>
+        </header>
+
+        <nav class="metrics-nav">
+            <a href="mvrv.html" class="active">MVRV</a>
+            <a href="nupl.html">NUPL</a>
+            <a href="sopr.html">SOPR</a>
+            <a href="cost_basis.html">Cost Basis</a>
+            <a href="hash_ribbons.html">Hash Ribbons</a>
+            <a href="binary_cdd.html">Binary CDD</a>
+            <a href="wallet_waves.html">Wallet Waves</a>
+            <a href="exchange_netflow.html">Exchange Netflow</a>
+        </nav>
+
+        <div id="info-boxes" class="info-boxes"></div>
+
+        <div id="chart" class="chart-container"></div>
+
+        <section class="legend-section">
+            <h3>Zone Legend</h3>
+            <div class="legend-items">
+                <div class="legend-item">
+                    <div class="legend-color extreme-low"></div>
+                    <span>Extreme Low (&lt;0) - Undervalued</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color neutral"></div>
+                    <span>Neutral (0-3) - Fair Value</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color elevated"></div>
+                    <span>Elevated (3-7) - Overvalued</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color extreme-high"></div>
+                    <span>Extreme High (&gt;7) - Bubble Territory</span>
+                </div>
+            </div>
+        </section>
+
+        <footer class="metrics-footer">
+            <p>Data from UTXOracle API | Visual comparison: <a href="https://charts.checkonchain.com/btconchain/unrealised/mvrv_all/mvrv_all_light.html" target="_blank">CheckOnChain MVRV</a></p>
+        </footer>
+    </div>
+
+    <script src="../js/chart-themes.js"></script>
+    <script src="../js/metrics-common.js"></script>
+    <script>
+        (async function() {
+            const chartId = 'chart';
+            const infoId = 'info-boxes';
+
+            MetricsCommon.showLoading(chartId);
+
+            try {
+                // Fetch current MVRV data from reserve-risk endpoint (has mvrv field)
+                const currentData = await MetricsCommon.fetchData('/api/metrics/reserve-risk');
+
+                if (!currentData) {
+                    MetricsCommon.showNoData(chartId);
+                    return;
+                }
+
+                // Update info boxes with current values
+                const mvrv = currentData.mvrv || 0;
+                const price = currentData.current_price_usd || 0;
+                const zone = currentData.signal_zone || 'UNKNOWN';
+
+                MetricsCommon.updateInfoBoxes(infoId, [
+                    { title: 'MVRV Ratio', value: mvrv.toFixed(2), subtitle: 'Market/Realized Value' },
+                    { title: 'BTC Price', value: '$' + price.toLocaleString(), subtitle: 'Current Price' },
+                    { title: 'Signal Zone', value: zone.replace('_', ' '), subtitle: 'Market Condition' },
+                    { title: 'Reserve Risk', value: (currentData.reserve_risk || 0).toFixed(4), subtitle: 'Confidence Metric' }
+                ]);
+
+                // Update last-updated timestamp
+                document.getElementById('last-updated').textContent =
+                    'Updated: ' + MetricsCommon.formatDate(currentData.timestamp || new Date().toISOString());
+
+                // Try to fetch historical data from wasserstein/history for chart
+                let historyData = [];
+                try {
+                    const historyResponse = await MetricsCommon.fetchData('/api/metrics/wasserstein/history', { hours: 168 });
+                    if (historyResponse && historyResponse.data) {
+                        historyData = historyResponse.data;
+                    }
+                } catch (histErr) {
+                    console.log('History not available, showing current value only');
+                }
+
+                // Build chart traces
+                const traces = [];
+
+                if (historyData.length > 0) {
+                    // Plot wasserstein distance as proxy metric (trending indicator)
+                    traces.push({
+                        x: historyData.map(d => d.timestamp),
+                        y: historyData.map(d => d.distance),
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'Wasserstein Distance',
+                        line: { color: ChartThemes.lines.primary, width: 2 },
+                        hovertemplate: '%{y:.4f}<extra>Distance</extra>'
+                    });
+                } else {
+                    // Show current MVRV as single point
+                    traces.push({
+                        x: [currentData.timestamp || new Date().toISOString()],
+                        y: [mvrv],
+                        type: 'scatter',
+                        mode: 'markers+text',
+                        name: 'Current MVRV',
+                        marker: { size: 15, color: ChartThemes.lines.primary },
+                        text: [mvrv.toFixed(2)],
+                        textposition: 'top center',
+                        hovertemplate: '%{y:.2f}<extra>MVRV</extra>'
+                    });
+                }
+
+                // Build layout with zone coloring
+                const layout = ChartThemes.getLayout('MVRV-Z Score', 'Value', {
+                    showlegend: true,
+                    yaxis: {
+                        ...ChartThemes.dark.layout.yaxis,
+                        title: historyData.length > 0 ? 'Wasserstein Distance' : 'MVRV Ratio',
+                        zeroline: true,
+                        zerolinecolor: '#ffffff',
+                        zerolinewidth: 1
+                    }
+                });
+
+                // Add zone coloring if showing MVRV
+                if (historyData.length === 0) {
+                    const yRange = { min: Math.min(0, mvrv - 1), max: Math.max(8, mvrv + 1) };
+                    MetricsCommon.addZoneColoring(layout, 'mvrv', yRange.min, yRange.max);
+                }
+
+                // Render chart
+                MetricsCommon.render(chartId, traces, layout);
+
+            } catch (error) {
+                console.error('Error loading MVRV data:', error);
+                MetricsCommon.showError(chartId, error.message);
+            }
+        })();
+    </script>
+</body>
+</html>

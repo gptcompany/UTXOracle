@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hash Ribbons | UTXOracle Metrics</title>
+    <meta name="description" content="Hash Ribbons indicator - Track miner capitulation and buy signals from hash rate moving averages">
+    <link rel="stylesheet" href="../css/metrics.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+</head>
+<body>
+    <div class="metrics-page">
+        <header class="metrics-header">
+            <h1><span class="btc-icon">&#8383;</span> Hash Ribbons</h1>
+            <div id="last-updated"></div>
+        </header>
+
+        <nav class="metrics-nav">
+            <a href="mvrv.html">MVRV</a>
+            <a href="nupl.html">NUPL</a>
+            <a href="sopr.html">SOPR</a>
+            <a href="cost_basis.html">Cost Basis</a>
+            <a href="hash_ribbons.html" class="active">Hash Ribbons</a>
+            <a href="binary_cdd.html">Binary CDD</a>
+            <a href="wallet_waves.html">Wallet Waves</a>
+            <a href="exchange_netflow.html">Exchange Netflow</a>
+        </nav>
+
+        <div id="info-boxes" class="info-boxes"></div>
+
+        <div id="chart" class="chart-container"></div>
+
+        <section class="legend-section">
+            <h3>Signal Legend</h3>
+            <div class="legend-items">
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #00d4ff;"></div>
+                    <span>30-day Hash Rate MA</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ff6b6b;"></div>
+                    <span>60-day Hash Rate MA</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color capitulation"></div>
+                    <span>Miner Capitulation Zone</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color profit"></div>
+                    <span>Recovery/Buy Signal</span>
+                </div>
+            </div>
+        </section>
+
+        <footer class="metrics-footer">
+            <p>Data from UTXOracle API | Visual comparison: <a href="https://charts.checkonchain.com/btconchain/mining/hashribbons/hashribbons_light.html" target="_blank">CheckOnChain Hash Ribbons</a></p>
+        </footer>
+    </div>
+
+    <script src="../js/chart-themes.js"></script>
+    <script src="../js/metrics-common.js"></script>
+    <script>
+        (async function() {
+            const chartId = 'chart';
+            const infoId = 'info-boxes';
+
+            MetricsCommon.showLoading(chartId);
+
+            try {
+                // Fetch current hash ribbons data
+                const currentData = await MetricsCommon.fetchData('/api/metrics/hash-ribbons');
+
+                if (!currentData) {
+                    MetricsCommon.showNoData(chartId);
+                    return;
+                }
+
+                // API field names: hashrate_ma_30d, hashrate_ma_60d, ribbon_signal, recovery_signal, capitulation_days
+                const ma30 = currentData.hashrate_ma_30d || 0;
+                const ma60 = currentData.hashrate_ma_60d || 0;
+                const capitulation = currentData.ribbon_signal || false;  // ribbon_signal = true when 30d < 60d (stress)
+                const buySignal = currentData.recovery_signal || false;
+                const capitulationDays = currentData.capitulation_days || 0;
+
+                // Determine signal status
+                let signalStatus = 'Neutral';
+                let signalColor = '#888888';
+                if (capitulation) {
+                    signalStatus = 'CAPITULATION';
+                    signalColor = '#ff4444';
+                } else if (buySignal) {
+                    signalStatus = 'BUY SIGNAL';
+                    signalColor = '#00ff88';
+                } else if (ma30 > ma60) {
+                    signalStatus = 'Bullish';
+                    signalColor = '#00d4ff';
+                }
+
+                // Update info boxes
+                MetricsCommon.updateInfoBoxes(infoId, [
+                    { title: '30d MA', value: MetricsCommon.formatNumber(ma30) + ' EH/s', subtitle: 'Short-term trend' },
+                    { title: '60d MA', value: MetricsCommon.formatNumber(ma60) + ' EH/s', subtitle: 'Long-term trend' },
+                    { title: 'Signal', value: signalStatus, subtitle: capitulation ? 'Miners underwater' : (buySignal ? 'Recovery confirmed' : 'Normal') },
+                    { title: 'Capitulation Days', value: capitulationDays.toString(), subtitle: 'Days in stress state' }
+                ]);
+
+                // Update last-updated timestamp
+                document.getElementById('last-updated').textContent =
+                    'Updated: ' + MetricsCommon.formatDate(currentData.timestamp || new Date().toISOString());
+
+                // Note: Mining economics history API returns signals, not hash rate values
+                // So we display current values as bar chart and historical signals as timeline if needed
+
+                // Build traces - show current values as bar chart
+                const traces = [];
+                traces.push({
+                    x: ['30d MA', '60d MA'],
+                    y: [ma30, ma60],
+                    type: 'bar',
+                    marker: {
+                        color: [ChartThemes.lines.ma30, ChartThemes.lines.ma60]
+                    },
+                    text: [MetricsCommon.formatNumber(ma30), MetricsCommon.formatNumber(ma60)],
+                    textposition: 'outside',
+                    textfont: { color: '#e0e0e0' },
+                    hovertemplate: '%{x}: %{y:.2f} EH/s<extra></extra>'
+                });
+
+                // Build layout
+                const layout = ChartThemes.getLayout('Hash Ribbons', 'Hash Rate (EH/s)', {
+                    showlegend: false,
+                    yaxis: {
+                        ...ChartThemes.dark.layout.yaxis,
+                        title: 'Hash Rate (EH/s)'
+                    },
+                    xaxis: {
+                        ...ChartThemes.dark.layout.xaxis,
+                        type: 'category'
+                    }
+                });
+
+                // Add capitulation zone annotation if active
+                if (capitulation) {
+                    layout.annotations = [{
+                        x: 0.5,
+                        y: 1.05,
+                        xref: 'paper',
+                        yref: 'paper',
+                        text: 'MINER CAPITULATION ACTIVE',
+                        showarrow: false,
+                        font: { color: '#ff4444', size: 14, weight: 'bold' },
+                        bgcolor: 'rgba(255, 68, 68, 0.2)',
+                        bordercolor: '#ff4444',
+                        borderwidth: 1,
+                        borderpad: 8
+                    }];
+                } else if (buySignal) {
+                    layout.annotations = [{
+                        x: 0.5,
+                        y: 1.05,
+                        xref: 'paper',
+                        yref: 'paper',
+                        text: 'HASH RIBBON BUY SIGNAL',
+                        showarrow: false,
+                        font: { color: '#00ff88', size: 14, weight: 'bold' },
+                        bgcolor: 'rgba(0, 255, 136, 0.2)',
+                        bordercolor: '#00ff88',
+                        borderwidth: 1,
+                        borderpad: 8
+                    }];
+                }
+
+                // Render chart
+                MetricsCommon.render(chartId, traces, layout);
+
+            } catch (error) {
+                console.error('Error loading Hash Ribbons data:', error);
+                MetricsCommon.showError(chartId, error.message);
+            }
+        })();
+    </script>
+</body>
+</html>

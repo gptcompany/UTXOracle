@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wallet Waves | UTXOracle Metrics</title>
+    <meta name="description" content="Wallet Waves - UTXO age distribution showing supply held by different age cohorts">
+    <link rel="stylesheet" href="../css/metrics.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+</head>
+<body>
+    <div class="metrics-page">
+        <header class="metrics-header">
+            <h1><span class="btc-icon">&#8383;</span> Wallet Waves</h1>
+            <div id="last-updated"></div>
+        </header>
+
+        <nav class="metrics-nav">
+            <a href="mvrv.html">MVRV</a>
+            <a href="nupl.html">NUPL</a>
+            <a href="sopr.html">SOPR</a>
+            <a href="cost_basis.html">Cost Basis</a>
+            <a href="hash_ribbons.html">Hash Ribbons</a>
+            <a href="binary_cdd.html">Binary CDD</a>
+            <a href="wallet_waves.html" class="active">Wallet Waves</a>
+            <a href="exchange_netflow.html">Exchange Netflow</a>
+        </nav>
+
+        <div id="info-boxes" class="info-boxes"></div>
+
+        <div id="chart" class="chart-container"></div>
+
+        <section class="legend-section">
+            <h3>Age Cohorts</h3>
+            <div class="legend-items">
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ff4444;"></div>
+                    <span>0-1 day - Very recent</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ff8844;"></div>
+                    <span>1d-1w - Recent</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ffcc00;"></div>
+                    <span>1w-1m - Short-term</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #88cc00;"></div>
+                    <span>1m-3m - Medium-term</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #00cc88;"></div>
+                    <span>3m-6m - Long-term</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #0088cc;"></div>
+                    <span>6m+ - Diamond hands</span>
+                </div>
+            </div>
+        </section>
+
+        <footer class="metrics-footer">
+            <p>Data from UTXOracle API | UTXO age distribution analysis</p>
+        </footer>
+    </div>
+
+    <script src="../js/chart-themes.js"></script>
+    <script src="../js/metrics-common.js"></script>
+    <script>
+        (async function() {
+            const chartId = 'chart';
+            const infoId = 'info-boxes';
+
+            MetricsCommon.showLoading(chartId);
+
+            try {
+                // Fetch current wallet waves data
+                const currentData = await MetricsCommon.fetchData('/api/metrics/wallet-waves');
+
+                if (!currentData) {
+                    MetricsCommon.showNoData(chartId);
+                    return;
+                }
+
+                const bands = currentData.bands || [];
+                const totalSupply = currentData.total_supply_btc || 0;
+                // API returns percentages directly: retail_supply_pct, institutional_supply_pct
+                const retailPct = currentData.retail_supply_pct || 0;
+                const institutionalPct = currentData.institutional_supply_pct || 0;
+
+                // These are already percentages from the API
+                const retailBtc = totalSupply * (retailPct / 100);
+                const institutionalBtc = totalSupply * (institutionalPct / 100);
+
+                // Update info boxes
+                MetricsCommon.updateInfoBoxes(infoId, [
+                    { title: 'Total Supply', value: MetricsCommon.formatNumber(totalSupply) + ' BTC', subtitle: 'Circulating' },
+                    { title: 'Retail Supply', value: retailPct.toFixed(1) + '%', subtitle: MetricsCommon.formatNumber(retailBtc) + ' BTC' },
+                    { title: 'Institutional', value: institutionalPct.toFixed(1) + '%', subtitle: MetricsCommon.formatNumber(institutionalBtc) + ' BTC' },
+                    { title: 'Wallet Bands', value: bands.length.toString(), subtitle: 'Size cohorts' }
+                ]);
+
+                // Update last-updated timestamp
+                document.getElementById('last-updated').textContent =
+                    'Updated: ' + MetricsCommon.formatDate(currentData.timestamp || new Date().toISOString());
+
+                // Color palette for age bands (from youngest to oldest)
+                const colors = [
+                    '#ff4444', '#ff6644', '#ff8844', '#ffaa44',
+                    '#ffcc00', '#cccc00', '#88cc00', '#44cc44',
+                    '#00cc88', '#00cccc', '#0088cc', '#4444cc'
+                ];
+
+                // Build pie chart for current distribution
+                const traces = [{
+                    values: bands.map(b => b.supply_btc || b.percentage || 0),
+                    labels: bands.map(b => b.age_range || b.band || 'Unknown'),
+                    type: 'pie',
+                    marker: {
+                        colors: colors.slice(0, bands.length)
+                    },
+                    textinfo: 'label+percent',
+                    textfont: { color: '#e0e0e0' },
+                    hovertemplate: '%{label}<br>%{value:.2f} BTC<br>%{percent}<extra></extra>',
+                    hole: 0.4
+                }];
+
+                // Build layout
+                const layout = {
+                    ...ChartThemes.dark.layout,
+                    title: {
+                        text: 'Wallet Size Distribution',
+                        font: { size: 18, color: '#e0e0e0' }
+                    },
+                    showlegend: true,
+                    legend: {
+                        ...ChartThemes.dark.layout.legend,
+                        orientation: 'v',
+                        x: 1.05,
+                        y: 0.5
+                    },
+                    margin: { l: 40, r: 150, t: 60, b: 40 },
+                    annotations: [{
+                        text: 'Wallet<br>Distribution',
+                        x: 0.5,
+                        y: 0.5,
+                        font: { size: 14, color: '#e0e0e0' },
+                        showarrow: false
+                    }]
+                };
+
+                // Render chart
+                MetricsCommon.render(chartId, traces, layout);
+
+            } catch (error) {
+                console.error('Error loading Wallet Waves data:', error);
+                MetricsCommon.showError(chartId, error.message);
+            }
+        })();
+    </script>
+</body>
+</html>

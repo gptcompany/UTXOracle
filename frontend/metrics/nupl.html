@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NUPL Oscillator | UTXOracle Metrics</title>
+    <meta name="description" content="Net Unrealized Profit/Loss oscillator - Identify market cycle phases from capitulation to euphoria">
+    <link rel="stylesheet" href="../css/metrics.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+</head>
+<body>
+    <div class="metrics-page">
+        <header class="metrics-header">
+            <h1><span class="btc-icon">&#8383;</span> NUPL Oscillator</h1>
+            <div id="last-updated"></div>
+        </header>
+
+        <nav class="metrics-nav">
+            <a href="mvrv.html">MVRV</a>
+            <a href="nupl.html" class="active">NUPL</a>
+            <a href="sopr.html">SOPR</a>
+            <a href="cost_basis.html">Cost Basis</a>
+            <a href="hash_ribbons.html">Hash Ribbons</a>
+            <a href="binary_cdd.html">Binary CDD</a>
+            <a href="wallet_waves.html">Wallet Waves</a>
+            <a href="exchange_netflow.html">Exchange Netflow</a>
+        </nav>
+
+        <div id="info-boxes" class="info-boxes"></div>
+
+        <div id="chart" class="chart-container"></div>
+
+        <section class="legend-section">
+            <h3>Market Cycle Zones</h3>
+            <div class="legend-items">
+                <div class="legend-item">
+                    <div class="legend-color capitulation"></div>
+                    <span>Capitulation (&lt;0) - Extreme Fear</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color hope"></div>
+                    <span>Hope (0-0.25) - Recovery</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color optimism"></div>
+                    <span>Optimism (0.25-0.5) - Bull Building</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color belief"></div>
+                    <span>Belief (0.5-0.75) - Strong Conviction</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color euphoria"></div>
+                    <span>Euphoria (&gt;0.75) - Cycle Top Risk</span>
+                </div>
+            </div>
+        </section>
+
+        <footer class="metrics-footer">
+            <p>Data from UTXOracle API | Visual comparison: <a href="https://charts.checkonchain.com/btconchain/unrealised/nupl/nupl_light.html" target="_blank">CheckOnChain NUPL</a></p>
+        </footer>
+    </div>
+
+    <script src="../js/chart-themes.js"></script>
+    <script src="../js/metrics-common.js"></script>
+    <script>
+        (async function() {
+            const chartId = 'chart';
+            const infoId = 'info-boxes';
+
+            MetricsCommon.showLoading(chartId);
+
+            try {
+                // Fetch current NUPL data
+                const currentData = await MetricsCommon.fetchData('/api/metrics/nupl');
+
+                if (!currentData) {
+                    MetricsCommon.showNoData(chartId);
+                    return;
+                }
+
+                // Update info boxes with current values
+                const nupl = currentData.nupl || 0;
+                const zone = currentData.zone || 'UNKNOWN';
+                const pctProfit = currentData.pct_supply_in_profit || 0;
+                const marketCap = currentData.market_cap_usd || 0;
+                const realizedCap = currentData.realized_cap_usd || 0;
+
+                MetricsCommon.updateInfoBoxes(infoId, [
+                    { title: 'NUPL', value: nupl.toFixed(3), subtitle: 'Net Unrealized P/L' },
+                    { title: 'Zone', value: zone.replace('_', ' '), subtitle: 'Market Phase' },
+                    { title: 'Supply in Profit', value: (pctProfit * 100).toFixed(1) + '%', subtitle: 'Profitable UTXOs' },
+                    { title: 'Market Cap', value: '$' + MetricsCommon.formatNumber(marketCap), subtitle: 'Current Valuation' }
+                ]);
+
+                // Update last-updated timestamp
+                document.getElementById('last-updated').textContent =
+                    'Updated: ' + MetricsCommon.formatDate(currentData.timestamp || new Date().toISOString());
+
+                // Build chart - show current value with zone coloring
+                const traces = [{
+                    x: [currentData.timestamp || new Date().toISOString()],
+                    y: [nupl],
+                    type: 'scatter',
+                    mode: 'markers+text',
+                    name: 'Current NUPL',
+                    marker: { size: 20, color: ChartThemes.lines.primary },
+                    text: [nupl.toFixed(3)],
+                    textposition: 'top center',
+                    textfont: { color: '#e0e0e0', size: 14 },
+                    hovertemplate: 'NUPL: %{y:.3f}<extra></extra>'
+                }];
+
+                // Build layout with zone coloring
+                const yMin = Math.min(-0.5, nupl - 0.2);
+                const yMax = Math.max(1.0, nupl + 0.2);
+
+                const layout = ChartThemes.getLayout('NUPL Oscillator', 'NUPL Value', {
+                    showlegend: false,
+                    yaxis: {
+                        ...ChartThemes.dark.layout.yaxis,
+                        title: 'NUPL',
+                        range: [yMin, yMax],
+                        zeroline: true,
+                        zerolinecolor: '#ffffff',
+                        zerolinewidth: 2
+                    }
+                });
+
+                // Add NUPL zone coloring
+                MetricsCommon.addZoneColoring(layout, 'nupl', yMin, yMax);
+
+                // Render chart
+                MetricsCommon.render(chartId, traces, layout);
+
+            } catch (error) {
+                console.error('Error loading NUPL data:', error);
+                MetricsCommon.showError(chartId, error.message);
+            }
+        })();
+    </script>
+</body>
+</html>
