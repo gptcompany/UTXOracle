@@ -206,9 +206,19 @@ class MetricValidator:
         """Run all validations."""
         self.results = []
 
-        self.validate_mvrv()
-        self.validate_nupl()
-        self.validate_hash_ribbons()
+        # Capture returned results (especially ERROR cases not added via compare())
+        mvrv_result = self.validate_mvrv()
+        if mvrv_result not in self.results:
+            self.results.append(mvrv_result)
+
+        nupl_result = self.validate_nupl()
+        if nupl_result not in self.results:
+            self.results.append(nupl_result)
+
+        hash_results = self.validate_hash_ribbons()
+        for result in hash_results:
+            if result not in self.results:
+                self.results.append(result)
 
         return self.results
 
