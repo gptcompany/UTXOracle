@@ -90,12 +90,12 @@ class TestMetricValidatorCompare:
         validator = MetricValidator(baselines_dir=baselines_dir)
 
         result = validator.compare(
-            metric="sopr",  # Default tolerance is 1.0%
+            metric="sopr",  # Default tolerance is 2.0% (TOLERANCES["sopr"])
             our_value=1.005,
             reference_value=1.00,
         )
 
-        assert result.tolerance_pct == 1.0
+        assert result.tolerance_pct == 2.0
 
     def test_compare_handles_zero_reference(self, baselines_dir: Path):
         """compare() handles zero reference value correctly."""
@@ -133,19 +133,24 @@ class TestMetricValidatorValidateMvrv:
     """Tests for MetricValidator.validate_mvrv() method."""
 
     def test_validate_mvrv_success(self, baselines_dir: Path, mock_api_response: dict):
-        """validate_mvrv() successfully compares API with baseline."""
+        """validate_mvrv() successfully compares API with baseline.
+
+        Note: We compare MVRV ratio (not Z-score) since that's what CheckOnChain provides.
+        The metric name is "mvrv" (not "mvrv_z").
+        """
         validator = MetricValidator(
             api_base_url="http://localhost:8000", baselines_dir=baselines_dir
         )
 
         with patch.object(validator, "fetch_our_value") as mock_fetch:
-            mock_fetch.return_value = mock_api_response["mvrv"]
+            # Return mvrv key (not mvrv_z_score) to match what validate_mvrv expects
+            mock_fetch.return_value = {"mvrv": 1.55}
             result = validator.validate_mvrv()
 
-        assert result.metric == "mvrv_z"
-        assert result.our_value == 1.45
-        # Reference value from sample_mvrv_baseline fixture
-        assert result.reference_value == 1.45
+        assert result.metric == "mvrv"
+        assert result.our_value == 1.55
+        # Reference value from sample_mvrv_baseline fixture (mvrv_value)
+        assert result.reference_value == 1.55
         assert result.status == "PASS"
 
     def test_validate_mvrv_api_error(self, baselines_dir: Path):
@@ -227,7 +232,12 @@ class TestMetricValidatorValidateNupl:
     """Tests for MetricValidator.validate_nupl() method."""
 
     def test_validate_nupl_success(self, baselines_dir: Path, mock_api_response: dict):
-        """validate_nupl() successfully compares API with baseline."""
+        """validate_nupl() successfully compares API with baseline.
+
+        Note: NUPL has a known definitional difference (UTXO-level vs wallet-level
+        Realized Cap), so it always returns KNOWN_DIFF status. This is intentional
+        until spec-013 Phase 9 (wallet-level cost basis) is implemented.
+        """
         validator = MetricValidator(
             api_base_url="http://localhost:8000", baselines_dir=baselines_dir
         )
@@ -238,7 +248,8 @@ class TestMetricValidatorValidateNupl:
 
         assert result.metric == "nupl"
         assert result.our_value == 0.52
-        assert result.status == "PASS"
+        assert result.status == "KNOWN_DIFF"
+        assert "UTXO-level vs wallet-level" in result.notes
 
     def test_validate_nupl_api_error(self, baselines_dir: Path):
         """validate_nupl() returns ERROR on API failure."""

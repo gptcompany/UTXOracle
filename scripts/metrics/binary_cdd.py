@@ -77,21 +77,23 @@ def calculate_binary_cdd(
 
     # Calculate window cutoff (using Python datetime for parameter binding)
     window_cutoff = datetime.utcnow() - timedelta(days=window_days)
+    # Convert to Unix epoch (spent_timestamp is stored as BIGINT seconds)
+    window_cutoff_epoch = int(window_cutoff.timestamp())
 
     # Query: Get daily CDD values for the lookback window
     daily_cdd_query = """
         SELECT
-            DATE(spent_timestamp) AS spend_date,
+            DATE(to_timestamp(spent_timestamp)) AS spend_date,
             SUM(COALESCE(age_days, 0) * btc_value) AS daily_cdd
         FROM utxo_lifecycle_full
         WHERE is_spent = TRUE
           AND spent_timestamp >= ?
-        GROUP BY DATE(spent_timestamp)
+        GROUP BY DATE(to_timestamp(spent_timestamp))
         ORDER BY spend_date
     """
 
     try:
-        daily_data = conn.execute(daily_cdd_query, [window_cutoff]).fetchall()
+        daily_data = conn.execute(daily_cdd_query, [window_cutoff_epoch]).fetchall()
     except Exception as e:
         logger.error(f"Error querying daily CDD: {e}")
         # Return insufficient data result on error

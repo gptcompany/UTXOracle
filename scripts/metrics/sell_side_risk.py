@@ -69,6 +69,8 @@ def calculate_sell_side_risk(
 
     # Calculate window cutoff
     window_cutoff = datetime.utcnow() - timedelta(days=window_days)
+    # Convert to Unix epoch (spent_timestamp is stored as BIGINT seconds)
+    window_cutoff_epoch = int(window_cutoff.timestamp())
 
     # Query: Get realized P/L for UTXOs spent in window
     pnl_query = """
@@ -89,7 +91,7 @@ def calculate_sell_side_risk(
           AND spent_timestamp >= ?
     """
 
-    result = conn.execute(pnl_query, [window_cutoff]).fetchone()
+    result = conn.execute(pnl_query, [window_cutoff_epoch]).fetchone()
 
     realized_profit = float(result[0]) if result else 0.0
     realized_loss = float(result[1]) if result else 0.0

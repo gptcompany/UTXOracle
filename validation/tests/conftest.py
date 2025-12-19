@@ -61,7 +61,7 @@ def sample_nupl_baseline(tmp_path: Path) -> Path:
         "metric": "nupl",
         "source": "charts.checkonchain.com",
         "captured_at": "2025-12-19T10:00:00+00:00",
-        "current": {"nupl": 0.52, "zone": "belief"},
+        "current": {"nupl_value": 0.52, "zone": "belief"},
         "source_url": "https://charts.checkonchain.com/btconchain/unrealised/nupl/nupl_light.html",
         "visual_url": "https://charts.checkonchain.com/btconchain/unrealised/nupl/nupl_light.html",
     }

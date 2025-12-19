@@ -38,11 +38,11 @@ def test_db():
             txid VARCHAR NOT NULL,
             vout_index INTEGER NOT NULL,
             creation_block INTEGER NOT NULL,
-            creation_timestamp TIMESTAMP NOT NULL,
+            creation_timestamp BIGINT NOT NULL,
             creation_price_usd DOUBLE NOT NULL,
             btc_value DOUBLE NOT NULL,
             spent_block INTEGER,
-            spent_timestamp TIMESTAMP,
+            spent_timestamp BIGINT,
             spent_price_usd DOUBLE,
             age_days INTEGER,
             is_spent BOOLEAN DEFAULT FALSE
@@ -56,12 +56,14 @@ def test_db():
     # Generate 365 days of data with controlled statistics
     # Base CDD: 1000 per day, std dev: ~200
     now = datetime.utcnow()
+    # Fixed creation timestamp as epoch integer
+    creation_epoch = int(datetime(2023, 1, 1).timestamp())
 
     # Insert daily spent UTXOs over 365 days with varying CDD values
     # Day pattern: daily CDD oscillates around 1000 with some variation
     values = []
     for day_offset in range(1, 366):
-        spent_time = (now - timedelta(days=day_offset)).strftime("%Y-%m-%d 12:00:00")
+        spent_epoch = int((now - timedelta(days=day_offset)).timestamp())
 
         # Create varying CDD: base 1000 +/- variation
         # Use a deterministic pattern for reproducibility
@@ -87,8 +89,8 @@ def test_db():
 
         values.append(
             f"('{outpoint}', '{txid}', 0, {870000 - day_offset * 144}, "
-            f"'2023-01-01', 30000.0, {btc_value}, {875000 - day_offset * 144}, "
-            f"'{spent_time}', 100000.0, {age}, TRUE)"
+            f"{creation_epoch}, 30000.0, {btc_value}, {875000 - day_offset * 144}, "
+            f"{spent_epoch}, 100000.0, {age}, TRUE)"
         )
 
     # Insert all test data
@@ -110,11 +112,11 @@ def insufficient_data_db():
             txid VARCHAR NOT NULL,
             vout_index INTEGER NOT NULL,
             creation_block INTEGER NOT NULL,
-            creation_timestamp TIMESTAMP NOT NULL,
+            creation_timestamp BIGINT NOT NULL,
             creation_price_usd DOUBLE NOT NULL,
             btc_value DOUBLE NOT NULL,
             spent_block INTEGER,
-            spent_timestamp TIMESTAMP,
+            spent_timestamp BIGINT,
             spent_price_usd DOUBLE,
             age_days INTEGER,
             is_spent BOOLEAN DEFAULT FALSE
@@ -124,13 +126,15 @@ def insufficient_data_db():
     conn.execute("CREATE VIEW utxo_lifecycle_full AS SELECT * FROM utxo_lifecycle")
 
     now = datetime.utcnow()
+    # Fixed creation timestamp as epoch integer
+    creation_epoch = int(datetime(2023, 1, 1).timestamp())
     values = []
     for day_offset in range(1, 21):  # Only 20 days
-        spent_time = (now - timedelta(days=day_offset)).strftime("%Y-%m-%d 12:00:00")
+        spent_epoch = int((now - timedelta(days=day_offset)).timestamp())
         values.append(
             f"('utxo{day_offset}:0', 'tx{day_offset}', 0, 870000, "
-            f"'2023-01-01', 30000.0, 10.0, 875000, "
-            f"'{spent_time}', 100000.0, 100, TRUE)"
+            f"{creation_epoch}, 30000.0, 10.0, 875000, "
+            f"{spent_epoch}, 100000.0, 100, TRUE)"
         )
 
     conn.execute(f"INSERT INTO utxo_lifecycle VALUES {', '.join(values)}")
@@ -161,11 +165,11 @@ def significant_event_db():
             txid VARCHAR NOT NULL,
             vout_index INTEGER NOT NULL,
             creation_block INTEGER NOT NULL,
-            creation_timestamp TIMESTAMP NOT NULL,
+            creation_timestamp BIGINT NOT NULL,
             creation_price_usd DOUBLE NOT NULL,
             btc_value DOUBLE NOT NULL,
             spent_block INTEGER,
-            spent_timestamp TIMESTAMP,
+            spent_timestamp BIGINT,
             spent_price_usd DOUBLE,
             age_days INTEGER,
             is_spent BOOLEAN DEFAULT FALSE
@@ -175,9 +179,11 @@ def significant_event_db():
     conn.execute("CREATE VIEW utxo_lifecycle_full AS SELECT * FROM utxo_lifecycle")
 
     now = datetime.utcnow()
+    # Fixed creation timestamp as epoch integer
+    creation_epoch = int(datetime(2023, 1, 1).timestamp())
     values = []
     for day_offset in range(1, 32):  # 31 days
-        spent_time = (now - timedelta(days=day_offset)).strftime("%Y-%m-%d 12:00:00")
+        spent_epoch = int((now - timedelta(days=day_offset)).timestamp())
         if day_offset == 1:
             # Today: extreme CDD event
             age = 500  # CDD = 500 * 10 = 5000
@@ -186,8 +192,8 @@ def significant_event_db():
             age = 100  # CDD = 100 * 10 = 1000
         values.append(
             f"('utxo{day_offset}:0', 'tx{day_offset}', 0, 870000, "
-            f"'2023-01-01', 30000.0, 10.0, 875000, "
-            f"'{spent_time}', 100000.0, {age}, TRUE)"
+            f"{creation_epoch}, 30000.0, 10.0, 875000, "
+            f"{spent_epoch}, 100000.0, {age}, TRUE)"
         )
 
     conn.execute(f"INSERT INTO utxo_lifecycle VALUES {', '.join(values)}")
@@ -208,11 +214,11 @@ def zero_std_db():
             txid VARCHAR NOT NULL,
             vout_index INTEGER NOT NULL,
             creation_block INTEGER NOT NULL,
-            creation_timestamp TIMESTAMP NOT NULL,
+            creation_timestamp BIGINT NOT NULL,
             creation_price_usd DOUBLE NOT NULL,
             btc_value DOUBLE NOT NULL,
             spent_block INTEGER,
-            spent_timestamp TIMESTAMP,
+            spent_timestamp BIGINT,
             spent_price_usd DOUBLE,
             age_days INTEGER,
             is_spent BOOLEAN DEFAULT FALSE
@@ -222,14 +228,16 @@ def zero_std_db():
     conn.execute("CREATE VIEW utxo_lifecycle_full AS SELECT * FROM utxo_lifecycle")
 
     now = datetime.utcnow()
+    # Fixed creation timestamp as epoch integer
+    creation_epoch = int(datetime(2023, 1, 1).timestamp())
     values = []
     # All days have exactly the same CDD: 1000 (age=100 * btc=10.0)
     for day_offset in range(1, 366):
-        spent_time = (now - timedelta(days=day_offset)).strftime("%Y-%m-%d 12:00:00")
+        spent_epoch = int((now - timedelta(days=day_offset)).timestamp())
         values.append(
             f"('utxo{day_offset}:0', 'tx{day_offset}', 0, 870000, "
-            f"'2023-01-01', 30000.0, 10.0, 875000, "
-            f"'{spent_time}', 100000.0, 100, TRUE)"  # CDD = 100 * 10 = 1000
+            f"{creation_epoch}, 30000.0, 10.0, 875000, "
+            f"{spent_epoch}, 100000.0, 100, TRUE)"  # CDD = 100 * 10 = 1000
         )
 
     conn.execute(f"INSERT INTO utxo_lifecycle VALUES {', '.join(values)}")

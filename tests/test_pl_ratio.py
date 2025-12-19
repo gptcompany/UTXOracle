@@ -48,12 +48,12 @@ def db_conn() -> Generator[duckdb.DuckDBPyConnection, None, None]:
             txid VARCHAR NOT NULL,
             vout_index INTEGER NOT NULL,
             creation_block INTEGER NOT NULL,
-            creation_timestamp TIMESTAMP NOT NULL,
+            creation_timestamp BIGINT NOT NULL,
             creation_price_usd DOUBLE NOT NULL,
             btc_value DOUBLE NOT NULL,
             realized_value_usd DOUBLE NOT NULL,
             spent_block INTEGER,
-            spent_timestamp TIMESTAMP,
+            spent_timestamp BIGINT,
             spent_price_usd DOUBLE,
             spending_txid VARCHAR,
             age_blocks INTEGER,
@@ -87,6 +87,9 @@ def db_with_extreme_profit(
     """Insert test data with extreme profit (ratio > 5.0)."""
     now = datetime.now()
     hour_ago = now - timedelta(hours=1)
+    # Convert to Unix epoch integers for BIGINT columns
+    now_epoch = int(now.timestamp())
+    hour_ago_epoch = int(hour_ago.timestamp())
 
     # 10 BTC @ $20k -> $100k = $800k profit, 0 loss
     # Ratio = infinity (but clipped to 1e9)
@@ -96,12 +99,12 @@ def db_with_extreme_profit(
             "extreme_p",
             0,
             800000,
-            hour_ago,
+            hour_ago_epoch,
             20000.0,
             10.0,
             200000.0,
             800010,
-            now,
+            now_epoch,
             100000.0,
             "spend_ep",
             10,
@@ -133,6 +136,9 @@ def db_with_profit_zone(
     """Insert test data with profit zone (ratio 1.5 - 5.0)."""
     now = datetime.now()
     hour_ago = now - timedelta(hours=1)
+    # Convert to Unix epoch integers for BIGINT columns
+    now_epoch = int(now.timestamp())
+    hour_ago_epoch = int(hour_ago.timestamp())
 
     # Profit: 2 BTC @ $50k -> $100k = $100k profit
     # Loss: 1 BTC @ $100k -> $60k = $40k loss
@@ -143,12 +149,12 @@ def db_with_profit_zone(
             "profit_z1",
             0,
             800000,
-            hour_ago,
+            hour_ago_epoch,
             50000.0,
             2.0,
             100000.0,
             800010,
-            now,
+            now_epoch,
             100000.0,
             "spend_pz1",
             10,
@@ -165,12 +171,12 @@ def db_with_profit_zone(
             "loss_z1",
             0,
             800000,
-            hour_ago,
+            hour_ago_epoch,
             100000.0,
             1.0,
             100000.0,
             800010,
-            now,
+            now_epoch,
             60000.0,
             "spend_lz1",
             10,
@@ -202,6 +208,9 @@ def db_with_neutral_zone(
     """Insert test data with neutral zone (ratio 0.67 - 1.5)."""
     now = datetime.now()
     hour_ago = now - timedelta(hours=1)
+    # Convert to Unix epoch integers for BIGINT columns
+    now_epoch = int(now.timestamp())
+    hour_ago_epoch = int(hour_ago.timestamp())
 
     # Profit: 1 BTC @ $50k -> $100k = $50k profit
     # Loss: 1 BTC @ $100k -> $50k = $50k loss
@@ -212,12 +221,12 @@ def db_with_neutral_zone(
             "neutral_p",
             0,
             800000,
-            hour_ago,
+            hour_ago_epoch,
             50000.0,
             1.0,
             50000.0,
             800010,
-            now,
+            now_epoch,
             100000.0,
             "spend_np",
             10,
@@ -234,12 +243,12 @@ def db_with_neutral_zone(
             "neutral_l",
             0,
             800000,
-            hour_ago,
+            hour_ago_epoch,
             100000.0,
             1.0,
             100000.0,
             800010,
-            now,
+            now_epoch,
             50000.0,
             "spend_nl",
             10,
@@ -271,6 +280,9 @@ def db_with_loss_zone(
     """Insert test data with loss zone (ratio 0.2 - 0.67)."""
     now = datetime.now()
     hour_ago = now - timedelta(hours=1)
+    # Convert to Unix epoch integers for BIGINT columns
+    now_epoch = int(now.timestamp())
+    hour_ago_epoch = int(hour_ago.timestamp())
 
     # Profit: 0.5 BTC @ $50k -> $100k = $25k profit
     # Loss: 2 BTC @ $100k -> $50k = $100k loss
@@ -281,12 +293,12 @@ def db_with_loss_zone(
             "loss_zp",
             0,
             800000,
-            hour_ago,
+            hour_ago_epoch,
             50000.0,
             0.5,
             25000.0,
             800010,
-            now,
+            now_epoch,
             100000.0,
             "spend_lzp",
             10,
@@ -303,12 +315,12 @@ def db_with_loss_zone(
             "loss_zl",
             0,
             800000,
-            hour_ago,
+            hour_ago_epoch,
             100000.0,
             2.0,
             200000.0,
             800010,
-            now,
+            now_epoch,
             50000.0,
             "spend_lzl",
             10,
@@ -340,6 +352,9 @@ def db_with_extreme_loss(
     """Insert test data with extreme loss (ratio < 0.2)."""
     now = datetime.now()
     hour_ago = now - timedelta(hours=1)
+    # Convert to Unix epoch integers for BIGINT columns
+    now_epoch = int(now.timestamp())
+    hour_ago_epoch = int(hour_ago.timestamp())
 
     # Profit: 0.1 BTC @ $50k -> $100k = $5k profit
     # Loss: 5 BTC @ $100k -> $50k = $250k loss
@@ -350,12 +365,12 @@ def db_with_extreme_loss(
             "ext_loss_p",
             0,
             800000,
-            hour_ago,
+            hour_ago_epoch,
             50000.0,
             0.1,
             5000.0,
             800010,
-            now,
+            now_epoch,
             100000.0,
             "spend_elp",
             10,
@@ -372,12 +387,12 @@ def db_with_extreme_loss(
             "ext_loss_l",
             0,
             800000,
-            hour_ago,
+            hour_ago_epoch,
             100000.0,
             5.0,
             500000.0,
             800010,
-            now,
+            now_epoch,
             50000.0,
             "spend_ell",
             10,
@@ -413,6 +428,9 @@ def db_with_history_data(
     for days_ago in range(1, 4):
         spent_ts = base_time - timedelta(days=days_ago)
         creation_ts = spent_ts - timedelta(hours=2)
+        # Convert to Unix epoch integers for BIGINT columns
+        spent_ts_epoch = int(spent_ts.timestamp())
+        creation_ts_epoch = int(creation_ts.timestamp())
 
         # Each day: varying profit/loss ratio
         profit_row = (
@@ -420,12 +438,12 @@ def db_with_history_data(
             f"hist_p{days_ago}",
             0,
             800000,
-            creation_ts,
+            creation_ts_epoch,
             50000.0,
             float(days_ago),  # Increasing BTC per day
             50000.0 * days_ago,
             800010,
-            spent_ts,
+            spent_ts_epoch,
             100000.0,
             f"spend_hp{days_ago}",
             10,
@@ -443,12 +461,12 @@ def db_with_history_data(
             f"hist_l{days_ago}",
             0,
             800000,
-            creation_ts,
+            creation_ts_epoch,
             100000.0,
             0.5,
             50000.0,
             800010,
-            spent_ts,
+            spent_ts_epoch,
             50000.0,
             f"spend_hl{days_ago}",
             10,

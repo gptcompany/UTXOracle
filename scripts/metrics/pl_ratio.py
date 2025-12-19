@@ -177,6 +177,8 @@ def calculate_pl_ratio(
         raise ValueError(f"window_hours must be between 1 and 720, got {window_hours}")
 
     window_start = datetime.now() - timedelta(hours=window_hours)
+    # Convert to Unix epoch (spent_timestamp is stored as BIGINT seconds)
+    window_start_epoch = int(window_start.timestamp())
 
     # Query for profit/loss aggregation (same as spec-028)
     query = """
@@ -192,7 +194,7 @@ def calculate_pl_ratio(
           AND spent_price_usd > 0
     """
 
-    result = conn.execute(query, [window_start]).fetchone()
+    result = conn.execute(query, [window_start_epoch]).fetchone()
 
     realized_profit_usd = float(result[0])
     realized_loss_usd = float(result[1])
@@ -244,10 +246,12 @@ def get_pl_ratio_history(
         raise ValueError(f"days must be between 1 and 365, got {days}")
 
     start_date = datetime.now() - timedelta(days=days)
+    # Convert to Unix epoch (spent_timestamp is stored as BIGINT seconds)
+    start_date_epoch = int(start_date.timestamp())
 
     query = """
         SELECT
-            DATE(spent_timestamp) AS date,
+            DATE(to_timestamp(spent_timestamp)) AS date,
             COALESCE(SUM(CASE WHEN spent_price_usd > creation_price_usd
                 THEN (spent_price_usd - creation_price_usd) * btc_value ELSE 0 END), 0) AS realized_profit_usd,
             COALESCE(SUM(CASE WHEN spent_price_usd < creation_price_usd
@@ -257,11 +261,11 @@ def get_pl_ratio_history(
           AND spent_timestamp >= ?
           AND creation_price_usd > 0
           AND spent_price_usd > 0
-        GROUP BY DATE(spent_timestamp)
+        GROUP BY DATE(to_timestamp(spent_timestamp))
         ORDER BY date ASC
     """
 
-    results = conn.execute(query, [start_date]).fetchall()
+    results = conn.execute(query, [start_date_epoch]).fetchall()
 
     history = []
     for row in results:

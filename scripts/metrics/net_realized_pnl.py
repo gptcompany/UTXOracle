@@ -140,6 +140,8 @@ def calculate_net_realized_pnl(
 
     # Calculate window start time
     window_start = datetime.now() - timedelta(hours=window_hours)
+    # Convert to Unix epoch (spent_timestamp is stored as BIGINT seconds)
+    window_start_epoch = int(window_start.timestamp())
 
     # Query from data-model.md
     query = """
@@ -167,7 +169,7 @@ def calculate_net_realized_pnl(
           AND spent_price_usd > 0
     """
 
-    result = conn.execute(query, [window_start]).fetchone()
+    result = conn.execute(query, [window_start_epoch]).fetchone()
 
     # Unpack results
     realized_profit_usd = float(result[0])
@@ -231,11 +233,13 @@ def get_net_realized_pnl_history(
 
     # Calculate start date
     start_date = datetime.now() - timedelta(days=days)
+    # Convert to Unix epoch (spent_timestamp is stored as BIGINT seconds)
+    start_date_epoch = int(start_date.timestamp())
 
     # Query with GROUP BY date
     query = """
         SELECT
-            DATE(spent_timestamp) AS date,
+            DATE(to_timestamp(spent_timestamp)) AS date,
             COALESCE(SUM(CASE WHEN spent_price_usd > creation_price_usd
                 THEN (spent_price_usd - creation_price_usd) * btc_value ELSE 0 END), 0) AS realized_profit_usd,
             COALESCE(SUM(CASE WHEN spent_price_usd < creation_price_usd
@@ -247,11 +251,11 @@ def get_net_realized_pnl_history(
           AND spent_timestamp >= ?
           AND creation_price_usd > 0
           AND spent_price_usd > 0
-        GROUP BY DATE(spent_timestamp)
+        GROUP BY DATE(to_timestamp(spent_timestamp))
         ORDER BY date ASC
     """
 
-    results = conn.execute(query, [start_date]).fetchall()
+    results = conn.execute(query, [start_date_epoch]).fetchall()
 
     history = []
     for row in results:

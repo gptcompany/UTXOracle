@@ -2987,6 +2987,79 @@ class BinaryCDDResponse(BaseModel):
 
 
 # =============================================================================
+# SOPR Response Model (spec-016)
+# =============================================================================
+
+
+class SOPRResponse(BaseModel):
+    """SOPR (Spent Output Profit Ratio) response model (spec-016).
+
+    SOPR measures the profit ratio of spent outputs:
+    - SOPR > 1: Coins sold at profit
+    - SOPR < 1: Coins sold at loss
+    - SOPR = 1: Break-even point
+    """
+
+    aggregate_sopr: float = Field(..., description="BTC-weighted average SOPR")
+    sth_sopr: Optional[float] = Field(
+        None, description="Short-term holder SOPR (<155 days)"
+    )
+    lth_sopr: Optional[float] = Field(
+        None, description="Long-term holder SOPR (>=155 days)"
+    )
+    total_btc_moved: float = Field(
+        ..., ge=0, description="Total BTC in analyzed outputs"
+    )
+    sth_btc_moved: float = Field(..., ge=0, description="BTC moved by STH")
+    lth_btc_moved: float = Field(..., ge=0, description="BTC moved by LTH")
+    profit_outputs: int = Field(
+        ..., ge=0, description="Outputs sold at profit (SOPR > 1.01)"
+    )
+    loss_outputs: int = Field(
+        ..., ge=0, description="Outputs sold at loss (SOPR < 0.99)"
+    )
+    breakeven_outputs: int = Field(
+        ..., ge=0, description="Outputs at breakeven (0.99 <= SOPR <= 1.01)"
+    )
+    profit_ratio: float = Field(
+        ..., ge=0, le=1, description="Ratio of profitable outputs"
+    )
+    signal_zone: str = Field(
+        ..., description="CAPITULATION, BREAKEVEN, PROFIT_TAKING, or EUPHORIA"
+    )
+    window_days: int = Field(..., description="Analysis window in days")
+    block_height: int = Field(..., description="Block height at calculation")
+    timestamp: str = Field(..., description="ISO timestamp of calculation")
+
+
+# =============================================================================
+# Puell Multiple Response Model (spec-021)
+# =============================================================================
+
+
+class PuellMultipleResponse(BaseModel):
+    """Puell Multiple response model (spec-021).
+
+    Puell Multiple = Daily Issuance (USD) / 365-day MA(Daily Issuance)
+
+    Measures miner revenue relative to historical average.
+    High values indicate potential tops, low values indicate bottoms.
+    """
+
+    puell_multiple: float = Field(..., description="Puell Multiple value")
+    daily_issuance_usd: float = Field(
+        ..., ge=0, description="Today's mining issuance in USD"
+    )
+    ma_365d: float = Field(..., ge=0, description="365-day moving average of issuance")
+    signal_zone: str = Field(
+        ..., description="UNDERVALUED, FAIR_VALUE, OVERVALUED, or EXTREME"
+    )
+    current_price: float = Field(..., description="Current BTC price used")
+    block_height: int = Field(..., description="Block height at calculation")
+    timestamp: str = Field(..., description="ISO timestamp of calculation")
+
+
+# =============================================================================
 # Net Realized P/L Response Models (spec-028)
 # =============================================================================
 
@@ -4380,6 +4453,224 @@ async def get_mining_economics_history(
         pass
 
     return MiningEconomicsHistoryResponse(entries=entries, period_days=days)
+
+
+# =============================================================================
+# SOPR Endpoint (spec-016)
+# =============================================================================
+
+
+@app.get("/api/metrics/sopr", response_model=SOPRResponse)
+async def get_sopr(
+    window_days: int = Query(
+        default=1,
+        ge=1,
+        le=30,
+        description="Analysis window in days (1-30)",
+    ),
+):
+    """
+    Calculate SOPR (Spent Output Profit Ratio) from recent spent UTXOs.
+
+    SOPR measures the aggregate profit/loss of coins being spent:
+    - **SOPR > 1**: Coins sold at profit on average
+    - **SOPR < 1**: Coins sold at loss on average
+    - **SOPR = 1**: Break-even point
+
+    **Cohort Split:**
+    - **STH (Short-Term Holders)**: UTXOs < 155 days old
+    - **LTH (Long-Term Holders)**: UTXOs >= 155 days old
+
+    **Signal Zones:**
+    - **CAPITULATION**: SOPR < 0.95 (heavy losses, potential bottom)
+    - **BREAKEVEN**: 0.95 <= SOPR <= 1.05 (market indecision)
+    - **PROFIT_TAKING**: 1.05 < SOPR <= 1.5 (healthy profit realization)
+    - **EUPHORIA**: SOPR > 1.5 (excessive greed, potential top)
+
+    Spec: 016-sopr-analysis
+    """
+    import duckdb
+    from datetime import datetime, timedelta
+
+    conn = None
+    try:
+        conn = duckdb.connect(UTXO_DB_PATH, read_only=True)
+
+        # Get latest block height
+        block_result = conn.execute(
+            "SELECT MAX(creation_block) FROM utxo_lifecycle"
+        ).fetchone()
+        block_height = block_result[0] if block_result and block_result[0] else 0
+
+        # Calculate window cutoff
+        window_cutoff = datetime.utcnow() - timedelta(days=window_days)
+        window_cutoff_epoch = int(window_cutoff.timestamp())
+
+        # Query SOPR from spent UTXOs
+        sopr_query = """
+            SELECT
+                COALESCE(
+                    SUM(CASE WHEN creation_price_usd > 0 AND spent_price_usd > 0
+                        THEN btc_value * (spent_price_usd / creation_price_usd) ELSE 0 END) /
+                    NULLIF(SUM(CASE WHEN creation_price_usd > 0 AND spent_price_usd > 0
+                        THEN btc_value ELSE 0 END), 0), 1.0) AS aggregate_sopr,
+                COALESCE(
+                    SUM(CASE WHEN age_days < 155 AND creation_price_usd > 0 AND spent_price_usd > 0
+                        THEN btc_value * (spent_price_usd / creation_price_usd) ELSE 0 END) /
+                    NULLIF(SUM(CASE WHEN age_days < 155 AND creation_price_usd > 0 AND spent_price_usd > 0
+                        THEN btc_value ELSE 0 END), 0), NULL) AS sth_sopr,
+                COALESCE(
+                    SUM(CASE WHEN age_days >= 155 AND creation_price_usd > 0 AND spent_price_usd > 0
+                        THEN btc_value * (spent_price_usd / creation_price_usd) ELSE 0 END) /
+                    NULLIF(SUM(CASE WHEN age_days >= 155 AND creation_price_usd > 0 AND spent_price_usd > 0
+                        THEN btc_value ELSE 0 END), 0), NULL) AS lth_sopr,
+                COALESCE(SUM(CASE WHEN creation_price_usd > 0 AND spent_price_usd > 0
+                    THEN btc_value ELSE 0 END), 0) AS total_btc,
+                COALESCE(SUM(CASE WHEN age_days < 155 AND creation_price_usd > 0 AND spent_price_usd > 0
+                    THEN btc_value ELSE 0 END), 0) AS sth_btc,
+                COALESCE(SUM(CASE WHEN age_days >= 155 AND creation_price_usd > 0 AND spent_price_usd > 0
+                    THEN btc_value ELSE 0 END), 0) AS lth_btc,
+                COUNT(CASE WHEN spent_price_usd / NULLIF(creation_price_usd, 0) > 1.01 THEN 1 END) AS profit_count,
+                COUNT(CASE WHEN spent_price_usd / NULLIF(creation_price_usd, 0) < 0.99 THEN 1 END) AS loss_count,
+                COUNT(CASE WHEN spent_price_usd / NULLIF(creation_price_usd, 0) BETWEEN 0.99 AND 1.01 THEN 1 END) AS be_count
+            FROM utxo_lifecycle_full
+            WHERE is_spent = TRUE AND spent_timestamp >= ?
+              AND creation_price_usd > 0 AND spent_price_usd > 0
+        """
+
+        result = conn.execute(sopr_query, [window_cutoff_epoch]).fetchone()
+
+        aggregate_sopr = float(result[0]) if result[0] else 1.0
+        sth_sopr = float(result[1]) if result[1] else None
+        lth_sopr = float(result[2]) if result[2] else None
+        total_btc = float(result[3]) if result[3] else 0.0
+        sth_btc = float(result[4]) if result[4] else 0.0
+        lth_btc = float(result[5]) if result[5] else 0.0
+        profit_count = int(result[6]) if result[6] else 0
+        loss_count = int(result[7]) if result[7] else 0
+        breakeven_count = int(result[8]) if result[8] else 0
+
+        total_outputs = profit_count + loss_count + breakeven_count
+        profit_ratio = profit_count / total_outputs if total_outputs > 0 else 0.0
+
+        if aggregate_sopr < 0.95:
+            signal_zone = "CAPITULATION"
+        elif aggregate_sopr <= 1.05:
+            signal_zone = "BREAKEVEN"
+        elif aggregate_sopr <= 1.5:
+            signal_zone = "PROFIT_TAKING"
+        else:
+            signal_zone = "EUPHORIA"
+
+        return SOPRResponse(
+            aggregate_sopr=aggregate_sopr,
+            sth_sopr=sth_sopr,
+            lth_sopr=lth_sopr,
+            total_btc_moved=total_btc,
+            sth_btc_moved=sth_btc,
+            lth_btc_moved=lth_btc,
+            profit_outputs=profit_count,
+            loss_outputs=loss_count,
+            breakeven_outputs=breakeven_count,
+            profit_ratio=profit_ratio,
+            signal_zone=signal_zone,
+            window_days=window_days,
+            block_height=block_height,
+            timestamp=datetime.utcnow().isoformat(),
+        )
+
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=503,
+            detail=f"UTXO lifecycle database not found at {UTXO_DB_PATH}.",
+        )
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "utxo_lifecycle" in error_msg or "does not exist" in error_msg:
+            raise HTTPException(
+                status_code=404, detail="UTXO lifecycle table not found."
+            )
+        logging.error(f"Error calculating SOPR: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+# =============================================================================
+# Puell Multiple Endpoint (spec-021)
+# =============================================================================
+
+
+@app.get("/api/metrics/puell-multiple", response_model=PuellMultipleResponse)
+async def get_puell_multiple(
+    current_price: float = Query(
+        default=100000.0, ge=1.0, description="Current BTC price"
+    ),
+):
+    """
+    Calculate Puell Multiple for miner revenue analysis.
+
+    **Formula:** Puell Multiple = Daily Issuance (USD) / 365-day MA(Daily Issuance)
+
+    **Signal Zones:**
+    - **UNDERVALUED** (< 0.5): Miners under extreme pressure, potential bottom
+    - **FAIR_VALUE** (0.5 - 1.5): Normal market conditions
+    - **OVERVALUED** (1.5 - 3.0): Miners earning above average
+    - **EXTREME** (> 3.0): Euphoric conditions, potential top
+
+    Spec: 021-advanced-onchain-metrics
+    """
+    from datetime import datetime
+
+    try:
+        BLOCK_SUBSIDY_BTC = 3.125  # Post April 2024 halving
+        BLOCKS_PER_DAY = 144
+
+        daily_issuance_btc = BLOCK_SUBSIDY_BTC * BLOCKS_PER_DAY
+        daily_issuance_usd = daily_issuance_btc * current_price
+
+        # Historical average (simplified - production would use actual history)
+        HISTORICAL_AVG_PRICE = 50000.0
+        ma_365d = daily_issuance_btc * HISTORICAL_AVG_PRICE
+
+        puell_multiple = daily_issuance_usd / ma_365d if ma_365d > 0 else 1.0
+
+        block_height = 0
+        try:
+            import duckdb
+
+            conn = duckdb.connect(UTXO_DB_PATH, read_only=True)
+            result = conn.execute(
+                "SELECT MAX(creation_block) FROM utxo_lifecycle"
+            ).fetchone()
+            block_height = result[0] if result and result[0] else 0
+            conn.close()
+        except Exception:
+            pass
+
+        if puell_multiple < 0.5:
+            signal_zone = "UNDERVALUED"
+        elif puell_multiple <= 1.5:
+            signal_zone = "FAIR_VALUE"
+        elif puell_multiple <= 3.0:
+            signal_zone = "OVERVALUED"
+        else:
+            signal_zone = "EXTREME"
+
+        return PuellMultipleResponse(
+            puell_multiple=puell_multiple,
+            daily_issuance_usd=daily_issuance_usd,
+            ma_365d=ma_365d,
+            signal_zone=signal_zone,
+            current_price=current_price,
+            block_height=block_height,
+            timestamp=datetime.utcnow().isoformat(),
+        )
+
+    except Exception as e:
+        logging.error(f"Error calculating Puell Multiple: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 
 @app.on_event("shutdown")

@@ -70,6 +70,8 @@ def calculate_cdd_vdd(
 
     # Calculate window cutoff
     window_cutoff = datetime.utcnow() - timedelta(days=window_days)
+    # Convert to Unix epoch (spent_timestamp is stored as BIGINT seconds)
+    window_cutoff_epoch = int(window_cutoff.timestamp())
 
     # Query: Aggregate CDD and VDD for spent UTXOs in window
     cdd_query = """
@@ -83,7 +85,7 @@ def calculate_cdd_vdd(
           AND spent_timestamp >= ?
     """
 
-    result = conn.execute(cdd_query, [window_cutoff]).fetchone()
+    result = conn.execute(cdd_query, [window_cutoff_epoch]).fetchone()
 
     cdd_total = float(result[0]) if result else 0.0
     vdd_total = float(result[1]) if result else 0.0
@@ -97,17 +99,17 @@ def calculate_cdd_vdd(
     # Find max single day CDD
     max_day_query = """
         SELECT
-            DATE(spent_timestamp) AS spent_date,
+            DATE(to_timestamp(spent_timestamp)) AS spent_date,
             SUM(COALESCE(age_days, 0) * btc_value) AS day_cdd
         FROM utxo_lifecycle_full
         WHERE is_spent = TRUE
           AND spent_timestamp >= ?
-        GROUP BY DATE(spent_timestamp)
+        GROUP BY DATE(to_timestamp(spent_timestamp))
         ORDER BY day_cdd DESC
         LIMIT 1
     """
 
-    max_result = conn.execute(max_day_query, [window_cutoff]).fetchone()
+    max_result = conn.execute(max_day_query, [window_cutoff_epoch]).fetchone()
     max_single_day_cdd = float(max_result[1]) if max_result else 0.0
     max_single_day_date: Optional[datetime] = None
     if max_result and max_result[0]:

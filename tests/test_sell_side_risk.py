@@ -24,11 +24,11 @@ def test_db():
             txid VARCHAR NOT NULL,
             vout_index INTEGER NOT NULL,
             creation_block INTEGER NOT NULL,
-            creation_timestamp TIMESTAMP NOT NULL,
+            creation_timestamp BIGINT NOT NULL,
             creation_price_usd DOUBLE NOT NULL,
             btc_value DOUBLE NOT NULL,
             spent_block INTEGER,
-            spent_timestamp TIMESTAMP,
+            spent_timestamp BIGINT,
             spent_price_usd DOUBLE,
             is_spent BOOLEAN DEFAULT FALSE
         )
@@ -39,21 +39,24 @@ def test_db():
     conn.execute("CREATE VIEW utxo_lifecycle_full AS SELECT * FROM utxo_lifecycle")
 
     # Use relative timestamps within the 30-day window
+    # Convert to Unix epoch integers for BIGINT columns
     now = datetime.utcnow()
-    day_1 = (now - timedelta(days=10)).strftime("%Y-%m-%d %H:%M:%S")
-    day_5 = (now - timedelta(days=6)).strftime("%Y-%m-%d %H:%M:%S")
-    day_10 = (now - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
-    day_3 = (now - timedelta(days=8)).strftime("%Y-%m-%d %H:%M:%S")
-    day_8 = (now - timedelta(days=3)).strftime("%Y-%m-%d %H:%M:%S")
-    old_day = (now - timedelta(days=100)).strftime("%Y-%m-%d %H:%M:%S")
+    day_1_epoch = int((now - timedelta(days=10)).timestamp())
+    day_5_epoch = int((now - timedelta(days=6)).timestamp())
+    day_10_epoch = int((now - timedelta(days=1)).timestamp())
+    day_3_epoch = int((now - timedelta(days=8)).timestamp())
+    day_8_epoch = int((now - timedelta(days=3)).timestamp())
+    old_day_epoch = int((now - timedelta(days=100)).timestamp())
+    # Fixed creation timestamps as epoch integers
+    creation_epoch = int(datetime(2024, 1, 1).timestamp())
 
     # Profit scenarios (spent_price > creation_price)
     conn.execute(
         f"""
         INSERT INTO utxo_lifecycle VALUES
-        ('profit1:0', 'profit1', 0, 800000, '2024-01-01', 40000.0, 2.0, 874000, '{day_1}', 100000.0, TRUE),
-        ('profit2:0', 'profit2', 0, 810000, '2024-02-01', 50000.0, 1.5, 874500, '{day_5}', 105000.0, TRUE),
-        ('profit3:0', 'profit3', 0, 820000, '2024-03-01', 60000.0, 1.0, 875000, '{day_10}', 110000.0, TRUE)
+        ('profit1:0', 'profit1', 0, 800000, {creation_epoch}, 40000.0, 2.0, 874000, {day_1_epoch}, 100000.0, TRUE),
+        ('profit2:0', 'profit2', 0, 810000, {creation_epoch}, 50000.0, 1.5, 874500, {day_5_epoch}, 105000.0, TRUE),
+        ('profit3:0', 'profit3', 0, 820000, {creation_epoch}, 60000.0, 1.0, 875000, {day_10_epoch}, 110000.0, TRUE)
         """
     )
     # profit1: (100000-40000) × 2.0 = $120,000 profit
@@ -65,8 +68,8 @@ def test_db():
     conn.execute(
         f"""
         INSERT INTO utxo_lifecycle VALUES
-        ('loss1:0', 'loss1', 0, 870000, '2024-11-01', 115000.0, 0.5, 874200, '{day_3}', 98000.0, TRUE),
-        ('loss2:0', 'loss2', 0, 871000, '2024-11-10', 120000.0, 0.3, 874800, '{day_8}', 102000.0, TRUE)
+        ('loss1:0', 'loss1', 0, 870000, {creation_epoch}, 115000.0, 0.5, 874200, {day_3_epoch}, 98000.0, TRUE),
+        ('loss2:0', 'loss2', 0, 871000, {creation_epoch}, 120000.0, 0.3, 874800, {day_8_epoch}, 102000.0, TRUE)
         """
     )
     # loss1: (98000-115000) × 0.5 = -$8,500 loss
@@ -77,15 +80,15 @@ def test_db():
     conn.execute(
         f"""
         INSERT INTO utxo_lifecycle VALUES
-        ('old:0', 'old', 0, 750000, '2024-05-01', 70000.0, 5.0, 860000, '{old_day}', 80000.0, TRUE)
+        ('old:0', 'old', 0, 750000, {creation_epoch}, 70000.0, 5.0, 860000, {old_day_epoch}, 80000.0, TRUE)
         """
     )
 
     # Unspent UTXOs (should be excluded)
     conn.execute(
-        """
+        f"""
         INSERT INTO utxo_lifecycle VALUES
-        ('unspent:0', 'unspent', 0, 865000, '2024-10-01', 65000.0, 3.0, NULL, NULL, NULL, FALSE)
+        ('unspent:0', 'unspent', 0, 865000, {creation_epoch}, 65000.0, 3.0, NULL, NULL, NULL, FALSE)
         """
     )
 
@@ -220,7 +223,7 @@ class TestSellSideRiskCalculation:
                 outpoint VARCHAR PRIMARY KEY,
                 btc_value DOUBLE NOT NULL,
                 creation_price_usd DOUBLE NOT NULL,
-                spent_timestamp TIMESTAMP,
+                spent_timestamp BIGINT,
                 spent_price_usd DOUBLE,
                 is_spent BOOLEAN DEFAULT FALSE
             )

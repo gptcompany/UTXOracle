@@ -90,11 +90,11 @@ class TestCalculateRevivedSupply:
                 txid VARCHAR NOT NULL,
                 vout_index INTEGER NOT NULL,
                 creation_block INTEGER NOT NULL,
-                creation_timestamp TIMESTAMP NOT NULL,
+                creation_timestamp BIGINT NOT NULL,
                 creation_price_usd DOUBLE NOT NULL,
                 btc_value DOUBLE NOT NULL,
                 spent_block INTEGER,
-                spent_timestamp TIMESTAMP,
+                spent_timestamp BIGINT,
                 spent_price_usd DOUBLE,
                 age_days INTEGER,
                 is_spent BOOLEAN DEFAULT FALSE
@@ -106,11 +106,14 @@ class TestCalculateRevivedSupply:
         conn.execute("CREATE VIEW utxo_lifecycle_full AS SELECT * FROM utxo_lifecycle")
 
         # Use relative timestamps within the 30-day window
+        # Convert to Unix epoch integers for BIGINT columns
         now = datetime.utcnow()
-        day_5 = (now - timedelta(days=5)).strftime("%Y-%m-%d %H:%M:%S")
-        day_10 = (now - timedelta(days=10)).strftime("%Y-%m-%d %H:%M:%S")
-        day_15 = (now - timedelta(days=15)).strftime("%Y-%m-%d %H:%M:%S")
-        old_day = (now - timedelta(days=100)).strftime("%Y-%m-%d %H:%M:%S")
+        day_5_epoch = int((now - timedelta(days=5)).timestamp())
+        day_10_epoch = int((now - timedelta(days=10)).timestamp())
+        day_15_epoch = int((now - timedelta(days=15)).timestamp())
+        old_day_epoch = int((now - timedelta(days=100)).timestamp())
+        # Fixed creation timestamps as epoch integers
+        creation_epoch = int(datetime(2023, 6, 1).timestamp())
 
         # Insert spent UTXOs with various ages (age_days at time of spending)
         # UTXO 1: 1.5 years old (547 days), spent 5 days ago -> revived_1y YES
@@ -120,10 +123,10 @@ class TestCalculateRevivedSupply:
         conn.execute(
             f"""
             INSERT INTO utxo_lifecycle VALUES
-            ('rev1:0', 'rev1', 0, 700000, '2023-06-01', 30000.0, 2.0, 874000, '{day_5}', 100000.0, 547, TRUE),
-            ('rev2:0', 'rev2', 0, 650000, '2022-06-01', 25000.0, 1.5, 874500, '{day_10}', 105000.0, 912, TRUE),
-            ('rev3:0', 'rev3', 0, 500000, '2019-01-01', 5000.0, 0.5, 875000, '{day_15}', 110000.0, 2190, TRUE),
-            ('young:0', 'young', 0, 850000, '2024-06-01', 60000.0, 3.0, 874800, '{day_5}', 102000.0, 200, TRUE)
+            ('rev1:0', 'rev1', 0, 700000, {creation_epoch}, 30000.0, 2.0, 874000, {day_5_epoch}, 100000.0, 547, TRUE),
+            ('rev2:0', 'rev2', 0, 650000, {creation_epoch}, 25000.0, 1.5, 874500, {day_10_epoch}, 105000.0, 912, TRUE),
+            ('rev3:0', 'rev3', 0, 500000, {creation_epoch}, 5000.0, 0.5, 875000, {day_15_epoch}, 110000.0, 2190, TRUE),
+            ('young:0', 'young', 0, 850000, {creation_epoch}, 60000.0, 3.0, 874800, {day_5_epoch}, 102000.0, 200, TRUE)
             """
         )
         # Expected revived_1y: 2.0 + 1.5 + 0.5 = 4.0 BTC (age >= 365)
@@ -135,7 +138,7 @@ class TestCalculateRevivedSupply:
         conn.execute(
             f"""
             INSERT INTO utxo_lifecycle VALUES
-            ('old:0', 'old', 0, 600000, '2023-01-01', 20000.0, 10.0, 800000, '{old_day}', 45000.0, 600, TRUE)
+            ('old:0', 'old', 0, 600000, {creation_epoch}, 20000.0, 10.0, 800000, {old_day_epoch}, 45000.0, 600, TRUE)
             """
         )
 
@@ -214,7 +217,7 @@ class TestCalculateRevivedSupply:
                 btc_value DOUBLE NOT NULL,
                 creation_price_usd DOUBLE NOT NULL,
                 age_days INTEGER,
-                spent_timestamp TIMESTAMP,
+                spent_timestamp BIGINT,
                 is_spent BOOLEAN DEFAULT FALSE
             )
             """

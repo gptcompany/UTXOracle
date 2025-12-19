@@ -117,9 +117,11 @@ def calculate_revived_supply_signal(
 
     # Calculate window start timestamp
     window_start = timestamp - timedelta(days=window_days)
+    # Convert to Unix epoch (spent_timestamp is stored as BIGINT seconds)
+    window_start_epoch = int(window_start.timestamp())
 
     # Query revived UTXOs: spent within window, age >= 1 year at time of spending
-    # DuckDB handles TIMESTAMP comparisons automatically - pass datetime directly
+    # Note: spent_timestamp is BIGINT (Unix epoch), not TIMESTAMP
     # Note: btc_value IS NOT NULL ensures we only count UTXOs with valid BTC values
     result = conn.execute(
         """
@@ -143,7 +145,7 @@ def calculate_revived_supply_signal(
             THRESHOLD_1Y,  # for weighted age (only 1y+ UTXOs)
             THRESHOLD_1Y,  # utxo_count threshold
             THRESHOLD_1Y,  # minimum age filter
-            window_start,  # TIMESTAMP comparison
+            window_start_epoch,  # Unix epoch comparison
         ],
     ).fetchone()
 

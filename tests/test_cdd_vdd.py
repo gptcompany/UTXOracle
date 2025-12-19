@@ -24,11 +24,11 @@ def test_db():
             txid VARCHAR NOT NULL,
             vout_index INTEGER NOT NULL,
             creation_block INTEGER NOT NULL,
-            creation_timestamp TIMESTAMP NOT NULL,
+            creation_timestamp BIGINT NOT NULL,
             creation_price_usd DOUBLE NOT NULL,
             btc_value DOUBLE NOT NULL,
             spent_block INTEGER,
-            spent_timestamp TIMESTAMP,
+            spent_timestamp BIGINT,
             spent_price_usd DOUBLE,
             age_days INTEGER,
             is_spent BOOLEAN DEFAULT FALSE
@@ -40,22 +40,25 @@ def test_db():
     conn.execute("CREATE VIEW utxo_lifecycle_full AS SELECT * FROM utxo_lifecycle")
 
     # Use relative timestamps within the 30-day window
+    # Convert to Unix epoch integers for BIGINT columns
     now = datetime.utcnow()
-    day_1 = (now - timedelta(days=10)).strftime("%Y-%m-%d %H:%M:%S")
-    day_5 = (now - timedelta(days=6)).strftime("%Y-%m-%d %H:%M:%S")
-    day_10 = (now - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
-    day_8 = (now - timedelta(days=3)).strftime("%Y-%m-%d %H:%M:%S")
-    old_day = (now - timedelta(days=100)).strftime("%Y-%m-%d %H:%M:%S")
+    day_1_epoch = int((now - timedelta(days=10)).timestamp())
+    day_5_epoch = int((now - timedelta(days=6)).timestamp())
+    day_10_epoch = int((now - timedelta(days=1)).timestamp())
+    day_8_epoch = int((now - timedelta(days=3)).timestamp())
+    old_day_epoch = int((now - timedelta(days=100)).timestamp())
+    # Fixed creation timestamps as epoch integers
+    creation_epoch = int(datetime(2023, 6, 1).timestamp())
 
     # Insert spent UTXOs with various ages
     # CDD = age_days × btc_value
     conn.execute(
         f"""
         INSERT INTO utxo_lifecycle VALUES
-        ('cdd1:0', 'cdd1', 0, 700000, '2023-06-01', 30000.0, 2.0, 874000, '{day_1}', 100000.0, 365, TRUE),
-        ('cdd2:0', 'cdd2', 0, 750000, '2023-09-01', 35000.0, 1.0, 874500, '{day_5}', 105000.0, 274, TRUE),
-        ('cdd3:0', 'cdd3', 0, 800000, '2024-01-01', 40000.0, 0.5, 875000, '{day_10}', 110000.0, 345, TRUE),
-        ('cdd4:0', 'cdd4', 0, 860000, '2024-10-01', 65000.0, 3.0, 874800, '{day_8}', 102000.0, 68, TRUE)
+        ('cdd1:0', 'cdd1', 0, 700000, {creation_epoch}, 30000.0, 2.0, 874000, {day_1_epoch}, 100000.0, 365, TRUE),
+        ('cdd2:0', 'cdd2', 0, 750000, {creation_epoch}, 35000.0, 1.0, 874500, {day_5_epoch}, 105000.0, 274, TRUE),
+        ('cdd3:0', 'cdd3', 0, 800000, {creation_epoch}, 40000.0, 0.5, 875000, {day_10_epoch}, 110000.0, 345, TRUE),
+        ('cdd4:0', 'cdd4', 0, 860000, {creation_epoch}, 65000.0, 3.0, 874800, {day_8_epoch}, 102000.0, 68, TRUE)
         """
     )
     # CDD1: 365 × 2.0 = 730 coin-days
@@ -75,15 +78,15 @@ def test_db():
     conn.execute(
         f"""
         INSERT INTO utxo_lifecycle VALUES
-        ('old:0', 'old', 0, 600000, '2023-01-01', 20000.0, 10.0, 800000, '{old_day}', 45000.0, 380, TRUE)
+        ('old:0', 'old', 0, 600000, {creation_epoch}, 20000.0, 10.0, 800000, {old_day_epoch}, 45000.0, 380, TRUE)
         """
     )
 
     # Unspent UTXOs (should be excluded)
     conn.execute(
-        """
+        f"""
         INSERT INTO utxo_lifecycle VALUES
-        ('unspent:0', 'unspent', 0, 865000, '2024-10-01', 65000.0, 5.0, NULL, NULL, NULL, 71, FALSE)
+        ('unspent:0', 'unspent', 0, 865000, {creation_epoch}, 65000.0, 5.0, NULL, NULL, NULL, 71, FALSE)
         """
     )
 
@@ -227,7 +230,7 @@ class TestCDDVDDCalculation:
             CREATE TABLE utxo_lifecycle (
                 outpoint VARCHAR PRIMARY KEY,
                 btc_value DOUBLE NOT NULL,
-                spent_timestamp TIMESTAMP,
+                spent_timestamp BIGINT,
                 spent_price_usd DOUBLE,
                 age_days INTEGER,
                 is_spent BOOLEAN DEFAULT FALSE

@@ -48,12 +48,12 @@ def db_conn() -> Generator[duckdb.DuckDBPyConnection, None, None]:
             txid VARCHAR NOT NULL,
             vout_index INTEGER NOT NULL,
             creation_block INTEGER NOT NULL,
-            creation_timestamp TIMESTAMP NOT NULL,
+            creation_timestamp BIGINT NOT NULL,
             creation_price_usd DOUBLE NOT NULL,
             btc_value DOUBLE NOT NULL,
             realized_value_usd DOUBLE NOT NULL,
             spent_block INTEGER,
-            spent_timestamp TIMESTAMP,
+            spent_timestamp BIGINT,
             spent_price_usd DOUBLE,
             spending_txid VARCHAR,
             age_blocks INTEGER,
@@ -87,6 +87,9 @@ def db_with_profit_data(
     """Insert test data with profitable UTXOs (spent_price > creation_price)."""
     now = datetime.now()
     hour_ago = now - timedelta(hours=1)
+    # Convert to Unix epoch integers for BIGINT columns
+    now_epoch = int(now.timestamp())
+    hour_ago_epoch = int(hour_ago.timestamp())
 
     # 3 profitable UTXOs: bought at $50k, sold at $100k
     # Profit per UTXO = ($100k - $50k) * btc_value
@@ -99,12 +102,12 @@ def db_with_profit_data(
             "tx1",
             0,
             800000,
-            hour_ago,
+            hour_ago_epoch,
             50000.0,
             1.0,
             50000.0,
             800010,
-            now,
+            now_epoch,
             100000.0,
             "spend1",
             10,
@@ -121,12 +124,12 @@ def db_with_profit_data(
             "tx2",
             0,
             800000,
-            hour_ago,
+            hour_ago_epoch,
             50000.0,
             2.0,
             100000.0,
             800010,
-            now,
+            now_epoch,
             100000.0,
             "spend2",
             10,
@@ -143,12 +146,12 @@ def db_with_profit_data(
             "tx3",
             0,
             800000,
-            hour_ago,
+            hour_ago_epoch,
             50000.0,
             0.5,
             25000.0,
             800010,
-            now,
+            now_epoch,
             100000.0,
             "spend3",
             10,
@@ -178,6 +181,9 @@ def db_with_loss_data(db_conn: duckdb.DuckDBPyConnection) -> duckdb.DuckDBPyConn
     """Insert test data with loss-making UTXOs (spent_price < creation_price)."""
     now = datetime.now()
     hour_ago = now - timedelta(hours=1)
+    # Convert to Unix epoch integers for BIGINT columns
+    now_epoch = int(now.timestamp())
+    hour_ago_epoch = int(hour_ago.timestamp())
 
     # 2 loss-making UTXOs: bought at $100k, sold at $50k
     # Loss per UTXO = ($100k - $50k) * btc_value
@@ -187,12 +193,12 @@ def db_with_loss_data(db_conn: duckdb.DuckDBPyConnection) -> duckdb.DuckDBPyConn
             "loss1",
             0,
             800000,
-            hour_ago,
+            hour_ago_epoch,
             100000.0,
             1.0,
             100000.0,
             800010,
-            now,
+            now_epoch,
             50000.0,
             "spend_l1",
             10,
@@ -209,12 +215,12 @@ def db_with_loss_data(db_conn: duckdb.DuckDBPyConnection) -> duckdb.DuckDBPyConn
             "loss2",
             0,
             800000,
-            hour_ago,
+            hour_ago_epoch,
             100000.0,
             2.0,
             200000.0,
             800010,
-            now,
+            now_epoch,
             50000.0,
             "spend_l2",
             10,
@@ -246,6 +252,9 @@ def db_with_mixed_data(
     """Insert test data with both profit and loss UTXOs."""
     now = datetime.now()
     hour_ago = now - timedelta(hours=1)
+    # Convert to Unix epoch integers for BIGINT columns
+    now_epoch = int(now.timestamp())
+    hour_ago_epoch = int(hour_ago.timestamp())
 
     # Mix of profit and loss
     # Profit: 1 BTC @ $50k -> $100k = $50k profit
@@ -258,12 +267,12 @@ def db_with_mixed_data(
             "mix_profit",
             0,
             800000,
-            hour_ago,
+            hour_ago_epoch,
             50000.0,
             1.0,
             50000.0,
             800010,
-            now,
+            now_epoch,
             100000.0,
             "spend_p",
             10,
@@ -281,12 +290,12 @@ def db_with_mixed_data(
             "mix_loss",
             0,
             800000,
-            hour_ago,
+            hour_ago_epoch,
             100000.0,
             1.0,
             100000.0,
             800010,
-            now,
+            now_epoch,
             50000.0,
             "spend_l",
             10,
@@ -322,6 +331,9 @@ def db_with_history_data(
     for days_ago in range(1, 4):
         spent_ts = base_time - timedelta(days=days_ago)
         creation_ts = spent_ts - timedelta(hours=2)
+        # Convert to Unix epoch integers for BIGINT columns
+        spent_ts_epoch = int(spent_ts.timestamp())
+        creation_ts_epoch = int(creation_ts.timestamp())
 
         # Each day: 1 profit UTXO, 1 loss UTXO
         profit_row = (
@@ -329,12 +341,12 @@ def db_with_history_data(
             f"hist_p{days_ago}",
             0,
             800000,
-            creation_ts,
+            creation_ts_epoch,
             50000.0,
             1.0,
             50000.0,
             800010,
-            spent_ts,
+            spent_ts_epoch,
             100000.0 + (days_ago * 1000),  # Slightly different prices
             f"spend_hp{days_ago}",
             10,
@@ -352,12 +364,12 @@ def db_with_history_data(
             f"hist_l{days_ago}",
             0,
             800000,
-            creation_ts,
+            creation_ts_epoch,
             100000.0,
             0.5,
             50000.0,
             800010,
-            spent_ts,
+            spent_ts_epoch,
             50000.0 - (days_ago * 1000),  # Slightly different prices
             f"spend_hl{days_ago}",
             10,
@@ -484,6 +496,9 @@ class TestCalculateNetRealizedPnLEdgeCases:
         """Test that UTXOs with zero prices are excluded."""
         now = datetime.now()
         hour_ago = now - timedelta(hours=1)
+        # Convert to Unix epoch integers for BIGINT columns
+        now_epoch = int(now.timestamp())
+        hour_ago_epoch = int(hour_ago.timestamp())
 
         # Insert UTXO with zero creation_price (should be excluded)
         db_conn.execute(
@@ -495,12 +510,12 @@ class TestCalculateNetRealizedPnLEdgeCases:
                 "zero",
                 0,
                 800000,
-                hour_ago,
+                hour_ago_epoch,
                 0.0,  # Zero creation price
                 1.0,
                 0.0,
                 800010,
-                now,
+                now_epoch,
                 100000.0,
                 "spend_z",
                 10,
@@ -524,6 +539,8 @@ class TestCalculateNetRealizedPnLEdgeCases:
         """Test that unspent UTXOs are excluded."""
         now = datetime.now()
         hour_ago = now - timedelta(hours=1)
+        # Convert to Unix epoch integers for BIGINT columns
+        hour_ago_epoch = int(hour_ago.timestamp())
 
         # Insert unspent UTXO (is_spent = False)
         db_conn.execute(
@@ -535,7 +552,7 @@ class TestCalculateNetRealizedPnLEdgeCases:
                 "unspent",
                 0,
                 800000,
-                hour_ago,
+                hour_ago_epoch,
                 50000.0,
                 1.0,
                 50000.0,
@@ -565,6 +582,9 @@ class TestCalculateNetRealizedPnLEdgeCases:
         now = datetime.now()
         two_days_ago = now - timedelta(days=2)
         two_days_ago_creation = two_days_ago - timedelta(hours=1)
+        # Convert to Unix epoch integers for BIGINT columns
+        two_days_ago_epoch = int(two_days_ago.timestamp())
+        two_days_ago_creation_epoch = int(two_days_ago_creation.timestamp())
 
         # Insert UTXO spent 2 days ago
         db_conn.execute(
@@ -576,12 +596,12 @@ class TestCalculateNetRealizedPnLEdgeCases:
                 "old",
                 0,
                 800000,
-                two_days_ago_creation,
+                two_days_ago_creation_epoch,
                 50000.0,
                 1.0,
                 50000.0,
                 800010,
-                two_days_ago,  # Spent 2 days ago
+                two_days_ago_epoch,  # Spent 2 days ago
                 100000.0,
                 "spend_old",
                 10,
