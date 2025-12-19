@@ -2,12 +2,16 @@
 
 Fetches current metric values from CheckOnChain for baseline comparison.
 Implements respectful rate limiting and caching.
+
+Note: CheckOnChain charts are hosted on charts.checkonchain.com subdomain.
+Data is embedded as Plotly.js JSON within HTML pages.
 """
 
 import json
+import re
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -34,19 +38,35 @@ class CheckOnChainFetcher:
 
     Note: This fetcher respects rate limits and caches data locally
     to minimize requests to the public service.
+
+    Charts are hosted on charts.checkonchain.com subdomain.
+    Plotly.js data is embedded in HTML pages.
     """
 
-    # Known CheckOnChain chart data endpoints (Plotly.js JSON)
+    # CheckOnChain chart pages (HTML with embedded Plotly.js data)
+    # Structure: /btconchain/{category}/{metric}/{metric}_light.html
+    # Updated 2025-12-19 with verified URLs
     ENDPOINTS = {
-        "mvrv": "/btconchain/mvrv/mvrv_data.json",
-        "nupl": "/btconchain/unrealised_pnl/unrealised_pnl_data.json",
-        "sopr": "/btconchain/sopr/sopr_data.json",
-        "cdd": "/btconchain/cdd/cdd_data.json",
-        "hash_ribbons": "/btconchain/mining_hashribbons/mining_hashribbons_data.json",
-        "realized_price": "/btconchain/realised_price/realised_price_data.json",
+        "mvrv": "/btconchain/unrealised/mvrv_all/mvrv_all_light.html",
+        "nupl": "/btconchain/unrealised/nupl/nupl_light.html",
+        "sopr": "/btconchain/realised/sopr/sopr_light.html",
+        "cdd": "/btconchain/lifespan/cdd/cdd_light.html",
+        "hash_ribbons": "/btconchain/mining/hashribbons/hashribbons_light.html",
+        "cost_basis": "/btconchain/pricing/pricing_yearlycostbasis/pricing_yearlycostbasis_light.html",
+        "puell_multiple": "/btconchain/mining/puellmultiple/puellmultiple_light.html",
     }
 
-    BASE_URL = "https://checkonchain.com"
+    # Visual comparison URLs (for screenshot validation)
+    VISUAL_URLS = {
+        "mvrv": "https://charts.checkonchain.com/btconchain/unrealised/mvrv_all/mvrv_all_light.html",
+        "nupl": "https://charts.checkonchain.com/btconchain/unrealised/nupl/nupl_light.html",
+        "sopr": "https://charts.checkonchain.com/btconchain/realised/sopr/sopr_light.html",
+        "cdd": "https://charts.checkonchain.com/btconchain/lifespan/cdd/cdd_light.html",
+        "hash_ribbons": "https://charts.checkonchain.com/btconchain/mining/hashribbons/hashribbons_light.html",
+        "cost_basis": "https://charts.checkonchain.com/btconchain/pricing/pricing_yearlycostbasis/pricing_yearlycostbasis_light.html",
+    }
+
+    BASE_URL = "https://charts.checkonchain.com"
 
     def __init__(self, cache_dir: Optional[Path] = None):
         self.cache_dir = cache_dir or Path("validation/cache")
@@ -72,6 +92,86 @@ class CheckOnChainFetcher:
         age_hours = (time.time() - mtime) / 3600
         return age_hours < max_age_hours
 
+    def _extract_plotly_from_html(self, html_content: str) -> Optional[dict]:
+        """Extract Plotly.js data from HTML page.
+
+        CheckOnChain embeds Plotly data in script tags as:
+        Plotly.newPlot("uuid", data, layout)
+        """
+        # Find Plotly.newPlot call - container ID is a UUID
+        match = re.search(
+            r'Plotly\.newPlot\s*\(\s*["\'][a-f0-9-]+["\']\s*,\s*\[',
+            html_content,
+        )
+        if not match:
+            return None
+
+        # Extract the data array using balanced bracket matching
+        start_idx = match.end() - 1  # Position of opening '['
+        data_str = self._extract_balanced_array(html_content, start_idx)
+
+        if not data_str:
+            return None
+
+        try:
+            data = json.loads(data_str)
+            return {"data": data}
+        except json.JSONDecodeError:
+            return None
+
+    def _extract_balanced_array(self, text: str, start: int) -> Optional[str]:
+        """Extract a balanced JSON array starting at position start."""
+        if start >= len(text) or text[start] != "[":
+            return None
+
+        depth = 0
+        in_string = False
+        escape_next = False
+
+        for i in range(start, len(text)):
+            char = text[i]
+
+            if escape_next:
+                escape_next = False
+                continue
+
+            if char == "\\":
+                escape_next = True
+                continue
+
+            if char == '"' and not escape_next:
+                in_string = not in_string
+                continue
+
+            if in_string:
+                continue
+
+            if char == "[":
+                depth += 1
+            elif char == "]":
+                depth -= 1
+                if depth == 0:
+                    return text[start : i + 1]
+
+        return None
+
+    def _js_to_json(self, js_str: str) -> str:
+        """Convert JavaScript object notation to valid JSON."""
+        # Remove JavaScript comments
+        js_str = re.sub(r"//.*?\n", "\n", js_str)
+        js_str = re.sub(r"/\*.*?\*/", "", js_str, flags=re.DOTALL)
+
+        # Handle unquoted keys (property: value -> "property": value)
+        js_str = re.sub(r"(\w+)\s*:", r'"\1":', js_str)
+
+        # Handle single quotes -> double quotes
+        js_str = js_str.replace("'", '"')
+
+        # Handle trailing commas
+        js_str = re.sub(r",\s*([}\]])", r"\1", js_str)
+
+        return js_str
+
     def fetch_metric_data(
         self, metric: str, use_cache: bool = True
     ) -> Optional[CheckOnChainData]:
@@ -92,15 +192,24 @@ class CheckOnChainFetcher:
 
         # Check cache first
         if use_cache and self._is_cache_valid(cache_path):
-            with open(cache_path) as f:
-                cached = json.load(f)
-            return CheckOnChainData(
-                metric=metric,
-                value=cached.get("latest_value", 0),
-                timestamp=datetime.fromisoformat(cached.get("timestamp", "")),
-                source_url=f"{self.BASE_URL}{self.ENDPOINTS[metric]}",
-                raw_data=cached.get("raw_data"),
-            )
+            try:
+                with open(cache_path) as f:
+                    cached = json.load(f)
+                timestamp_str = cached.get("timestamp", "")
+                if timestamp_str:
+                    timestamp = datetime.fromisoformat(timestamp_str)
+                else:
+                    timestamp = datetime.now(timezone.utc)
+                return CheckOnChainData(
+                    metric=metric,
+                    value=cached.get("latest_value", 0),
+                    timestamp=timestamp,
+                    source_url=f"{self.BASE_URL}{self.ENDPOINTS[metric]}",
+                    raw_data=cached.get("raw_data"),
+                )
+            except (json.JSONDecodeError, ValueError):
+                # Corrupt cache, fall through to fresh fetch
+                pass
 
         # Fetch from CheckOnChain
         self._rate_limit()
@@ -109,7 +218,17 @@ class CheckOnChainFetcher:
         try:
             response = httpx.get(url, timeout=30, follow_redirects=True)
             response.raise_for_status()
-            data = response.json()
+
+            # Parse HTML to extract Plotly data
+            html_content = response.text
+            plotly_data = self._extract_plotly_from_html(html_content)
+
+            if not plotly_data:
+                print(f"Could not extract Plotly data from {metric} page")
+                return None
+
+            data = plotly_data
+
         except Exception as e:
             print(f"Failed to fetch {metric}: {e}")
             return None
@@ -120,7 +239,7 @@ class CheckOnChainFetcher:
         result = CheckOnChainData(
             metric=metric,
             value=latest_value,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             source_url=url,
             raw_data=data,
         )
@@ -164,6 +283,13 @@ class CheckOnChainFetcher:
             print(f"Error extracting value for {metric}: {e}")
             return 0.0
 
+    def get_visual_url(self, metric: str) -> Optional[str]:
+        """Get the visual comparison URL for a metric.
+
+        Use this URL with playwright/chrome-devtools for screenshot comparison.
+        """
+        return self.VISUAL_URLS.get(metric)
+
     def update_baseline(self, metric: str) -> Optional[Path]:
         """Fetch current data and update baseline file.
 
@@ -183,12 +309,13 @@ class CheckOnChainFetcher:
 
         baseline = {
             "metric": metric,
-            "source": "checkonchain.com",
+            "source": "charts.checkonchain.com",
             "captured_at": data.timestamp.isoformat(),
             "current": {
                 f"{metric}_value": data.value,
             },
             "source_url": data.source_url,
+            "visual_url": self.get_visual_url(metric),
         }
 
         with open(baseline_path, "w") as f:

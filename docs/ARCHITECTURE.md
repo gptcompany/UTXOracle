@@ -946,6 +946,61 @@ python scripts/sync_utxo_lifecycle.py --source electrs  # ~98 days bootstrap
 
 ---
 
+## Validation Framework (spec-031)
+
+Professional validation of UTXOracle metrics against CheckOnChain.com reference.
+
+### Components
+
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| `validator.py` | `validation/framework/` | Core comparison logic, tolerance thresholds |
+| `checkonchain_fetcher.py` | `validation/framework/` | Plotly.js data extraction from CheckOnChain |
+| `visual_validator.py` | `validation/framework/` | Screenshot comparison workflow |
+| `comparison_engine.py` | `validation/framework/` | Orchestration, report generation |
+| `config.py` | `validation/framework/` | Centralized URL mappings, tolerances |
+| `__main__.py` | `validation/` | CLI entry point |
+
+### Metrics Validated
+
+| Metric | Tolerance | CheckOnChain Reference |
+|--------|-----------|----------------------|
+| MVRV-Z Score | ±2% | btconchain/unrealised/mvrv_all |
+| NUPL | ±2% | btconchain/unrealised/nupl |
+| SOPR | ±1% | btconchain/realised/sopr |
+| CDD | ±5% | btconchain/lifespan/cdd |
+| Hash Ribbons | ±3% | btconchain/mining/hashribbons |
+| Cost Basis | ±2% | btconchain/pricing/yearlycostbasis |
+
+### Usage
+
+```bash
+# CLI usage
+python -m validation --help
+python -m validation                  # Full suite
+python -m validation --numerical      # API comparison only
+python -m validation --visual         # Screenshot workflow
+python -m validation --metric mvrv    # Single metric
+python -m validation --update-baselines  # Refresh from CheckOnChain
+```
+
+### CI/CD
+
+GitHub Action at `.github/workflows/validation.yml`:
+- Nightly run at 2 AM UTC
+- Manual trigger with metric selection
+- Creates GitHub issues on validation failures
+- Uploads reports as artifacts
+
+### Validation Status
+
+- ✅ **PASS**: Deviation within tolerance
+- ⚠️ **WARN**: Deviation 1x-2x tolerance
+- ❌ **FAIL**: Deviation > 2x tolerance
+- 🔴 **ERROR**: Validation could not complete
+
+---
+
 ## Future Architecture Plans
 
 See **MODULAR_ARCHITECTURE.md** for planned Rust-based architecture:

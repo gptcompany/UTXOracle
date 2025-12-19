@@ -4,26 +4,14 @@ Handles both API value comparison and screenshot-based visual validation.
 """
 
 import json
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from validation.framework.validator import MetricValidator, ValidationResult
-
-
-@dataclass
-class VisualComparisonResult:
-    """Result of visual chart comparison."""
-
-    metric: str
-    our_screenshot: Path
-    reference_screenshot: Path
-    trend_match: bool
-    zone_match: bool
-    value_alignment: float  # 0-100%
-    notes: str
-    status: str  # PASS, FAIL, REVIEW
+from validation.framework.visual_validator import (
+    VisualComparisonResult,
+)
 
 
 class ComparisonEngine:
@@ -48,35 +36,29 @@ class ComparisonEngine:
         """Prepare for visual comparison by defining what to capture.
 
         Returns dict with URLs to capture for both our app and reference.
+        Uses centralized URL mapping from config.
         """
-        comparisons = {
-            "mvrv": {
-                "ours": "http://localhost:3000/mvrv",
-                "reference": "https://checkonchain.com/btconchain/mvrv/mvrv_light.html",
-                "description": "MVRV-Z Score chart comparison",
-            },
-            "nupl": {
-                "ours": "http://localhost:3000/nupl",
-                "reference": "https://checkonchain.com/btconchain/unrealised_pnl/unrealised_pnl_light.html",
-                "description": "NUPL chart comparison",
-            },
-            "sopr": {
-                "ours": "http://localhost:3000/sopr",
-                "reference": "https://checkonchain.com/btconchain/sopr/sopr_light.html",
-                "description": "SOPR chart comparison",
-            },
-            "hash_ribbons": {
-                "ours": "http://localhost:3000/mining",
-                "reference": "https://checkonchain.com/btconchain/mining_hashribbons/mining_hashribbons_light.html",
-                "description": "Hash Ribbons chart comparison",
-            },
-            "cdd": {
-                "ours": "http://localhost:3000/cdd",
-                "reference": "https://checkonchain.com/btconchain/cdd/cdd_light.html",
-                "description": "Coin Days Destroyed chart comparison",
-            },
+        from validation.framework.config import URL_MAPPING
+
+        descriptions = {
+            "mvrv": "MVRV-Z Score chart comparison",
+            "nupl": "NUPL chart comparison",
+            "sopr": "SOPR chart comparison",
+            "hash_ribbons": "Hash Ribbons chart comparison",
+            "cdd": "Coin Days Destroyed chart comparison",
+            "binary_cdd": "Binary CDD heatmap comparison",
+            "cost_basis": "Cost Basis / Realized Price comparison",
         }
-        return comparisons.get(metric, {})
+
+        if metric not in URL_MAPPING:
+            return {}
+
+        mapping = URL_MAPPING[metric]
+        return {
+            "ours": mapping["ours"],
+            "reference": mapping["reference"],
+            "description": descriptions.get(metric, f"{metric} chart comparison"),
+        }
 
     def save_report(self, output_dir: Optional[Path] = None) -> Path:
         """Save validation report to file."""

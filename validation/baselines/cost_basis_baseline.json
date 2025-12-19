@@ -1,0 +1,10 @@
+{
+  "metric": "cost_basis",
+  "source": "charts.checkonchain.com",
+  "captured_at": "2025-12-19T17:28:53.102690+00:00",
+  "current": {
+    "cost_basis_value": 86059.5522241379
+  },
+  "source_url": "https://charts.checkonchain.com/btconchain/pricing/pricing_yearlycostbasis/pricing_yearlycostbasis_light.html",
+  "visual_url": "https://charts.checkonchain.com/btconchain/pricing/pricing_yearlycostbasis/pricing_yearlycostbasis_light.html"
+}

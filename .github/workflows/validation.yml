@@ -1,0 +1,131 @@
+name: Validation Suite
+
+on:
+  # Run nightly at 2 AM UTC
+  schedule:
+    - cron: '0 2 * * *'
+
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      metric:
+        description: 'Specific metric to validate (leave empty for all)'
+        required: false
+        default: ''
+      update_baselines:
+        description: 'Update baselines before validation'
+        required: false
+        default: 'false'
+        type: boolean
+
+  # Run on validation framework changes
+  push:
+    paths:
+      - 'validation/**'
+      - '.github/workflows/validation.yml'
+    branches:
+      - main
+      - 'feat/validation-*'
+
+jobs:
+  validate:
+    name: Run Validation Suite
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: |
+          uv sync --frozen
+
+      - name: Update baselines (if requested)
+        if: ${{ github.event.inputs.update_baselines == 'true' }}
+        run: |
+          uv run python -m validation --update-baselines
+
+      - name: Run validation tests
+        run: |
+          uv run pytest validation/tests/ -v --tb=short
+
+      - name: Run numerical validation
+        id: validation
+        continue-on-error: true
+        run: |
+          METRIC_ARG=""
+          if [ -n "${{ github.event.inputs.metric }}" ]; then
+            METRIC_ARG="--metric ${{ github.event.inputs.metric }}"
+          fi
+
+          uv run python -m validation --numerical $METRIC_ARG \
+            --output-dir validation/reports
+        env:
+          # Note: API must be running for numerical validation
+          # In CI, this would require starting the API service first
+          API_BASE_URL: http://localhost:8000
+
+      - name: Upload validation report
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-report-${{ github.run_id }}
+          path: validation/reports/*.md
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Upload baselines (if updated)
+        if: ${{ github.event.inputs.update_baselines == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: baselines-${{ github.run_id }}
+          path: validation/baselines/*.json
+          retention-days: 30
+
+      - name: Create issue on validation failure
+        if: ${{ steps.validation.outcome == 'failure' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const date = new Date().toISOString().split('T')[0];
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Validation Failure: ${date}`,
+              body: `## Validation Suite Failed
+
+              **Date**: ${date}
+              **Run**: [#${context.runNumber}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})
+              **Metric**: ${{ github.event.inputs.metric || 'All metrics' }}
+
+              ### Next Steps
+
+              1. Review the [validation report artifact](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})
+              2. Check if baselines need updating: \`python -m validation --update-baselines\`
+              3. Investigate any deviations > tolerance threshold
+
+              /cc @${{ github.actor }}`,
+              labels: ['validation', 'automated']
+            });
+
+      - name: Summary
+        run: |
+          echo "## Validation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ${{ steps.validation.outcome }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Date**: $(date -u +%Y-%m-%d)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Metric**: ${{ github.event.inputs.metric || 'All' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f validation/reports/*.md ]; then
+            echo "### Report" >> $GITHUB_STEP_SUMMARY
+            cat validation/reports/*.md >> $GITHUB_STEP_SUMMARY
+          fi

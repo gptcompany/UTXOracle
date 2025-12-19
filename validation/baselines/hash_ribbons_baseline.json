@@ -1,0 +1,10 @@
+{
+  "metric": "hash_ribbons",
+  "source": "charts.checkonchain.com",
+  "captured_at": "2025-12-19T17:28:10.845522+00:00",
+  "current": {
+    "hash_ribbons_value": 86059.5522241379
+  },
+  "source_url": "https://charts.checkonchain.com/btconchain/mining/hashribbons/hashribbons_light.html",
+  "visual_url": "https://charts.checkonchain.com/btconchain/mining/hashribbons/hashribbons_light.html"
+}
