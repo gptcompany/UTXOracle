@@ -1,9 +1,9 @@
 {
   "metric": "mvrv",
   "source": "charts.checkonchain.com",
-  "captured_at": "2025-12-19T19:52:00.005827+00:00",
+  "captured_at": "2025-12-19T23:21:43.430056+00:00",
   "current": {
-    "mvrv_value": 1.5394535
+    "mvrv_value": 1.5188831
   },
   "source_url": "https://charts.checkonchain.com/btconchain/unrealised/mvrv_all/mvrv_all_light.html",
   "visual_url": "https://charts.checkonchain.com/btconchain/unrealised/mvrv_all/mvrv_all_light.html"

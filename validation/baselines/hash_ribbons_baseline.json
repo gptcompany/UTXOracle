@@ -1,11 +1,11 @@
 {
   "metric": "hash_ribbons",
   "source": "charts.checkonchain.com",
-  "captured_at": "2025-12-19T19:53:39.318965+00:00",
+  "captured_at": "2025-12-19T23:21:51.100042+00:00",
   "current": {
-    "hash_ribbons_value": 1016.6223502922923,
-    "ma_30d": 1055.8887293176283,
-    "ma_60d": 1075.7983639030429
+    "hash_ribbons_value": 1060.8233257339512,
+    "ma_30d": 1058.1557056774272,
+    "ma_60d": 1076.1037541817445
   },
   "source_url": "https://charts.checkonchain.com/btconchain/mining/hashribbons/hashribbons_light.html",
   "visual_url": "https://charts.checkonchain.com/btconchain/mining/hashribbons/hashribbons_light.html"

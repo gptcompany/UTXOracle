@@ -1,9 +1,9 @@
 {
   "metric": "puell_multiple",
   "source": "charts.checkonchain.com",
-  "captured_at": "2025-12-19T19:52:11.939291+00:00",
+  "captured_at": "2025-12-19T23:21:54.988320+00:00",
   "current": {
-    "puell_multiple_value": 0.8136650344732704
+    "puell_multiple_value": 0.8413071567517759
   },
   "source_url": "https://charts.checkonchain.com/btconchain/mining/puellmultiple/puellmultiple_light.html",
   "visual_url": null
