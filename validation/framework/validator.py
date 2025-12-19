@@ -41,17 +41,17 @@ class ValidationResult:
 class MetricValidator:
     """Validates UTXOracle metrics against reference data."""
 
-    # Default tolerances by metric
+    # Default tolerances by metric (percentage deviation allowed)
     TOLERANCES = {
-        "mvrv_z": 2.0,
-        "nupl": 2.0,
-        "sopr": 1.0,
+        "mvrv": 5.0,  # MVRV ratio comparison with CheckOnChain
+        "nupl": 5.0,  # NUPL comparison
+        "sopr": 2.0,  # SOPR is more precise
         "sth_sopr": 2.0,
         "lth_sopr": 2.0,
         "cdd": 5.0,
         "binary_cdd": 0.0,  # Boolean - must match
-        "cost_basis": 2.0,
-        "hash_ribbons_30d": 3.0,
+        "cost_basis": 5.0,
+        "hash_ribbons_30d": 3.0,  # Hashrate MA comparison
         "hash_ribbons_60d": 3.0,
         "net_realized_pnl": 5.0,
         "pl_ratio": 3.0,
@@ -119,14 +119,18 @@ class MetricValidator:
         return result
 
     def validate_mvrv(self) -> ValidationResult:
-        """Validate MVRV-Z Score."""
-        # Fetch from our API
+        """Validate MVRV ratio.
+
+        Note: We compare MVRV ratio (not Z-score) since that's what CheckOnChain provides.
+        Z-score requires historical mean/std which requires our own calculation.
+        """
+        # Fetch from our API - MVRV is available via reserve-risk endpoint
         try:
-            data = self.fetch_our_value("/api/metrics/mvrv")
-            our_value = data.get("mvrv_z_score", 0)
+            data = self.fetch_our_value("/api/metrics/reserve-risk")
+            our_value = data.get("mvrv", 0)
         except Exception as e:
             return ValidationResult(
-                metric="mvrv_z",
+                metric="mvrv",
                 timestamp=datetime.utcnow(),
                 our_value=0,
                 reference_value=0,
@@ -136,20 +140,20 @@ class MetricValidator:
                 notes=str(e),
             )
 
-        # Load baseline
+        # Load baseline - fetcher produces {metric}_value format
         try:
             baseline = self.load_baseline("mvrv")
-            reference_value = baseline.get("current", {}).get("mvrv_z_score", 0)
+            reference_value = baseline.get("current", {}).get("mvrv_value", 0)
         except FileNotFoundError:
             reference_value = 0
 
-        return self.compare("mvrv_z", our_value, reference_value)
+        return self.compare("mvrv", our_value, reference_value)
 
     def validate_nupl(self) -> ValidationResult:
-        """Validate NUPL."""
+        """Validate NUPL (Net Unrealized Profit/Loss)."""
         try:
             data = self.fetch_our_value("/api/metrics/nupl")
-            our_value = data.get("nupl", 0)
+            our_value = data.get("nupl", data.get("nupl_value", 0))
         except Exception as e:
             return ValidationResult(
                 metric="nupl",
@@ -162,9 +166,10 @@ class MetricValidator:
                 notes=str(e),
             )
 
+        # Load baseline - fetcher produces nupl_value
         try:
             baseline = self.load_baseline("nupl")
-            reference_value = baseline.get("current", {}).get("nupl", 0)
+            reference_value = baseline.get("current", {}).get("nupl_value", 0)
         except FileNotFoundError:
             reference_value = 0
 

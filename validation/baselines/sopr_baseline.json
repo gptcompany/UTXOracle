@@ -1,9 +1,9 @@
 {
   "metric": "sopr",
   "source": "charts.checkonchain.com",
-  "captured_at": "2025-12-19T17:28:06.675739+00:00",
+  "captured_at": "2025-12-19T19:52:04.238079+00:00",
   "current": {
-    "sopr_value": 0.0
+    "sopr_value": 0.993924428757477
   },
   "source_url": "https://charts.checkonchain.com/btconchain/realised/sopr/sopr_light.html",
   "visual_url": "https://charts.checkonchain.com/btconchain/realised/sopr/sopr_light.html"

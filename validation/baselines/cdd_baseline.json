@@ -1,9 +1,9 @@
 {
   "metric": "cdd",
   "source": "charts.checkonchain.com",
-  "captured_at": "2025-12-19T17:28:50.981148+00:00",
+  "captured_at": "2025-12-19T19:52:05.898405+00:00",
   "current": {
-    "cdd_value": 86059.5522241379
+    "cdd_value": 0.8586013210580307
   },
   "source_url": "https://charts.checkonchain.com/btconchain/lifespan/cdd/cdd_light.html",
   "visual_url": "https://charts.checkonchain.com/btconchain/lifespan/cdd/cdd_light.html"

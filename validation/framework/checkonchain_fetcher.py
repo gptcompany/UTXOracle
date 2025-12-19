@@ -256,6 +256,18 @@ class CheckOnChainFetcher:
 
         return result
 
+    # Mapping of metric names to their correct Plotly trace names
+    # Updated 2025-12-19 based on analysis of CheckOnChain chart structure
+    TRACE_NAMES = {
+        "mvrv": ["MVRV"],
+        "nupl": [],  # NUPL has no dedicated trace, only zone bands
+        "sopr": ["Spent Output Profit Ratio (SOPR)", "SOPR 7D-EMA"],
+        "hash_ribbons": ["HR 30D-SMA", "HR 60D-SMA", "Hashrate (EH/s)"],
+        "cdd": ["CDD", "Coin Days Destroyed"],
+        "cost_basis": ["Cost Basis", "Realised Price"],
+        "puell_multiple": ["Puell Multiple"],
+    }
+
     def _extract_latest_value(self, plotly_data: dict, metric: str) -> float:
         """Extract the latest value from Plotly.js JSON data.
 
@@ -263,17 +275,45 @@ class CheckOnChainFetcher:
         - data[]: array of traces
         - data[n].x: dates
         - data[n].y: values
+        - data[n].name: trace name (used to identify correct trace)
+
+        IMPORTANT: Many CheckOnChain charts have "Price" as the first trace.
+        We must find the trace matching the metric name, not just use the first one.
         """
         try:
             traces = plotly_data.get("data", [])
             if not traces:
                 return 0.0
 
-            # Find the main trace (usually first one with y values)
+            target_names = self.TRACE_NAMES.get(metric, [])
+
+            # First, try to find trace by name
+            if target_names:
+                for trace in traces:
+                    trace_name = trace.get("name", "")
+                    if trace_name in target_names:
+                        y_values = trace.get("y", [])
+                        if y_values:
+                            for val in reversed(y_values):
+                                if val is not None:
+                                    return float(val)
+
+            # Fallback: find first trace on y2 axis (metric axis, not price axis)
             for trace in traces:
+                if trace.get("yaxis") == "y2":
+                    y_values = trace.get("y", [])
+                    if y_values:
+                        for val in reversed(y_values):
+                            if val is not None:
+                                return float(val)
+
+            # Last resort: skip "Price" trace, use next available
+            for trace in traces:
+                trace_name = trace.get("name", "")
+                if trace_name.lower() == "price":
+                    continue
                 y_values = trace.get("y", [])
                 if y_values:
-                    # Get last non-null value
                     for val in reversed(y_values):
                         if val is not None:
                             return float(val)
@@ -307,13 +347,31 @@ class CheckOnChainFetcher:
         baseline_dir.mkdir(parents=True, exist_ok=True)
         baseline_path = baseline_dir / f"{metric}_baseline.json"
 
+        # Build current values dict - some metrics have multiple values
+        current = {f"{metric}_value": data.value}
+
+        # Special handling for hash_ribbons - extract both MA values
+        if metric == "hash_ribbons" and data.raw_data:
+            traces = data.raw_data.get("data", [])
+            for trace in traces:
+                name = trace.get("name", "")
+                y_values = trace.get("y", [])
+                if name == "HR 30D-SMA" and y_values:
+                    for val in reversed(y_values):
+                        if val is not None:
+                            current["ma_30d"] = float(val)
+                            break
+                elif name == "HR 60D-SMA" and y_values:
+                    for val in reversed(y_values):
+                        if val is not None:
+                            current["ma_60d"] = float(val)
+                            break
+
         baseline = {
             "metric": metric,
             "source": "charts.checkonchain.com",
             "captured_at": data.timestamp.isoformat(),
-            "current": {
-                f"{metric}_value": data.value,
-            },
+            "current": current,
             "source_url": data.source_url,
             "visual_url": self.get_visual_url(metric),
         }
