@@ -1,0 +1,214 @@
+openapi: 3.1.0
+info:
+  title: UTXOracle P/L Ratio API
+  description: P/L Ratio and Dominance metrics (spec-029)
+  version: 1.0.0
+
+paths:
+  /api/metrics/pl-ratio:
+    get:
+      summary: Get current P/L Ratio
+      description: Calculate P/L ratio and dominance for the specified time window
+      operationId: get_pl_ratio
+      parameters:
+        - name: window_hours
+          in: query
+          description: Time window in hours (1-720)
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 720
+            default: 24
+      responses:
+        "200":
+          description: P/L Ratio calculated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PLRatioResponse"
+        "400":
+          description: Invalid window_hours parameter
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/metrics/pl-ratio/history:
+    get:
+      summary: Get P/L Ratio history
+      description: Get daily P/L ratio history for trend analysis
+      operationId: get_pl_ratio_history
+      parameters:
+        - name: days
+          in: query
+          description: Number of days of history (1-365)
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+            default: 30
+      responses:
+        "200":
+          description: P/L Ratio history retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PLRatioHistoryResponse"
+        "400":
+          description: Invalid days parameter
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  schemas:
+    PLDominanceZone:
+      type: string
+      enum:
+        - EXTREME_PROFIT
+        - PROFIT
+        - NEUTRAL
+        - LOSS
+        - EXTREME_LOSS
+      description: Zone classification for P/L dominance
+
+    PLRatioResponse:
+      type: object
+      required:
+        - pl_ratio
+        - pl_dominance
+        - profit_dominant
+        - dominance_zone
+        - realized_profit_usd
+        - realized_loss_usd
+        - window_hours
+        - timestamp
+      properties:
+        pl_ratio:
+          type: number
+          format: float
+          minimum: 0
+          description: Raw ratio (Profit / Loss)
+          example: 2.5
+        pl_dominance:
+          type: number
+          format: float
+          minimum: -1.0
+          maximum: 1.0
+          description: Normalized dominance (-1 to +1)
+          example: 0.43
+        profit_dominant:
+          type: boolean
+          description: True if ratio > 1
+          example: true
+        dominance_zone:
+          $ref: "#/components/schemas/PLDominanceZone"
+        realized_profit_usd:
+          type: number
+          format: float
+          minimum: 0
+          description: Total realized profit (USD)
+          example: 250000.0
+        realized_loss_usd:
+          type: number
+          format: float
+          minimum: 0
+          description: Total realized loss (USD)
+          example: 100000.0
+        window_hours:
+          type: integer
+          minimum: 1
+          maximum: 720
+          description: Time window used for calculation
+          example: 24
+        timestamp:
+          type: string
+          format: date-time
+          description: When the metric was calculated
+          example: "2025-12-19T12:00:00Z"
+
+    PLRatioHistoryPoint:
+      type: object
+      required:
+        - date
+        - pl_ratio
+        - pl_dominance
+        - dominance_zone
+        - realized_profit_usd
+        - realized_loss_usd
+      properties:
+        date:
+          type: string
+          format: date
+          description: Date of data point
+          example: "2025-12-19"
+        pl_ratio:
+          type: number
+          format: float
+          minimum: 0
+          description: Raw ratio for the day
+          example: 2.5
+        pl_dominance:
+          type: number
+          format: float
+          minimum: -1.0
+          maximum: 1.0
+          description: Normalized dominance for the day
+          example: 0.43
+        dominance_zone:
+          $ref: "#/components/schemas/PLDominanceZone"
+        realized_profit_usd:
+          type: number
+          format: float
+          minimum: 0
+          description: Daily realized profit (USD)
+          example: 250000.0
+        realized_loss_usd:
+          type: number
+          format: float
+          minimum: 0
+          description: Daily realized loss (USD)
+          example: 100000.0
+
+    PLRatioHistoryResponse:
+      type: object
+      required:
+        - history
+        - days
+      properties:
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/PLRatioHistoryPoint"
+          description: Daily P/L ratio data points (oldest first)
+        days:
+          type: integer
+          minimum: 1
+          maximum: 365
+          description: Number of days requested
+          example: 30
+
+    ErrorResponse:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
+          description: Error message
+          example: "window_hours must be between 1 and 720"

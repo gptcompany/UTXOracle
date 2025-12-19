@@ -2581,3 +2581,145 @@ class NetRealizedPnLHistoryPoint:
             "profit_utxo_count": self.profit_utxo_count,
             "loss_utxo_count": self.loss_utxo_count,
         }
+
+
+# =============================================================================
+# Spec-029: P/L Ratio (Dominance) Dataclasses
+# =============================================================================
+
+
+class PLDominanceZone(Enum):
+    """
+    Zone classification for P/L dominance metric (spec-029).
+
+    Provides market regime interpretation based on P/L ratio and dominance values.
+    Used for identifying market extremes (potential tops/bottoms).
+
+    Thresholds:
+        EXTREME_PROFIT: ratio > 5.0, dominance > 0.67 (euphoria, potential top)
+        PROFIT: ratio 1.5-5.0, dominance 0.2-0.67 (healthy bull market)
+        NEUTRAL: ratio 0.67-1.5, dominance -0.2-0.2 (equilibrium)
+        LOSS: ratio 0.2-0.67, dominance -0.67--0.2 (bear market)
+        EXTREME_LOSS: ratio < 0.2, dominance < -0.67 (capitulation, potential bottom)
+    """
+
+    EXTREME_PROFIT = "EXTREME_PROFIT"
+    PROFIT = "PROFIT"
+    NEUTRAL = "NEUTRAL"
+    LOSS = "LOSS"
+    EXTREME_LOSS = "EXTREME_LOSS"
+
+
+@dataclass
+class PLRatioResult:
+    """
+    P/L Ratio (Dominance) calculation result (spec-029).
+
+    Derived from Net Realized P/L (spec-028) to provide ratio and normalized
+    dominance metrics for market regime identification.
+
+    Attributes:
+        pl_ratio: Raw ratio (Profit / Loss), >= 0
+        pl_dominance: Normalized (-1 to +1), (Profit - Loss) / (Profit + Loss)
+        profit_dominant: True if ratio > 1
+        dominance_zone: Zone classification for market regime
+        realized_profit_usd: Source profit value from spec-028
+        realized_loss_usd: Source loss value from spec-028
+        window_hours: Time window for calculation (1-720)
+        timestamp: When metric was calculated
+    """
+
+    pl_ratio: float
+    pl_dominance: float
+    profit_dominant: bool
+    dominance_zone: PLDominanceZone
+    realized_profit_usd: float
+    realized_loss_usd: float
+    window_hours: int
+    timestamp: datetime
+
+    def __post_init__(self):
+        """Validate field constraints."""
+        if self.pl_ratio < 0:
+            raise ValueError(f"pl_ratio must be >= 0: {self.pl_ratio}")
+        if not -1.0 <= self.pl_dominance <= 1.0:
+            raise ValueError(f"pl_dominance must be in [-1, 1]: {self.pl_dominance}")
+        if self.realized_profit_usd < 0:
+            raise ValueError(
+                f"realized_profit_usd must be >= 0: {self.realized_profit_usd}"
+            )
+        if self.realized_loss_usd < 0:
+            raise ValueError(
+                f"realized_loss_usd must be >= 0: {self.realized_loss_usd}"
+            )
+        if not 1 <= self.window_hours <= 720:
+            raise ValueError(
+                f"window_hours must be between 1 and 720: {self.window_hours}"
+            )
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "pl_ratio": self.pl_ratio,
+            "pl_dominance": self.pl_dominance,
+            "profit_dominant": self.profit_dominant,
+            "dominance_zone": self.dominance_zone.value,
+            "realized_profit_usd": self.realized_profit_usd,
+            "realized_loss_usd": self.realized_loss_usd,
+            "window_hours": self.window_hours,
+            "timestamp": self.timestamp.isoformat()
+            if hasattr(self.timestamp, "isoformat")
+            else str(self.timestamp),
+        }
+
+
+@dataclass
+class PLRatioHistoryPoint:
+    """
+    Single data point in P/L Ratio history (spec-029).
+
+    Used for daily aggregated P/L ratio data for trend analysis.
+
+    Attributes:
+        date: Date for this data point
+        pl_ratio: Raw ratio for the day (>= 0)
+        pl_dominance: Normalized dominance (-1 to +1)
+        dominance_zone: Zone classification
+        realized_profit_usd: Daily profit (USD)
+        realized_loss_usd: Daily loss (USD)
+    """
+
+    date: date
+    pl_ratio: float
+    pl_dominance: float
+    dominance_zone: PLDominanceZone
+    realized_profit_usd: float
+    realized_loss_usd: float
+
+    def __post_init__(self):
+        """Validate field constraints."""
+        if self.pl_ratio < 0:
+            raise ValueError(f"pl_ratio must be >= 0: {self.pl_ratio}")
+        if not -1.0 <= self.pl_dominance <= 1.0:
+            raise ValueError(f"pl_dominance must be in [-1, 1]: {self.pl_dominance}")
+        if self.realized_profit_usd < 0:
+            raise ValueError(
+                f"realized_profit_usd must be >= 0: {self.realized_profit_usd}"
+            )
+        if self.realized_loss_usd < 0:
+            raise ValueError(
+                f"realized_loss_usd must be >= 0: {self.realized_loss_usd}"
+            )
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "date": self.date.isoformat()
+            if hasattr(self.date, "isoformat")
+            else str(self.date),
+            "pl_ratio": self.pl_ratio,
+            "pl_dominance": self.pl_dominance,
+            "dominance_zone": self.dominance_zone.value,
+            "realized_profit_usd": self.realized_profit_usd,
+            "realized_loss_usd": self.realized_loss_usd,
+        }

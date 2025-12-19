@@ -3062,6 +3062,70 @@ class NetRealizedPnLHistoryResponse(BaseModel):
 
 
 # =============================================================================
+# P/L Ratio (Dominance) Response Models (spec-029)
+# =============================================================================
+
+
+class PLRatioResponse(BaseModel):
+    """P/L Ratio (Dominance) response model (spec-029).
+
+    Provides ratio and normalized dominance metrics for market regime identification.
+    Derived from Net Realized P/L (spec-028).
+    """
+
+    pl_ratio: float = Field(..., ge=0, description="Raw ratio (Profit / Loss)")
+    pl_dominance: float = Field(
+        ..., ge=-1.0, le=1.0, description="Normalized dominance (-1 to +1)"
+    )
+    profit_dominant: bool = Field(..., description="True if ratio > 1")
+    dominance_zone: str = Field(
+        ...,
+        description="Zone classification: EXTREME_PROFIT, PROFIT, NEUTRAL, LOSS, EXTREME_LOSS",
+    )
+    realized_profit_usd: float = Field(..., ge=0, description="Total profit (USD)")
+    realized_loss_usd: float = Field(..., ge=0, description="Total loss (USD)")
+    window_hours: int = Field(..., ge=1, le=720, description="Time window in hours")
+    timestamp: str = Field(..., description="Calculation timestamp (ISO format)")
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "pl_ratio": 2.5,
+                "pl_dominance": 0.43,
+                "profit_dominant": True,
+                "dominance_zone": "PROFIT",
+                "realized_profit_usd": 250000.0,
+                "realized_loss_usd": 100000.0,
+                "window_hours": 24,
+                "timestamp": "2025-12-19T12:00:00",
+            }
+        }
+    }
+
+
+class PLRatioHistoryPointResponse(BaseModel):
+    """Single point in P/L Ratio history (spec-029)."""
+
+    date: str = Field(..., description="Date (YYYY-MM-DD)")
+    pl_ratio: float = Field(..., ge=0, description="Raw ratio for the day")
+    pl_dominance: float = Field(
+        ..., ge=-1.0, le=1.0, description="Dominance for the day"
+    )
+    dominance_zone: str = Field(..., description="Zone classification")
+    realized_profit_usd: float = Field(..., ge=0, description="Daily profit (USD)")
+    realized_loss_usd: float = Field(..., ge=0, description="Daily loss (USD)")
+
+
+class PLRatioHistoryResponse(BaseModel):
+    """P/L Ratio history response (spec-029)."""
+
+    history: List[PLRatioHistoryPointResponse] = Field(
+        ..., description="Daily P/L ratio data points (oldest first)"
+    )
+    days: int = Field(..., gt=0, description="Number of days requested")
+
+
+# =============================================================================
 # Exchange Netflow Endpoints (spec-026)
 # =============================================================================
 
@@ -3528,6 +3592,150 @@ async def get_net_realized_pnl_history(
                 detail="UTXO lifecycle table not found. Schema migration pending.",
             )
         logging.error(f"Error getting net realized P/L history: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+# =============================================================================
+# P/L Ratio (Dominance) Endpoints (spec-029)
+# =============================================================================
+
+
+@app.get("/api/metrics/pl-ratio", response_model=PLRatioResponse)
+async def get_pl_ratio(
+    window_hours: int = Query(
+        default=24,
+        ge=1,
+        le=720,
+        description="Time window in hours (1-720, default 24)",
+    ),
+):
+    """
+    Calculate P/L Ratio and Dominance for spent UTXOs.
+
+    Derives ratio and normalized dominance from realized profit/loss
+    to identify market regime (euphoria vs capitulation).
+
+    **Formulas:**
+    - P/L Ratio = Realized Profit / Realized Loss
+    - P/L Dominance = (Profit - Loss) / (Profit + Loss), normalized -1 to +1
+
+    **Zone Classification:**
+    - **EXTREME_PROFIT** (ratio > 5.0): Euphoria, potential cycle top
+    - **PROFIT** (ratio 1.5-5.0): Healthy bull market
+    - **NEUTRAL** (ratio 0.67-1.5): Equilibrium, sideways
+    - **LOSS** (ratio 0.2-0.67): Bear market
+    - **EXTREME_LOSS** (ratio < 0.2): Capitulation, potential bottom
+
+    **Market Context:**
+    - Extreme profit zones often precede corrections
+    - Extreme loss zones historically mark accumulation opportunities
+    """
+    import duckdb
+
+    conn = None
+    try:
+        conn = duckdb.connect(UTXO_DB_PATH, read_only=True)
+
+        from scripts.metrics.pl_ratio import calculate_pl_ratio
+
+        result = calculate_pl_ratio(conn=conn, window_hours=window_hours)
+
+        return PLRatioResponse(
+            pl_ratio=result.pl_ratio,
+            pl_dominance=result.pl_dominance,
+            profit_dominant=result.profit_dominant,
+            dominance_zone=result.dominance_zone.value,
+            realized_profit_usd=result.realized_profit_usd,
+            realized_loss_usd=result.realized_loss_usd,
+            window_hours=result.window_hours,
+            timestamp=result.timestamp.isoformat(),
+        )
+
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=503,
+            detail=f"UTXO lifecycle database not found at {UTXO_DB_PATH}. "
+            "Run utxo_lifecycle sync first.",
+        )
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "utxo_lifecycle" in error_msg or "does not exist" in error_msg:
+            raise HTTPException(
+                status_code=404,
+                detail="UTXO lifecycle table not found. Schema migration pending.",
+            )
+        logging.error(f"Error calculating P/L ratio: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.get("/api/metrics/pl-ratio/history", response_model=PLRatioHistoryResponse)
+async def get_pl_ratio_history(
+    days: int = Query(
+        default=30,
+        ge=1,
+        le=365,
+        description="Number of days of history (1-365, default 30)",
+    ),
+):
+    """
+    Get daily P/L Ratio history for trend analysis.
+
+    Returns one data point per day with ratio, dominance, and zone classification.
+    Useful for identifying trends in profit/loss behavior across market cycles.
+
+    **Response:**
+    - history: Array of daily P/L ratio data points (oldest first)
+    - days: Number of days in the response
+    """
+    import duckdb
+
+    conn = None
+    try:
+        conn = duckdb.connect(UTXO_DB_PATH, read_only=True)
+
+        from scripts.metrics.pl_ratio import get_pl_ratio_history
+
+        history = get_pl_ratio_history(conn=conn, days=days)
+
+        history_response = [
+            PLRatioHistoryPointResponse(
+                date=point.date.isoformat()
+                if hasattr(point.date, "isoformat")
+                else str(point.date),
+                pl_ratio=point.pl_ratio,
+                pl_dominance=point.pl_dominance,
+                dominance_zone=point.dominance_zone.value,
+                realized_profit_usd=point.realized_profit_usd,
+                realized_loss_usd=point.realized_loss_usd,
+            )
+            for point in history
+        ]
+
+        return PLRatioHistoryResponse(
+            history=history_response,
+            days=days,
+        )
+
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=503,
+            detail=f"UTXO lifecycle database not found at {UTXO_DB_PATH}. "
+            "Run utxo_lifecycle sync first.",
+        )
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "utxo_lifecycle" in error_msg or "does not exist" in error_msg:
+            raise HTTPException(
+                status_code=404,
+                detail="UTXO lifecycle table not found. Schema migration pending.",
+            )
+        logging.error(f"Error getting P/L ratio history: {e}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
     finally:
         if conn:
