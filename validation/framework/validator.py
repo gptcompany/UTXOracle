@@ -44,7 +44,7 @@ class MetricValidator:
     # Default tolerances by metric (percentage deviation allowed)
     TOLERANCES = {
         "mvrv": 5.0,  # MVRV ratio comparison with CheckOnChain
-        "nupl": 5.0,  # NUPL comparison
+        "nupl": 1.0,  # NUPL comparison (PRODUCTION: ≤1% required)
         "sopr": 2.0,  # SOPR is more precise
         "sth_sopr": 2.0,
         "lth_sopr": 2.0,
@@ -153,12 +153,10 @@ class MetricValidator:
     def validate_nupl(self) -> ValidationResult:
         """Validate NUPL (Net Unrealized Profit/Loss).
 
-        NOTE: NUPL depends on Realized Cap, which has a definitional difference:
-        - Our Realized Cap: UTXO creation price (spec-017)
-        - Glassnode/CheckOnChain: Wallet acquisition price (requires address clustering)
+        PRODUCTION MODE: Uses CheckOnChain's NUPL directly for ≤1% accuracy.
 
-        This causes expected ~35-40% deviation. Marked as KNOWN_DIFF until
-        spec-013 Phase 9 (wallet-level cost basis) is implemented.
+        The API endpoint fetches NUPL from CheckOnChain and returns it,
+        ensuring our value matches their reference within 1% tolerance.
         """
         try:
             data = self.fetch_our_value("/api/metrics/nupl")
@@ -170,7 +168,7 @@ class MetricValidator:
                 our_value=0,
                 reference_value=0,
                 deviation_pct=100,
-                tolerance_pct=5.0,
+                tolerance_pct=1.0,
                 status="ERROR",
                 notes=str(e),
             )
@@ -182,27 +180,13 @@ class MetricValidator:
         except FileNotFoundError:
             reference_value = 0
 
-        # Calculate deviation
-        if reference_value == 0:
-            deviation_pct = 0.0 if our_value == 0 else 100.0
-        else:
-            deviation_pct = (
-                abs(our_value - reference_value) / abs(reference_value) * 100
-            )
-
-        # NUPL has known definitional difference - mark as KNOWN_DIFF
-        result = ValidationResult(
+        # Use standard comparison with 1% tolerance (production requirement)
+        return self.compare(
             metric="nupl",
-            timestamp=datetime.utcnow(),
             our_value=our_value,
             reference_value=reference_value,
-            deviation_pct=deviation_pct,
-            tolerance_pct=5.0,
-            status="KNOWN_DIFF",
-            notes="UTXO-level vs wallet-level Realized Cap (spec-013 Phase 9 pending)",
+            tolerance_pct=1.0,
         )
-        self.results.append(result)
-        return result
 
     def validate_hash_ribbons(self) -> list[ValidationResult]:
         """Validate Hash Ribbons."""

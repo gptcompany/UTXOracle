@@ -53,7 +53,7 @@ URL_MAPPING = {
 # Tolerance thresholds (percentage)
 TOLERANCES = {
     "mvrv_z": 2.0,  # ±2%
-    "nupl": 2.0,  # ±2%
+    "nupl": 1.0,  # ±1% (PRODUCTION REQUIREMENT)
     "sopr": 1.0,  # ±1%
     "sth_sopr": 2.0,  # ±2%
     "lth_sopr": 2.0,  # ±2%

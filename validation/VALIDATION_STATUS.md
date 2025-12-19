@@ -32,7 +32,7 @@
 
 | Metric | Our Value | Reference | Deviation | Root Cause | Fix Required |
 |--------|-----------|-----------|-----------|------------|--------------|
-| NUPL | 0.4376 | 0.6869 | 36.29% | UTXO-level vs wallet-level Realized Cap | spec-013 Phase 9 |
+| NUPL | 0.4376 | 0.6869 | 36.29% | **UTXO-level RC** ($1,120B @ $56k/BTC avg) vs **wallet-level RC** ($623B @ $31k/BTC avg) - 23% of supply created at ≥$100k inflates RC | spec-013 Phase 9 OR accept as intentional design (see NUPL_DEVIATION_ANALYSIS.md) |
 | Cost Basis | $56,236 | $18,492 | 204% | Our Realized Price vs CheckOnChain Yearly Cost Basis | Different metrics |
 | Puell Multiple | 2.00 | 0.81 | 145.8% | Simplified 365d MA (static $50k) vs actual historical data | Add historical price API |
 
