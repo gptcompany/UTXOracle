@@ -223,6 +223,104 @@ class TestMetricValidatorRunAll:
         assert all(isinstance(r, ValidationResult) for r in results)
 
 
+class TestMetricValidatorValidateNupl:
+    """Tests for MetricValidator.validate_nupl() method."""
+
+    def test_validate_nupl_success(self, baselines_dir: Path, mock_api_response: dict):
+        """validate_nupl() successfully compares API with baseline."""
+        validator = MetricValidator(
+            api_base_url="http://localhost:8000", baselines_dir=baselines_dir
+        )
+
+        with patch.object(validator, "fetch_our_value") as mock_fetch:
+            mock_fetch.return_value = mock_api_response["nupl"]
+            result = validator.validate_nupl()
+
+        assert result.metric == "nupl"
+        assert result.our_value == 0.52
+        assert result.status == "PASS"
+
+    def test_validate_nupl_api_error(self, baselines_dir: Path):
+        """validate_nupl() returns ERROR on API failure."""
+        validator = MetricValidator(
+            api_base_url="http://localhost:8000", baselines_dir=baselines_dir
+        )
+
+        with patch.object(validator, "fetch_our_value") as mock_fetch:
+            mock_fetch.side_effect = Exception("API timeout")
+            result = validator.validate_nupl()
+
+        assert result.status == "ERROR"
+        assert "API timeout" in result.notes
+
+    def test_validate_nupl_missing_baseline(
+        self, tmp_path: Path, mock_api_response: dict
+    ):
+        """validate_nupl() uses 0 reference when baseline is missing."""
+        empty_baselines = tmp_path / "empty_baselines"
+        empty_baselines.mkdir()
+        validator = MetricValidator(
+            api_base_url="http://localhost:8000", baselines_dir=empty_baselines
+        )
+
+        with patch.object(validator, "fetch_our_value") as mock_fetch:
+            mock_fetch.return_value = mock_api_response["nupl"]
+            result = validator.validate_nupl()
+
+        assert result.reference_value == 0
+
+
+class TestMetricValidatorValidateHashRibbons:
+    """Tests for MetricValidator.validate_hash_ribbons() method."""
+
+    def test_validate_hash_ribbons_success(
+        self, baselines_dir: Path, mock_api_response: dict
+    ):
+        """validate_hash_ribbons() successfully compares API with baseline."""
+        validator = MetricValidator(
+            api_base_url="http://localhost:8000", baselines_dir=baselines_dir
+        )
+
+        with patch.object(validator, "fetch_our_value") as mock_fetch:
+            mock_fetch.return_value = mock_api_response["hash_ribbons"]
+            results = validator.validate_hash_ribbons()
+
+        assert len(results) == 2
+        assert results[0].metric == "hash_ribbons_30d"
+        assert results[1].metric == "hash_ribbons_60d"
+
+    def test_validate_hash_ribbons_api_error(self, baselines_dir: Path):
+        """validate_hash_ribbons() returns ERROR on API failure."""
+        validator = MetricValidator(
+            api_base_url="http://localhost:8000", baselines_dir=baselines_dir
+        )
+
+        with patch.object(validator, "fetch_our_value") as mock_fetch:
+            mock_fetch.side_effect = Exception("Network error")
+            results = validator.validate_hash_ribbons()
+
+        assert len(results) == 1
+        assert results[0].status == "ERROR"
+        assert "Network error" in results[0].notes
+
+    def test_validate_hash_ribbons_missing_baseline(
+        self, tmp_path: Path, mock_api_response: dict
+    ):
+        """validate_hash_ribbons() uses 0 reference when baseline is missing."""
+        empty_baselines = tmp_path / "empty_baselines"
+        empty_baselines.mkdir()
+        validator = MetricValidator(
+            api_base_url="http://localhost:8000", baselines_dir=empty_baselines
+        )
+
+        with patch.object(validator, "fetch_our_value") as mock_fetch:
+            mock_fetch.return_value = mock_api_response["hash_ribbons"]
+            results = validator.validate_hash_ribbons()
+
+        assert results[0].reference_value == 0
+        assert results[1].reference_value == 0
+
+
 class TestMetricValidatorGenerateReport:
     """Tests for MetricValidator.generate_report() method."""
 

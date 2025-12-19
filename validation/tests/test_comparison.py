@@ -220,6 +220,42 @@ class TestComparisonEngineGenerateBaselineTemplate:
         assert "current" in template
 
 
+class TestComparisonEngineSaveBaselineTemplates:
+    """Tests for ComparisonEngine.save_baseline_templates() method."""
+
+    def test_save_baseline_templates_creates_files(self, tmp_path: Path, monkeypatch):
+        """save_baseline_templates() creates template files for all metrics."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "validation" / "baselines").mkdir(parents=True)
+
+        engine = ComparisonEngine(screenshots_dir=tmp_path)
+        engine.save_baseline_templates()
+
+        baselines_dir = tmp_path / "validation" / "baselines"
+        # Should create files for mvrv, nupl, hash_ribbons, sopr, cdd
+        assert (baselines_dir / "mvrv_baseline.json").exists()
+        assert (baselines_dir / "nupl_baseline.json").exists()
+        assert (baselines_dir / "hash_ribbons_baseline.json").exists()
+
+    def test_save_baseline_templates_does_not_overwrite(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """save_baseline_templates() does not overwrite existing files."""
+        monkeypatch.chdir(tmp_path)
+        baselines_dir = tmp_path / "validation" / "baselines"
+        baselines_dir.mkdir(parents=True)
+
+        # Create existing file with custom content
+        existing_file = baselines_dir / "mvrv_baseline.json"
+        existing_file.write_text('{"custom": "data"}')
+
+        engine = ComparisonEngine(screenshots_dir=tmp_path)
+        engine.save_baseline_templates()
+
+        # Existing file should not be overwritten
+        assert existing_file.read_text() == '{"custom": "data"}'
+
+
 class TestVisualComparisonResult:
     """Tests for VisualComparisonResult dataclass."""
 
