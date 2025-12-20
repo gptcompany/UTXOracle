@@ -487,6 +487,42 @@ CHANGE_DETECTION_ENABLED=true
 
 ---
 
+### User Story 5 - Wallet-Level Cost Basis (Priority: P1)
+
+As a Bitcoin analyst, I want to **track acquisition prices at the wallet level**, so that Realized Cap and NUPL calculations match industry standards (CheckOnChain/Glassnode).
+
+**Why this priority**: Current UTXO-level cost basis inflates Realized Cap by 1.8x, causing 36% NUPL deviation. CRITICAL for production accuracy.
+
+**Problem**: When BTC moves between addresses within the same wallet (cluster), UTXO-level tracking assigns current price as new cost basis. Wallet-level tracking preserves original acquisition price.
+
+**Independent Test**: Can be fully tested by:
+1. Creating cluster with known acquisition history
+2. Moving BTC within cluster (internal transfer)
+3. Verifying cost basis preserved (not updated to current price)
+4. Comparing wallet_realized_cap vs utxo_realized_cap
+
+**Acceptance Scenarios**:
+
+1. **Given** wallet acquires 1 BTC at $50,000
+   **When** BTC moves to new address in same cluster
+   **Then** cost_basis remains $50,000 (not current price)
+
+2. **Given** wallet with mixed acquisition prices ($30k, $50k, $70k)
+   **When** wallet_realized_cap calculated
+   **Then** matches weighted average of acquisition prices
+
+3. **Given** wallet-level Realized Cap implemented
+   **When** NUPL calculated independently (no CheckOnChain)
+   **Then** deviation ≤1% from CheckOnChain reference
+
+4. **Given** wallet-level SOPR calculated
+   **When** compared to CheckOnChain
+   **Then** deviation ≤2% from reference
+
+**Current Workaround**: NUPL/SOPR endpoints use CheckOnChain values directly (NOT independent calculation). This MUST be replaced with independent wallet-level calculation.
+
+---
+
 ## Out of Scope
 
 - Exchange labeling (known address databases)
