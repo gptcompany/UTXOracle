@@ -116,6 +116,45 @@
 
 ---
 
+## Phase 9: Wallet-Level Cost Basis (P1) - NUPL Fix
+
+**Goal**: Track wallet acquisition prices for accurate Realized Cap matching CheckOnChain/Glassnode
+
+**Context**: Current UTXO-level cost basis inflates Realized Cap because when BTC moves between
+wallets, new UTXOs get current prices. Wallet-level tracking maintains original acquisition price
+across UTXO changes within the same wallet cluster.
+
+### Tests (TDD RED)
+- [ ] T043 [P] [US5] Write test_wallet_cost_basis_single_tx() in tests/test_clustering.py
+- [ ] T044 [P] [US5] Write test_wallet_cost_basis_across_utxo_changes() in tests/test_clustering.py
+- [ ] T045 [P] [US5] Write test_wallet_realized_cap_matches_reference() in tests/test_clustering.py
+
+### Implementation (TDD GREEN)
+- [ ] T046 [US5] Add WalletCostBasis dataclass to scripts/clustering/cost_basis.py
+- [ ] T047 [US5] Implement track_acquisition_price() - store price when BTC enters cluster
+- [ ] T048 [US5] Implement get_wallet_realized_value() - use acquisition price not UTXO creation
+- [ ] T049 [US5] Implement compute_wallet_realized_cap() - aggregate across all clusters
+- [ ] T050 [US5] Run tests - verify T043-T045 pass
+
+### Database Schema
+- [ ] T051 [US5] Add wallet_cost_basis table to store (cluster_id, btc_amount, acquisition_price, acquisition_block)
+- [ ] T052 [US5] Add migration script for existing data
+
+### Integration
+- [ ] T053 [US5] Update NUPL calculation to use wallet_realized_cap
+- [ ] T054 [US5] Update MVRV calculation to use wallet_realized_cap
+- [ ] T055 [US5] Run validation - verify NUPL matches CheckOnChain within ±5%
+
+### Remove CheckOnChain Workaround (Independence)
+- [ ] T056 [US5] Remove CheckOnChain cache dependency from `/api/metrics/nupl` - use independent wallet-level calculation
+- [ ] T057 [US5] Remove CheckOnChain cache dependency from `/api/metrics/sopr` - use independent calculation
+- [ ] T058 [US5] Validate independent NUPL: ≤1% deviation from CheckOnChain
+- [ ] T059 [US5] Validate independent SOPR: ≤2% deviation from CheckOnChain
+
+**Checkpoint**: Wallet-level cost basis complete, NUPL/SOPR use INDEPENDENT calculation (no external dependency)
+
+---
+
 ## Dependencies
 
 ```
@@ -127,6 +166,7 @@ Phase 5 (US3)         → Phase 1
 Phase 6 (US4)         → Phase 3, Phase 4
 Phase 7 (DB)          → Phase 3, Phase 4
 Phase 8 (Polish)      → All previous
+Phase 9 (Cost Basis)  → Phase 3, Phase 7 🎯 NUPL Fix
 ```
 
 ## Summary
@@ -141,4 +181,5 @@ Phase 8 (Polish)      → All previous
 | US4 | 6 |
 | DB | 4 |
 | Polish | 4 |
-| **Total** | **42** |
+| Cost Basis | 13 |
+| **Total** | **55** |
