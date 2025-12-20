@@ -151,6 +151,14 @@ across UTXO changes within the same wallet cluster.
 - [ ] T058 [US5] Validate independent NUPL: ≤1% deviation from CheckOnChain
 - [ ] T059 [US5] Validate independent SOPR: ≤2% deviation from CheckOnChain
 
+### Data Migration (Required for Validation)
+- [ ] T060 [US5] Sync UTXO lifecycle database to production path
+- [ ] T061 [US5] Run address clustering on historical blockchain (Phase 1-3 output)
+- [ ] T062 [US5] Populate address_clusters table with clustering results
+- [ ] T063 [US5] Execute migrate_cost_basis.py to populate wallet_cost_basis table
+- [ ] T064 [US5] Verify wallet_cost_basis has >1M rows with valid data
+- [ ] T065 [US5] Re-run validation: confirm T055, T058, T059 pass
+
 **Checkpoint**: Wallet-level cost basis complete, NUPL/SOPR use INDEPENDENT calculation (no external dependency)
 
 ---
