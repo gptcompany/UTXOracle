@@ -31,6 +31,21 @@ from scripts.clustering.change_detector import (
     detect_change_outputs,
     get_likely_change_address,
 )
+from scripts.clustering.cost_basis import (
+    CostBasisEntry,
+    WalletCostBasis,
+    track_acquisition_price,
+    get_wallet_realized_value,
+    compute_wallet_realized_cap,
+    get_weighted_average_cost_basis,
+    get_total_btc_in_cluster,
+    save_cost_basis_to_db,
+    load_cost_basis_from_db,
+)
+from scripts.clustering.migrate_cost_basis import (
+    compute_wallet_realized_cap_from_db,
+    get_cluster_realized_value_from_db,
+)
 
 
 def filter_coinjoins(
@@ -83,4 +98,17 @@ __all__ = [
     "ChangeDetectionResult",
     "detect_change_outputs",
     "get_likely_change_address",
+    # Cost Basis (Wallet-Level)
+    "CostBasisEntry",
+    "WalletCostBasis",
+    "track_acquisition_price",
+    "get_wallet_realized_value",
+    "compute_wallet_realized_cap",
+    "get_weighted_average_cost_basis",
+    "get_total_btc_in_cluster",
+    "save_cost_basis_to_db",
+    "load_cost_basis_from_db",
+    # Database-backed Cost Basis
+    "compute_wallet_realized_cap_from_db",
+    "get_cluster_realized_value_from_db",
 ]

@@ -202,6 +202,94 @@ CREATE INDEX IF NOT EXISTS idx_cointime_aviv ON cointime_metrics(aviv_ratio);
 CREATE INDEX IF NOT EXISTS idx_cointime_liveliness ON cointime_metrics(liveliness);
 """
 
+# Schema for address_clusters table (spec-013)
+ADDRESS_CLUSTERS_TABLE_SQL = """
+-- Address Clusters table (spec-013)
+-- Stores address-to-cluster mappings for entity identification
+
+CREATE TABLE IF NOT EXISTS address_clusters (
+    -- Address is the primary key
+    address VARCHAR PRIMARY KEY,
+    -- Cluster identifier (typically root address from Union-Find)
+    cluster_id VARCHAR NOT NULL,
+    -- Timestamps for tracking activity
+    first_seen TIMESTAMP,
+    last_seen TIMESTAMP,
+    -- Heuristic flags
+    is_exchange_likely BOOLEAN DEFAULT FALSE,
+    -- Optional label for known entities
+    label VARCHAR
+);
+"""
+
+ADDRESS_CLUSTERS_INDEXES_SQL = """
+-- Index for cluster_id filtering (find all addresses in a cluster)
+CREATE INDEX IF NOT EXISTS idx_cluster_id ON address_clusters(cluster_id);
+
+-- Index for exchange detection
+CREATE INDEX IF NOT EXISTS idx_exchange_likely ON address_clusters(is_exchange_likely);
+"""
+
+# Schema for coinjoin_cache table (spec-013)
+COINJOIN_CACHE_TABLE_SQL = """
+-- CoinJoin Cache table (spec-013)
+-- Stores CoinJoin detection results to avoid re-analysis
+
+CREATE TABLE IF NOT EXISTS coinjoin_cache (
+    -- Transaction ID is the primary key
+    txid VARCHAR PRIMARY KEY,
+    -- Detection result
+    is_coinjoin BOOLEAN NOT NULL,
+    confidence DOUBLE,
+    coinjoin_type VARCHAR CHECK (coinjoin_type IN ('wasabi', 'whirlpool', 'joinmarket', 'generic') OR coinjoin_type IS NULL),
+    -- Transaction statistics
+    equal_output_count INTEGER,
+    total_inputs INTEGER,
+    total_outputs INTEGER,
+    -- Timestamp
+    detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+COINJOIN_CACHE_INDEXES_SQL = """
+-- Index for CoinJoin type filtering
+CREATE INDEX IF NOT EXISTS idx_coinjoin_type ON coinjoin_cache(coinjoin_type);
+
+-- Index for confidence filtering
+CREATE INDEX IF NOT EXISTS idx_coinjoin_confidence ON coinjoin_cache(confidence);
+"""
+
+# Schema for wallet_cost_basis table (spec-013 Phase 9)
+WALLET_COST_BASIS_TABLE_SQL = """
+-- Wallet Cost Basis table (spec-013)
+-- Tracks acquisition prices at wallet (cluster) level for accurate Realized Cap
+
+CREATE TABLE IF NOT EXISTS wallet_cost_basis (
+    -- Composite key: cluster + acquisition block
+    cluster_id VARCHAR NOT NULL,
+    acquisition_block INTEGER NOT NULL,
+    -- BTC amount acquired at this block
+    btc_amount DOUBLE NOT NULL CHECK (btc_amount > 0),
+    -- Price at time of acquisition (USD)
+    acquisition_price DOUBLE NOT NULL CHECK (acquisition_price >= 0),
+    -- Timestamp
+    acquisition_timestamp TIMESTAMP NOT NULL,
+    -- Primary key is cluster + block combination
+    PRIMARY KEY (cluster_id, acquisition_block)
+);
+"""
+
+WALLET_COST_BASIS_INDEXES_SQL = """
+-- Index for cluster lookup
+CREATE INDEX IF NOT EXISTS idx_wcb_cluster ON wallet_cost_basis(cluster_id);
+
+-- Index for block-based queries
+CREATE INDEX IF NOT EXISTS idx_wcb_block ON wallet_cost_basis(acquisition_block);
+
+-- Index for timestamp queries
+CREATE INDEX IF NOT EXISTS idx_wcb_timestamp ON wallet_cost_basis(acquisition_timestamp);
+"""
+
 
 def init_metrics_db(db_path: str = DEFAULT_DB_PATH) -> bool:
     """
@@ -264,6 +352,30 @@ def init_metrics_db(db_path: str = DEFAULT_DB_PATH) -> bool:
         # Create cointime_metrics indexes
         conn.execute(COINTIME_METRICS_INDEXES_SQL)
         print("Created/verified cointime_metrics indexes")
+
+        # Create address_clusters table (spec-013)
+        conn.execute(ADDRESS_CLUSTERS_TABLE_SQL)
+        print("Created/verified address_clusters table")
+
+        # Create address_clusters indexes
+        conn.execute(ADDRESS_CLUSTERS_INDEXES_SQL)
+        print("Created/verified address_clusters indexes")
+
+        # Create coinjoin_cache table (spec-013)
+        conn.execute(COINJOIN_CACHE_TABLE_SQL)
+        print("Created/verified coinjoin_cache table")
+
+        # Create coinjoin_cache indexes
+        conn.execute(COINJOIN_CACHE_INDEXES_SQL)
+        print("Created/verified coinjoin_cache indexes")
+
+        # Create wallet_cost_basis table (spec-013)
+        conn.execute(WALLET_COST_BASIS_TABLE_SQL)
+        print("Created/verified wallet_cost_basis table")
+
+        # Create wallet_cost_basis indexes
+        conn.execute(WALLET_COST_BASIS_INDEXES_SQL)
+        print("Created/verified wallet_cost_basis indexes")
 
         # Verify table exists
         result = conn.execute(

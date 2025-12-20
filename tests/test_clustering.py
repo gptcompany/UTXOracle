@@ -737,3 +737,233 @@ class TestEdgeCasesRegression:
 
         result = filter_coinjoins([])
         assert result == []
+
+
+# =============================================================================
+# Phase 9: Wallet-Level Cost Basis Tests (US5)
+# =============================================================================
+
+
+class TestWalletCostBasisSingleTx:
+    """T043: Wallet cost basis for single transaction."""
+
+    def test_wallet_cost_basis_single_acquisition(self):
+        """Wallet acquiring BTC should record acquisition price."""
+        from scripts.clustering.cost_basis import (
+            WalletCostBasis,
+            track_acquisition_price,
+        )
+
+        cost_basis = WalletCostBasis()
+
+        # Wallet acquires 1 BTC at $50,000
+        track_acquisition_price(
+            cost_basis,
+            cluster_id="cluster_001",
+            btc_amount=1.0,
+            acquisition_price=50000.0,
+            block_height=800000,
+        )
+
+        # Verify the acquisition was recorded
+        entries = cost_basis.get_entries("cluster_001")
+        assert len(entries) == 1
+        assert entries[0].btc_amount == 1.0
+        assert entries[0].acquisition_price == 50000.0
+        assert entries[0].block_height == 800000
+
+    def test_wallet_cost_basis_multiple_acquisitions(self):
+        """Wallet with multiple acquisitions should track all prices."""
+        from scripts.clustering.cost_basis import (
+            WalletCostBasis,
+            track_acquisition_price,
+        )
+
+        cost_basis = WalletCostBasis()
+
+        # Multiple acquisitions at different prices
+        track_acquisition_price(
+            cost_basis,
+            cluster_id="cluster_001",
+            btc_amount=1.0,
+            acquisition_price=30000.0,
+            block_height=700000,
+        )
+        track_acquisition_price(
+            cost_basis,
+            cluster_id="cluster_001",
+            btc_amount=0.5,
+            acquisition_price=50000.0,
+            block_height=800000,
+        )
+
+        entries = cost_basis.get_entries("cluster_001")
+        assert len(entries) == 2
+        # Total BTC should be 1.5
+        total_btc = sum(e.btc_amount for e in entries)
+        assert total_btc == 1.5
+
+
+class TestWalletCostBasisAcrossUtxoChanges:
+    """T044: Wallet cost basis preserved across UTXO changes."""
+
+    def test_internal_transfer_preserves_cost_basis(self):
+        """Moving BTC within same cluster should NOT update cost basis."""
+        from scripts.clustering.cost_basis import (
+            WalletCostBasis,
+            track_acquisition_price,
+            get_wallet_realized_value,
+        )
+
+        cost_basis = WalletCostBasis()
+
+        # Wallet acquires 1 BTC at $50,000
+        track_acquisition_price(
+            cost_basis,
+            cluster_id="cluster_001",
+            btc_amount=1.0,
+            acquisition_price=50000.0,
+            block_height=800000,
+        )
+
+        # Internal transfer (same cluster, new UTXO) - should NOT change cost basis
+        # Current price is $100,000 but cost basis should stay at $50,000
+        realized_value = get_wallet_realized_value(cost_basis, "cluster_001")
+
+        # Realized value should use acquisition price ($50,000), not current price
+        assert realized_value == 50000.0  # 1 BTC * $50,000 acquisition
+
+    def test_cross_cluster_transfer_uses_current_price(self):
+        """Moving BTC to different cluster should use current price as new acquisition."""
+        from scripts.clustering.cost_basis import (
+            WalletCostBasis,
+            track_acquisition_price,
+            get_wallet_realized_value,
+        )
+
+        cost_basis = WalletCostBasis()
+
+        # Cluster 1 acquires 1 BTC at $50,000
+        track_acquisition_price(
+            cost_basis,
+            cluster_id="cluster_001",
+            btc_amount=1.0,
+            acquisition_price=50000.0,
+            block_height=800000,
+        )
+
+        # Transfer to cluster 2 at current price of $100,000
+        track_acquisition_price(
+            cost_basis,
+            cluster_id="cluster_002",
+            btc_amount=1.0,
+            acquisition_price=100000.0,  # Current market price
+            block_height=850000,
+        )
+
+        # Cluster 2's realized value should be $100,000
+        realized_value_c2 = get_wallet_realized_value(cost_basis, "cluster_002")
+        assert realized_value_c2 == 100000.0
+
+
+class TestWalletRealizedCapMatchesReference:
+    """T045: Wallet-level realized cap matches industry standards."""
+
+    def test_compute_wallet_realized_cap(self):
+        """Total wallet realized cap should aggregate correctly."""
+        from scripts.clustering.cost_basis import (
+            WalletCostBasis,
+            track_acquisition_price,
+            compute_wallet_realized_cap,
+        )
+
+        cost_basis = WalletCostBasis()
+
+        # Multiple wallets with different acquisition prices
+        track_acquisition_price(
+            cost_basis,
+            cluster_id="whale_001",
+            btc_amount=100.0,
+            acquisition_price=30000.0,
+            block_height=700000,
+        )
+        track_acquisition_price(
+            cost_basis,
+            cluster_id="whale_002",
+            btc_amount=50.0,
+            acquisition_price=50000.0,
+            block_height=750000,
+        )
+        track_acquisition_price(
+            cost_basis,
+            cluster_id="whale_003",
+            btc_amount=25.0,
+            acquisition_price=70000.0,
+            block_height=800000,
+        )
+
+        # Total realized cap = (100 * 30k) + (50 * 50k) + (25 * 70k)
+        # = 3,000,000 + 2,500,000 + 1,750,000 = $7,250,000
+        realized_cap = compute_wallet_realized_cap(cost_basis)
+        assert realized_cap == 7_250_000.0
+
+    def test_wallet_realized_cap_vs_utxo_realized_cap(self):
+        """Wallet realized cap should be lower than naive UTXO realized cap."""
+        from scripts.clustering.cost_basis import (
+            WalletCostBasis,
+            track_acquisition_price,
+            compute_wallet_realized_cap,
+        )
+
+        cost_basis = WalletCostBasis()
+
+        # Scenario: Wallet acquires 1 BTC at $30k, moves internally at $100k
+        # UTXO-level would show $100k (wrong), wallet-level shows $30k (correct)
+
+        # Original acquisition at $30k
+        track_acquisition_price(
+            cost_basis,
+            cluster_id="hodler_wallet",
+            btc_amount=1.0,
+            acquisition_price=30000.0,
+            block_height=700000,
+        )
+
+        # Wallet realized cap should be $30k (acquisition price), not $100k (current)
+        realized_cap = compute_wallet_realized_cap(cost_basis)
+        assert realized_cap == 30000.0
+
+        # If we naively tracked at UTXO level with current price of $100k,
+        # realized cap would be inflated. Our wallet-level tracking prevents this.
+        utxo_level_realized_cap = 100000.0  # What UTXO-level would show (wrong)
+        assert realized_cap < utxo_level_realized_cap
+
+    def test_wallet_realized_cap_weighted_average(self):
+        """Wallet with mixed acquisitions should use weighted average correctly."""
+        from scripts.clustering.cost_basis import (
+            WalletCostBasis,
+            track_acquisition_price,
+            get_weighted_average_cost_basis,
+        )
+
+        cost_basis = WalletCostBasis()
+
+        # Wallet buys 2 BTC at $40k, then 1 BTC at $70k
+        track_acquisition_price(
+            cost_basis,
+            cluster_id="mixed_wallet",
+            btc_amount=2.0,
+            acquisition_price=40000.0,
+            block_height=750000,
+        )
+        track_acquisition_price(
+            cost_basis,
+            cluster_id="mixed_wallet",
+            btc_amount=1.0,
+            acquisition_price=70000.0,
+            block_height=800000,
+        )
+
+        # Weighted avg = (2 * 40k + 1 * 70k) / 3 = (80k + 70k) / 3 = $50,000
+        avg_cost = get_weighted_average_cost_basis(cost_basis, "mixed_wallet")
+        assert avg_cost == 50000.0

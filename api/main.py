@@ -2272,7 +2272,7 @@ async def get_nupl(
 
     NUPL = (Market Cap - Realized Cap) / Market Cap
 
-    **PRODUCTION MODE**: Uses CheckOnChain's Realized Cap for 1% accuracy.
+    **INDEPENDENT CALCULATION**: Uses wallet-level Realized Cap (spec-013).
 
     **Market Cycle Zones:**
     - **CAPITULATION** (< 0): Network underwater, extreme fear
@@ -2289,48 +2289,10 @@ async def get_nupl(
     Spec: 022-nupl-oscillator
     """
     import duckdb
-    from pathlib import Path
-    import json
+    from datetime import datetime
 
-    # Production mode: Use CheckOnChain's NUPL value directly
-    # This achieves <1% deviation vs CheckOnChain reference
-
-    cache_file = Path("validation/cache/nupl_cache.json")
-    cache_ttl = 3600  # 1 hour cache
-
-    # Try to load from cache
-    checkonchain_nupl = None
-    if cache_file.exists():
-        try:
-            with open(cache_file) as f:
-                cache_data = json.load(f)
-
-            # Check cache age
-            timestamp_str = cache_data.get("timestamp", "")
-            if timestamp_str:
-                from datetime import datetime, timezone
-
-                cache_time = datetime.fromisoformat(timestamp_str)
-                age_seconds = (datetime.now(timezone.utc) - cache_time).total_seconds()
-
-                if age_seconds < cache_ttl:
-                    checkonchain_nupl = cache_data.get("latest_value")
-                    logging.info(f"Using cached CheckOnChain NUPL: {checkonchain_nupl}")
-        except Exception as e:
-            logging.warning(f"Failed to load NUPL cache: {e}")
-
-    # If no valid cache, fetch from CheckOnChain
-    if checkonchain_nupl is None:
-        try:
-            from validation.framework.checkonchain_fetcher import CheckOnChainFetcher
-
-            fetcher = CheckOnChainFetcher()
-            data = fetcher.fetch_metric_data("nupl", use_cache=True)
-            if data:
-                checkonchain_nupl = data.value
-                logging.info(f"Fetched fresh CheckOnChain NUPL: {checkonchain_nupl}")
-        except Exception as e:
-            logging.warning(f"Failed to fetch CheckOnChain NUPL: {e}")
+    # spec-013: Independent NUPL calculation using wallet-level realized cap
+    # This removes CheckOnChain dependency and uses our own calculation
 
     conn = None
     try:
@@ -2348,29 +2310,41 @@ async def get_nupl(
             calculate_market_cap,
         )
 
-        # If we have CheckOnChain NUPL, use it directly (production mode)
-        if checkonchain_nupl is not None:
-            # Get supply for market cap calculation
+        # Try wallet-level realized cap first (spec-013)
+        wallet_realized_cap = None
+        try:
+            from scripts.clustering import compute_wallet_realized_cap_from_db
+
+            wallet_realized_cap = compute_wallet_realized_cap_from_db()
+            if wallet_realized_cap > 0:
+                logging.info(
+                    f"Using wallet-level realized cap: ${wallet_realized_cap:,.0f}"
+                )
+        except Exception as e:
+            logging.debug(f"Wallet realized cap not available: {e}")
+
+        # If wallet-level realized cap is available, use it for independent NUPL
+        if wallet_realized_cap and wallet_realized_cap > 0:
             total_supply_btc = get_total_unspent_supply(conn)
             market_cap_usd = calculate_market_cap(total_supply_btc, current_price)
 
-            # Use CheckOnChain's NUPL value
-            nupl = checkonchain_nupl
+            # Calculate NUPL = (Market Cap - Realized Cap) / Market Cap
+            if market_cap_usd > 0:
+                nupl = (market_cap_usd - wallet_realized_cap) / market_cap_usd
+            else:
+                nupl = 0.0
+
             zone = classify_nupl_zone(nupl)
 
-            # Derive realized cap from CheckOnChain's NUPL
-            # NUPL = (MC - RC) / MC
-            # RC = MC × (1 - NUPL)
-            realized_cap_usd = market_cap_usd * (1 - nupl)
+            # Use wallet-level realized cap directly (spec-013)
+            realized_cap_usd = wallet_realized_cap
             unrealized_profit_usd = market_cap_usd - realized_cap_usd
 
-            # Calculate % supply in profit
+            # Calculate % supply in profit (approximation based on NUPL)
             if market_cap_usd > 0:
                 pct_supply_in_profit = max(0.0, min(100.0, 50.0 + (nupl * 50.0)))
             else:
                 pct_supply_in_profit = 0.0
-
-            from datetime import datetime
 
             return NUPLResponse(
                 nupl=nupl,
@@ -2379,7 +2353,7 @@ async def get_nupl(
                 realized_cap_usd=realized_cap_usd,
                 unrealized_profit_usd=unrealized_profit_usd,
                 pct_supply_in_profit=pct_supply_in_profit,
-                confidence=0.95,  # High confidence - using CheckOnChain reference
+                confidence=0.90,  # High confidence - independent wallet-level calculation
                 block_height=block_height,
                 timestamp=datetime.utcnow().isoformat(),
             )
@@ -4562,7 +4536,7 @@ async def get_sopr(
     - **SOPR < 1**: Coins sold at loss on average
     - **SOPR = 1**: Break-even point
 
-    **PRODUCTION MODE**: Uses CheckOnChain's SOPR for <2% accuracy.
+    **INDEPENDENT CALCULATION**: Uses UTXOracle's UTXO lifecycle data (spec-013).
 
     **Cohort Split:**
     - **STH (Short-Term Holders)**: UTXOs < 155 days old
@@ -4577,47 +4551,9 @@ async def get_sopr(
     Spec: 016-sopr-analysis
     """
     import duckdb
-    from datetime import datetime, timedelta, timezone
-    from pathlib import Path
-    import json
-
-    # Production mode: Use CheckOnChain's SOPR value directly
-    # This achieves <2% deviation vs CheckOnChain reference
-
-    cache_file = Path("validation/cache/sopr_cache.json")
-    cache_ttl = 3600  # 1 hour cache
-
-    # Try to load from cache
-    checkonchain_sopr = None
-    if cache_file.exists():
-        try:
-            with open(cache_file) as f:
-                cache_data = json.load(f)
-
-            # Check cache age
-            timestamp_str = cache_data.get("timestamp", "")
-            if timestamp_str:
-                cache_time = datetime.fromisoformat(timestamp_str)
-                age_seconds = (datetime.now(timezone.utc) - cache_time).total_seconds()
-
-                if age_seconds < cache_ttl:
-                    checkonchain_sopr = cache_data.get("latest_value")
-                    logging.info(f"Using cached CheckOnChain SOPR: {checkonchain_sopr}")
-        except Exception as e:
-            logging.warning(f"Failed to load SOPR cache: {e}")
-
-    # If no valid cache, fetch from CheckOnChain
-    if checkonchain_sopr is None:
-        try:
-            from validation.framework.checkonchain_fetcher import CheckOnChainFetcher
-
-            fetcher = CheckOnChainFetcher()
-            data = fetcher.fetch_metric_data("sopr", use_cache=True)
-            if data:
-                checkonchain_sopr = data.value
-                logging.info(f"Fetched fresh CheckOnChain SOPR: {checkonchain_sopr}")
-        except Exception as e:
-            logging.warning(f"Failed to fetch CheckOnChain SOPR: {e}")
+    from datetime import datetime, timedelta
+    # spec-013: Independent SOPR calculation from UTXO lifecycle data
+    # This removes CheckOnChain dependency and uses our own calculation
 
     conn = None
     try:
@@ -4665,55 +4601,7 @@ async def get_sopr(
               AND creation_price_usd > 0 AND spent_price_usd > 0
         """
 
-        # If we have CheckOnChain SOPR, use it directly (production mode)
-        if checkonchain_sopr is not None:
-            # Still query our data for supporting metrics
-            result = conn.execute(sopr_query, [window_cutoff_epoch]).fetchone()
-
-            # Use CheckOnChain's SOPR value for aggregate
-            aggregate_sopr = checkonchain_sopr
-
-            # Use our data for cohort breakdowns and supporting metrics
-            sth_sopr = float(result[1]) if result[1] else None
-            lth_sopr = float(result[2]) if result[2] else None
-            total_btc = float(result[3]) if result[3] else 0.0
-            sth_btc = float(result[4]) if result[4] else 0.0
-            lth_btc = float(result[5]) if result[5] else 0.0
-            profit_count = int(result[6]) if result[6] else 0
-            loss_count = int(result[7]) if result[7] else 0
-            breakeven_count = int(result[8]) if result[8] else 0
-
-            total_outputs = profit_count + loss_count + breakeven_count
-            profit_ratio = profit_count / total_outputs if total_outputs > 0 else 0.0
-
-            # Determine signal zone based on CheckOnChain SOPR
-            if aggregate_sopr < 0.95:
-                signal_zone = "CAPITULATION"
-            elif aggregate_sopr <= 1.05:
-                signal_zone = "BREAKEVEN"
-            elif aggregate_sopr <= 1.5:
-                signal_zone = "PROFIT_TAKING"
-            else:
-                signal_zone = "EUPHORIA"
-
-            return SOPRResponse(
-                aggregate_sopr=aggregate_sopr,
-                sth_sopr=sth_sopr,
-                lth_sopr=lth_sopr,
-                total_btc_moved=total_btc,
-                sth_btc_moved=sth_btc,
-                lth_btc_moved=lth_btc,
-                profit_outputs=profit_count,
-                loss_outputs=loss_count,
-                breakeven_outputs=breakeven_count,
-                profit_ratio=profit_ratio,
-                signal_zone=signal_zone,
-                window_days=window_days,
-                block_height=block_height,
-                timestamp=datetime.utcnow().isoformat(),
-            )
-
-        # Fallback: Calculate from our own data
+        # Independent SOPR calculation from UTXO lifecycle data (spec-013)
         result = conn.execute(sopr_query, [window_cutoff_epoch]).fetchone()
 
         aggregate_sopr = float(result[0]) if result[0] else 1.0
