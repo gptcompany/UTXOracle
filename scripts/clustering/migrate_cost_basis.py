@@ -23,6 +23,7 @@ the daily processing pipeline.
 
 import argparse
 import logging
+import os
 from datetime import datetime
 
 import duckdb
@@ -30,9 +31,10 @@ import duckdb
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
-DEFAULT_DB_PATH = "/media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxoracle_cache.db"
-# B6 fix: Use .duckdb extension to match api/main.py UTXO_DB_PATH default
-UTXO_DB_PATH = "/media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxo_lifecycle.duckdb"
+# Use environment variable or default to local dev path
+DEFAULT_DB_PATH = os.getenv("UTXO_DB_PATH", "data/utxo_lifecycle.duckdb")
+# For now, both tables are in the same database
+UTXO_DB_PATH = DEFAULT_DB_PATH
 
 
 def migrate_cost_basis(
@@ -42,6 +44,9 @@ def migrate_cost_basis(
 ) -> dict:
     """Migrate UTXO cost basis data to wallet-level tracking.
 
+    Uses BULK SQL approach instead of cluster-by-cluster iteration.
+    Much faster for large datasets (29M+ clusters).
+
     Args:
         db_path: Path to main DuckDB database with wallet_cost_basis table
         utxo_db_path: Path to UTXO lifecycle database
@@ -50,6 +55,8 @@ def migrate_cost_basis(
     Returns:
         Statistics dict with migration results
     """
+    import time
+
     stats = {
         "clusters_processed": 0,
         "entries_created": 0,
@@ -58,9 +65,8 @@ def migrate_cost_basis(
     }
 
     try:
-        # Connect to databases
+        # Connect to database (both tables in same DB now)
         conn = duckdb.connect(db_path)
-        utxo_conn = duckdb.connect(utxo_db_path, read_only=True)
 
         # Check if address_clusters table has data
         cluster_count = conn.execute(
@@ -69,101 +75,70 @@ def migrate_cost_basis(
 
         if cluster_count == 0:
             logger.warning("No address clusters found. Run clustering first.")
+            conn.close()
             return stats
 
-        logger.info(f"Found {cluster_count} address clusters to process")
+        logger.info(f"Found {cluster_count:,} address clusters to process")
 
-        # Get all cluster IDs
-        clusters = conn.execute(
-            "SELECT DISTINCT cluster_id FROM address_clusters"
-        ).fetchall()
+        # CRITICAL: Wrap DELETE + INSERT in transaction for atomicity
+        # If INSERT fails after DELETE, we'd lose all data without transaction
+        logger.info("Running bulk migration (DELETE + INSERT in transaction)...")
+        start_time = time.time()
 
-        for (cluster_id,) in clusters:
-            try:
-                # Get all addresses in this cluster
-                addresses = conn.execute(
-                    "SELECT address FROM address_clusters WHERE cluster_id = ?",
-                    [cluster_id],
-                ).fetchall()
+        conn.execute("BEGIN TRANSACTION")
+        try:
+            # Clear existing data
+            conn.execute("DELETE FROM wallet_cost_basis")
 
-                address_list = [addr[0] for addr in addresses]
+            # BULK approach: Join address_clusters with utxo_lifecycle_full
+            # and aggregate by cluster_id and creation_block in a single query
+            # This query:
+            # 1. Joins addresses to their clusters
+            # 2. Groups UTXOs by cluster and creation block
+            # 3. Aggregates BTC amount and WEIGHTED average price
+            #    (BUG FIX: Simple AVG was wrong, must weight by BTC amount)
+            conn.execute("""
+                INSERT INTO wallet_cost_basis (
+                    cluster_id,
+                    acquisition_block,
+                    btc_amount,
+                    acquisition_price,
+                    acquisition_timestamp
+                )
+                SELECT
+                    ac.cluster_id,
+                    u.creation_block,
+                    SUM(u.btc_value) as btc_amount,
+                    SUM(u.btc_value * u.creation_price_usd) / SUM(u.btc_value) as weighted_avg_price,
+                    to_timestamp(MIN(u.creation_timestamp)) as earliest_timestamp
+                FROM utxo_lifecycle_full u
+                JOIN address_clusters ac ON u.address = ac.address
+                WHERE u.creation_price_usd > 0
+                  AND u.btc_value > 0
+                GROUP BY ac.cluster_id, u.creation_block
+                HAVING SUM(u.btc_value) > 0
+            """)
+            conn.execute("COMMIT")
+        except Exception as e:
+            conn.execute("ROLLBACK")
+            logger.error(f"Migration transaction failed, rolled back: {e}")
+            raise
 
-                if not address_list:
-                    continue
+        elapsed = time.time() - start_time
+        logger.info(f"Bulk migration completed in {elapsed:.1f}s")
 
-                # For each cluster, find the earliest UTXO creations
-                # (representing when BTC first entered this wallet)
-                # This query finds acquisitions: UTXOs created by transactions
-                # where the input addresses are NOT in the same cluster
-                # (i.e., BTC came from outside this entity)
+        # Get statistics
+        result = conn.execute("""
+            SELECT
+                COUNT(*) as entries,
+                COUNT(DISTINCT cluster_id) as clusters
+            FROM wallet_cost_basis
+        """).fetchone()
 
-                # Simplified approach: Use UTXO creation events with their prices
-                # A more sophisticated approach would track inter-cluster transfers
-
-                # Query UTXOs created to addresses in this cluster
-                placeholders = ",".join(["?" for _ in address_list])
-                acquisition_query = f"""
-                    SELECT
-                        creation_block,
-                        SUM(btc_value) as btc_amount,
-                        AVG(creation_price_usd) as avg_price,
-                        MIN(creation_timestamp) as earliest_timestamp
-                    FROM utxo_lifecycle_full
-                    WHERE address IN ({placeholders})
-                      AND creation_price_usd > 0
-                    GROUP BY creation_block
-                    ORDER BY creation_block
-                """
-
-                try:
-                    results = utxo_conn.execute(
-                        acquisition_query, address_list
-                    ).fetchall()
-
-                    for block, btc_amount, avg_price, timestamp in results:
-                        if btc_amount and avg_price:
-                            try:
-                                conn.execute(
-                                    """
-                                    INSERT INTO wallet_cost_basis (
-                                        cluster_id, acquisition_block, btc_amount,
-                                        acquisition_price, acquisition_timestamp
-                                    )
-                                    VALUES (?, ?, ?, ?, ?)
-                                    ON CONFLICT (cluster_id, acquisition_block)
-                                    DO UPDATE SET
-                                        btc_amount = btc_amount + EXCLUDED.btc_amount
-                                    """,
-                                    [
-                                        cluster_id,
-                                        block,
-                                        btc_amount,
-                                        avg_price,
-                                        timestamp or datetime.now(),
-                                    ],
-                                )
-                                stats["entries_created"] += 1
-                            except Exception as e:
-                                logger.debug(f"Insert error: {e}")
-                                stats["errors"] += 1
-
-                except Exception as e:
-                    logger.debug(f"Query error for cluster {cluster_id}: {e}")
-                    stats["errors"] += 1
-
-                stats["clusters_processed"] += 1
-
-                if stats["clusters_processed"] % 1000 == 0:
-                    logger.info(
-                        f"Processed {stats['clusters_processed']}/{cluster_count} clusters"
-                    )
-
-            except Exception as e:
-                logger.warning(f"Error processing cluster {cluster_id}: {e}")
-                stats["errors"] += 1
+        stats["entries_created"] = result[0]
+        stats["clusters_processed"] = result[1]
 
         conn.close()
-        utxo_conn.close()
 
     except Exception as e:
         logger.error(f"Migration failed: {e}")
@@ -278,15 +253,26 @@ def main():
         # Show current state
         try:
             conn = duckdb.connect(args.db_path, read_only=True)
+
             cluster_count = conn.execute(
                 "SELECT COUNT(DISTINCT cluster_id) FROM address_clusters"
             ).fetchone()[0]
-            logger.info(f"Address clusters to process: {cluster_count}")
+            non_singleton = conn.execute(
+                "SELECT COUNT(*) FROM address_clusters WHERE cluster_id != address"
+            ).fetchone()[0]
+            logger.info(
+                f"Address clusters: {cluster_count:,} ({non_singleton:,} non-singletons)"
+            )
+
+            utxo_count = conn.execute(
+                "SELECT COUNT(*) FROM utxo_lifecycle_full WHERE creation_price_usd > 0"
+            ).fetchone()[0]
+            logger.info(f"UTXOs with price data: {utxo_count:,}")
 
             existing = conn.execute(
                 "SELECT COUNT(*) FROM wallet_cost_basis"
             ).fetchone()[0]
-            logger.info(f"Existing wallet_cost_basis entries: {existing}")
+            logger.info(f"Existing wallet_cost_basis entries: {existing:,}")
             conn.close()
         except Exception as e:
             logger.warning(f"Could not read database: {e}")

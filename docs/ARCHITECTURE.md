@@ -1001,6 +1001,54 @@ GitHub Action at `.github/workflows/validation.yml`:
 
 ---
 
+## Development Hardware Specifications
+
+Production workstation resources for optimal performance:
+
+| Component | Specification | Notes |
+|-----------|--------------|-------|
+| **CPU** | AMD/Intel multi-core | 16+ cores recommended for parallel processing |
+| **RAM** | 128 GB DDR5 | Required for 164M+ row DuckDB operations |
+| **Storage** | | |
+| - NVMe (primary) | 2 TB | `/media/sam/2TB-NVMe` - Prod apps & fast DBs |
+| - SSD (secondary) | 1 TB | `/media/sam/1TB` - UTXOracle codebase |
+| - HDD (blockchain) | 3 TB WDC | `/media/sam/3TB-WDC` - Bitcoin Core data (806 GB) |
+
+### Database Locations
+
+| Database | Path | Size | Purpose |
+|----------|------|------|---------|
+| `utxoracle_cache.db` | `/media/sam/2TB-NVMe/prod/apps/utxoracle/data/` | ~300 MB | Cache & prices |
+| `utxo_lifecycle.duckdb` | `/media/sam/2TB-NVMe/prod/apps/utxoracle/data/` | 57 GB | UTXO data (164M rows) |
+| Bitcoin chainstate | `/media/sam/3TB-WDC/Bitcoin/chainstate/` | ~10 GB | UTXO set (leveldb) |
+| Bitcoin blocks | `/media/sam/3TB-WDC/Bitcoin/blocks/` | ~700 GB | Full blockchain |
+
+### Performance Considerations
+
+**DuckDB Optimization:**
+- DuckDB is OLAP-optimized (analytical queries), not OLTP (transactional updates)
+- Bulk operations (COPY, INSERT ... SELECT) are fast: 712K rows/sec
+- Row-by-row UPDATEs are slow even with indexes (use staging table pattern)
+- For 164M row updates: use staging table + JOIN instead of individual UPDATEs
+
+**Recommended Update Pattern:**
+```python
+# SLOW: Individual updates (full table scan per update)
+for txid, vout in spent_utxos:
+    conn.execute("UPDATE ... WHERE txid=? AND vout=?", [txid, vout])
+
+# FAST: Bulk staging table approach
+conn.execute("CREATE TEMP TABLE spent_staging (txid VARCHAR, vout INTEGER, ...)")
+conn.executemany("INSERT INTO spent_staging VALUES (...)", spent_batch)
+conn.execute("""
+    UPDATE utxo_lifecycle SET is_spent=TRUE, ...
+    FROM spent_staging s
+    WHERE utxo_lifecycle.txid = s.txid AND utxo_lifecycle.vout = s.vout
+""")
+```
+
+---
+
 ## Future Architecture Plans
 
 See **MODULAR_ARCHITECTURE.md** for planned Rust-based architecture:
