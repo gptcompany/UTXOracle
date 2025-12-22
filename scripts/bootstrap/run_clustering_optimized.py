@@ -320,20 +320,22 @@ def run_optimized_clustering(
 
     # Divide work among workers
     total_blocks = end_block - start_block + 1
-    blocks_per_worker = total_blocks // workers
+    # Limit workers to total_blocks to avoid empty ranges
+    actual_workers = min(workers, total_blocks)
+    blocks_per_worker = total_blocks // actual_workers
     ranges = []
 
-    for i in range(workers):
+    for i in range(actual_workers):
         range_start = start_block + i * blocks_per_worker
         range_end = (
-            range_start + blocks_per_worker - 1 if i < workers - 1 else end_block
+            range_start + blocks_per_worker - 1 if i < actual_workers - 1 else end_block
         )
         ranges.append((range_start, range_end, i))
 
-    logger.info(f"Starting {workers} workers for {total_blocks} blocks...")
+    logger.info(f"Starting {actual_workers} workers for {total_blocks} blocks...")
 
     # Phase 1: Extract pairs in parallel
-    with mp.Pool(workers) as pool:
+    with mp.Pool(actual_workers) as pool:
         results = pool.map(process_block_range, ranges)
 
     stats["blocks_processed"] = sum(r[0] for r in results)
