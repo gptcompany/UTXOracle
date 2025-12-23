@@ -114,8 +114,12 @@ def build_address_mapping(pair_files: list[Path], output_file: Path) -> dict[str
     # Check for existing mapping (resume capability)
     if output_file.exists():
         logger.info(f"Loading existing mapping from {output_file}")
-        with open(output_file, "rb") as f:
-            return pickle.load(f)
+        try:
+            with open(output_file, "rb") as f:
+                return pickle.load(f)
+        except (pickle.UnpicklingError, EOFError, OSError) as e:
+            logger.warning(f"Corrupted mapping file, rebuilding: {e}")
+            output_file.unlink()  # Delete corrupted file
 
     addr_to_int: dict[str, int] = {}
     next_id = 0
@@ -176,22 +180,56 @@ def run_int_clustering(
     """Phase 2: Run UnionFind clustering using integer IDs only.
 
     This is the memory-efficient core - only integers in UnionFind.
+    Supports resume from checkpoint if Phase 2 was interrupted.
     """
+
     logger.info("=== PHASE 2: Integer-based UnionFind clustering ===")
 
     num_addresses = len(addr_to_int)
-    logger.info(f"Initializing IntUnionFind for {num_addresses:,} addresses...")
+    start_file_idx = 0
+    total_pairs = 0
+    unions = 0
 
-    uf = IntUnionFind(max_size=num_addresses + 1000)  # Small buffer
-    uf.size = num_addresses
+    # Try to load checkpoint for resume
+    if checkpoint_file and checkpoint_file.exists():
+        try:
+            logger.info(f"Loading Phase 2 checkpoint from {checkpoint_file}")
+            with open(checkpoint_file, "rb") as f:
+                checkpoint = pickle.load(f)
+
+            # Restore UnionFind state
+            uf = IntUnionFind(max_size=num_addresses + 1000)
+            uf.parent[: checkpoint["size"]] = checkpoint["parent"]
+            uf.rank[: checkpoint["size"]] = checkpoint["rank"]
+            uf.size = checkpoint["size"]
+
+            start_file_idx = checkpoint["file_idx"]
+            total_pairs = checkpoint["pairs_processed"]
+            unions = checkpoint["unions"]
+
+            logger.info(
+                f"Resumed from file {start_file_idx}/{len(pair_files)}, "
+                f"{total_pairs:,} pairs, {unions:,} unions"
+            )
+        except (pickle.UnpicklingError, EOFError, KeyError, OSError) as e:
+            logger.warning(f"Corrupted checkpoint, starting fresh: {e}")
+            checkpoint_file.unlink()
+            start_file_idx = 0
+
+    if start_file_idx == 0:
+        logger.info(f"Initializing IntUnionFind for {num_addresses:,} addresses...")
+        uf = IntUnionFind(max_size=num_addresses + 1000)  # Small buffer
+        uf.size = num_addresses
 
     logger.info(f"IntUnionFind memory: {uf.memory_usage_gb():.2f} GB")
 
-    total_pairs = 0
-    unions = 0
     start_time = time.time()
+    sorted_files = sorted(pair_files)
 
-    for i, pair_file in enumerate(sorted(pair_files)):
+    for i, pair_file in enumerate(sorted_files):
+        # Skip already processed files
+        if i < start_file_idx:
+            continue
         file_unions = 0
         with gzip.open(pair_file, "rt") as f:
             reader = csv.reader(f)
@@ -345,18 +383,18 @@ def save_clusters_bulk(
         logger.info(f"  Unique clusters: {stats[1]:,}")
         logger.info(f"  Non-singleton addresses: {stats[2]:,}")
 
-        conn.close()
-
     except Exception as e:
         logger.error(f"Database error: {e}")
-        if conn:
-            conn.close()
         raise
 
-    # Cleanup temp file
-    if temp_csv.exists():
-        temp_csv.unlink()
-        logger.info("Cleaned up temp CSV")
+    finally:
+        # Always cleanup resources
+        if conn:
+            conn.close()
+        # Cleanup temp file (even on error to avoid 40GB orphaned files)
+        if temp_csv.exists():
+            temp_csv.unlink()
+            logger.info("Cleaned up temp CSV")
 
     return final_count
 
