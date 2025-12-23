@@ -357,6 +357,30 @@ Address clustering and CoinJoin detection for whale identification:
   * Returns top clusters by size
   * CoinJoin filtering statistics
 
+#### Bootstrap Clustering (Historical Data)
+
+For initial population of address clusters from historical blockchain data:
+
+- **Ultra-Fast Clustering** (`scripts/bootstrap/complete_clustering_v3_fast.py`)
+  * Cython-compiled UnionFind (60-100x faster than pure Python)
+  * PyArrow streaming for large CSV files (handles 3GB+ compressed)
+  * Checkpoint after each file (resume capability)
+  * Target: 60-90 min for 2B address pairs
+
+- **Cython Extension** (`scripts/bootstrap/cython_uf/`)
+  * `fast_union_find.pyx`: nogil path compression + union by rank
+  * Compile: `cd scripts/bootstrap/cython_uf && python setup.py build_ext --inplace`
+  * 15-24M ops/sec vs 0.25M baseline
+
+- **Data Pipeline**
+  1. Extract pairs from blockchain → `data/clustering_temp/pairs_*.csv.gz`
+  2. Build address→int mapping (Phase 1)
+  3. Run Cython clustering (Phase 2)
+  4. Write to DuckDB `address_clusters` table (Phase 3)
+
+- **Deprecated Scripts** (archived in `archive/clustering_deprecated/`)
+  * V1/V2 and helper scripts replaced by V3
+
 ### UTXO Lifecycle Engine Module (spec-017)
 
 Comprehensive UTXO lifecycle tracking for Realized Cap, MVRV, NUPL, and HODL Waves:

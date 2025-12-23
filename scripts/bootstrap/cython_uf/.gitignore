@@ -1,0 +1,7 @@
+# Cython generated files
+*.c
+*.so
+*.pyd
+build/
+*.egg-info/
+__pycache__/
