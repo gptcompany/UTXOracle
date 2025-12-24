@@ -163,6 +163,33 @@ Finds bugs even when tests pass. Triggers automatically after implementation pha
 - **NEVER write custom code if >80% can be reused**
 - **Self-host over custom build**: Use mempool.space instead of custom ZMQ parser
 
+### Context Preservation & Delegation
+
+**CRITICAL**: Claude Code has limited context window. To maximize effectiveness:
+
+1. **Delegate Early & Often**:
+   - Use `Task` tool with specialized agents (`alpha-debug`, `alpha-evolve`, `Explore`, etc.)
+   - Run agents in background for monitoring/long-running tasks
+   - Don't hold context for tasks that can be delegated
+
+2. **Agent Selection**:
+   | Situation | Agent |
+   |-----------|-------|
+   | Codebase exploration | `Explore` |
+   | Bug hunting after implementation | `alpha-debug` |
+   | Complex algorithmic tasks | `alpha-evolve` |
+   | Monitoring long processes | Any agent with `run_in_background: true` |
+
+3. **Context-Saving Patterns**:
+   - Use `TodoWrite` to externalize task state
+   - Summarize findings before context runs low
+   - Delegate verification tasks rather than doing inline
+
+4. **When Context < 20%**:
+   - Immediately delegate remaining work to agents
+   - Include comprehensive summary in agent prompt
+   - Use `run_in_background` for tasks user can monitor later
+
 ### Important Reminders
 
 #### ❌ NEVER
