@@ -4737,6 +4737,218 @@ async def get_puell_multiple(
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 
+# =============================================================================
+# PRO Risk Metric Endpoints (spec-033)
+# =============================================================================
+
+from api.models.risk_models import (
+    ProRiskResponseAPI,
+    ProRiskComponentAPI,
+    ProRiskHistoryResponseAPI,
+    ProRiskHistoryPointAPI,
+    ZoneDefinitionsResponseAPI,
+    ZoneDefinitionAPI,
+    HistoricalContextAPI,
+)
+from scripts.metrics.pro_risk import (
+    calculate_pro_risk,
+    COMPONENT_WEIGHTS,
+    ZONE_THRESHOLDS,
+    ProRiskResult,
+)
+
+
+def get_pro_risk_for_date(target_date: date) -> Optional[ProRiskResult]:
+    """
+    Fetch PRO Risk calculation for a specific date.
+
+    This is a placeholder that returns mock data.
+    Production implementation would:
+    1. Check pro_risk_daily table for cached result
+    2. If not cached, calculate from component metrics
+    3. Store result and return
+
+    Args:
+        target_date: Date to calculate for
+
+    Returns:
+        ProRiskResult or None if no data available
+    """
+    from datetime import datetime
+
+    # For now, return a calculated result with placeholder values
+    # In production, this would fetch actual metric values
+    result = calculate_pro_risk(
+        mvrv_z=0.71,
+        sopr=0.55,
+        nupl=0.60,
+        reserve_risk=0.68,
+        puell=0.58,
+        hodl_waves=0.45,
+        target_date=datetime.combine(target_date, datetime.min.time()),
+    )
+    return result
+
+
+def get_pro_risk_history(
+    start_date: date,
+    end_date: date,
+    granularity: str = "daily",
+) -> list[dict]:
+    """
+    Fetch historical PRO Risk data for a date range.
+
+    Placeholder implementation - production would query pro_risk_daily table.
+    """
+    # Placeholder - return empty list for now
+    return []
+
+
+@app.get("/api/risk/pro", response_model=ProRiskResponseAPI)
+async def get_pro_risk(
+    target_date: Optional[date] = Query(
+        default=None,
+        alias="date",
+        description="Date to query (default: today)",
+    ),
+    include_history: bool = Query(
+        default=True,
+        description="Include 30d/1y percentile context",
+    ),
+):
+    """
+    Get current PRO Risk Metric.
+
+    Returns the composite PRO Risk value (0-1) and zone classification.
+    Aggregates MVRV Z-Score, SOPR, NUPL, Reserve Risk, Puell Multiple, and HODL Waves.
+
+    **Zone Classifications:**
+    - **extreme_fear** (0.00-0.20): Strong buy signal
+    - **fear** (0.20-0.40): Accumulation zone
+    - **neutral** (0.40-0.60): Hold / DCA
+    - **greed** (0.60-0.80): Caution zone
+    - **extreme_greed** (0.80-1.00): Distribution zone
+
+    Spec: 033-pro-risk-metric
+    """
+
+    if target_date is None:
+        target_date = date.today()
+
+    result = get_pro_risk_for_date(target_date)
+
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No data available for date {target_date}",
+        )
+
+    # Build component list for API response
+    components = []
+    for metric_name, score in result.components.items():
+        weight = COMPONENT_WEIGHTS.get(metric_name, 0.0)
+        components.append(
+            ProRiskComponentAPI(
+                metric=metric_name,
+                raw_value=0.0,  # Placeholder - would come from actual metric
+                normalized=score,
+                weight=weight,
+                weighted=score * weight,
+            )
+        )
+
+    # Build response
+    response = ProRiskResponseAPI(
+        date=target_date,
+        value=result.value,
+        zone=result.zone,
+        components=components,
+        confidence=result.confidence,
+        historical_context=HistoricalContextAPI(
+            percentile_30d=0.65,  # Placeholder
+            percentile_1y=0.58,  # Placeholder
+        )
+        if include_history
+        else None,
+    )
+
+    return response
+
+
+@app.get("/api/risk/pro/zones", response_model=ZoneDefinitionsResponseAPI)
+async def get_pro_risk_zones():
+    """
+    Get PRO Risk zone definitions.
+
+    Returns the threshold values and interpretations for each risk zone.
+
+    Spec: 033-pro-risk-metric
+    """
+    interpretations = {
+        "extreme_fear": "Strong buy signal",
+        "fear": "Accumulation zone",
+        "neutral": "Hold / DCA",
+        "greed": "Caution zone",
+        "extreme_greed": "Distribution zone",
+    }
+
+    zones = []
+    for min_val, max_val, zone_name in ZONE_THRESHOLDS:
+        zones.append(
+            ZoneDefinitionAPI(
+                name=zone_name,
+                min_value=min_val,
+                max_value=max_val,
+                interpretation=interpretations.get(zone_name, ""),
+            )
+        )
+
+    return ZoneDefinitionsResponseAPI(zones=zones)
+
+
+@app.get("/api/risk/pro/history", response_model=ProRiskHistoryResponseAPI)
+async def get_pro_risk_history_endpoint(
+    start_date: date = Query(..., description="Start date (inclusive)"),
+    end_date: date = Query(..., description="End date (inclusive)"),
+    granularity: str = Query(
+        default="daily",
+        description="Data granularity",
+        pattern="^(daily|weekly|monthly)$",
+    ),
+):
+    """
+    Get historical PRO Risk data.
+
+    Returns PRO Risk values for a date range with optional granularity.
+
+    Spec: 033-pro-risk-metric
+    """
+    # Validate date range
+    if start_date > end_date:
+        raise HTTPException(
+            status_code=400,
+            detail="start_date must be <= end_date",
+        )
+
+    history_data = get_pro_risk_history(start_date, end_date, granularity)
+
+    # Convert to API response format
+    data_points = [
+        ProRiskHistoryPointAPI(
+            date=point["date"],
+            value=point["value"],
+            zone=point["zone"],
+        )
+        for point in history_data
+    ]
+
+    return ProRiskHistoryResponseAPI(
+        start_date=start_date,
+        end_date=end_date,
+        data=data_points,
+    )
+
+
 @app.on_event("shutdown")
 async def shutdown_event():
     """Log shutdown information"""
