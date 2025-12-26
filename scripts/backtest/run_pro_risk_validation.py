@@ -104,16 +104,25 @@ def generate_pro_risk_signals(
         # This is a simplified backtest version - production would use real metrics
 
         # 1. Price momentum (proxy for MVRV-Z and NUPL)
-        price_change = (window_prices[-1] - window_prices[0]) / window_prices[0]
-        momentum_signal = 0.5 + (price_change * 2)  # Scale to 0-1 range
+        # Guard against division by zero if first price in window is 0
+        if window_prices[0] == 0:
+            momentum_signal = 0.5  # Neutral if can't calculate
+        else:
+            price_change = (window_prices[-1] - window_prices[0]) / window_prices[0]
+            momentum_signal = 0.5 + (price_change * 2)  # Scale to 0-1 range
 
         # 2. Volatility (proxy for SOPR and Reserve Risk)
         returns = [
             (window_prices[j] - window_prices[j - 1]) / window_prices[j - 1]
             for j in range(1, len(window_prices))
+            if window_prices[j - 1] != 0  # Guard against division by zero
         ]
-        volatility = sum(abs(r) for r in returns) / len(returns)
-        volatility_signal = min(1.0, volatility * 10)  # Higher vol = higher risk
+        # Guard against empty returns list (window too small or all zeros)
+        if len(returns) == 0:
+            volatility_signal = 0.5  # Neutral if can't calculate
+        else:
+            volatility = sum(abs(r) for r in returns) / len(returns)
+            volatility_signal = min(1.0, volatility * 10)  # Higher vol = higher risk
 
         # 3. Price level relative to window (proxy for HODL waves)
         current_price = window_prices[-1]

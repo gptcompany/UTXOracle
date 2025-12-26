@@ -50,13 +50,7 @@ from scripts.metrics.power_law import fit as fit_power_law
 from scripts.metrics.fractal_dimension import analyze as analyze_fractal
 
 # Import PRO Risk signal generator from validation module
-import sys
-from pathlib import Path as PathLib
-
-# Add backtest directory to path to import pro risk validation
-backtest_path = PathLib(__file__).parent
-if str(backtest_path) not in sys.path:
-    sys.path.insert(0, str(backtest_path))
+from scripts.backtest.run_pro_risk_validation import generate_pro_risk_signals
 
 
 # =============================================================================
