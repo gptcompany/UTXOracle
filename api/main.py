@@ -19,6 +19,7 @@ import os
 import logging
 import time
 import asyncio
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, date
 from typing import Optional, List, Dict
 from pathlib import Path
@@ -161,6 +162,28 @@ validate_config()
 STARTUP_TIME = datetime.now()
 
 # =============================================================================
+# T065: Lifespan Context Manager (replaces deprecated @app.on_event)
+# =============================================================================
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan context manager for startup/shutdown events."""
+    # Startup
+    logging.info("=" * 60)
+    logging.info("UTXOracle API starting...")
+    logging.info(f"DuckDB path: {DUCKDB_PATH}")
+    logging.info(f"Listening on: {FASTAPI_HOST}:{FASTAPI_PORT}")
+    logging.info(f"Docs available at: http://{FASTAPI_HOST}:{FASTAPI_PORT}/docs")
+    logging.info("=" * 60)
+
+    yield
+
+    # Shutdown
+    logging.info("UTXOracle API shutting down...")
+
+
+# =============================================================================
 # T058: FastAPI App Initialization
 # =============================================================================
 
@@ -170,6 +193,7 @@ app = FastAPI(
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 # =============================================================================
@@ -4192,22 +4216,6 @@ async def performance_monitor():
 
 
 # =============================================================================
-# T065: Startup Event
-# =============================================================================
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Log startup information"""
-    logging.info("=" * 60)
-    logging.info("UTXOracle API starting...")
-    logging.info(f"DuckDB path: {DUCKDB_PATH}")
-    logging.info(f"Listening on: {FASTAPI_HOST}:{FASTAPI_PORT}")
-    logging.info(f"Docs available at: http://{FASTAPI_HOST}:{FASTAPI_PORT}/docs")
-    logging.info("=" * 60)
-
-
-# =============================================================================
 # Spec-030: Mining Economics (Hash Ribbons + Mining Pulse)
 # =============================================================================
 
@@ -4947,12 +4955,6 @@ async def get_pro_risk_history_endpoint(
         end_date=end_date,
         data=data_points,
     )
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Log shutdown information"""
-    logging.info("UTXOracle API shutting down...")
 
 
 # =============================================================================
