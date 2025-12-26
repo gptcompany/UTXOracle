@@ -117,6 +117,11 @@ class ProRiskResult:
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError(f"confidence must be in [0, 1], got {self.confidence}")
 
+        # Validate zone is a valid RiskZone value
+        valid_zones = {"extreme_fear", "fear", "neutral", "greed", "extreme_greed"}
+        if self.zone not in valid_zones:
+            raise ValueError(f"zone must be one of {valid_zones}, got {self.zone}")
+
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
         return {
