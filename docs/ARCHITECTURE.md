@@ -465,6 +465,62 @@ Comprehensive UTXO lifecycle tracking for Realized Cap, MVRV, NUPL, and HODL Wav
 | spec-028 | metrics/net_realized_pnl | ✅ Complete | 3 |
 | spec-029 | metrics/pl_ratio | ✅ Complete | 3 |
 | spec-030 | metrics/mining_economics | ✅ Complete | 4 |
+| spec-033 | metrics/pro_risk | ✅ Complete | 3 |
+
+---
+
+## PRO Risk Metric Module (spec-033)
+
+Composite 0-1 risk indicator aggregating 6 on-chain signals for market cycle positioning.
+
+### Components
+
+- **Core Calculation** (`scripts/metrics/pro_risk.py`)
+  * Weighted aggregation of 6 on-chain metrics
+  * 4-year percentile normalization with 2% winsorization
+  * Zone classification: extreme_fear → extreme_greed
+  * Confidence scoring based on data availability
+
+- **Component Weights** (evidence-based):
+  | Metric | Weight | Grade |
+  |--------|--------|-------|
+  | MVRV Z-Score | 30% | A |
+  | SOPR | 20% | A |
+  | NUPL | 20% | A |
+  | Reserve Risk | 15% | B |
+  | Puell Multiple | 10% | B |
+  | HODL Waves | 5% | B |
+
+- **Zone Thresholds**:
+  | Zone | Range | Interpretation |
+  |------|-------|----------------|
+  | extreme_fear | 0.00-0.20 | Strong buy signal |
+  | fear | 0.20-0.40 | Accumulation zone |
+  | neutral | 0.40-0.60 | Hold / DCA |
+  | greed | 0.60-0.80 | Caution zone |
+  | extreme_greed | 0.80-1.00 | Distribution zone |
+
+### API Endpoints
+
+- `GET /api/risk/pro` - Current PRO Risk value and components
+- `GET /api/risk/pro/zones` - Zone definitions
+- `GET /api/risk/pro/history` - Historical PRO Risk data
+
+### Database Tables
+
+- `risk_percentiles` - Daily percentile data for each component metric
+- `pro_risk_daily` - Daily composite PRO Risk results
+
+### Files
+
+| File | Purpose |
+|------|---------|
+| `scripts/metrics/pro_risk.py` | Core calculation module |
+| `scripts/metrics/puell_multiple.py` | Puell Multiple calculation |
+| `scripts/metrics/bootstrap_percentiles.py` | Historical percentile generation |
+| `api/models/risk_models.py` | Pydantic API models |
+| `tests/test_pro_risk.py` | Unit tests |
+| `tests/test_api_risk.py` | API tests |
 
 ---
 

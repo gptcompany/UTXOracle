@@ -1,0 +1,265 @@
+openapi: 3.1.0
+info:
+  title: UTXOracle PRO Risk Metric API
+  version: 1.0.0
+  description: |
+    Composite 0-1 risk metric aggregating 6 on-chain signals for market cycle position.
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+
+paths:
+  /risk/pro:
+    get:
+      operationId: getProRisk
+      summary: Get current PRO Risk Metric
+      description: |
+        Returns the composite PRO Risk metric for today (or latest available date).
+        Aggregates MVRV Z-Score, SOPR, NUPL, Reserve Risk, Puell Multiple, and HODL Waves.
+      parameters:
+        - name: date
+          in: query
+          required: false
+          description: Specific date to query (default: today)
+          schema:
+            type: string
+            format: date
+            example: "2025-12-25"
+        - name: include_history
+          in: query
+          required: false
+          description: Include 30d/1y percentile context
+          schema:
+            type: boolean
+            default: true
+      responses:
+        "200":
+          description: PRO Risk metric response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProRiskResponse"
+        "404":
+          description: No data available for requested date
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Insufficient historical data for calculation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /risk/pro/history:
+    get:
+      operationId: getProRiskHistory
+      summary: Get PRO Risk history
+      description: Returns PRO Risk values for a date range.
+      parameters:
+        - name: start_date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: granularity
+          in: query
+          required: false
+          description: Data granularity
+          schema:
+            type: string
+            enum: [daily, weekly, monthly]
+            default: daily
+      responses:
+        "200":
+          description: Historical PRO Risk data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  start_date:
+                    type: string
+                    format: date
+                  end_date:
+                    type: string
+                    format: date
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ProRiskHistoryPoint"
+
+  /risk/pro/zones:
+    get:
+      operationId: getProRiskZones
+      summary: Get zone definitions
+      description: Returns the zone classification thresholds.
+      responses:
+        "200":
+          description: Zone definitions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ZoneDefinitions"
+
+components:
+  schemas:
+    ProRiskResponse:
+      type: object
+      required:
+        - date
+        - value
+        - zone
+        - components
+        - confidence
+      properties:
+        date:
+          type: string
+          format: date
+          example: "2025-12-25"
+        value:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+          example: 0.62
+        zone:
+          $ref: "#/components/schemas/RiskZone"
+        components:
+          type: array
+          items:
+            $ref: "#/components/schemas/Component"
+        confidence:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+          example: 0.95
+        historical_context:
+          type: object
+          properties:
+            percentile_30d:
+              type: number
+              format: float
+            percentile_1y:
+              type: number
+              format: float
+          example:
+            percentile_30d: 0.78
+            percentile_1y: 0.65
+
+    Component:
+      type: object
+      required:
+        - metric
+        - raw_value
+        - normalized
+        - weight
+        - weighted
+      properties:
+        metric:
+          type: string
+          enum: [mvrv_z, sopr, nupl, reserve_risk, puell, hodl_waves]
+          example: "mvrv_z"
+        raw_value:
+          type: number
+          format: float
+          example: 2.1
+        normalized:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+          example: 0.71
+        weight:
+          type: number
+          format: float
+          example: 0.30
+        weighted:
+          type: number
+          format: float
+          description: normalized * weight
+          example: 0.213
+
+    RiskZone:
+      type: string
+      enum:
+        - extreme_fear
+        - fear
+        - neutral
+        - greed
+        - extreme_greed
+      example: "greed"
+
+    ProRiskHistoryPoint:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        value:
+          type: number
+          format: float
+        zone:
+          $ref: "#/components/schemas/RiskZone"
+
+    ZoneDefinitions:
+      type: object
+      properties:
+        zones:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                $ref: "#/components/schemas/RiskZone"
+              min_value:
+                type: number
+              max_value:
+                type: number
+              interpretation:
+                type: string
+      example:
+        zones:
+          - name: "extreme_fear"
+            min_value: 0.00
+            max_value: 0.20
+            interpretation: "Strong buy signal"
+          - name: "fear"
+            min_value: 0.20
+            max_value: 0.40
+            interpretation: "Accumulation zone"
+          - name: "neutral"
+            min_value: 0.40
+            max_value: 0.60
+            interpretation: "Hold / DCA"
+          - name: "greed"
+            min_value: 0.60
+            max_value: 0.80
+            interpretation: "Caution zone"
+          - name: "extreme_greed"
+            min_value: 0.80
+            max_value: 1.00
+            interpretation: "Distribution zone"
+
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          example: "not_found"
+        message:
+          type: string
+          example: "No data available for date 2025-12-25"

@@ -49,6 +49,9 @@ from scripts.metrics.symbolic_dynamics import analyze as analyze_symbolic
 from scripts.metrics.power_law import fit as fit_power_law
 from scripts.metrics.fractal_dimension import analyze as analyze_fractal
 
+# Import PRO Risk signal generator from validation module
+from scripts.backtest.run_pro_risk_validation import generate_pro_risk_signals
+
 
 # =============================================================================
 # Configuration
@@ -338,6 +341,12 @@ def run_all_validations(
     fractal_signals = generate_fractal_signals(prices, seed=seed)
     print(f"    Generated {len(fractal_signals)} signals")
 
+    print("  - PRO Risk...")
+    # Need dates for PRO Risk
+    dates_list = [start_date + timedelta(days=i) for i in range(len(prices))]
+    pro_risk_signals = generate_pro_risk_signals(prices, dates_list, seed=seed)
+    print(f"    Generated {len(pro_risk_signals)} signals")
+
     # Create validator
     print(
         f"\n[3/6] Initializing validator (folds={cv_folds}, trials={random_trials})..."
@@ -354,6 +363,7 @@ def run_all_validations(
         "symbolic_dynamics": (symbolic_signals, prices),
         "power_law": (power_law_signals, prices),
         "fractal_dimension": (fractal_signals, prices),
+        "pro_risk": (pro_risk_signals, prices),
     }
 
     # Run validation

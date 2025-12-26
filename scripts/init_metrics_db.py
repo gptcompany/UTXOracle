@@ -290,6 +290,71 @@ CREATE INDEX IF NOT EXISTS idx_wcb_block ON wallet_cost_basis(acquisition_block)
 CREATE INDEX IF NOT EXISTS idx_wcb_timestamp ON wallet_cost_basis(acquisition_timestamp);
 """
 
+# Schema for risk_percentiles table (spec-033)
+RISK_PERCENTILES_TABLE_SQL = """
+-- Risk Percentiles table (spec-033)
+-- Stores daily percentile-normalized values for each component metric
+
+CREATE TABLE IF NOT EXISTS risk_percentiles (
+    -- Composite primary key: metric + date
+    metric_name VARCHAR NOT NULL,
+    date DATE NOT NULL,
+    -- Raw metric value from source module
+    raw_value DOUBLE,
+    -- Normalized 0-1 percentile score
+    percentile DOUBLE CHECK (percentile >= 0 AND percentile <= 1 OR percentile IS NULL),
+    -- Number of historical days used for percentile calculation
+    history_days INTEGER CHECK (history_days >= 0 OR history_days IS NULL),
+    -- Metadata
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (metric_name, date)
+);
+"""
+
+RISK_PERCENTILES_INDEXES_SQL = """
+-- Index for date filtering (get all metrics for a date)
+CREATE INDEX IF NOT EXISTS idx_risk_percentiles_date ON risk_percentiles(date);
+
+-- Index for metric filtering (get history of one metric)
+CREATE INDEX IF NOT EXISTS idx_risk_percentiles_metric ON risk_percentiles(metric_name);
+"""
+
+# Schema for pro_risk_daily table (spec-033)
+PRO_RISK_DAILY_TABLE_SQL = """
+-- PRO Risk Daily table (spec-033)
+-- Stores daily composite PRO Risk metric results
+
+CREATE TABLE IF NOT EXISTS pro_risk_daily (
+    -- Date is the primary key
+    date DATE PRIMARY KEY,
+    -- Composite 0-1 score (weighted average of components)
+    value DOUBLE NOT NULL CHECK (value >= 0 AND value <= 1),
+    -- Zone classification
+    zone VARCHAR NOT NULL CHECK (zone IN ('extreme_fear', 'fear', 'neutral', 'greed', 'extreme_greed')),
+    -- Individual component normalized scores (0-1)
+    mvrv_z_score DOUBLE CHECK (mvrv_z_score >= 0 AND mvrv_z_score <= 1 OR mvrv_z_score IS NULL),
+    sopr_score DOUBLE CHECK (sopr_score >= 0 AND sopr_score <= 1 OR sopr_score IS NULL),
+    nupl_score DOUBLE CHECK (nupl_score >= 0 AND nupl_score <= 1 OR nupl_score IS NULL),
+    reserve_risk_score DOUBLE CHECK (reserve_risk_score >= 0 AND reserve_risk_score <= 1 OR reserve_risk_score IS NULL),
+    puell_score DOUBLE CHECK (puell_score >= 0 AND puell_score <= 1 OR puell_score IS NULL),
+    hodl_waves_score DOUBLE CHECK (hodl_waves_score >= 0 AND hodl_waves_score <= 1 OR hodl_waves_score IS NULL),
+    -- Data availability confidence (0-1)
+    confidence DOUBLE DEFAULT 1.0 CHECK (confidence >= 0 AND confidence <= 1),
+    -- Block height at calculation time
+    block_height INTEGER,
+    -- Metadata
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+PRO_RISK_DAILY_INDEXES_SQL = """
+-- Index for zone filtering (find all extreme_fear days)
+CREATE INDEX IF NOT EXISTS idx_pro_risk_zone ON pro_risk_daily(zone);
+
+-- Index for value range queries
+CREATE INDEX IF NOT EXISTS idx_pro_risk_value ON pro_risk_daily(value);
+"""
+
 
 def init_metrics_db(db_path: str = DEFAULT_DB_PATH) -> bool:
     """
@@ -376,6 +441,22 @@ def init_metrics_db(db_path: str = DEFAULT_DB_PATH) -> bool:
         # Create wallet_cost_basis indexes
         conn.execute(WALLET_COST_BASIS_INDEXES_SQL)
         print("Created/verified wallet_cost_basis indexes")
+
+        # Create risk_percentiles table (spec-033)
+        conn.execute(RISK_PERCENTILES_TABLE_SQL)
+        print("Created/verified risk_percentiles table")
+
+        # Create risk_percentiles indexes
+        conn.execute(RISK_PERCENTILES_INDEXES_SQL)
+        print("Created/verified risk_percentiles indexes")
+
+        # Create pro_risk_daily table (spec-033)
+        conn.execute(PRO_RISK_DAILY_TABLE_SQL)
+        print("Created/verified pro_risk_daily table")
+
+        # Create pro_risk_daily indexes
+        conn.execute(PRO_RISK_DAILY_INDEXES_SQL)
+        print("Created/verified pro_risk_daily indexes")
 
         # Verify table exists
         result = conn.execute(
