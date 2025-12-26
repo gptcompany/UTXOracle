@@ -126,13 +126,23 @@ def fit_power_law(
 
     # Calculate slope (beta) and intercept (alpha)
     denominator = n * sum_x2 - sum_x**2
+
+    # Guard against near-zero denominator (e.g., all dates identical)
+    # This occurs when variance in log_days is essentially zero
+    # Threshold 1e-9 catches floating-point precision issues with n~400 samples
+    if abs(denominator) < 1e-9:
+        raise ValueError(
+            "Insufficient variance in dates: cannot fit power law with constant x-values"
+        )
+
     beta = (n * sum_xy - sum_x * sum_y) / denominator
     alpha = (sum_y - beta * sum_x) / n
 
     # Calculate R-squared
     ss_tot = sum_y2 - (sum_y**2) / n
     ss_res = sum_y2 - alpha * sum_y - beta * sum_xy
-    r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0.0
+    # Guard against near-zero ss_tot (constant prices)
+    r_squared = 1 - (ss_res / ss_tot) if abs(ss_tot) > 1e-10 else 0.0
 
     # Calculate standard error of residuals
     predictions = alpha + beta * log_days
