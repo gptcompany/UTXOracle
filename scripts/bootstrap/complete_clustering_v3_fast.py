@@ -89,6 +89,7 @@ def load_file_with_pyarrow(file_path: Path) -> pa.Table:
         read_options=pv_csv.ReadOptions(
             column_names=["addr1", "addr2"],
             block_size=1024 * 1024 * 32,  # 32MB blocks for better throughput
+            use_threads=False,  # Single-threaded to avoid SIGFPE with large memory
         ),
         parse_options=pv_csv.ParseOptions(delimiter=","),
     )
@@ -96,7 +97,7 @@ def load_file_with_pyarrow(file_path: Path) -> pa.Table:
 
 # Size threshold for chunked reading (1GB uncompressed estimate)
 LARGE_FILE_THRESHOLD_GB = 1.0
-CHUNK_SIZE_ROWS = 10_000_000  # 10M rows per chunk
+CHUNK_SIZE_ROWS = 1_000_000  # 1M rows per chunk (minimal memory)
 
 
 def stream_file_chunks(file_path: Path):
@@ -125,41 +126,31 @@ def stream_file_chunks(file_path: Path):
 
     try:
         # Try PyArrow streaming reader first
+        # NOTE: use_threads=False to avoid SIGFPE race condition with large dicts
         reader = pv_csv.open_csv(
             file_path,
             read_options=pv_csv.ReadOptions(
                 column_names=["addr1", "addr2"],
-                block_size=1024 * 1024 * 64,  # 64MB blocks
+                block_size=1024 * 1024 * 32,  # 32MB blocks (reduced for memory)
+                use_threads=False,  # Single-threaded to avoid memory corruption
             ),
-            parse_options=pv_csv.ParseOptions(delimiter=","),
+            parse_options=pv_csv.ParseOptions(
+                delimiter=",",
+                invalid_row_handler=lambda row: "skip",  # Skip malformed rows
+            ),
         )
 
         batch_count = 0
-        rows_in_chunk = 0
-        chunk_addr1 = []
-        chunk_addr2 = []
 
         for batch in reader:
             batch_count += 1
-            # Convert batch to lists
+            # Yield each batch directly to minimize memory (no accumulation)
             addr1_list = batch.column("addr1").to_pylist()
             addr2_list = batch.column("addr2").to_pylist()
-
-            chunk_addr1.extend(addr1_list)
-            chunk_addr2.extend(addr2_list)
-            rows_in_chunk += len(addr1_list)
-
-            # Yield when chunk is large enough
-            if rows_in_chunk >= CHUNK_SIZE_ROWS:
-                yield chunk_addr1, chunk_addr2
-                chunk_addr1 = []
-                chunk_addr2 = []
-                rows_in_chunk = 0
-                gc.collect()  # Free memory between chunks
-
-        # Yield remaining rows
-        if chunk_addr1:
-            yield chunk_addr1, chunk_addr2
+            del batch
+            yield addr1_list, addr2_list
+            del addr1_list, addr2_list
+            gc.collect()  # Aggressive memory cleanup
 
         logger.info(f"  Processed {batch_count} batches via PyArrow streaming")
 
