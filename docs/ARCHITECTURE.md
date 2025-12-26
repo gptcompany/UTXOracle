@@ -466,6 +466,7 @@ Comprehensive UTXO lifecycle tracking for Realized Cap, MVRV, NUPL, and HODL Wav
 | spec-029 | metrics/pl_ratio | ✅ Complete | 3 |
 | spec-030 | metrics/mining_economics | ✅ Complete | 4 |
 | spec-033 | metrics/pro_risk | ✅ Complete | 3 |
+| spec-034 | models/price_power_law | ✅ Complete | 4 |
 
 ---
 
@@ -521,6 +522,53 @@ Composite 0-1 risk indicator aggregating 6 on-chain signals for market cycle pos
 | `api/models/risk_models.py` | Pydantic API models |
 | `tests/test_pro_risk.py` | Unit tests |
 | `tests/test_api_risk.py` | API tests |
+
+---
+
+## Bitcoin Price Power Law Model (spec-034)
+
+Mathematical model calculating Bitcoin's fair value based on time since genesis block using log-log linear regression.
+
+### Core Algorithm
+
+- **Formula**: `Price(t) = 10^(α + β × log₁₀(days_since_genesis))`
+- **Default Coefficients** (RBN research, 2025):
+  - α (intercept) = -17.01
+  - β (slope) = 5.82
+  - R² = 0.95
+  - σ (std error) = 0.32
+
+### Zone Classification
+
+| Zone | Deviation | Interpretation |
+|------|-----------|----------------|
+| undervalued | < -20% | Accumulation opportunity |
+| fair | -20% to +50% | Neutral / DCA |
+| overvalued | > +50% | Distribution zone |
+
+### API Endpoints
+
+- `GET /api/v1/models/power-law` - Current model parameters
+- `GET /api/v1/models/power-law/predict?date=YYYY-MM-DD&current_price=X` - Price prediction with zone
+- `GET /api/v1/models/power-law/history?days=N` - Historical prices with fair values
+- `POST /api/v1/models/power-law/recalibrate` - Fit model from latest data
+
+### Files
+
+| File | Purpose |
+|------|---------|
+| `scripts/models/price_power_law.py` | Core algorithm (days_since_genesis, fit_power_law, predict_price) |
+| `api/models/power_law_models.py` | Pydantic models (PowerLawModel, PowerLawPrediction, etc.) |
+| `frontend/charts/power_law_chart.js` | Plotly.js log-log visualization |
+| `frontend/power_law.html` | Standalone chart page |
+| `tests/test_price_power_law.py` | Unit tests (21 tests, 96% coverage) |
+| `tests/test_api_power_law.py` | API tests (29 tests) |
+
+### Frontend
+
+- URL: `/power_law` or `/power-law`
+- Features: Interactive log-log chart, zone coloring, recalibration button
+- Library: Plotly.js 2.27.0
 
 ---
 
