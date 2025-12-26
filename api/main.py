@@ -4958,6 +4958,218 @@ async def get_pro_risk_history_endpoint(
 
 
 # =============================================================================
+# Spec-034: Bitcoin Price Power Law Model Endpoints
+# =============================================================================
+
+from api.models.power_law_models import (
+    PowerLawModel,
+    PowerLawResponse,
+    PowerLawHistoryPoint,
+    PowerLawHistoryResponse,
+)
+from scripts.models.price_power_law import (
+    DEFAULT_MODEL,
+    days_since_genesis,
+    predict_price,
+    fit_power_law,
+)
+
+# Cached power law model (updated on recalibration)
+_power_law_model_cache: PowerLawModel = DEFAULT_MODEL
+
+
+def get_duckdb_connection():
+    """Get DuckDB connection for daily_prices table."""
+    import duckdb
+
+    db_path = os.environ.get(
+        "UTXO_LIFECYCLE_DB", str(Path.home() / ".utxoracle" / "utxo_lifecycle.duckdb")
+    )
+    return duckdb.connect(db_path, read_only=True)
+
+
+@app.get("/api/v1/models/power-law", response_model=PowerLawResponse)
+async def get_power_law_model():
+    """
+    Get current power law model parameters.
+
+    Returns the fitted model coefficients (alpha, beta), fit quality (R²),
+    and calibration metadata.
+
+    Spec: 034-price-power-law
+    """
+    return PowerLawResponse(model=_power_law_model_cache)
+
+
+@app.get("/api/v1/models/power-law/predict", response_model=PowerLawResponse)
+async def get_power_law_prediction(
+    target_date: Optional[date] = Query(
+        default=None,
+        alias="date",
+        description="Target date for prediction (YYYY-MM-DD). Defaults to today.",
+    ),
+    current_price: Optional[float] = Query(
+        default=None,
+        description="Current market price for deviation calculation",
+    ),
+):
+    """
+    Get price prediction for a specific date.
+
+    Returns model prediction including fair value, support/resistance bands,
+    and valuation zone. If current_price is provided, includes deviation percentage.
+
+    Spec: 034-price-power-law
+    """
+    if target_date is None:
+        target_date = date.today()
+
+    # Validate date is after genesis
+    try:
+        days_since_genesis(target_date)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    prediction = predict_price(_power_law_model_cache, target_date, current_price)
+    return PowerLawResponse(model=_power_law_model_cache, prediction=prediction)
+
+
+@app.get("/api/v1/models/power-law/history", response_model=PowerLawHistoryResponse)
+async def get_power_law_history(
+    days: int = Query(
+        default=365,
+        ge=7,
+        le=5000,
+        description="Number of days of history (7-5000)",
+    ),
+):
+    """
+    Get historical prices with model fair values.
+
+    Returns historical price data with corresponding model fair values
+    for charting. Includes zone classification for each data point.
+
+    Spec: 034-price-power-law
+    """
+    try:
+        conn = get_duckdb_connection()
+        result = conn.execute(
+            """
+            SELECT date, price_usd
+            FROM daily_prices
+            WHERE price_usd > 0
+            ORDER BY date DESC
+            LIMIT ?
+            """,
+            [days],
+        ).fetchall()
+        conn.close()
+    except Exception:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    if not result:
+        raise HTTPException(status_code=503, detail="No price data available")
+
+    history = []
+    for row in result:
+        row_date, price = row
+        try:
+            pred = predict_price(_power_law_model_cache, row_date, price)
+            zone = pred.zone if pred.zone != "unknown" else "fair"
+            history.append(
+                PowerLawHistoryPoint(
+                    date=row_date,
+                    price=price,
+                    fair_value=pred.fair_value,
+                    zone=zone,
+                )
+            )
+        except ValueError:
+            continue
+
+    # Reverse to chronological order
+    history.reverse()
+
+    return PowerLawHistoryResponse(model=_power_law_model_cache, history=history)
+
+
+@app.post("/api/v1/models/power-law/recalibrate", response_model=PowerLawResponse)
+async def recalibrate_power_law_model():
+    """
+    Trigger model recalibration from latest price data.
+
+    Fits a new power law model using all available historical prices
+    from the daily_prices table. Returns the newly fitted model parameters.
+
+    Spec: 034-price-power-law
+    """
+    global _power_law_model_cache
+
+    try:
+        conn = get_duckdb_connection()
+        result = conn.execute(
+            """
+            SELECT date, price_usd
+            FROM daily_prices
+            WHERE price_usd > 0
+            ORDER BY date
+            """
+        ).fetchall()
+        conn.close()
+    except Exception:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    if not result or len(result) < 365:
+        raise HTTPException(
+            status_code=503,
+            detail="Insufficient price data for recalibration",
+        )
+
+    dates = [row[0] for row in result]
+    prices = [row[1] for row in result]
+
+    try:
+        new_model = fit_power_law(dates, prices)
+        _power_law_model_cache = new_model
+    except ValueError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    return PowerLawResponse(model=_power_law_model_cache)
+
+
+@app.get("/power_law")
+@app.get("/power-law")
+async def power_law_dashboard():
+    """
+    Serve the Power Law model visualization page.
+
+    Returns an interactive log-log chart showing:
+    - Historical BTC prices
+    - Power law regression line (fair value)
+    - Support/resistance bands
+    - Zone classification
+
+    Spec: 034-price-power-law
+    """
+    power_law_path = FRONTEND_DIR / "power_law.html"
+
+    if not power_law_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Power law dashboard not found. Please ensure frontend files are present.",
+        )
+
+    return FileResponse(
+        path=str(power_law_path),
+        media_type="text/html",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+# =============================================================================
 # Run with uvicorn (for development)
 # =============================================================================
 

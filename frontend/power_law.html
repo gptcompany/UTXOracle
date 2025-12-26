@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bitcoin Price Power Law Model | UTXOracle</title>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #121212;
+            color: #E0E0E0;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #333;
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 500;
+        }
+
+        .nav-links a {
+            color: #90CAF9;
+            text-decoration: none;
+            margin-left: 20px;
+        }
+
+        .nav-links a:hover {
+            text-decoration: underline;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        label {
+            font-size: 14px;
+            color: #9E9E9E;
+        }
+
+        select, button {
+            background: #2a2a2a;
+            border: 1px solid #444;
+            color: #E0E0E0;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #3a3a3a;
+        }
+
+        button.primary {
+            background: #1976D2;
+            border-color: #1976D2;
+        }
+
+        button.primary:hover {
+            background: #1565C0;
+        }
+
+        #power-law-chart {
+            width: 100%;
+            height: 600px;
+            background: #1a1a1a;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .info-card {
+            background: #1e1e1e;
+            border-radius: 8px;
+            padding: 20px;
+        }
+
+        .info-card h3 {
+            font-size: 16px;
+            font-weight: 500;
+            margin-bottom: 15px;
+            color: #90CAF9;
+        }
+
+        .model-params {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+
+        .param {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .param-label {
+            font-size: 12px;
+            color: #9E9E9E;
+            margin-bottom: 2px;
+        }
+
+        .param-value {
+            font-size: 18px;
+            font-weight: 500;
+            font-family: 'Monaco', 'Consolas', monospace;
+        }
+
+        .zone-legend {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .zone-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .zone-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 3px;
+        }
+
+        .formula-box {
+            background: #252525;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 14px;
+            overflow-x: auto;
+        }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 400px;
+            color: #9E9E9E;
+        }
+
+        .error {
+            background: rgba(244, 67, 54, 0.1);
+            border: 1px solid #F44336;
+            color: #EF9A9A;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .controls {
+                flex-direction: column;
+            }
+
+            #power-law-chart {
+                height: 400px;
+            }
+
+            .model-params {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Bitcoin Price Power Law Model</h1>
+            <nav class="nav-links">
+                <a href="/">Dashboard</a>
+                <a href="/docs">API Docs</a>
+            </nav>
+        </header>
+
+        <div class="controls">
+            <div class="control-group">
+                <label for="days-select">Time Range:</label>
+                <select id="days-select">
+                    <option value="30">30 Days</option>
+                    <option value="90">90 Days</option>
+                    <option value="365" selected>1 Year</option>
+                    <option value="730">2 Years</option>
+                    <option value="1825">5 Years</option>
+                    <option value="3650">10 Years</option>
+                </select>
+            </div>
+            <button id="refresh-btn">Refresh Data</button>
+            <button id="recalibrate-btn" class="primary">Recalibrate Model</button>
+        </div>
+
+        <div id="error-container"></div>
+
+        <div id="power-law-chart">
+            <div class="loading">Loading chart data...</div>
+        </div>
+
+        <div class="info-grid">
+            <div class="info-card">
+                <h3>Model Parameters</h3>
+                <div class="model-params" id="model-params">
+                    <div class="param">
+                        <span class="param-label">Alpha (Intercept)</span>
+                        <span class="param-value" id="param-alpha">--</span>
+                    </div>
+                    <div class="param">
+                        <span class="param-label">Beta (Slope)</span>
+                        <span class="param-value" id="param-beta">--</span>
+                    </div>
+                    <div class="param">
+                        <span class="param-label">R-Squared</span>
+                        <span class="param-value" id="param-r2">--</span>
+                    </div>
+                    <div class="param">
+                        <span class="param-label">Std Error</span>
+                        <span class="param-value" id="param-stderr">--</span>
+                    </div>
+                    <div class="param">
+                        <span class="param-label">Fitted On</span>
+                        <span class="param-value" id="param-fitted">--</span>
+                    </div>
+                    <div class="param">
+                        <span class="param-label">Sample Size</span>
+                        <span class="param-value" id="param-samples">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="info-card">
+                <h3>Zone Classification</h3>
+                <div class="zone-legend">
+                    <div class="zone-item">
+                        <span class="zone-color" style="background: #4CAF50"></span>
+                        <span>Undervalued: Price &lt; -20% from fair value</span>
+                    </div>
+                    <div class="zone-item">
+                        <span class="zone-color" style="background: #FF9800"></span>
+                        <span>Fair Value: Price within -20% to +50%</span>
+                    </div>
+                    <div class="zone-item">
+                        <span class="zone-color" style="background: #F44336"></span>
+                        <span>Overvalued: Price &gt; +50% from fair value</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="info-card">
+                <h3>Formula</h3>
+                <div class="formula-box">
+                    Price(t) = 10^(α + β × log₁₀(days_since_genesis))<br><br>
+                    Where:<br>
+                    &nbsp;&nbsp;α = -17.01 (intercept)<br>
+                    &nbsp;&nbsp;β = 5.82 (slope/power exponent)<br>
+                    &nbsp;&nbsp;days_since_genesis = days from 2009-01-03
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/frontend/charts/power_law_chart.js"></script>
+    <script>
+        // Initialize chart on page load
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                await PowerLawChart.init('power-law-chart');
+                updateModelInfo();
+            } catch (error) {
+                showError('Failed to load chart: ' + error.message);
+            }
+        });
+
+        // Update model info display
+        function updateModelInfo() {
+            const info = PowerLawChart.getModelInfo();
+            if (info) {
+                document.getElementById('param-alpha').textContent = info.alpha;
+                document.getElementById('param-beta').textContent = info.beta;
+                document.getElementById('param-r2').textContent = info.rSquared;
+                document.getElementById('param-stderr').textContent = info.stdError;
+                document.getElementById('param-fitted').textContent = info.fittedOn;
+                document.getElementById('param-samples').textContent = info.sampleSize;
+            }
+        }
+
+        // Show error message
+        function showError(message) {
+            const container = document.getElementById('error-container');
+            container.innerHTML = `<div class="error">${message}</div>`;
+        }
+
+        // Clear error
+        function clearError() {
+            document.getElementById('error-container').innerHTML = '';
+        }
+
+        // Days selector
+        document.getElementById('days-select').addEventListener('change', async (e) => {
+            clearError();
+            try {
+                await PowerLawChart.update(parseInt(e.target.value));
+                updateModelInfo();
+            } catch (error) {
+                showError('Failed to update chart: ' + error.message);
+            }
+        });
+
+        // Refresh button
+        document.getElementById('refresh-btn').addEventListener('click', async () => {
+            clearError();
+            const days = parseInt(document.getElementById('days-select').value);
+            try {
+                await PowerLawChart.update(days);
+                updateModelInfo();
+            } catch (error) {
+                showError('Failed to refresh: ' + error.message);
+            }
+        });
+
+        // Recalibrate button
+        document.getElementById('recalibrate-btn').addEventListener('click', async () => {
+            clearError();
+            const btn = document.getElementById('recalibrate-btn');
+            btn.disabled = true;
+            btn.textContent = 'Recalibrating...';
+
+            try {
+                const response = await fetch('/api/v1/models/power-law/recalibrate', {
+                    method: 'POST'
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Recalibration failed: ${response.status}`);
+                }
+
+                // Refresh chart with new model
+                const days = parseInt(document.getElementById('days-select').value);
+                await PowerLawChart.update(days);
+                updateModelInfo();
+            } catch (error) {
+                showError('Failed to recalibrate: ' + error.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Recalibrate Model';
+            }
+        });
+    </script>
+</body>
+</html>

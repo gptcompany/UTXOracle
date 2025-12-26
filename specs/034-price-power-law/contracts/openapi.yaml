@@ -1,0 +1,321 @@
+openapi: 3.1.0
+info:
+  title: UTXOracle Power Law Model API
+  description: Bitcoin Price Power Law valuation model endpoints
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000
+    description: Development server
+
+paths:
+  /api/v1/models/power-law:
+    get:
+      operationId: getPowerLawModel
+      summary: Get current power law model parameters
+      description: |
+        Returns the current fitted power law model parameters including
+        coefficients (alpha, beta), fit quality (R²), and calibration date.
+      tags:
+        - Models
+      responses:
+        '200':
+          description: Current model parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PowerLawModelResponse'
+              example:
+                model:
+                  alpha: -17.01
+                  beta: 5.82
+                  r_squared: 0.95
+                  std_error: 0.32
+                  fitted_on: "2025-01-01"
+                  sample_size: 5800
+        '503':
+          description: Model not available (database unavailable)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/models/power-law/predict:
+    get:
+      operationId: predictPowerLawPrice
+      summary: Get price prediction for a date
+      description: |
+        Returns model prediction including fair value, support/resistance bands,
+        and valuation zone for the specified date. If current price is available,
+        includes deviation percentage.
+      tags:
+        - Models
+      parameters:
+        - name: date
+          in: query
+          required: false
+          description: Target date (YYYY-MM-DD). Defaults to today.
+          schema:
+            type: string
+            format: date
+            example: "2025-12-25"
+        - name: current_price
+          in: query
+          required: false
+          description: Current market price for deviation calculation
+          schema:
+            type: number
+            format: float
+            example: 98500.00
+      responses:
+        '200':
+          description: Price prediction with model info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PowerLawPredictionResponse'
+              example:
+                model:
+                  alpha: -17.01
+                  beta: 5.82
+                  r_squared: 0.95
+                  std_error: 0.32
+                  fitted_on: "2025-01-01"
+                  sample_size: 5800
+                prediction:
+                  date: "2025-12-25"
+                  days_since_genesis: 6200
+                  fair_value: 89234.56
+                  lower_band: 42567.89
+                  upper_band: 187012.34
+                  current_price: 98500.00
+                  deviation_pct: 10.4
+                  zone: "fair"
+        '400':
+          description: Invalid date format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Model not available
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/models/power-law/history:
+    get:
+      operationId: getPowerLawHistory
+      summary: Get historical prices with model values
+      description: |
+        Returns historical price data with corresponding model fair values
+        for charting. Includes zone classification for each data point.
+      tags:
+        - Models
+      parameters:
+        - name: days
+          in: query
+          required: false
+          description: Number of days of history (default 365, max 5000)
+          schema:
+            type: integer
+            minimum: 7
+            maximum: 5000
+            default: 365
+      responses:
+        '200':
+          description: Historical data for charting
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PowerLawHistoryResponse'
+        '503':
+          description: Data unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/models/power-law/recalibrate:
+    post:
+      operationId: recalibratePowerLaw
+      summary: Trigger model recalibration
+      description: |
+        Forces recalibration of the power law model using latest price data.
+        Returns the newly fitted model parameters.
+      tags:
+        - Models
+      responses:
+        '200':
+          description: Recalibrated model parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PowerLawModelResponse'
+        '503':
+          description: Cannot recalibrate (database unavailable)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    PowerLawModel:
+      type: object
+      required:
+        - alpha
+        - beta
+        - r_squared
+        - std_error
+        - fitted_on
+        - sample_size
+      properties:
+        alpha:
+          type: number
+          format: float
+          description: Intercept coefficient
+          example: -17.01
+        beta:
+          type: number
+          format: float
+          description: Slope coefficient (power exponent)
+          example: 5.82
+        r_squared:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          description: Model fit quality (R²)
+          example: 0.95
+        std_error:
+          type: number
+          format: float
+          minimum: 0
+          description: Standard error in log10 space
+          example: 0.32
+        fitted_on:
+          type: string
+          format: date
+          description: Date model was calibrated
+          example: "2025-01-01"
+        sample_size:
+          type: integer
+          minimum: 1
+          description: Number of data points used for fit
+          example: 5800
+
+    PowerLawPrediction:
+      type: object
+      required:
+        - date
+        - days_since_genesis
+        - fair_value
+        - lower_band
+        - upper_band
+        - zone
+      properties:
+        date:
+          type: string
+          format: date
+          description: Prediction target date
+        days_since_genesis:
+          type: integer
+          minimum: 1
+          description: Days since Bitcoin genesis (2009-01-03)
+        fair_value:
+          type: number
+          format: float
+          description: Model predicted price (USD)
+        lower_band:
+          type: number
+          format: float
+          description: -1σ support level (USD)
+        upper_band:
+          type: number
+          format: float
+          description: +1σ resistance level (USD)
+        current_price:
+          type: number
+          format: float
+          nullable: true
+          description: Actual market price if provided
+        deviation_pct:
+          type: number
+          format: float
+          nullable: true
+          description: Percentage deviation from fair value
+        zone:
+          type: string
+          enum: [undervalued, fair, overvalued, unknown]
+          description: Valuation zone classification
+
+    PowerLawModelResponse:
+      type: object
+      required:
+        - model
+      properties:
+        model:
+          $ref: '#/components/schemas/PowerLawModel'
+
+    PowerLawPredictionResponse:
+      type: object
+      required:
+        - model
+        - prediction
+      properties:
+        model:
+          $ref: '#/components/schemas/PowerLawModel'
+        prediction:
+          $ref: '#/components/schemas/PowerLawPrediction'
+
+    PowerLawHistoryPoint:
+      type: object
+      required:
+        - date
+        - price
+        - fair_value
+        - zone
+      properties:
+        date:
+          type: string
+          format: date
+        price:
+          type: number
+          format: float
+          description: Actual BTC/USD price
+        fair_value:
+          type: number
+          format: float
+          description: Model fair value
+        zone:
+          type: string
+          enum: [undervalued, fair, overvalued]
+
+    PowerLawHistoryResponse:
+      type: object
+      required:
+        - model
+        - history
+      properties:
+        model:
+          $ref: '#/components/schemas/PowerLawModel'
+        history:
+          type: array
+          items:
+            $ref: '#/components/schemas/PowerLawHistoryPoint'
+
+    Error:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
+          description: Error message
+          example: "Database unavailable"
+
+tags:
+  - name: Models
+    description: Price valuation models
