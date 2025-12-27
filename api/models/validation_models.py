@@ -188,6 +188,12 @@ class RBNMetricResponse(BaseModel):
         dates = data.get("dates", [])
         values = data.get("values", [])
 
+        # Validate that dates and values match in length
+        if len(dates) != len(values):
+            raise ValueError(
+                f"Mismatched dates/values length: {len(dates)} dates vs {len(values)} values"
+            )
+
         data_points = [RBNDataPoint(date=d, value=v) for d, v in zip(dates, values)]
 
         return cls(
@@ -264,8 +270,8 @@ class MetricComparison(BaseModel):
         elif rbn_val != 0:
             rel_diff = (abs_diff / abs(rbn_val)) * 100
         else:
-            # rbn_val is 0 but utxo_val is not - use absolute diff as percentage
-            rel_diff = float("inf")
+            # rbn_val is 0 but utxo_val is not - cap at 999.99% to avoid infinity in JSON
+            rel_diff = 999.99
 
         if rel_diff < tolerance_pct:
             status = ComparisonStatus.MATCH
@@ -390,6 +396,8 @@ class QuotaInfo(BaseModel):
     @property
     def usage_pct(self) -> float:
         """Calculate usage percentage."""
+        if self.weekly_limit == 0:
+            return 0.0
         return (self.used_this_week / self.weekly_limit) * 100
 
 

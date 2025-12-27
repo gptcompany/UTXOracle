@@ -5289,6 +5289,13 @@ async def validate_rbn_metric(
             tolerance_pct=tolerance_pct,
         )
 
+        # Return 404 if no data available for comparison
+        if report.total_comparisons == 0:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No data available for {metric_id} in date range {start_dt} to {end_dt}",
+            )
+
         return {
             "metric": report.metric_id,
             "date_range": [
