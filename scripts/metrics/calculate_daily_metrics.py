@@ -192,38 +192,61 @@ def calculate_daily_nupl(market_cap: float, realized_cap: float) -> Optional[flo
 def calculate_cointime_daily(conn: duckdb.DuckDBPyConnection, as_of_block: int) -> dict:
     """Calculate Cointime metrics as of a specific block.
 
+    Uses coinblocks formula per Cointime Economics (spec-018):
+    - Liveliness = cumulative_coinblocks_destroyed / cumulative_coinblocks_created
+    - Vaultedness = 1 - Liveliness
+
+    Where:
+    - Coinblocks destroyed = SUM(btc_value * age_blocks) for spent UTXOs
+    - Coinblocks created = SUM(btc_value * (as_of_block - creation_block)) for all UTXOs
+
     Returns:
-        dict with liveliness, vaultedness, coindays_destroyed, etc.
+        dict with liveliness, vaultedness, coinblocks_destroyed, coinblocks_created
     """
-    # Simplified cointime calculation
-    # Full implementation would use coindays_created and coindays_destroyed
-    result = conn.execute(
+    # Coinblocks destroyed: sum of (btc_value * age at spending) for all spent UTXOs
+    destroyed_result = conn.execute(
         """
-        SELECT
-            COUNT(*) as total_utxos,
-            SUM(CASE WHEN is_spent = TRUE AND spent_block <= ? THEN 1 ELSE 0 END) as spent_utxos,
-            SUM(CASE WHEN is_spent = FALSE OR spent_block > ? THEN 1 ELSE 0 END) as live_utxos
+        SELECT COALESCE(SUM(btc_value * COALESCE(age_blocks, spent_block - creation_block)), 0)
+        FROM utxo_lifecycle_full
+        WHERE is_spent = TRUE
+        AND spent_block <= ?
+        AND creation_block > 0
+        """,
+        [as_of_block],
+    ).fetchone()
+    coinblocks_destroyed = float(destroyed_result[0]) if destroyed_result else 0.0
+
+    # Coinblocks created: sum of (btc_value * age) for all UTXOs existing at as_of_block
+    created_result = conn.execute(
+        """
+        SELECT COALESCE(SUM(btc_value * (? - creation_block)), 0)
         FROM utxo_lifecycle_full
         WHERE creation_block <= ?
+        AND creation_block > 0
         """,
-        [as_of_block, as_of_block, as_of_block],
+        [as_of_block, as_of_block],
     ).fetchone()
+    coinblocks_created = float(created_result[0]) if created_result else 0.0
 
-    if result and result[0] > 0:
-        liveliness = result[1] / result[0] if result[0] > 0 else 0
-        vaultedness = result[2] / result[0] if result[0] > 0 else 0
+    if coinblocks_created > 0:
+        liveliness = min(1.0, max(0.0, coinblocks_destroyed / coinblocks_created))
+        vaultedness = 1.0 - liveliness
         return {
             "liveliness": liveliness,
             "vaultedness": vaultedness,
             "activity_to_vaultedness_ratio": liveliness / vaultedness
             if vaultedness > 0
             else None,
+            "coinblocks_destroyed": coinblocks_destroyed,
+            "coinblocks_created": coinblocks_created,
         }
 
     return {
         "liveliness": None,
         "vaultedness": None,
         "activity_to_vaultedness_ratio": None,
+        "coinblocks_destroyed": None,
+        "coinblocks_created": None,
     }
 
 
