@@ -5170,6 +5170,291 @@ async def power_law_dashboard():
 
 
 # =============================================================================
+# RBN Validation Endpoints (spec-035)
+# =============================================================================
+
+
+@app.get("/api/v1/validation/rbn/metrics")
+async def list_rbn_metrics():
+    """
+    List available RBN metrics for validation.
+
+    Spec: 035-rbn-api-integration
+    Task: T021
+    """
+    from api.models.validation_models import RBN_METRICS
+
+    metrics = [
+        {
+            "metric_id": k,
+            "name": v.name,
+            "category": v.category.value,
+            "tier_required": v.tier_required.value,
+            "utxoracle_spec": v.utxoracle_spec,
+            "description": v.description,
+        }
+        for k, v in RBN_METRICS.items()
+    ]
+
+    return {"metrics": metrics, "total": len(metrics)}
+
+
+@app.get("/api/v1/validation/rbn/quota")
+async def get_rbn_quota():
+    """
+    Get current RBN API quota status.
+
+    Spec: 035-rbn-api-integration
+    Task: T028
+    """
+    from scripts.integrations.rbn_fetcher import RBNFetcher
+
+    try:
+        fetcher = RBNFetcher()
+    except ValueError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    try:
+        quota = await fetcher.get_quota_info()
+
+        return {
+            "tier": quota.tier.value,
+            "weekly_limit": quota.weekly_limit,
+            "used_this_week": quota.used_this_week,
+            "remaining": quota.remaining,
+            "reset_at": quota.reset_at.isoformat(),
+            "usage_pct": quota.usage_pct,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logging.error(f"RBN quota error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get quota info")
+    finally:
+        await fetcher.close()
+
+
+@app.get("/api/v1/validation/rbn/{metric_id}")
+async def validate_rbn_metric(
+    metric_id: str,
+    start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    tolerance_pct: float = Query(1.0, ge=0.1, le=10.0, description="Match tolerance %"),
+):
+    """
+    Validate a single metric against RBN data.
+
+    Spec: 035-rbn-api-integration
+    Task: T022
+    """
+    from api.models.validation_models import RBN_METRICS, QuotaExceededError
+
+    # Validate metric_id
+    if metric_id not in RBN_METRICS:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown metric: {metric_id}. Use /api/v1/validation/rbn/metrics to list available metrics.",
+        )
+
+    # Parse dates
+    try:
+        from datetime import timedelta
+
+        end_dt = (
+            datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else date.today()
+        )
+        start_dt = (
+            datetime.strptime(start_date, "%Y-%m-%d").date()
+            if start_date
+            else end_dt - timedelta(days=30)
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid date format: {e}")
+
+    from scripts.integrations.rbn_fetcher import RBNFetcher
+    from scripts.integrations.rbn_validator import ValidationService
+
+    try:
+        fetcher = RBNFetcher()
+    except ValueError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    try:
+        validator = ValidationService(fetcher=fetcher)
+
+        report = await validator.validate_metric(
+            metric_id=metric_id,
+            start_date=start_dt,
+            end_date=end_dt,
+            tolerance_pct=tolerance_pct,
+        )
+
+        return {
+            "metric": report.metric_id,
+            "date_range": [
+                report.date_range_start.isoformat(),
+                report.date_range_end.isoformat(),
+            ],
+            "comparisons": report.total_comparisons,
+            "matches": report.matches,
+            "match_rate": report.match_rate_pct,
+            "avg_deviation_pct": report.avg_deviation_pct,
+            "status": "success",
+        }
+
+    except QuotaExceededError as e:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "RBN API quota exceeded",
+                "quota_info": {
+                    "used": e.quota_info.used_this_week,
+                    "limit": e.quota_info.weekly_limit,
+                    "reset_at": e.quota_info.reset_at.isoformat(),
+                },
+            },
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logging.error(f"Validation error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        await fetcher.close()
+
+
+@app.get("/api/v1/validation/rbn/report")
+async def generate_rbn_report(
+    metrics: Optional[str] = Query(None, description="Comma-separated metric IDs"),
+    start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+):
+    """
+    Generate validation report for multiple metrics.
+
+    Spec: 035-rbn-api-integration
+    Task: T026
+    """
+    from api.models.validation_models import RBN_METRICS, QuotaExceededError
+
+    # Parse metric list
+    if metrics:
+        metric_ids = [m.strip() for m in metrics.split(",")]
+    else:
+        # Default: Priority 1 metrics
+        metric_ids = ["mvrv_z", "sopr", "nupl", "realized_cap"]
+
+    # Validate all metric_ids
+    invalid = [m for m in metric_ids if m not in RBN_METRICS]
+    if invalid:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown metrics: {invalid}",
+        )
+
+    # Parse dates
+    try:
+        from datetime import timedelta
+
+        end_dt = (
+            datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else date.today()
+        )
+        start_dt = (
+            datetime.strptime(start_date, "%Y-%m-%d").date()
+            if start_date
+            else end_dt - timedelta(days=30)
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid date format: {e}")
+
+    from scripts.integrations.rbn_fetcher import RBNFetcher
+    from scripts.integrations.rbn_validator import ValidationService
+
+    try:
+        fetcher = RBNFetcher()
+    except ValueError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    try:
+        validator = ValidationService(fetcher=fetcher)
+
+        reports = []
+        for mid in metric_ids:
+            try:
+                report = await validator.validate_metric(
+                    metric_id=mid,
+                    start_date=start_dt,
+                    end_date=end_dt,
+                )
+                reports.append(
+                    {
+                        "metric_id": report.metric_id,
+                        "metric_name": report.metric_name,
+                        "match_rate_pct": report.match_rate_pct,
+                        "avg_deviation_pct": report.avg_deviation_pct,
+                        "total_comparisons": report.total_comparisons,
+                    }
+                )
+            except QuotaExceededError:
+                # Stop if quota exceeded
+                break
+
+        # Calculate overall match rate
+        if reports:
+            overall_rate = sum(r["match_rate_pct"] for r in reports) / len(reports)
+        else:
+            overall_rate = 0.0
+
+        return {
+            "reports": reports,
+            "generated_at": datetime.now().isoformat(),
+            "total_metrics": len(reports),
+            "overall_match_rate": overall_rate,
+        }
+
+    except ValueError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logging.error(f"Report error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        await fetcher.close()
+
+
+@app.delete("/api/v1/validation/rbn/cache")
+async def clear_rbn_cache(
+    metric_id: Optional[str] = Query(None, description="Clear only this metric"),
+):
+    """
+    Clear cached RBN data.
+
+    Spec: 035-rbn-api-integration
+    Task: T032
+    """
+    from scripts.integrations.rbn_fetcher import RBNFetcher
+
+    try:
+        fetcher = RBNFetcher()
+    except ValueError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    try:
+        count = fetcher.clear_cache(metric_id=metric_id)
+
+        return {
+            "status": "success",
+            "cleared_entries": count,
+            "metric_id": metric_id,
+        }
+
+    except Exception as e:
+        logging.error(f"Cache clear error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        await fetcher.close()
+
+
+# =============================================================================
 # Run with uvicorn (for development)
 # =============================================================================
 

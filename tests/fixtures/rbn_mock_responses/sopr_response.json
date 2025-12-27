@@ -1,0 +1,22 @@
+{
+  "status": "success",
+  "message": "Data retrieved successfully",
+  "data": {
+    "dates": [
+      "2024-12-01",
+      "2024-12-02",
+      "2024-12-03",
+      "2024-12-04",
+      "2024-12-05"
+    ],
+    "values": [
+      1.02,
+      1.015,
+      1.008,
+      1.025,
+      1.018
+    ]
+  },
+  "output_format": "json",
+  "timestamp": "2024-12-26T10:00:00Z"
+}

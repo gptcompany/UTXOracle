@@ -1,0 +1,452 @@
+openapi: 3.0.3
+info:
+  title: UTXOracle RBN Validation API
+  description: |
+    API endpoints for validating UTXOracle metrics against ResearchBitcoin.net (RBN).
+    These endpoints fetch RBN data, compare against local calculations, and generate reports.
+  version: 1.0.0
+  contact:
+    name: UTXOracle
+    url: https://github.com/utxoracle/utxoracle
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+  - url: https://utxoracle.local/api/v1
+    description: Production server
+
+tags:
+  - name: validation
+    description: RBN comparison and validation endpoints
+
+paths:
+  /validation/rbn/metrics:
+    get:
+      tags:
+        - validation
+      summary: List available RBN metrics for validation
+      description: Returns all RBN metrics that can be compared against UTXOracle calculations.
+      operationId: listRbnMetrics
+      responses:
+        '200':
+          description: List of available metrics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  metrics:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RBNMetricInfo'
+                  total:
+                    type: integer
+                    example: 12
+
+  /validation/rbn/{metric_id}:
+    get:
+      tags:
+        - validation
+      summary: Validate a single metric against RBN
+      description: |
+        Fetches metric data from RBN, compares against UTXOracle calculation,
+        and returns comparison results for each date in the range.
+      operationId: validateMetric
+      parameters:
+        - name: metric_id
+          in: path
+          required: true
+          schema:
+            type: string
+            enum:
+              - mvrv
+              - mvrv_z
+              - sopr
+              - nupl
+              - realized_cap
+              - price_power_law
+              - liveliness
+              - thermo_cap
+          description: RBN metric identifier
+        - name: start_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+            example: "2024-01-01"
+          description: Start date for comparison range (default 30 days ago)
+        - name: end_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+            example: "2025-12-25"
+          description: End date for comparison range (default today)
+        - name: tolerance_pct
+          in: query
+          required: false
+          schema:
+            type: number
+            format: float
+            default: 1.0
+            minimum: 0.1
+            maximum: 10.0
+          description: Match tolerance percentage
+      responses:
+        '200':
+          description: Validation results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationEndpointResponse'
+        '400':
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Metric not found or UTXOracle data unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: RBN API quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuotaExceededResponse'
+
+  /validation/rbn/report:
+    get:
+      tags:
+        - validation
+      summary: Generate validation report for all metrics
+      description: |
+        Runs validation for all configured metrics and generates an aggregate report.
+        This may consume multiple RBN API quota units.
+      operationId: generateValidationReport
+      parameters:
+        - name: start_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: Start date for all comparisons
+        - name: end_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: End date for all comparisons
+        - name: metrics
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: false
+          description: Comma-separated list of metrics to validate (default all)
+      responses:
+        '200':
+          description: Aggregate validation report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationReportListResponse'
+        '429':
+          description: RBN API quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuotaExceededResponse'
+
+  /validation/rbn/quota:
+    get:
+      tags:
+        - validation
+      summary: Check RBN API quota status
+      description: Returns current quota usage and remaining allowance.
+      operationId: getQuotaStatus
+      responses:
+        '200':
+          description: Quota information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuotaInfo'
+
+  /validation/rbn/cache:
+    delete:
+      tags:
+        - validation
+      summary: Clear RBN cache
+      description: Invalidates cached RBN responses to force fresh data fetch.
+      operationId: clearCache
+      parameters:
+        - name: metric_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Clear cache for specific metric only (default all)
+      responses:
+        '200':
+          description: Cache cleared
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "success"
+                  cleared_entries:
+                    type: integer
+                    example: 12
+
+components:
+  schemas:
+    RBNMetricInfo:
+      type: object
+      required:
+        - metric_id
+        - name
+        - category
+        - tier_required
+      properties:
+        metric_id:
+          type: string
+          example: "mvrv_z"
+        name:
+          type: string
+          example: "MVRV Z-Score"
+        category:
+          type: string
+          example: "market_value_to_realized_value"
+        tier_required:
+          type: integer
+          enum: [0, 1, 2]
+          example: 0
+        utxoracle_spec:
+          type: string
+          nullable: true
+          example: "spec-007"
+        description:
+          type: string
+          example: "MVRV normalized by standard deviation"
+
+    MetricComparison:
+      type: object
+      required:
+        - metric_id
+        - date
+        - status
+      properties:
+        metric_id:
+          type: string
+        date:
+          type: string
+          format: date
+        utxoracle_value:
+          type: number
+          format: float
+          nullable: true
+        rbn_value:
+          type: number
+          format: float
+          nullable: true
+        absolute_diff:
+          type: number
+          format: float
+          nullable: true
+        relative_diff_pct:
+          type: number
+          format: float
+          nullable: true
+        status:
+          type: string
+          enum:
+            - match
+            - minor_diff
+            - major_diff
+            - missing
+
+    ValidationEndpointResponse:
+      type: object
+      required:
+        - metric
+        - date_range
+        - comparisons
+        - matches
+        - match_rate
+        - status
+      properties:
+        metric:
+          type: string
+          example: "mvrv_z"
+        date_range:
+          type: array
+          items:
+            type: string
+            format: date
+          minItems: 2
+          maxItems: 2
+          example: ["2024-01-01", "2025-12-25"]
+        comparisons:
+          type: integer
+          example: 720
+        matches:
+          type: integer
+          example: 695
+        match_rate:
+          type: number
+          format: float
+          example: 96.5
+        avg_deviation_pct:
+          type: number
+          format: float
+          nullable: true
+          example: 0.8
+        status:
+          type: string
+          example: "success"
+        details:
+          type: array
+          items:
+            $ref: '#/components/schemas/MetricComparison'
+
+    ValidationReport:
+      type: object
+      required:
+        - metric_id
+        - metric_name
+        - date_range_start
+        - date_range_end
+        - total_comparisons
+        - matches
+        - match_rate_pct
+      properties:
+        metric_id:
+          type: string
+        metric_name:
+          type: string
+        date_range_start:
+          type: string
+          format: date
+        date_range_end:
+          type: string
+          format: date
+        total_comparisons:
+          type: integer
+        matches:
+          type: integer
+        minor_diffs:
+          type: integer
+        major_diffs:
+          type: integer
+        missing:
+          type: integer
+        match_rate_pct:
+          type: number
+          format: float
+        avg_deviation_pct:
+          type: number
+          format: float
+          nullable: true
+        max_deviation_pct:
+          type: number
+          format: float
+          nullable: true
+        generated_at:
+          type: string
+          format: date-time
+
+    ValidationReportListResponse:
+      type: object
+      required:
+        - reports
+        - generated_at
+        - total_metrics
+        - overall_match_rate
+      properties:
+        reports:
+          type: array
+          items:
+            $ref: '#/components/schemas/ValidationReport'
+        generated_at:
+          type: string
+          format: date-time
+        total_metrics:
+          type: integer
+        overall_match_rate:
+          type: number
+          format: float
+
+    QuotaInfo:
+      type: object
+      required:
+        - tier
+        - weekly_limit
+        - used_this_week
+        - remaining
+        - reset_at
+      properties:
+        tier:
+          type: integer
+          enum: [0, 1, 2]
+        weekly_limit:
+          type: integer
+          example: 100
+        used_this_week:
+          type: integer
+          example: 23
+        remaining:
+          type: integer
+          example: 77
+        reset_at:
+          type: string
+          format: date-time
+        usage_pct:
+          type: number
+          format: float
+          example: 23.0
+
+    QuotaExceededResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: "error"
+        error:
+          type: string
+          example: "RBN API quota exceeded"
+        quota_info:
+          $ref: '#/components/schemas/QuotaInfo'
+
+    ErrorResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: "error"
+        error:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: Optional authentication for protected endpoints
+
+security: []  # Validation endpoints are public (rate-limited)

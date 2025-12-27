@@ -18,6 +18,10 @@ dependencies = [
     "aiohttp>=3.13.2",
     "websockets>=15.0.1",
     "pyjwt>=2.10.1",
+    "httpx>=0.28.1",
+    "pandas>=2.0.0",
+    "pyarrow>=14.0.0",
+    "psutil>=5.9.0",
 ]
 
 [project.optional-dependencies]

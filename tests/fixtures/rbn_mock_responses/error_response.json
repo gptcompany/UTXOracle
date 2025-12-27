@@ -1,0 +1,41 @@
+{
+  "errors": {
+    "401_invalid_token": {
+      "status": "error",
+      "error": "Invalid token or token expired",
+      "timestamp": "2024-12-26T10:00:00Z",
+      "details": {
+        "code": "AUTH_FAILED"
+      }
+    },
+    "429_quota_exceeded": {
+      "status": "error",
+      "error": "RBN API quota exceeded",
+      "timestamp": "2024-12-26T10:00:00Z",
+      "details": {
+        "remaining_quota": 0,
+        "reset_at": "2025-01-02T00:00:00Z",
+        "tier": 0,
+        "weekly_limit": 100
+      }
+    },
+    "422_invalid_params": {
+      "status": "error",
+      "error": "Invalid parameters",
+      "timestamp": "2024-12-26T10:00:00Z",
+      "details": {
+        "field": "start_date",
+        "message": "Invalid date format. Expected YYYY-MM-DD"
+      }
+    },
+    "404_metric_not_found": {
+      "status": "error",
+      "error": "Metric not found",
+      "timestamp": "2024-12-26T10:00:00Z",
+      "details": {
+        "metric_id": "invalid_metric",
+        "available": ["mvrv", "mvrv_z", "sopr", "nupl"]
+      }
+    }
+  }
+}

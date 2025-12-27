@@ -282,3 +282,6 @@ live.backup.*/
 *.pyc
 .venv/
 UTXOracle_*.html
+
+# RBN API Integration cache (spec-035)
+cache/rbn/
