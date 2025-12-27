@@ -49,19 +49,24 @@ class TestUTXOracleModel:
         assert len(model.required_data) > 0
 
     def test_predict_returns_model_prediction(self):
-        """UTXOracleModel.predict() returns ModelPrediction."""
+        """UTXOracleModel.predict() returns ModelPrediction or raises ValueError."""
         from scripts.models.utxoracle_model import UTXOracleModel
 
         model = UTXOracleModel()
 
         # Use historical date that may have cached data
-        prediction = model.predict(date(2025, 10, 15))
+        try:
+            prediction = model.predict(date(2025, 10, 15))
 
-        assert isinstance(prediction, ModelPrediction)
-        assert prediction.model_name == "UTXOracle"
-        assert prediction.date == date(2025, 10, 15)
-        # Price may be 0 if no cached data and blockchain unavailable
-        assert prediction.predicted_price >= 0
+            assert isinstance(prediction, ModelPrediction)
+            assert prediction.model_name == "UTXOracle"
+            assert prediction.date == date(2025, 10, 15)
+            # Price must be positive (validated by model)
+            assert prediction.predicted_price > 0
+        except ValueError as e:
+            # Expected when no cached data and blockchain unavailable
+            assert "No price data available" in str(e)
+            pytest.skip("No cached UTXOracle data available")
 
     def test_predict_without_blockchain_uses_cached(self):
         """UTXOracleModel.predict() uses cached data when blockchain unavailable."""

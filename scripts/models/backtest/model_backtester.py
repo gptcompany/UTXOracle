@@ -58,7 +58,15 @@ class ModelBacktester:
 
         Args:
             train_pct: Fraction of data to use for training (0.0-1.0)
+
+        Raises:
+            ValueError: If train_pct is not in valid range (0.1-0.9)
         """
+        if not 0.1 <= train_pct <= 0.9:
+            raise ValueError(
+                f"train_pct must be between 0.1 and 0.9, got {train_pct}. "
+                "Values outside this range leave insufficient data for training or testing."
+            )
         self.train_pct = train_pct
 
     def _calculate_mae(self, predictions: list[float], actuals: list[float]) -> float:
@@ -164,24 +172,25 @@ class ModelBacktester:
         test_dates = actual_prices.index[train_end:]
         test_actuals = actual_prices.iloc[train_end:].tolist()
 
-        # Generate predictions
+        # Generate predictions and track corresponding actuals
         predictions_list = []
+        actuals_aligned = []
         dates_list = []
 
-        for dt in test_dates:
+        for i, dt in enumerate(test_dates):
             # Convert Timestamp to date
             target_date = dt.date() if hasattr(dt, "date") else dt
 
             try:
                 prediction = model.predict(target_date)
                 predictions_list.append(prediction.predicted_price)
+                actuals_aligned.append(
+                    test_actuals[i]
+                )  # Keep actual aligned with prediction
                 dates_list.append(target_date)
             except Exception:
                 # Skip dates where prediction fails
                 continue
-
-        # Align actuals with successful predictions
-        actuals_aligned = test_actuals[: len(predictions_list)]
 
         # Calculate metrics
         mae = self._calculate_mae(predictions_list, actuals_aligned)

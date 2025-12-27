@@ -94,7 +94,17 @@ class StockToFlowModel(PriceModel):
         return supply / annual_issuance
 
     def _date_to_block_height(self, target_date: date) -> int:
-        """Estimate block height for a given date."""
+        """Estimate block height for a given date.
+
+        Args:
+            target_date: Target date (can be date or pd.Timestamp)
+
+        Returns:
+            Estimated block height
+        """
+        # Handle pandas Timestamp by converting to date
+        if hasattr(target_date, "date"):
+            target_date = target_date.date()
         days_since_genesis = (target_date - GENESIS_DATE).days
         return days_since_genesis * BLOCKS_PER_DAY
 
@@ -147,9 +157,27 @@ class StockToFlowModel(PriceModel):
 
         Returns:
             ModelPrediction with S2F fair value
+
+        Raises:
+            ValueError: If target date is before Bitcoin genesis (2009-01-03)
         """
         block_height = self._date_to_block_height(target_date)
+
+        # Validate date is after genesis
+        if block_height <= 0:
+            raise ValueError(
+                f"Target date {target_date} is before Bitcoin genesis "
+                f"(2009-01-03). Cannot calculate S2F for pre-genesis dates."
+            )
+
         s2f = self.calculate_s2f(block_height)
+
+        # Guard against log(0) - should not happen if block_height > 0
+        if s2f <= 0:
+            raise ValueError(
+                f"Invalid S2F ratio {s2f} at block height {block_height}. "
+                "S2F must be positive for price calculation."
+            )
 
         # Price = exp(intercept + slope * ln(S2F))
         log_price = self._intercept + self._slope * np.log(s2f)

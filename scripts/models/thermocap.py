@@ -70,10 +70,28 @@ class ThermocapModel(PriceModel):
 
         Args:
             historical_data: DataFrame with 'thermocap' column
+
+        Raises:
+            ValueError: If thermocap value is non-positive
         """
         if "thermocap" in historical_data.columns:
             # Use latest thermocap value
-            self._thermocap = historical_data["thermocap"].iloc[-1]
+            new_thermocap = historical_data["thermocap"].iloc[-1]
+            # Check for NaN, Inf, or non-positive values
+            if pd.isna(new_thermocap) or (
+                isinstance(new_thermocap, float)
+                and not __import__("math").isfinite(new_thermocap)
+            ):
+                raise ValueError(
+                    f"Invalid thermocap value: {new_thermocap}. "
+                    "Thermocap must be a finite positive number."
+                )
+            if new_thermocap <= 0:
+                raise ValueError(
+                    f"Invalid thermocap value: {new_thermocap}. "
+                    "Thermocap must be positive."
+                )
+            self._thermocap = new_thermocap
         self._fitted = True
 
     def predict(self, target_date: date) -> ModelPrediction:
@@ -84,7 +102,22 @@ class ThermocapModel(PriceModel):
 
         Returns:
             ModelPrediction with fair value based on average multiple
+
+        Raises:
+            ValueError: If current supply or thermocap is zero/negative
         """
+        # Guard against invalid values
+        if self._current_supply <= 0:
+            raise ValueError(
+                f"Invalid current supply: {self._current_supply}. "
+                "Supply must be positive for price calculation."
+            )
+        if self._thermocap <= 0:
+            raise ValueError(
+                f"Invalid thermocap: {self._thermocap}. "
+                "Thermocap must be positive for price calculation."
+            )
+
         # Fair value = thermocap * average_multiple
         avg_multiple = (self.FAIR_MULTIPLE_LOW + self.FAIR_MULTIPLE_HIGH) / 2
         fair_market_cap = self._thermocap * avg_multiple

@@ -74,25 +74,42 @@ class UTXOracleModel(PriceModel):
 
         Returns:
             ModelPrediction with UTXOracle price
+
+        Raises:
+            ValueError: If no price data available (no cache and blockchain unavailable)
         """
         # Try cached data first
         cached_price = self._get_cached_price(target_date)
+        source = "cached"
 
         if cached_price is not None:
             price = cached_price
         else:
             # Try to run UTXOracle (requires blockchain access)
+            source = "calculated"
             try:
                 from UTXOracle_library import calculate_price_for_date
 
                 result = calculate_price_for_date(target_date)
                 price = result.price
             except ImportError:
-                # UTXOracle_library not available, use a placeholder
-                price = 0.0
-            except Exception:
+                # UTXOracle_library not available
+                raise ValueError(
+                    f"No price data available for {target_date}. "
+                    "UTXOracle_library not installed and no cached data found."
+                )
+            except Exception as e:
                 # Blockchain unavailable
-                price = 0.0
+                raise ValueError(
+                    f"No price data available for {target_date}. "
+                    f"Blockchain calculation failed: {e}"
+                )
+
+        # Validate price is positive
+        if price <= 0:
+            raise ValueError(
+                f"Invalid price {price} for {target_date}. Price must be positive."
+            )
 
         # UTXOracle doesn't provide confidence intervals directly
         # Use +/- 10% as a reasonable estimate
@@ -106,6 +123,6 @@ class UTXOracleModel(PriceModel):
             confidence_interval=(float(lower_bound), float(upper_bound)),
             confidence_level=0.95,  # UTXOracle is based on actual transactions
             metadata={
-                "source": "cached" if cached_price else "calculated",
+                "source": source,
             },
         )

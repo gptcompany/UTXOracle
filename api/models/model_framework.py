@@ -104,6 +104,8 @@ class EnsembleCreateRequest(BaseModel):
     @field_validator("weights")
     @classmethod
     def weights_sum_to_one(cls, v: list[float]) -> list[float]:
+        if any(w < 0 for w in v):
+            raise ValueError("weights must be non-negative")
         if not np.isclose(sum(v), 1.0):
             raise ValueError("weights must sum to 1.0")
         return v

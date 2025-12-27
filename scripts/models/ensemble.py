@@ -35,6 +35,10 @@ class EnsembleConfig:
                 f"{len(self.models)} models vs {len(self.weights)} weights"
             )
 
+        # Validate weights are non-negative
+        if any(w < 0 for w in self.weights):
+            raise ValueError(f"weights must be non-negative, got {self.weights}")
+
         # Validate weights sum to 1.0
         if not np.isclose(sum(self.weights), 1.0):
             raise ValueError(f"weights must sum to 1.0, got {sum(self.weights)}")
