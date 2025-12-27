@@ -16,13 +16,12 @@ from pathlib import Path
 from typing import Optional
 
 import pandas as pd
+from scripts.config import UTXORACLE_DB_PATH
 
 logger = logging.getLogger(__name__)
 
-# Database path
-DEFAULT_DB_PATH = Path(
-    "/media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxoracle_cache.db"
-)
+# Database path (UTXORACLE_DB_PATH is already a Path)
+DEFAULT_DB_PATH = UTXORACLE_DB_PATH
 GOLDEN_DATA_DIR = Path("tests/validation/golden_data")
 
 
@@ -57,41 +56,54 @@ class MetricSeries:
 
 
 # Metric configurations: how to load each metric
+# Updated for spec-037: Using new consolidated daily metric tables
 METRIC_CONFIG = {
-    # MVRV Z-Score (spec-007)
+    # MVRV (spec-007, spec-037)
+    "mvrv": {
+        "table": "mvrv_daily",
+        "column": "mvrv",
+        "fallback_table": None,
+        "transform": None,
+    },
+    # MVRV Z-Score (spec-007, spec-037)
     "mvrv_z": {
-        "table": "cointime_metrics",
-        "column": "aviv_ratio",  # AVIV is our MVRV variant
-        "fallback_table": "metrics",
-        "fallback_column": None,  # Not stored yet
+        "table": "mvrv_daily",
+        "column": "mvrv_z",
+        "fallback_table": None,
         "transform": None,
     },
-    # SOPR (spec-016)
+    # SOPR (spec-016, spec-037)
     "sopr": {
-        "table": "sopr_metrics",
-        "column": "aggregate_sopr",
+        "table": "sopr_daily",
+        "column": "sopr",
         "fallback_table": None,
         "transform": None,
     },
-    # NUPL (spec-007)
+    # NUPL (spec-007, spec-037)
     "nupl": {
-        "table": "nupl_metrics",
+        "table": "nupl_daily",
         "column": "nupl",
-        "fallback_table": "metrics",
-        "fallback_column": None,
-        "transform": None,
-    },
-    # Realized Cap (spec-007)
-    "realized_cap": {
-        "table": "realized_metrics",
-        "column": "realized_cap_usd",
         "fallback_table": None,
         "transform": None,
     },
-    # Liveliness (spec-018)
+    # Realized Cap (spec-007, spec-037)
+    "realized_cap": {
+        "table": "realized_cap_daily",
+        "column": "realized_cap",
+        "fallback_table": None,
+        "transform": None,
+    },
+    # Liveliness (spec-018, spec-037)
     "liveliness": {
-        "table": "cointime_metrics",
+        "table": "cointime_daily",
         "column": "liveliness",
+        "fallback_table": None,
+        "transform": None,
+    },
+    # Vaultedness (spec-018, spec-037)
+    "vaultedness": {
+        "table": "cointime_daily",
+        "column": "vaultedness",
         "fallback_table": None,
         "transform": None,
     },
@@ -193,6 +205,7 @@ class MetricLoader:
     ) -> MetricSeries:
         """Load metric from DuckDB."""
         config = METRIC_CONFIG[metric_id]
+        conn = None  # Initialize for exception safety
         conn = self._get_connection()
 
         if conn is None:
@@ -218,8 +231,19 @@ class MetricLoader:
             elif "timestamp" in schema_cols:
                 date_col = "timestamp"
             elif "block_height" in schema_cols:
-                # For block-based tables, join with block_info or use timestamp
-                date_col = "timestamp"
+                # Block-based tables are not supported for direct date queries
+                # They would need a join with block_heights table
+                logger.warning(
+                    f"Table {table} has block_height but no date/timestamp column - not supported"
+                )
+                conn.close()
+                return MetricSeries(
+                    metric_id=metric_id,
+                    data=[],
+                    start_date=start_date,
+                    end_date=end_date,
+                    source="duckdb",
+                )
             else:
                 logger.warning(f"No date column found in {table}")
                 conn.close()

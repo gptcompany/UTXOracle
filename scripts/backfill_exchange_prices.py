@@ -20,6 +20,7 @@ from typing import List
 import requests
 import duckdb
 from dotenv import load_dotenv
+from scripts.config import UTXORACLE_DB_PATH
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -29,7 +30,7 @@ load_dotenv()
 
 # Configuration
 MEMPOOL_PUBLIC_API = "https://mempool.space/api/v1/historical-price"
-DUCKDB_PATH = "/media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxoracle_cache.db"
+DUCKDB_PATH = str(UTXORACLE_DB_PATH)
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"

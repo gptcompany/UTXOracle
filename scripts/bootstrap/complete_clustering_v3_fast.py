@@ -43,6 +43,8 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 import duckdb
+
+from scripts.config import UTXORACLE_DB_PATH
 import numpy as np
 import pyarrow as pa
 import pyarrow.csv as pv_csv
@@ -70,7 +72,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-UTXO_DB_PATH = os.getenv("UTXO_DB_PATH", "data/utxo_lifecycle.duckdb")
+UTXO_DB_PATH = str(UTXORACLE_DB_PATH)
 OUTPUT_DIR = Path("data/clustering_temp")
 CHECKPOINT_DIR = OUTPUT_DIR / "checkpoints"
 

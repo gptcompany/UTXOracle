@@ -40,6 +40,7 @@ from scripts.metrics.utxo_lifecycle import (
     BLOCKS_PER_DAY,
 )
 from scripts.models.metrics_models import AgeCohortsConfig
+from scripts.config import UTXORACLE_DB_PATH
 
 # =============================================================================
 # Configuration
@@ -54,9 +55,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Database paths
-UTXO_DB_PATH = os.getenv("UTXO_LIFECYCLE_DB_PATH", "data/utxo_lifecycle.duckdb")
+UTXO_DB_PATH = str(UTXORACLE_DB_PATH)
 MAIN_DB_PATH = os.getenv(
-    "DUCKDB_PATH", "/media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxoracle_cache.db"
+    "DUCKDB_PATH", str(UTXORACLE_DB_PATH)
 )
 
 # Processing configuration

@@ -28,11 +28,13 @@ from datetime import datetime
 
 import duckdb
 
+from scripts.config import UTXORACLE_DB_PATH
+
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 # Use environment variable or default to local dev path
-DEFAULT_DB_PATH = os.getenv("UTXO_DB_PATH", "data/utxo_lifecycle.duckdb")
+DEFAULT_DB_PATH = str(UTXORACLE_DB_PATH)
 # For now, both tables are in the same database
 UTXO_DB_PATH = DEFAULT_DB_PATH
 

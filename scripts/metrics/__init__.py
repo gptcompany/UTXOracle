@@ -32,8 +32,10 @@ from datetime import datetime
 from typing import Optional
 import duckdb
 
-# Database path (same as daily_analysis.py)
-DEFAULT_DB_PATH = "/media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxoracle_cache.db"
+from scripts.config import UTXORACLE_DB_PATH
+
+# Database path - now uses centralized config
+DEFAULT_DB_PATH = str(UTXORACLE_DB_PATH)
 
 
 def save_metrics_to_db(

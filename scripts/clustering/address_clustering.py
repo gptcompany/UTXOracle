@@ -112,7 +112,7 @@ def get_cluster_stats(uf: UnionFind) -> dict:
 
 def save_cluster(
     uf: UnionFind,
-    db_path: str = "/media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxoracle_cache.db",
+    db_path: str = str(UTXORACLE_DB_PATH),
 ) -> int:
     """Save all clusters to database.
 
@@ -124,6 +124,8 @@ def save_cluster(
         Number of addresses saved
     """
     import duckdb
+
+from scripts.config import UTXORACLE_DB_PATH
     from datetime import datetime
 
     clusters = uf.get_clusters()

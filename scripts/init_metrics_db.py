@@ -16,9 +16,10 @@ The script is idempotent - safe to run multiple times.
 import argparse
 import duckdb
 from pathlib import Path
+from scripts.config import UTXORACLE_DB_PATH
 
 # Default database path (same as daily_analysis.py)
-DEFAULT_DB_PATH = "/media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxoracle_cache.db"
+DEFAULT_DB_PATH = str(UTXORACLE_DB_PATH)
 
 # Schema for metrics table
 METRICS_TABLE_SQL = """

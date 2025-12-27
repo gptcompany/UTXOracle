@@ -232,7 +232,7 @@ def detect_coinjoin(tx: dict) -> CoinJoinResult:
 
 def save_coinjoin_result(
     result: CoinJoinResult,
-    db_path: str = "/media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxoracle_cache.db",
+    db_path: str = str(UTXORACLE_DB_PATH),
 ) -> bool:
     """Save CoinJoin detection result to database cache.
 
@@ -244,6 +244,8 @@ def save_coinjoin_result(
         True if saved successfully, False otherwise
     """
     import duckdb
+
+from scripts.config import UTXORACLE_DB_PATH
     from datetime import datetime
 
     try:

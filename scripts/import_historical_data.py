@@ -24,11 +24,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import duckdb
 from dotenv import load_dotenv
+from scripts.config import UTXORACLE_DB_PATH
 
 # Load config
 load_dotenv()
 DUCKDB_PATH = os.getenv(
-    "DUCKDB_PATH", "/media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxoracle_cache.db"
+    "DUCKDB_PATH", str(UTXORACLE_DB_PATH)
 )
 HISTORICAL_DIR = Path(__file__).parent.parent / "historical_data" / "html_files"
 LOG_DIR = Path(__file__).parent.parent / "logs"

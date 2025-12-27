@@ -33,6 +33,7 @@ from dotenv import load_dotenv
 
 # Local imports
 from UTXOracle_library import UTXOracleCalculator
+from scripts.config import UTXORACLE_DB_PATH
 
 # Whale Flow Detector (spec-004) - import after scripts/ is in path
 try:
@@ -175,7 +176,7 @@ def load_config() -> Dict[str, str]:
         # Required settings (fail fast if missing - T064a)
         "DUCKDB_PATH": os.getenv(
             "DUCKDB_PATH",
-            "/media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxoracle_cache.db",
+            str(UTXORACLE_DB_PATH),
         ),
         "BITCOIN_DATADIR": os.getenv(
             "BITCOIN_DATADIR", os.path.expanduser("~/.bitcoin")
@@ -1961,7 +1962,7 @@ def main():
             if UTXO_LIFECYCLE_ENABLED:
                 try:
                     utxo_db_path = os.getenv(
-                        "UTXO_LIFECYCLE_DB_PATH", "data/utxo_lifecycle.duckdb"
+                        "UTXO_LIFECYCLE_DB_PATH", str(UTXORACLE_DB_PATH)
                     )
 
                     # Initialize database if needed

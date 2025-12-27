@@ -1177,6 +1177,94 @@ conn.execute("""
 
 ---
 
+## Database Architecture (spec-037 - RESOLVED 2025-12-27)
+
+> **Status**: ✅ RESOLVED - Consolidated database architecture implemented
+
+### Solution: Single Consolidated Database
+
+All data now resides in a single DuckDB database: `data/utxoracle.duckdb`
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     CONSOLIDATED DATABASE ARCHITECTURE                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  data/utxoracle.duckdb (57+ GB)                                             │
+│  ├── utxo_lifecycle       (164M rows) ← Raw UTXO data                       │
+│  ├── utxo_lifecycle_full  (164M rows) ← UTXO with realized values           │
+│  ├── block_heights        (928K rows) ← Block timestamp mapping             │
+│  ├── daily_prices         (5.4K rows) ← Historical BTC prices               │
+│  ├── price_analysis       (744 rows)  ← UTXOracle price outputs             │
+│  ├── alert_events         (332 rows)  ← Webhook alert history               │
+│  ├── intraday_prices      (21M rows)  ← High-frequency price data           │
+│  │                                                                           │
+│  │  === Daily Metric Tables (spec-037) ===                                  │
+│  ├── sopr_daily           (30+ rows)  ← SOPR time series                    │
+│  ├── nupl_daily           (30+ rows)  ← NUPL + market/realized cap          │
+│  ├── mvrv_daily           (30+ rows)  ← MVRV + MVRV-Z ratios                │
+│  ├── realized_cap_daily   (30+ rows)  ← Daily realized cap                  │
+│  └── cointime_daily       (30+ rows)  ← Liveliness, vaultedness             │
+│                                                                              │
+│  /media/sam/2TB-NVMe/prod/apps/utxoracle/data/                              │
+│  └── utxoracle.duckdb → SYMLINK to data/utxoracle.duckdb                    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Centralized Configuration
+
+All scripts use the `scripts.config` module:
+
+```python
+from scripts.config import UTXORACLE_DB_PATH, get_connection
+
+# Environment variable override:
+export UTXORACLE_DB_PATH="/custom/path/utxoracle.duckdb"
+
+# Default: data/utxoracle.duckdb
+```
+
+### Metric Pipeline
+
+Daily metrics are calculated from `utxo_lifecycle_full` and persisted to daily tables:
+
+```bash
+# Calculate metrics for a specific date
+python -m scripts.metrics.calculate_daily_metrics --date 2025-12-14
+
+# Backfill last 30 days
+python -m scripts.metrics.calculate_daily_metrics --backfill 30 --end-date 2025-12-14
+
+# Dry run (calculate but don't persist)
+python -m scripts.metrics.calculate_daily_metrics --date 2025-12-14 --dry-run
+```
+
+### Validation Pipeline
+
+MetricLoader now loads from daily tables and compares against RBN reference data:
+
+```bash
+# Run validation
+python -m scripts.integrations.validation_batch --days 30
+
+# Generate HTML report
+python -m scripts.integrations.validation_batch --html --days 30
+```
+
+### Key Changes (spec-037)
+
+1. ✅ Renamed `utxo_lifecycle.duckdb` → `utxoracle.duckdb`
+2. ✅ Created `scripts.config` module with `UTXORACLE_DB_PATH`
+3. ✅ Updated 20+ scripts to use centralized config
+4. ✅ Migrated cache tables from NVMe to consolidated DB
+5. ✅ Created 5 daily metric tables (sopr, nupl, mvrv, realized_cap, cointime)
+6. ✅ Implemented `calculate_daily_metrics.py` batch pipeline
+7. ✅ Updated MetricLoader to use new table names
+8. ✅ Validation now shows real correlation values (not 1.0)
+
+---
+
 ## Future Architecture Plans
 
 See **MODULAR_ARCHITECTURE.md** for planned Rust-based architecture:

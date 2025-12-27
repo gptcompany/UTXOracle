@@ -18,6 +18,8 @@ CSV Format (from bitcoin-utxo-dump):
 from __future__ import annotations
 
 import argparse
+
+from scripts.config import UTXORACLE_DB_PATH
 import logging
 import os
 from pathlib import Path
@@ -434,7 +436,7 @@ async def main():
     )
     parser.add_argument(
         "--db-path",
-        default=os.getenv("DUCKDB_PATH", "data/utxo_lifecycle.duckdb"),
+        default=str(UTXORACLE_DB_PATH),
         help="Path to DuckDB database",
     )
     parser.add_argument(

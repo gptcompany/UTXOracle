@@ -1,0 +1,116 @@
+{
+  "timestamp": "2025-12-27T18:14:22.843791",
+  "databases": {
+    "utxo_lifecycle.duckdb": {
+      "path": "/media/sam/1TB/UTXOracle/data/utxo_lifecycle.duckdb",
+      "size_bytes": 60512284672,
+      "size_human": "60.51 GB",
+      "tables": {
+        "address_clusters": {
+          "row_count": 54899477
+        },
+        "alert_events": {
+          "row_count": 0
+        },
+        "backtest_results": {
+          "row_count": 0
+        },
+        "block_heights": {
+          "row_count": 928139
+        },
+        "coinjoin_cache": {
+          "row_count": 0
+        },
+        "cointime_metrics": {
+          "row_count": 0
+        },
+        "daily_prices": {
+          "row_count": 5462
+        },
+        "metrics": {
+          "row_count": 0
+        },
+        "utxo_lifecycle": {
+          "row_count": 164640689
+        },
+        "utxo_lifecycle_full": {
+          "row_count": 164640689
+        },
+        "wallet_cost_basis": {
+          "row_count": 0
+        }
+      }
+    },
+    "utxoracle.duckdb": {
+      "path": "/media/sam/1TB/UTXOracle/data/utxoracle.duckdb",
+      "size_bytes": 320090112,
+      "size_human": "320.09 MB",
+      "tables": {
+        "metrics": {
+          "row_count": 1135
+        },
+        "price_analysis": {
+          "row_count": 39
+        },
+        "prices": {
+          "row_count": 0
+        }
+      }
+    },
+    "nvme_utxoracle_cache.db": {
+      "path": "/media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxoracle_cache.db",
+      "size_bytes": 611332096,
+      "size_human": "611.33 MB",
+      "tables": {
+        "address_clusters": {
+          "row_count": 0
+        },
+        "alert_events": {
+          "row_count": 332
+        },
+        "alerts": {
+          "row_count": 0
+        },
+        "backtest_results": {
+          "row_count": 0
+        },
+        "backtest_whale_signals": {
+          "row_count": 10
+        },
+        "coinjoin_cache": {
+          "row_count": 0
+        },
+        "cointime_metrics": {
+          "row_count": 0
+        },
+        "intraday_prices": {
+          "row_count": 21222514
+        },
+        "mempool_predictions": {
+          "row_count": 0
+        },
+        "metrics": {
+          "row_count": 0
+        },
+        "net_flow_metrics": {
+          "row_count": 0
+        },
+        "prediction_outcomes": {
+          "row_count": 0
+        },
+        "price_analysis": {
+          "row_count": 744
+        },
+        "urgency_scores": {
+          "row_count": 0
+        },
+        "wallet_cost_basis": {
+          "row_count": 0
+        },
+        "whale_transactions": {
+          "row_count": 0
+        }
+      }
+    }
+  }
+}

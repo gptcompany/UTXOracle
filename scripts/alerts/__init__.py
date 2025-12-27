@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 import duckdb
+from scripts.config import UTXORACLE_DB_PATH
 
 if TYPE_CHECKING:
     from .models import AlertEvent
@@ -32,7 +33,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Default database path (same as daily_analysis.py)
-DEFAULT_DB_PATH = "/media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxoracle_cache.db"
+DEFAULT_DB_PATH = str(UTXORACLE_DB_PATH)
 
 # Public API stubs - implemented in submodules
 __all__ = [

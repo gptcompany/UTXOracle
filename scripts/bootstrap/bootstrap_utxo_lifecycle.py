@@ -25,6 +25,8 @@ Prerequisites:
 from __future__ import annotations
 
 import argparse
+
+from scripts.config import UTXORACLE_DB_PATH
 import asyncio
 import logging
 import os
@@ -552,7 +554,7 @@ async def main():
     )
     parser.add_argument(
         "--db-path",
-        default=os.getenv("DUCKDB_PATH", "data/utxo_lifecycle.duckdb"),
+        default=str(UTXORACLE_DB_PATH),
         help="Path to DuckDB database",
     )
     parser.add_argument(

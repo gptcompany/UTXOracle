@@ -205,7 +205,7 @@ def get_total_btc_in_cluster(
 
 def save_cost_basis_to_db(
     cost_basis: WalletCostBasis,
-    db_path: str = "/media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxoracle_cache.db",
+    db_path: str = str(UTXORACLE_DB_PATH),
 ) -> int:
     """Save wallet cost basis entries to database.
 
@@ -217,6 +217,8 @@ def save_cost_basis_to_db(
         Number of entries saved
     """
     import duckdb
+
+from scripts.config import UTXORACLE_DB_PATH
 
     count = 0
     conn = duckdb.connect(db_path)
@@ -252,7 +254,7 @@ def save_cost_basis_to_db(
 
 
 def load_cost_basis_from_db(
-    db_path: str = "/media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxoracle_cache.db",
+    db_path: str = str(UTXORACLE_DB_PATH),
 ) -> WalletCostBasis:
     """Load wallet cost basis entries from database.
 
@@ -263,6 +265,8 @@ def load_cost_basis_from_db(
         WalletCostBasis container with loaded entries
     """
     import duckdb
+
+from scripts.config import UTXORACLE_DB_PATH
 
     cost_basis = WalletCostBasis()
 

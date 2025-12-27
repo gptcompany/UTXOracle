@@ -37,6 +37,8 @@ Performance:
 from __future__ import annotations
 
 import argparse
+
+from scripts.config import UTXORACLE_DB_PATH
 import logging
 import os
 import sys
@@ -65,8 +67,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Database paths
-UTXO_DB_PATH = os.getenv("UTXO_DB_PATH", "data/utxo_lifecycle.duckdb")
-CACHE_DB_PATH = os.getenv("DUCKDB_PATH", "data/utxoracle_cache.db")
+UTXO_DB_PATH = str(UTXORACLE_DB_PATH)
+CACHE_DB_PATH = str(UTXORACLE_DB_PATH)  # Now uses consolidated DB
 
 # Batch size for staging table operations
 SPENT_BATCH_SIZE = 10000
