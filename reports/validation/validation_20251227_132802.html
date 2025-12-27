@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>UTXOracle Validation Report - 20251227_132802</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 40px; background: #f8f9fa; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1 { color: #333; border-bottom: 2px solid #007bff; padding-bottom: 10px; }
+        .summary { display: flex; gap: 20px; margin: 20px 0; }
+        .summary-card { padding: 15px 25px; border-radius: 8px; text-align: center; }
+        .summary-card.pass { background: #d4edda; color: #155724; }
+        .summary-card.warn { background: #fff3cd; color: #856404; }
+        .summary-card.fail { background: #f8d7da; color: #721c24; }
+        .summary-card h2 { margin: 0; font-size: 36px; }
+        .summary-card p { margin: 5px 0 0 0; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #dee2e6; }
+        th { background: #f8f9fa; font-weight: 600; }
+        .status { padding: 4px 12px; border-radius: 4px; color: white; font-weight: 500; }
+        .metric-name { font-weight: 600; }
+        .number { font-family: 'SF Mono', Monaco, monospace; }
+        .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #dee2e6; color: #6c757d; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 UTXOracle Validation Report</h1>
+        <p>Run ID: <code>20251227_132802</code> | Timestamp: 2025-12-27 13:28:03</p>
+
+        <div class="summary">
+            <div class="summary-card pass">
+                <h2>6</h2>
+                <p>Passed</p>
+            </div>
+            <div class="summary-card warn">
+                <h2>0</h2>
+                <p>Warnings</p>
+            </div>
+            <div class="summary-card fail">
+                <h2>0</h2>
+                <p>Failed</p>
+            </div>
+        </div>
+
+        <h2>Metric Details</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Metric</th>
+                    <th>Status</th>
+                    <th>Correlation</th>
+                    <th>MAPE</th>
+                    <th>Max Deviation</th>
+                    <th>Data Points</th>
+                </tr>
+            </thead>
+            <tbody>
+
+                <tr>
+                    <td class="metric-name">mvrv_z</td>
+                    <td><span class="status" style="background: #28a745">PASS</span></td>
+                    <td class="number">1.000</td>
+                    <td class="number">0.00%</td>
+                    <td class="number">0.00%</td>
+                    <td class="number">31/31</td>
+                </tr>
+
+                <tr>
+                    <td class="metric-name">sopr</td>
+                    <td><span class="status" style="background: #28a745">PASS</span></td>
+                    <td class="number">1.000</td>
+                    <td class="number">0.00%</td>
+                    <td class="number">0.00%</td>
+                    <td class="number">31/31</td>
+                </tr>
+
+                <tr>
+                    <td class="metric-name">nupl</td>
+                    <td><span class="status" style="background: #28a745">PASS</span></td>
+                    <td class="number">1.000</td>
+                    <td class="number">0.00%</td>
+                    <td class="number">0.00%</td>
+                    <td class="number">31/31</td>
+                </tr>
+
+                <tr>
+                    <td class="metric-name">realized_cap</td>
+                    <td><span class="status" style="background: #28a745">PASS</span></td>
+                    <td class="number">1.000</td>
+                    <td class="number">0.00%</td>
+                    <td class="number">0.00%</td>
+                    <td class="number">31/31</td>
+                </tr>
+
+                <tr>
+                    <td class="metric-name">liveliness</td>
+                    <td><span class="status" style="background: #28a745">PASS</span></td>
+                    <td class="number">1.000</td>
+                    <td class="number">0.00%</td>
+                    <td class="number">0.00%</td>
+                    <td class="number">31/31</td>
+                </tr>
+
+                <tr>
+                    <td class="metric-name">power_law</td>
+                    <td><span class="status" style="background: #28a745">PASS</span></td>
+                    <td class="number">1.000</td>
+                    <td class="number">0.00%</td>
+                    <td class="number">0.00%</td>
+                    <td class="number">31/31</td>
+                </tr>
+
+            </tbody>
+        </table>
+
+        <div class="footer">
+            <p>Thresholds: Correlation > 0.9, MAPE < 10.0%, Critical MAPE > 20.0%</p>
+            <p>Generated by UTXOracle Validation System | Reference: ResearchBitcoin.net</p>
+        </div>
+    </div>
+</body>
+</html>

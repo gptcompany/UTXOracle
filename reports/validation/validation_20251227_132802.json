@@ -1,0 +1,86 @@
+{
+  "run_id": "20251227_132802",
+  "run_timestamp": "2025-12-27T13:28:03.506888",
+  "summary": {
+    "metrics_validated": 6,
+    "passed": 6,
+    "warned": 0,
+    "failed": 0,
+    "errors": 0,
+    "no_data": 0
+  },
+  "results": [
+    {
+      "metric_id": "mvrv_z",
+      "our_data_count": 31,
+      "rbn_data_count": 31,
+      "overlap_count": 31,
+      "correlation": 1.0,
+      "mape": 0.0,
+      "max_deviation": 0.0,
+      "status": "pass",
+      "error_message": null,
+      "timestamp": "2025-12-27T13:28:03.139908"
+    },
+    {
+      "metric_id": "sopr",
+      "our_data_count": 31,
+      "rbn_data_count": 31,
+      "overlap_count": 31,
+      "correlation": 1.0,
+      "mape": 0.0,
+      "max_deviation": 0.0,
+      "status": "pass",
+      "error_message": null,
+      "timestamp": "2025-12-27T13:28:03.210438"
+    },
+    {
+      "metric_id": "nupl",
+      "our_data_count": 31,
+      "rbn_data_count": 31,
+      "overlap_count": 31,
+      "correlation": 1.0,
+      "mape": 0.0,
+      "max_deviation": 0.0,
+      "status": "pass",
+      "error_message": null,
+      "timestamp": "2025-12-27T13:28:03.286600"
+    },
+    {
+      "metric_id": "realized_cap",
+      "our_data_count": 31,
+      "rbn_data_count": 31,
+      "overlap_count": 31,
+      "correlation": 0.9999999999999998,
+      "mape": 0.0,
+      "max_deviation": 0.0,
+      "status": "pass",
+      "error_message": null,
+      "timestamp": "2025-12-27T13:28:03.376411"
+    },
+    {
+      "metric_id": "liveliness",
+      "our_data_count": 31,
+      "rbn_data_count": 31,
+      "overlap_count": 31,
+      "correlation": 1.0,
+      "mape": 0.0,
+      "max_deviation": 0.0,
+      "status": "pass",
+      "error_message": null,
+      "timestamp": "2025-12-27T13:28:03.436548"
+    },
+    {
+      "metric_id": "power_law",
+      "our_data_count": 31,
+      "rbn_data_count": 31,
+      "overlap_count": 31,
+      "correlation": 1.0,
+      "mape": 0.0,
+      "max_deviation": 0.0,
+      "status": "pass",
+      "error_message": null,
+      "timestamp": "2025-12-27T13:28:03.506823"
+    }
+  ]
+}

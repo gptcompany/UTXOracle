@@ -1,0 +1,37 @@
+{
+  "generated_at": "2025-12-27",
+  "type": "synthetic",
+  "warning": "NOT for production validation - synthetic data only",
+  "metrics": {
+    "mvrv_z": {
+      "start_date": "2025-09-28",
+      "end_date": "2025-12-27",
+      "records": 91
+    },
+    "sopr": {
+      "start_date": "2025-09-28",
+      "end_date": "2025-12-27",
+      "records": 91
+    },
+    "nupl": {
+      "start_date": "2025-09-28",
+      "end_date": "2025-12-27",
+      "records": 91
+    },
+    "realized_cap": {
+      "start_date": "2025-09-28",
+      "end_date": "2025-12-27",
+      "records": 91
+    },
+    "liveliness": {
+      "start_date": "2025-09-28",
+      "end_date": "2025-12-27",
+      "records": 91
+    },
+    "power_law": {
+      "start_date": "2025-09-28",
+      "end_date": "2025-12-27",
+      "records": 91
+    }
+  }
+}

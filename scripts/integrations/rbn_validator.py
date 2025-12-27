@@ -57,11 +57,25 @@ class ValidationService:
         Returns:
             Dictionary mapping dates to values
         """
-        # TODO: Implement actual data loading from metrics database
-        # For now, return empty dict to indicate missing data
-        # This will be implemented when we have the metrics database integrated
-        logger.warning(f"UTXOracle metric loading not yet implemented for {metric_id}")
-        return {}
+        from scripts.integrations.metric_loader import MetricLoader
+
+        loader = MetricLoader()
+
+        try:
+            series = loader.load_metric(metric_id, start_date, end_date)
+            if series.data:
+                logger.info(
+                    f"Loaded {len(series.data)} points for {metric_id} from {series.source}"
+                )
+                return series.to_dict()
+            logger.warning(f"No data found for {metric_id}")
+            return {}
+        except ValueError as e:
+            logger.warning(f"Metric {metric_id} not supported: {e}")
+            return {}
+        except Exception as e:
+            logger.error(f"Error loading {metric_id}: {e}")
+            return {}
 
     async def compare_metric(
         self,
