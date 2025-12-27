@@ -184,17 +184,35 @@ class RBNMetricResponse(BaseModel):
         cached: bool = False,
     ) -> "RBNMetricResponse":
         """Parse raw API response into structured model."""
-        data = response.get("data", {})
-        dates = data.get("dates", [])
-        values = data.get("values", [])
+        raw_data = response.get("data", [])
 
-        # Validate that dates and values match in length
-        if len(dates) != len(values):
-            raise ValueError(
-                f"Mismatched dates/values length: {len(dates)} dates vs {len(values)} values"
-            )
+        # Handle two possible formats:
+        # 1. List of dicts: [{"date": "2025-12-26", "mvrv_z": 1.123}, ...]
+        # 2. Dict with arrays: {"dates": [...], "values": [...]}
+        data_points = []
 
-        data_points = [RBNDataPoint(date=d, value=v) for d, v in zip(dates, values)]
+        if isinstance(raw_data, list):
+            # Format 1: List of dicts (actual RBN API format)
+            for item in raw_data:
+                if isinstance(item, dict) and "date" in item:
+                    dt = item["date"]
+                    # Value key is the metric name (e.g., "mvrv_z", "sopr")
+                    # Find the non-date key
+                    value = None
+                    for key, val in item.items():
+                        if key != "date" and isinstance(val, (int, float)):
+                            value = val
+                            break
+                    if value is not None:
+                        data_points.append(RBNDataPoint(date=dt, value=value))
+        elif isinstance(raw_data, dict):
+            # Format 2: Dict with arrays (legacy format)
+            dates = raw_data.get("dates", [])
+            values = raw_data.get("values", [])
+            if len(dates) == len(values):
+                data_points = [
+                    RBNDataPoint(date=d, value=v) for d, v in zip(dates, values)
+                ]
 
         return cls(
             status=response.get("status", "unknown"),
@@ -203,7 +221,9 @@ class RBNMetricResponse(BaseModel):
             data=data_points,
             output_format=response.get("output_format", "json"),
             timestamp=datetime.fromisoformat(
-                response.get("timestamp", datetime.now().isoformat())
+                response.get("timestamp", datetime.now().isoformat()).replace(
+                    "+00:00", ""
+                )
             ),
             cached=cached,
         )

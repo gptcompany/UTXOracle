@@ -179,11 +179,12 @@ class RBNFetcher:
         endpoint = metric_info.endpoint
         token = self.config.token.get_secret_value()
 
+        # RBN API uses 'date_field' parameter for start date
+        # Data is returned from date_field to latest available
         return (
             f"{base}{endpoint}"
             f"?token={token}"
-            f"&start_date={start_date.isoformat()}"
-            f"&end_date={end_date.isoformat()}"
+            f"&date_field={start_date.isoformat()}"
             f"&output_format=json"
         )
 

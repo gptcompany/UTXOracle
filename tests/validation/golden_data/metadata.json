@@ -1,37 +1,38 @@
 {
-  "generated_at": "2025-12-27",
-  "type": "synthetic",
-  "warning": "NOT for production validation - synthetic data only",
+  "type": "downloaded",
+  "source": "ResearchBitcoin.net API",
+  "downloaded_at": "2025-12-27",
+  "tier": 0,
   "metrics": {
     "mvrv_z": {
-      "start_date": "2025-09-28",
-      "end_date": "2025-12-27",
-      "records": 91
+      "start_date": "2025-11-27",
+      "end_date": "2025-12-26",
+      "records": 30,
+      "downloaded_at": "2025-12-27"
     },
     "sopr": {
-      "start_date": "2025-09-28",
-      "end_date": "2025-12-27",
-      "records": 91
+      "start_date": "2025-11-27",
+      "end_date": "2025-12-26",
+      "records": 30,
+      "downloaded_at": "2025-12-27"
     },
     "nupl": {
-      "start_date": "2025-09-28",
-      "end_date": "2025-12-27",
-      "records": 91
+      "start_date": "2025-11-27",
+      "end_date": "2025-12-26",
+      "records": 30,
+      "downloaded_at": "2025-12-27"
     },
     "realized_cap": {
-      "start_date": "2025-09-28",
-      "end_date": "2025-12-27",
-      "records": 91
+      "start_date": "2025-11-27",
+      "end_date": "2025-12-26",
+      "records": 30,
+      "downloaded_at": "2025-12-27"
     },
     "liveliness": {
-      "start_date": "2025-09-28",
-      "end_date": "2025-12-27",
-      "records": 91
-    },
-    "power_law": {
-      "start_date": "2025-09-28",
-      "end_date": "2025-12-27",
-      "records": 91
+      "start_date": "2025-11-27",
+      "end_date": "2025-12-26",
+      "records": 30,
+      "downloaded_at": "2025-12-27"
     }
   }
 }
