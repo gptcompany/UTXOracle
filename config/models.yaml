@@ -1,0 +1,30 @@
+# Model configuration (spec-036)
+models:
+  power_law:
+    enabled: true
+    auto_refit_days: 30  # Refit monthly
+
+  stock_to_flow:
+    enabled: true
+    variant: "classic"   # or "s2fx"
+
+  thermocap:
+    enabled: true
+    fair_multiple_range: [3.0, 8.0]
+
+  utxoracle:
+    enabled: true
+    # Uses UTXOracle.py defaults
+
+# Default ensemble configuration
+ensemble:
+  enabled: true
+  models: ["power_law", "stock_to_flow", "thermocap"]
+  weights: [0.4, 0.3, 0.3]
+  aggregation: "weighted_avg"
+
+# Backtesting defaults
+backtest:
+  train_pct: 0.7
+  walk_forward: true
+  refit_frequency: "monthly"

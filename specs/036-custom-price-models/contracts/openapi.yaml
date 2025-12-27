@@ -1,0 +1,344 @@
+openapi: 3.1.0
+info:
+  title: UTXOracle Custom Price Models API
+  version: 1.0.0
+  description: |
+    API for Bitcoin price model framework (spec-036).
+    Supports multiple valuation models, ensembles, and backtesting.
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development
+
+paths:
+  /models:
+    get:
+      operationId: listModels
+      summary: List all available price models
+      description: Returns metadata about all registered models
+      responses:
+        "200":
+          description: List of available models
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ModelInfo"
+              example:
+                - name: "Power Law"
+                  description: "Bitcoin price power law model (spec-034)"
+                  required_data: ["daily_prices"]
+                  is_fitted: true
+                - name: "Stock-to-Flow"
+                  description: "Stock-to-Flow scarcity model"
+                  required_data: ["block_heights"]
+                  is_fitted: true
+
+  /models/{name}/predict:
+    get:
+      operationId: getModelPrediction
+      summary: Get price prediction from a specific model
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "power-law"
+        - name: date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: Target date (defaults to today)
+        - name: current_price
+          in: query
+          required: false
+          schema:
+            type: number
+          description: Current market price for deviation calculation
+      responses:
+        "200":
+          description: Model prediction
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelPrediction"
+        "404":
+          description: Model not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /models/ensemble:
+    post:
+      operationId: createEnsemble
+      summary: Create and predict with an ensemble model
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnsembleCreateRequest"
+      responses:
+        "200":
+          description: Ensemble prediction
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelPrediction"
+        "400":
+          description: Invalid ensemble configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /models/backtest/{name}:
+    get:
+      operationId: runBacktest
+      summary: Run backtest on a specific model
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "power-law"
+        - name: start_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: Backtest start date
+        - name: end_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: Backtest end date
+        - name: train_pct
+          in: query
+          required: false
+          schema:
+            type: number
+            minimum: 0.1
+            maximum: 0.9
+            default: 0.7
+          description: Fraction of data for training
+      responses:
+        "200":
+          description: Backtest results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BacktestResult"
+        "404":
+          description: Model not found
+
+  /models/compare:
+    get:
+      operationId: compareModels
+      summary: Compare multiple models on same data
+      parameters:
+        - name: models
+          in: query
+          required: true
+          schema:
+            type: array
+            items:
+              type: string
+          description: Model names to compare
+          example: ["power-law", "stock-to-flow", "thermocap"]
+        - name: start_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Comparison results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelComparison"
+
+components:
+  schemas:
+    ModelInfo:
+      type: object
+      required:
+        - name
+        - description
+        - required_data
+        - is_fitted
+      properties:
+        name:
+          type: string
+          description: Human-readable model name
+        description:
+          type: string
+          description: Model methodology
+        required_data:
+          type: array
+          items:
+            type: string
+          description: Required data sources
+        is_fitted:
+          type: boolean
+          description: Whether model is calibrated
+
+    ModelPrediction:
+      type: object
+      required:
+        - model_name
+        - date
+        - predicted_price
+        - confidence_interval
+        - confidence_level
+      properties:
+        model_name:
+          type: string
+          example: "Power Law"
+        date:
+          type: string
+          format: date
+          example: "2025-12-27"
+        predicted_price:
+          type: number
+          minimum: 0
+          example: 98500.00
+        confidence_interval:
+          type: object
+          properties:
+            lower:
+              type: number
+              example: 45000.00
+            upper:
+              type: number
+              example: 210000.00
+        confidence_level:
+          type: number
+          minimum: 0
+          maximum: 1
+          example: 0.68
+        metadata:
+          type: object
+          additionalProperties: true
+          example:
+            zone: "fair"
+            deviation_pct: 5.2
+
+    EnsembleCreateRequest:
+      type: object
+      required:
+        - models
+        - weights
+      properties:
+        models:
+          type: array
+          items:
+            type: string
+          minItems: 2
+          example: ["power-law", "stock-to-flow", "thermocap"]
+        weights:
+          type: array
+          items:
+            type: number
+          description: Must sum to 1.0
+          example: [0.4, 0.3, 0.3]
+        aggregation:
+          type: string
+          enum: ["weighted_avg", "median", "min", "max"]
+          default: "weighted_avg"
+        date:
+          type: string
+          format: date
+          description: Prediction target date (defaults to today)
+
+    BacktestResult:
+      type: object
+      required:
+        - model_name
+        - start_date
+        - end_date
+        - predictions
+        - metrics
+      properties:
+        model_name:
+          type: string
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        predictions:
+          type: integer
+          description: Number of predictions made
+        metrics:
+          type: object
+          properties:
+            mae:
+              type: number
+              description: Mean Absolute Error (USD)
+            mape:
+              type: number
+              description: Mean Absolute Percentage Error (%)
+            rmse:
+              type: number
+              description: Root Mean Square Error (USD)
+            direction_accuracy:
+              type: number
+              description: Fraction of correct up/down predictions
+            sharpe_ratio:
+              type: number
+            max_drawdown:
+              type: number
+              description: Worst peak-to-trough (%)
+
+    ModelComparison:
+      type: object
+      required:
+        - models
+        - ranking
+        - best_model
+        - results
+      properties:
+        models:
+          type: array
+          items:
+            type: string
+          description: Models compared
+        ranking:
+          type: array
+          items:
+            type: string
+          description: Models ranked by MAPE (best first)
+        best_model:
+          type: string
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/BacktestResult"
+
+    Error:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
+          example: "Model 'invalid-model' not found"

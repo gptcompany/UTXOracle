@@ -258,6 +258,18 @@ except ImportError as e:
     logging.warning("   Install mempool_whale_endpoints.py to enable whale API")
 
 # =============================================================================
+# T029: Include Custom Price Models API Router (spec-036)
+# =============================================================================
+
+try:
+    from api.routes.models import router as models_router
+
+    app.include_router(models_router, prefix="/api/v1")
+    logging.info("✅ Price models API endpoints registered at /api/v1/models/*")
+except ImportError as e:
+    logging.warning(f"⚠️ Price models endpoints not available: {e}")
+
+# =============================================================================
 # Pydantic Models
 # =============================================================================
 
