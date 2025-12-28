@@ -42,7 +42,6 @@ VERIFIED_COLD_WALLETS = [
     ("Binance", "34xp4vRoCGJym3xR7yCVPFHoCNxv4Twseo", "cold_wallet"),  # 248K BTC
     ("Binance", "3M219KR5vEneNb47ewrPfWyb5jQ2DjxRP6", "cold_wallet"),  # 142K BTC
     ("Binance", "bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3h", "cold_wallet"),
-    ("Binance", "1Pzaqw98PeRfyHypfqyEgg5yycJRsENrE7t", "cold_wallet"),
     # Bitfinex
     ("Bitfinex", "3D2oetdNuZUqQHPJmcMDDHYoqkyNVsFk9r", "cold_wallet"),  # 138K BTC
     ("Bitfinex", "1Kr6QSydW9bFQG1mXiPNNu6WpJGmUa9i1g", "cold_wallet"),
@@ -83,7 +82,7 @@ def fetch_page(url: str, retries: int = 3) -> str:
             req = Request(url, headers=headers)
             with urlopen(req, timeout=30) as resp:
                 return resp.read().decode("utf-8")
-        except (HTTPError, URLError) as e:
+        except (HTTPError, URLError, UnicodeDecodeError) as e:
             print(f"  Attempt {attempt + 1}/{retries} failed: {e}")
             if attempt < retries - 1:
                 time.sleep(2**attempt)  # Exponential backoff
