@@ -192,6 +192,24 @@
 
 ---
 
+## Phase 7: MVRV-Z Formula Alignment (Added 2025-12-28)
+
+**Purpose**: Fix 75% MAPE in MVRV-Z validation due to formula difference
+
+**Root Cause**: UTXOracle uses 1-year stdev, RBN uses all-time stdev (~3.8x difference)
+
+- [x] T037 Create scripts/metrics/mvrv_variants.py with both formulas
+- [x] T038 Add mvrv_z_rbn metric config to metric_loader.py
+- [x] T039 Add RBN_METRIC_MAPPING to validation_batch.py (mvrv_z -> mvrv_z_rbn)
+- [ ] T040 Add mvrv_z_rbn column to daily_metrics table schema
+- [ ] T041 Update calculate_daily_metrics.py to compute both variants
+- [ ] T042 Recalculate metrics after backfill: `uv run python -m scripts.metrics.calculate_daily_metrics --recalculate`
+- [ ] T043 Validate MVRV-Z MAPE < 10%: `uv run python -m scripts.integrations.validation_batch --metrics mvrv_z`
+
+**Checkpoint**: MVRV-Z validation passes with < 10% MAPE
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies
@@ -283,12 +301,18 @@ Task: "Create error_response.json in tests/fixtures/rbn_mock_responses/"
 
 | Metric | Value |
 |--------|-------|
-| Total Tasks | 36 |
+| Total Tasks | 43 |
 | Setup Tasks | 4 |
 | Foundational Tasks | 6 |
 | US1 Tasks | 13 |
 | US2 Tasks | 6 |
 | US3 Tasks | 3 |
 | Polish Tasks | 4 |
+| MVRV-Z Alignment | 7 (3 done, 4 pending) |
 | Parallel Opportunities | 6 task groups |
 | MVP Scope | T001-T023 (23 tasks) |
+| **Completion** | **39/43 (91%)** |
+
+### Pending Tasks
+- T034: Validate quickstart.md (awaiting backfill)
+- T040-T043: MVRV-Z RBN alignment (awaiting backfill)
