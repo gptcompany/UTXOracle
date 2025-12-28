@@ -16,6 +16,27 @@ UTXOracle is a Bitcoin-native, exchange-free price oracle that calculates the ma
 
 **🎯 Development Philosophy**: KISS (Keep It Simple) + YAGNI (You Ain't Gonna Need It)
 
+## ⚠️ Work in Progress (2025-12-28)
+
+**Liveliness Backfill**: Historical spent UTXO scan running/pending.
+
+```bash
+# Check status
+cat data/backfill_checkpoint.json
+
+# If incomplete, resume
+nohup uv run python -m scripts.bootstrap.historical_spent_backfill --resume > backfill.log 2>&1 &
+
+# When complete (last_block ~927966), validate
+uv run python -m scripts.integrations.validation_batch --days 30
+```
+
+**Context**: Liveliness metric requires historical spent UTXO data. Backfill scans blocks 1-927966 (~3-4 hours). See `.serena/memory/spec-035-037-validation-status.md` for full details.
+
+**Specs Status**:
+- spec-035: 35/36 tasks (T034 pending backfill completion)
+- spec-037: Complete, pending liveliness validation
+
 ## Running UTXOracle
 
 ```bash
@@ -34,9 +55,18 @@ python3 scripts/utxoracle_batch.py 2025/10/01 2025/10/10 /home/sam/.bitcoin 12
 
 **Requirements**: Python 3.8+, Bitcoin Core node (fully synced, RPC enabled)
 
-## Architecture
+## Architecture Documentation
 
-> **📖 Full documentation**: See `docs/ARCHITECTURE.md` for complete spec details (spec-007 to spec-013).
+> **Canonical Source**: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+>
+> ARCHITECTURE.md is the single source of truth for:
+> - System architecture and component diagrams
+> - Data flow and pipeline documentation
+> - Technical decisions and rationale
+> - Spec implementation details (spec-007 to spec-018)
+>
+> **Auto-validated** by architecture-validator hook on each commit.
+> Below is a summary - see ARCHITECTURE.md for complete details.
 
 **4-Layer Architecture**:
 
