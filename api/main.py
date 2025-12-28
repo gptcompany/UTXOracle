@@ -3496,6 +3496,64 @@ async def get_exchange_netflow_history(
             conn.close()
 
 
+@app.get("/api/exchange-addresses/stats")
+async def get_exchange_addresses_stats():
+    """
+    Get exchange address database statistics.
+
+    Returns coverage information about known exchange addresses
+    used for netflow calculations.
+
+    **Response Fields:**
+    - **total_addresses**: Total number of tracked addresses
+    - **exchange_count**: Number of distinct exchanges
+    - **exchanges**: Per-exchange address counts
+    - **last_updated**: CSV file modification time
+    - **data_source**: Source of address data
+    """
+    import csv
+    import os
+    from collections import Counter
+    from datetime import datetime
+
+    try:
+        path = EXCHANGE_ADDRESSES_PATH
+        if not os.path.exists(path):
+            raise HTTPException(
+                status_code=404,
+                detail="Exchange addresses file not found. "
+                "Run: python -m scripts.bootstrap.scrape_exchange_addresses",
+            )
+
+        # Count addresses per exchange
+        exchange_counts = Counter()
+        total = 0
+        with open(path, newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                exchange_counts[row["exchange_name"]] += 1
+                total += 1
+
+        # Get file modification time
+        mtime = os.path.getmtime(path)
+        last_updated = datetime.fromtimestamp(mtime).isoformat()
+
+        return {
+            "total_addresses": total,
+            "exchange_count": len(exchange_counts),
+            "exchanges": dict(exchange_counts.most_common()),
+            "last_updated": last_updated,
+            "data_source": "WalletExplorer + Proof of Reserves",
+            "update_command": "python -m scripts.bootstrap.scrape_exchange_addresses --max-pages 50",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error getting exchange address stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # =============================================================================
 # Binary CDD Endpoint (spec-027)
 # =============================================================================

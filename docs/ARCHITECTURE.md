@@ -467,6 +467,10 @@ Comprehensive UTXO lifecycle tracking for Realized Cap, MVRV, NUPL, and HODL Wav
 | spec-030 | metrics/mining_economics | ✅ Complete | 4 |
 | spec-033 | metrics/pro_risk | ✅ Complete | 3 |
 | spec-034 | models/price_power_law | ✅ Complete | 4 |
+| spec-035 | integrations/rbn | ✅ Complete | 5 |
+| spec-036 | models/custom_price | ✅ Complete | 4 |
+| spec-037 | database/consolidation | ✅ Complete | 6 |
+| spec-038 | data/exchange_addresses | ✅ Complete | 2 |
 
 ---
 
@@ -656,6 +660,99 @@ Exchange flow analysis for accumulation/distribution detection:
 
 **API Endpoints:**
 - `GET /api/metrics/exchange-netflow` - Current netflow metrics
+
+---
+
+## Exchange Address Database (spec-038)
+
+Comprehensive database of known exchange Bitcoin addresses for accurate netflow detection.
+
+### Data Sources
+
+| Source | Method | Addresses | Freshness |
+|--------|--------|-----------|-----------|
+| **WalletExplorer** | Automated scraper | 13,000+ | Dec 2025 |
+| **Proof of Reserves** | Manual verification | 13 cold wallets | Verified |
+| Arkham Intel | Blocked (403) | N/A | - |
+| BitInfoCharts | Blocked (403) | N/A | - |
+
+### Database Statistics (Dec 2025)
+
+| Exchange | Addresses | Type |
+|----------|-----------|------|
+| Binance | 1,004 | Cold + Hot |
+| Bitfinex | 1,002 | Cold + Hot |
+| Kraken | 1,002 | Cold + Hot |
+| Bitstamp | 1,000 | Hot |
+| Huobi | 1,000 | Hot |
+| Poloniex | 1,000 | Hot |
+| Bittrex | 1,000 | Hot |
+| HitBTC | 1,000 | Hot |
+| OKCoin | 1,000 | Hot |
+| LocalBitcoins | 1,000 | P2P |
+| Luno | 1,000 | Hot |
+| CEX.io | 1,000 | Hot |
+| Bitcoin.de | 1,000 | Hot |
+| Coinbase | 2 | Cold |
+| OKX | 2 | Cold |
+| Bybit | 1 | Cold |
+| **Total** | **13,013** | - |
+
+### Verified Cold Wallets (Always Included)
+
+```python
+VERIFIED_COLD_WALLETS = [
+    # Binance (390K+ BTC)
+    ("Binance", "34xp4vRoCGJym3xR7yCVPFHoCNxv4Twseo", "cold_wallet"),  # 248K BTC
+    ("Binance", "3M219KR5vEneNb47ewrPfWyb5jQ2DjxRP6", "cold_wallet"),  # 142K BTC
+    ("Binance", "bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3h", "cold_wallet"),
+    # Bitfinex (138K BTC)
+    ("Bitfinex", "3D2oetdNuZUqQHPJmcMDDHYoqkyNVsFk9r", "cold_wallet"),
+    # Kraken (52K+ BTC)
+    ("Kraken", "bc1qu30560k5wc8jm58hwx3crlvlydc6vz78npce4z", "cold_wallet"),  # 30K
+    # OKX
+    ("OKX", "bc1qjasf9z3h7w3jspkhtgatgpyvvzgpa2wwd2lr0eh5tx44reyn2k7sfl6t94", "cold_wallet"),
+    # Coinbase
+    ("Coinbase", "3Cbq7aT1tY8kMxWLbitaG7yT6bPbKChq64", "cold_wallet"),
+]
+```
+
+### Automated Scraper
+
+```bash
+# One-time full scrape (~15 min, 14 exchanges × 50 pages)
+python -m scripts.bootstrap.scrape_exchange_addresses --max-pages 50
+
+# Weekly cron job (recommended)
+0 3 * * 0 cd /media/sam/1TB/UTXOracle && python -m scripts.bootstrap.scrape_exchange_addresses --max-pages 50
+
+# Dry run (no file write)
+python -m scripts.bootstrap.scrape_exchange_addresses --dry-run
+```
+
+### Files
+
+| File | Purpose |
+|------|---------|
+| `data/exchange_addresses.csv` | 13,013 addresses (658 KB) |
+| `scripts/bootstrap/scrape_exchange_addresses.py` | WalletExplorer scraper |
+| `specs/038-exchange-address-expansion/spec.md` | Specification |
+| `specs/038-exchange-address-expansion/research.md` | Research findings |
+
+### Integration with Exchange Netflow (spec-026)
+
+The exchange address database is used by `scripts/metrics/exchange_netflow.py`:
+
+```python
+from scripts.metrics.exchange_netflow import load_exchange_addresses
+
+# Load addresses from CSV
+addresses = load_exchange_addresses()
+# Returns: Dict[str, Set[str]] mapping exchange names to address sets
+
+# Check if address belongs to exchange
+is_exchange = any(addr in addrs for addrs in addresses.values())
+```
 
 ---
 

@@ -114,7 +114,15 @@ def load_exchange_addresses(
                     "type": row["type"],
                 }
 
-        # Create/replace DuckDB table
+        # Validate minimum address count
+        if len(addresses) < 1000:
+            logger.warning(
+                "Low exchange address count: %d (expected >1000). "
+                "Run: python -m scripts.bootstrap.scrape_exchange_addresses",
+                len(addresses),
+            )
+
+        # Create/replace DuckDB table with bulk COPY
         conn.execute(
             """
             CREATE OR REPLACE TABLE exchange_addresses (
@@ -125,14 +133,20 @@ def load_exchange_addresses(
             """
         )
 
-        # Insert addresses
-        for address, info in addresses.items():
-            conn.execute(
-                "INSERT INTO exchange_addresses VALUES (?, ?, ?)",
-                [info["exchange_name"], address, info["type"]],
-            )
+        # Bulk insert using COPY (much faster for 13K+ rows)
+        conn.execute(f"COPY exchange_addresses FROM '{path}' (HEADER, DELIMITER ',')")
 
-        logger.info("Loaded %d exchange addresses from %s", len(addresses), csv_path)
+        # Log exchange distribution
+        exchange_counts = conn.execute(
+            "SELECT exchange_name, COUNT(*) FROM exchange_addresses GROUP BY 1 ORDER BY 2 DESC LIMIT 5"
+        ).fetchall()
+        top_exchanges = ", ".join(f"{ex}: {cnt}" for ex, cnt in exchange_counts)
+        logger.info(
+            "Loaded %d exchange addresses from %s (top: %s)",
+            len(addresses),
+            csv_path,
+            top_exchanges,
+        )
         return addresses
 
     except Exception as e:

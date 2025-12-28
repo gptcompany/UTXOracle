@@ -1,0 +1,11 @@
+[Unit]
+Description=Weekly Exchange Address Update Timer
+
+[Timer]
+# Run every Sunday at 3:00 AM
+OnCalendar=Sun *-*-* 03:00:00
+Persistent=true
+RandomizedDelaySec=1800
+
+[Install]
+WantedBy=timers.target

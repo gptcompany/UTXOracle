@@ -1,0 +1,14 @@
+[Unit]
+Description=Update UTXOracle Exchange Addresses Database
+After=network.target
+
+[Service]
+Type=oneshot
+User=sam
+WorkingDirectory=/media/sam/1TB/UTXOracle
+ExecStart=/home/sam/.local/bin/uv run python -m scripts.bootstrap.scrape_exchange_addresses --max-pages 50
+StandardOutput=append:/media/sam/1TB/UTXOracle/logs/scrape_exchange.log
+StandardError=append:/media/sam/1TB/UTXOracle/logs/scrape_exchange.log
+
+[Install]
+WantedBy=multi-user.target
