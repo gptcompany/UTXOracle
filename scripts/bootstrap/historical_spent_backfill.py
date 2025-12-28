@@ -173,8 +173,7 @@ def run_backfill(
                 UPDATE utxo_lifecycle u
                 SET
                     is_spent = TRUE,
-                    spent_block = s.spent_block,
-                    age_blocks = s.spent_block - u.creation_block
+                    spent_block = s.spent_block
                 FROM staging_inputs s
                 WHERE u.txid = s.txid AND u.vout = s.vout
                 AND (u.is_spent = FALSE OR u.is_spent IS NULL)
