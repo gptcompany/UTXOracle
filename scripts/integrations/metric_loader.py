@@ -65,12 +65,19 @@ METRIC_CONFIG = {
         "fallback_table": None,
         "transform": None,
     },
-    # MVRV Z-Score (spec-007, spec-037)
+    # MVRV Z-Score 1Y (spec-007, spec-037) - UTXOracle default
     "mvrv_z": {
         "table": "mvrv_daily",
         "column": "mvrv_z",
         "fallback_table": None,
         "transform": None,
+    },
+    # MVRV Z-Score RBN (spec-038) - All-time stdev, RBN compatible
+    "mvrv_z_rbn": {
+        "table": "mvrv_daily",
+        "column": "mvrv_z_rbn",  # Will be NULL until daily_metrics updated
+        "fallback_table": None,
+        "transform": "calculate_mvrv_z_rbn",  # On-demand calculation
     },
     # SOPR (spec-016, spec-037)
     "sopr": {

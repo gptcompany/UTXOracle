@@ -44,6 +44,12 @@ GOLDEN_DATA_DIR = Path("tests/validation/golden_data")
 P1_METRICS = ["mvrv_z", "sopr", "nupl", "realized_cap"]
 P2_METRICS = ["liveliness", "power_law"]
 
+# RBN metric mapping: RBN metric -> our metric
+# Use mvrv_z_rbn (all-time stdev) when comparing to RBN's mvrv_z
+RBN_METRIC_MAPPING = {
+    "mvrv_z": "mvrv_z_rbn",  # RBN uses all-time stdev
+}
+
 # Thresholds
 CORRELATION_THRESHOLD = 0.90  # r > 0.90
 MAPE_THRESHOLD = 10.0  # MAPE < 10%
@@ -134,8 +140,9 @@ class ValidationBatch:
         loader = MetricLoader(golden_data_dir=self.golden_data_dir)
 
         try:
-            # Load our data
-            our_series = loader.load_metric(metric_id, start_date, end_date)
+            # Load our data (apply RBN mapping if needed)
+            our_metric_id = RBN_METRIC_MAPPING.get(metric_id, metric_id)
+            our_series = loader.load_metric(our_metric_id, start_date, end_date)
             our_data = our_series.to_dataframe() if our_series.data else pd.DataFrame()
 
             # Load golden data
