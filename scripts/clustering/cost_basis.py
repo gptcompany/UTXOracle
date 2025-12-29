@@ -218,8 +218,6 @@ def save_cost_basis_to_db(
     """
     import duckdb
 
-from scripts.config import UTXORACLE_DB_PATH
-
     count = 0
     conn = duckdb.connect(db_path)
 
@@ -265,8 +263,6 @@ def load_cost_basis_from_db(
         WalletCostBasis container with loaded entries
     """
     import duckdb
-
-from scripts.config import UTXORACLE_DB_PATH
 
     cost_basis = WalletCostBasis()
 

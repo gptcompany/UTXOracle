@@ -24,7 +24,7 @@ import time
 import logging
 from dataclasses import dataclass, field
 from typing import Dict, Tuple
-from fastapi import Request, HTTPException, status
+from fastapi import Request, HTTPException, status, Depends
 from threading import Lock
 
 logger = logging.getLogger(__name__)

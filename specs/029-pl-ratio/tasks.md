@@ -87,7 +87,9 @@
 - [X] T016 Run full test suite: uv run pytest tests/test_pl_ratio.py -v --cov=scripts/metrics/pl_ratio
 - [X] T017 Verify coverage >= 80%: uv run pytest --cov-report=term-missing (97% achieved)
 - [X] T018 Run linter and formatter: ruff check scripts/metrics/pl_ratio.py && ruff format scripts/metrics/pl_ratio.py
-- [ ] T019 Validate quickstart.md examples work manually
+- [x] T019 Validate quickstart.md examples work manually
+      **Validated**: All imports, calculate_pl_ratio(), get_pl_ratio_history() working
+      **Note**: P/L=0 due to pending liveliness backfill, code logic correct
 
 ---
 

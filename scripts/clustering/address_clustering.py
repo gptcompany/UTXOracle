@@ -124,8 +124,6 @@ def save_cluster(
         Number of addresses saved
     """
     import duckdb
-
-from scripts.config import UTXORACLE_DB_PATH
     from datetime import datetime
 
     clusters = uf.get_clusters()

@@ -244,8 +244,6 @@ def save_coinjoin_result(
         True if saved successfully, False otherwise
     """
     import duckdb
-
-from scripts.config import UTXORACLE_DB_PATH
     from datetime import datetime
 
     try:

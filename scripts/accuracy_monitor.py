@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 from enum import Enum
 import sys
+import os
 
 # Add parent dirs to path
 sys.path.insert(0, str(Path(__file__).parent))
