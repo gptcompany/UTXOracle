@@ -138,7 +138,8 @@
 - [X] T032 Update validation/README.md with usage instructions
 - [X] T033 Add validation framework to docs/ARCHITECTURE.md
 - [X] T034 Run full validation suite and generate first report
-- [ ] T035 Commit all baselines and report to repository
+- [x] T035 Commit all baselines and report to repository
+      **Committed**: a5ae843 "chore: Update validation baselines and reports"
 
 ---
 
