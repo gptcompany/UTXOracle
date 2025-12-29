@@ -122,8 +122,8 @@
 - [X] T034 [P] Run full test suite: `uv run pytest tests/test_pro_risk.py tests/test_api_risk.py -v`
 - [X] T035 [P] Run linting: `ruff check scripts/metrics/pro_risk.py scripts/metrics/puell_multiple.py api/routes/risk.py`
 - [X] T036 [P] Update docs/ARCHITECTURE.md with spec-033 documentation
-- [ ] T037 Validate quickstart.md examples work end-to-end
-- [ ] T038 Backtest validation against 2017, 2021, 2022 cycle tops/bottoms
+- [X] T037 Validate quickstart.md examples work end-to-end
+- [X] T038 Backtest validation against 2017, 2021, 2022 cycle tops/bottoms
 
 ---
 

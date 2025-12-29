@@ -51,13 +51,16 @@ for name, score in result.components.items():
 
 ```bash
 # Get current PRO Risk
-curl http://localhost:8000/api/v1/risk/pro
+curl http://localhost:8000/api/risk/pro
 
 # Get for specific date
-curl "http://localhost:8000/api/v1/risk/pro?date=2025-12-25"
+curl "http://localhost:8000/api/risk/pro?date=2025-12-25"
 
 # Get historical range
-curl "http://localhost:8000/api/v1/risk/pro/history?start_date=2025-01-01&end_date=2025-12-25"
+curl "http://localhost:8000/api/risk/pro/history?start_date=2025-01-01&end_date=2025-12-25"
+
+# Get zone definitions
+curl http://localhost:8000/api/risk/pro/zones
 ```
 
 ## Zone Interpretation
