@@ -33,7 +33,7 @@ specs_contracts_path = Path(
 if str(specs_contracts_path) not in sys.path:
     sys.path.insert(0, str(specs_contracts_path))
 
-from whale_flow_detector_interface import WhaleFlowSignal
+from whale_flow_detector_interface import WhaleFlowSignal  # noqa: E402
 
 
 # Fixtures

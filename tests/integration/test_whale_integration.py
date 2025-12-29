@@ -92,6 +92,9 @@ def test_fetch_latest_block_and_analyze():
         height = int(response.text)
         assert height > 0, "Invalid block height"
 
+        # Verify detector can be used with real data
+        assert detector.get_exchange_address_count() > 0
+
     except requests.RequestException:
         pytest.skip("electrs not responding")
 
@@ -160,6 +163,7 @@ def test_duckdb_persistence_with_whale_data():
     if not db_path.exists():
         pytest.skip("DuckDB database not found")
 
+    conn = None
     try:
         conn = duckdb.connect(str(db_path), read_only=True)
 
@@ -172,10 +176,11 @@ def test_duckdb_persistence_with_whale_data():
         # Metrics table should exist
         assert "metrics" in table_names or "daily_prices" in table_names
 
-        conn.close()
-
     except Exception as e:
         pytest.skip(f"DuckDB connection error: {e}")
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 # =============================================================================
@@ -193,7 +198,7 @@ def test_backtest_7day_dataset():
 
     # Check if backtest module exists
     try:
-        from scripts.whale_flow_backtest import run_backtest
+        from scripts.whale_flow_backtest import main as run_backtest
 
         backtest_available = True
     except ImportError:
@@ -290,6 +295,7 @@ def test_memory_usage_with_exchange_addresses():
     tracemalloc.start()
 
     detector = WhaleFlowDetector("/media/sam/1TB/UTXOracle/data/exchange_addresses.csv")
+    _ = detector  # Ensure detector creation is not optimized away
 
     current, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()

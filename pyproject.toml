@@ -62,4 +62,5 @@ markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests requiring database or external services (deselect with '-m \"not integration\"')",
     "validation: marks tests for RBN metric validation (run with '-m validation')",
+    "performance: marks performance/benchmark tests (run with '-m performance')",
 ]
