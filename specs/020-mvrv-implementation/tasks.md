@@ -80,15 +80,15 @@ However, `AgeCohortsConfig.classify()` contains logic and requires a test. T005 
 
 ### Tests for FR-002
 
-- [ ] T016 [FR2] Write test `TestCohortRealizedCap.test_sth_realized_cap` in `tests/test_realized_metrics.py`
-- [ ] T017 [FR2] Write test `TestCohortRealizedCap.test_lth_realized_cap` in `tests/test_realized_metrics.py`
-- [ ] T018 [FR2] Write test `TestCohortRealizedCap.test_sth_plus_lth_equals_total` in `tests/test_realized_metrics.py`
-- [ ] T019 [FR2] Write test `TestCohortRealizedCap.test_custom_threshold` in `tests/test_realized_metrics.py`
+- [x] T016 [FR2] Write test `TestCohortRealizedCap.test_sth_realized_cap` in `tests/test_realized_metrics.py`
+- [x] T017 [FR2] Write test `TestCohortRealizedCap.test_lth_realized_cap` in `tests/test_realized_metrics.py`
+- [x] T018 [FR2] Write test `TestCohortRealizedCap.test_sth_plus_lth_equals_total` in `tests/test_realized_metrics.py`
+- [x] T019 [FR2] Write test `TestCohortRealizedCap.test_custom_threshold` in `tests/test_realized_metrics.py`
 
 ### Implementation for FR-002
 
-- [ ] T020 [FR2] Implement `calculate_cohort_realized_cap(conn, current_block, cohort, threshold_days)` in `scripts/metrics/realized_metrics.py`
-- [ ] T021 [FR2] Run tests to verify GREEN: `uv run pytest tests/test_realized_metrics.py::TestCohortRealizedCap -v`
+- [x] T020 [FR2] Implement `calculate_cohort_realized_cap(conn, current_block, cohort, threshold_days)` in `scripts/metrics/realized_metrics.py`
+- [x] T021 [FR2] Run tests to verify GREEN: `uv run pytest tests/test_realized_metrics.py::TestCohortRealizedCap -v`
 
 **Checkpoint**: FR-002 complete - Cohort Realized Cap functional
 
@@ -102,14 +102,14 @@ However, `AgeCohortsConfig.classify()` contains logic and requires a test. T005 
 
 ### Tests for FR-003
 
-- [ ] T022 [FR3] Write test `TestCohortMVRV.test_sth_mvrv_calculation` in `tests/test_realized_metrics.py`
-- [ ] T023 [FR3] Write test `TestCohortMVRV.test_lth_mvrv_calculation` in `tests/test_realized_metrics.py`
-- [ ] T024 [FR3] Write test `TestCohortMVRV.test_zero_realized_cap_handling` in `tests/test_realized_metrics.py`
+- [x] T022 [FR3] Write test `TestCohortMVRV.test_sth_mvrv_calculation` in `tests/test_realized_metrics.py`
+- [x] T023 [FR3] Write test `TestCohortMVRV.test_lth_mvrv_calculation` in `tests/test_realized_metrics.py`
+- [x] T024 [FR3] Write test `TestCohortMVRV.test_zero_realized_cap_handling` in `tests/test_realized_metrics.py`
 
 ### Implementation for FR-003
 
-- [ ] T025 [FR3] Implement `calculate_cohort_mvrv(market_cap, cohort_realized_cap)` in `scripts/metrics/realized_metrics.py`
-- [ ] T026 [FR3] Run tests to verify GREEN: `uv run pytest tests/test_realized_metrics.py::TestCohortMVRV -v`
+- [x] T025 [FR3] Implement `calculate_cohort_mvrv(market_cap, cohort_realized_cap)` in `scripts/metrics/realized_metrics.py`
+- [x] T026 [FR3] Run tests to verify GREEN: `uv run pytest tests/test_realized_metrics.py::TestCohortMVRV -v`
 
 **Checkpoint**: FR-003 complete - STH/LTH MVRV functional
 
@@ -123,19 +123,19 @@ However, `AgeCohortsConfig.classify()` contains logic and requires a test. T005 
 
 ### Tests for FR-004
 
-- [ ] T027 [FR4] Write test `TestMVRVSignal.test_extreme_sell_zone` in `tests/test_realized_metrics.py`
-- [ ] T028 [FR4] Write test `TestMVRVSignal.test_caution_zone` in `tests/test_realized_metrics.py`
-- [ ] T029 [FR4] Write test `TestMVRVSignal.test_normal_zone` in `tests/test_realized_metrics.py`
-- [ ] T030 [FR4] Write test `TestMVRVSignal.test_accumulation_zone` in `tests/test_realized_metrics.py`
+- [x] T027 [FR4] Write test `TestMVRVSignal.test_extreme_sell_zone` in `tests/test_realized_metrics.py`
+- [x] T028 [FR4] Write test `TestMVRVSignal.test_caution_zone` in `tests/test_realized_metrics.py`
+- [x] T029 [FR4] Write test `TestMVRVSignal.test_normal_zone` in `tests/test_realized_metrics.py`
+- [x] T030 [FR4] Write test `TestMVRVSignal.test_accumulation_zone` in `tests/test_realized_metrics.py`
 
 ### Implementation for FR-004
 
-- [ ] T031 [FR4] Implement `classify_mvrv_zone(mvrv_z)` in `scripts/metrics/realized_metrics.py`
-- [ ] T032a [FR4] Write test `TestMVRVSignal.test_confidence_extreme_zones` in `tests/test_realized_metrics.py`
-- [ ] T032b [FR4] Write test `TestMVRVSignal.test_confidence_normal_zone` in `tests/test_realized_metrics.py`
-- [ ] T032 [FR4] Implement `calculate_mvrv_confidence(mvrv_z, zone)` in `scripts/metrics/realized_metrics.py`
-- [ ] T033 [FR4] Implement `get_mvrv_extended_signal(conn, current_block, current_price)` in `scripts/metrics/realized_metrics.py`
-- [ ] T034 [FR4] Run tests to verify GREEN: `uv run pytest tests/test_realized_metrics.py::TestMVRVSignal -v`
+- [x] T031 [FR4] Implement `classify_mvrv_zone(mvrv_z)` in `scripts/metrics/realized_metrics.py`
+- [x] T032a [FR4] Write test `TestMVRVSignal.test_confidence_extreme_zones` in `tests/test_realized_metrics.py`
+- [x] T032b [FR4] Write test `TestMVRVSignal.test_confidence_normal_zone` in `tests/test_realized_metrics.py`
+- [x] T032 [FR4] Implement `calculate_mvrv_confidence(mvrv_z, zone)` in `scripts/metrics/realized_metrics.py`
+- [x] T033 [FR4] Implement `get_mvrv_extended_signal(conn, current_block, current_price)` in `scripts/metrics/realized_metrics.py`
+- [x] T034 [FR4] Run tests to verify GREEN: `uv run pytest tests/test_realized_metrics.py::TestMVRVSignal -v`
 
 **Checkpoint**: FR-004 complete - Signal classification functional
 
@@ -149,16 +149,16 @@ However, `AgeCohortsConfig.classify()` contains logic and requires a test. T005 
 
 ### Tests for FR-005
 
-- [ ] T035 [FR5] Write test `TestMVRVFusion.test_weights_sum_to_one` in `tests/test_monte_carlo_fusion.py`
-- [ ] T036 [FR5] Write test `TestMVRVFusion.test_mvrv_z_vote_integration` in `tests/test_monte_carlo_fusion.py`
-- [ ] T037 [FR5] Write test `TestMVRVFusion.test_mvrv_z_optional` in `tests/test_monte_carlo_fusion.py`
+- [x] T035 [FR5] Write test `TestMVRVFusion.test_weights_sum_to_one` in `tests/test_monte_carlo_fusion.py`
+- [x] T036 [FR5] Write test `TestMVRVFusion.test_mvrv_z_vote_integration` in `tests/test_monte_carlo_fusion.py`
+- [x] T037 [FR5] Write test `TestMVRVFusion.test_mvrv_z_optional` in `tests/test_monte_carlo_fusion.py`
 
 ### Implementation for FR-005
 
-- [ ] T038 [FR5] Update `ENHANCED_WEIGHTS` in `scripts/metrics/monte_carlo_fusion.py`: reduce `power_law` 0.09→0.06, add `mvrv_z` 0.03
-- [ ] T039 [FR5] Add `mvrv_z_vote` and `mvrv_z_conf` parameters to `enhanced_fusion()` in `scripts/metrics/monte_carlo_fusion.py`
-- [ ] T040 [FR5] Update `EnhancedFusionResult` dataclass with `mvrv_z_vote` and `mvrv_z_weight` fields in `scripts/models/metrics_models.py`
-- [ ] T041 [FR5] Run tests to verify GREEN: `uv run pytest tests/test_monte_carlo_fusion.py::TestMVRVFusion -v`
+- [x] T038 [FR5] Update `ENHANCED_WEIGHTS` in `scripts/metrics/monte_carlo_fusion.py`: reduce `power_law` 0.09→0.06, add `mvrv_z` 0.03
+- [x] T039 [FR5] Add `mvrv_z_vote` and `mvrv_z_conf` parameters to `enhanced_fusion()` in `scripts/metrics/monte_carlo_fusion.py`
+- [x] T040 [FR5] Update `EnhancedFusionResult` dataclass with `mvrv_z_vote` and `mvrv_z_weight` fields in `scripts/models/metrics_models.py`
+- [x] T041 [FR5] Run tests to verify GREEN: `uv run pytest tests/test_monte_carlo_fusion.py::TestMVRVFusion -v`
 
 **Checkpoint**: FR-005 complete - Fusion integration functional
 
@@ -168,12 +168,12 @@ However, `AgeCohortsConfig.classify()` contains logic and requires a test. T005 
 
 **Purpose**: Validation, documentation, and final verification
 
-- [ ] T042 [P] Run all tests to verify no regressions: `uv run pytest tests/ -v`
-- [ ] T043 [P] Validate quickstart.md examples work
-- [ ] T044 [P] Run linting: `ruff check scripts/metrics/realized_metrics.py scripts/metrics/monte_carlo_fusion.py`
-- [ ] T045 [P] Run formatter: `ruff format scripts/metrics/realized_metrics.py scripts/metrics/monte_carlo_fusion.py`
-- [ ] T046 Verify STH + LTH realized cap ≈ Total realized cap invariant with real data
-- [ ] T047 Update `docs/ARCHITECTURE.md` with spec-020 module documentation
+- [x] T042 [P] Run all tests to verify no regressions: `uv run pytest tests/ -v`
+- [x] T043 [P] Validate quickstart.md examples work
+- [x] T044 [P] Run linting: `ruff check scripts/metrics/realized_metrics.py scripts/metrics/monte_carlo_fusion.py`
+- [x] T045 [P] Run formatter: `ruff format scripts/metrics/realized_metrics.py scripts/metrics/monte_carlo_fusion.py`
+- [x] T046 Verify STH + LTH realized cap ≈ Total realized cap invariant with real data
+- [x] T047 Update `docs/ARCHITECTURE.md` with spec-020 module documentation
 
 ---
 
