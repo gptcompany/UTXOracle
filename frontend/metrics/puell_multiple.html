@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Puell Multiple | UTXOracle Metrics</title>
+    <meta name="description" content="Puell Multiple - Miner revenue indicator comparing daily issuance value to yearly average">
+    <link rel="stylesheet" href="../css/metrics.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+</head>
+<body>
+    <div class="metrics-page">
+        <header class="metrics-header">
+            <h1><span class="btc-icon">&#8383;</span> Puell Multiple</h1>
+            <div id="last-updated"></div>
+        </header>
+
+        <nav class="metrics-nav">
+            <a href="index.html">Dashboard</a>
+            <a href="mvrv.html">MVRV</a>
+            <a href="hash_ribbons.html">Hash Ribbons</a>
+            <a href="puell_multiple.html" class="active">Puell Multiple</a>
+            <a href="reserve_risk.html">Reserve Risk</a>
+        </nav>
+
+        <div id="info-boxes" class="info-boxes"></div>
+
+        <div id="chart" class="chart-container"></div>
+
+        <section class="legend-section">
+            <h3>Zone Legend</h3>
+            <div class="legend-items">
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #4caf50;"></div>
+                    <span>Undervalued (&lt;0.5) - Accumulation Zone</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #888888;"></div>
+                    <span>Neutral (0.5-4) - Fair Value Range</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #f44336;"></div>
+                    <span>Overvalued (&gt;4) - Distribution Zone</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="metric-description">
+            <h3>About Puell Multiple</h3>
+            <p>The Puell Multiple measures the ratio of daily coin issuance value (in USD) to the 365-day moving average of daily issuance value. It indicates miner profitability relative to historical norms.</p>
+            <ul>
+                <li><strong>Low Values (&lt;0.5)</strong>: Miners are earning below average - potential capitulation, good accumulation opportunity</li>
+                <li><strong>High Values (&gt;4)</strong>: Miners are earning significantly above average - increased sell pressure likely</li>
+            </ul>
+        </section>
+
+        <footer class="metrics-footer">
+            <p>Data from UTXOracle API | Mining economics indicator</p>
+        </footer>
+    </div>
+
+    <script src="../js/chart-themes.js"></script>
+    <script src="../js/metrics-common.js"></script>
+    <script>
+        (async function() {
+            const chartId = 'chart';
+            const infoId = 'info-boxes';
+
+            MetricsCommon.showLoading(chartId);
+
+            try {
+                // Fetch Puell Multiple data
+                const data = await MetricsCommon.fetchData('/api/metrics/puell-multiple');
+
+                if (!data) {
+                    MetricsCommon.showNoData(chartId);
+                    return;
+                }
+
+                // Calculate zone
+                const puell = data.puell_multiple || 0;
+                const zone = puell < 0.5 ? 'UNDERVALUED' : puell > 4 ? 'OVERVALUED' : 'NEUTRAL';
+                const zoneColor = puell < 0.5 ? '#4caf50' : puell > 4 ? '#f44336' : '#888888';
+
+                // Update info boxes
+                MetricsCommon.updateInfoBoxes(infoId, [
+                    { title: 'Puell Multiple', value: puell.toFixed(2), subtitle: 'Daily/365d MA Ratio' },
+                    { title: 'Daily Issuance', value: '$' + (data.daily_issuance_usd || 0).toLocaleString(), subtitle: 'Today\'s Mining Revenue' },
+                    { title: '365d MA', value: '$' + (data.ma_365d_issuance_usd || 0).toLocaleString(), subtitle: 'Average Daily Revenue' },
+                    { title: 'Zone', value: zone, subtitle: 'Market Signal' }
+                ]);
+
+                // Style the zone box
+                const infoBoxes = document.querySelectorAll('.metric-info-box');
+                if (infoBoxes[3]) {
+                    infoBoxes[3].style.borderColor = zoneColor;
+                }
+
+                // Update timestamp
+                document.getElementById('last-updated').textContent =
+                    'Updated: ' + MetricsCommon.formatDate(data.timestamp || new Date().toISOString());
+
+                // Try to fetch historical data
+                let historyData = [];
+                try {
+                    const histResponse = await MetricsCommon.fetchData('/api/metrics/puell-multiple/history', { days: 365 });
+                    if (histResponse && histResponse.data) {
+                        historyData = histResponse.data;
+                    }
+                } catch (histErr) {
+                    console.log('History not available');
+                }
+
+                // Build chart
+                const traces = [];
+
+                if (historyData.length > 0) {
+                    // Historical Puell Multiple line
+                    traces.push({
+                        x: historyData.map(d => d.date || d.timestamp),
+                        y: historyData.map(d => d.puell_multiple),
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'Puell Multiple',
+                        line: { color: '#f7931a', width: 2 },
+                        fill: 'tozeroy',
+                        fillcolor: 'rgba(247, 147, 26, 0.1)',
+                        hovertemplate: '%{y:.2f}<extra>Puell Multiple</extra>'
+                    });
+                } else {
+                    // Show current value as gauge
+                    traces.push({
+                        type: 'indicator',
+                        mode: 'gauge+number',
+                        value: puell,
+                        title: { text: 'Puell Multiple', font: { color: '#fff' } },
+                        gauge: {
+                            axis: { range: [0, 6], tickcolor: '#fff' },
+                            bar: { color: zoneColor },
+                            bgcolor: '#1a1a2e',
+                            borderwidth: 2,
+                            bordercolor: '#2a2a4a',
+                            steps: [
+                                { range: [0, 0.5], color: 'rgba(76, 175, 80, 0.3)' },
+                                { range: [0.5, 4], color: 'rgba(136, 136, 136, 0.3)' },
+                                { range: [4, 6], color: 'rgba(244, 67, 54, 0.3)' }
+                            ],
+                            threshold: {
+                                line: { color: '#fff', width: 2 },
+                                thickness: 0.75,
+                                value: 1
+                            }
+                        }
+                    });
+                }
+
+                const layout = historyData.length > 0 ?
+                    ChartThemes.getLayout('Puell Multiple (Historical)', 'Puell Multiple', {
+                        yaxis: {
+                            ...ChartThemes.dark.layout.yaxis,
+                            title: 'Puell Multiple'
+                        },
+                        shapes: [
+                            // Undervalued zone
+                            { type: 'rect', xref: 'paper', yref: 'y', x0: 0, x1: 1, y0: 0, y1: 0.5, fillcolor: 'rgba(76, 175, 80, 0.1)', line: { width: 0 } },
+                            // Overvalued zone
+                            { type: 'rect', xref: 'paper', yref: 'y', x0: 0, x1: 1, y0: 4, y1: 10, fillcolor: 'rgba(244, 67, 54, 0.1)', line: { width: 0 } },
+                            // Reference line at 1
+                            { type: 'line', xref: 'paper', yref: 'y', x0: 0, x1: 1, y0: 1, y1: 1, line: { color: '#fff', width: 1, dash: 'dash' } }
+                        ]
+                    }) :
+                    {
+                        paper_bgcolor: '#0d1117',
+                        plot_bgcolor: '#0d1117',
+                        font: { color: '#fff' },
+                        margin: { t: 50, b: 50, l: 50, r: 50 }
+                    };
+
+                MetricsCommon.render(chartId, traces, layout);
+
+            } catch (error) {
+                console.error('Error loading Puell Multiple data:', error);
+                MetricsCommon.showError(chartId, error.message);
+            }
+        })();
+    </script>
+</body>
+</html>

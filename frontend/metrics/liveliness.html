@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Liveliness | UTXOracle Metrics</title>
+    <meta name="description" content="Cointime Liveliness - Measures velocity of coin movement vs HODLing behavior">
+    <link rel="stylesheet" href="../css/metrics.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+</head>
+<body>
+    <div class="metrics-page">
+        <header class="metrics-header">
+            <h1><span class="btc-icon">&#8383;</span> Cointime Liveliness</h1>
+            <div id="last-updated"></div>
+        </header>
+
+        <nav class="metrics-nav">
+            <a href="index.html">Dashboard</a>
+            <a href="binary_cdd.html">Binary CDD</a>
+            <a href="wallet_waves.html">Wallet Waves</a>
+            <a href="liveliness.html" class="active">Liveliness</a>
+        </nav>
+
+        <div id="info-boxes" class="info-boxes"></div>
+
+        <div id="chart" class="chart-container"></div>
+
+        <section class="legend-section">
+            <h3>Interpretation</h3>
+            <div class="legend-items">
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #4caf50;"></div>
+                    <span>Low Liveliness (&lt;0.3) - Strong HODLing, accumulation phase</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ff9800;"></div>
+                    <span>Medium Liveliness (0.3-0.6) - Normal activity</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #f44336;"></div>
+                    <span>High Liveliness (&gt;0.6) - Increased spending, distribution phase</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="metric-description">
+            <h3>About Liveliness</h3>
+            <p>Liveliness is a cointime economics metric that measures the ratio of coin days destroyed to coin days created. It indicates whether the network is in a HODLing phase or a spending phase.</p>
+            <ul>
+                <li><strong>Liveliness = CDD / (CDD + CDC)</strong></li>
+                <li><strong>CDD</strong>: Coin Days Destroyed (spending old coins)</li>
+                <li><strong>CDC</strong>: Coin Days Created (new coin days accumulating)</li>
+                <li><strong>Range</strong>: 0 to 1 (0 = all HODLing, 1 = all spending)</li>
+            </ul>
+        </section>
+
+        <footer class="metrics-footer">
+            <p>Data from UTXOracle API | Cointime economics (spec-018)</p>
+        </footer>
+    </div>
+
+    <script src="../js/chart-themes.js"></script>
+    <script src="../js/metrics-common.js"></script>
+    <script>
+        (async function() {
+            const chartId = 'chart';
+            const infoId = 'info-boxes';
+
+            MetricsCommon.showLoading(chartId);
+
+            try {
+                // Fetch Cointime data (includes liveliness)
+                const data = await MetricsCommon.fetchData('/api/metrics/cointime');
+
+                if (!data) {
+                    MetricsCommon.showNoData(chartId);
+                    return;
+                }
+
+                // Calculate zone
+                const liveliness = data.liveliness || 0;
+                const vaultedness = data.vaultedness || (1 - liveliness);
+                const cdd = data.coin_days_destroyed || 0;
+                const activityRatio = data.activity_ratio || liveliness;
+
+                const zone = liveliness < 0.3 ? 'HODLing' : liveliness > 0.6 ? 'SPENDING' : 'BALANCED';
+                const zoneColor = liveliness < 0.3 ? '#4caf50' : liveliness > 0.6 ? '#f44336' : '#ff9800';
+
+                // Update info boxes
+                MetricsCommon.updateInfoBoxes(infoId, [
+                    { title: 'Liveliness', value: liveliness.toFixed(4), subtitle: 'CDD / Total Cointime' },
+                    { title: 'Vaultedness', value: vaultedness.toFixed(4), subtitle: '1 - Liveliness' },
+                    { title: 'CDD', value: MetricsCommon.formatNumber(cdd), subtitle: 'Coin Days Destroyed' },
+                    { title: 'Phase', value: zone, subtitle: 'Network Activity' }
+                ]);
+
+                // Style the phase box
+                const infoBoxes = document.querySelectorAll('.metric-info-box');
+                if (infoBoxes[3]) {
+                    infoBoxes[3].style.borderColor = zoneColor;
+                }
+
+                // Update timestamp
+                document.getElementById('last-updated').textContent =
+                    'Updated: ' + MetricsCommon.formatDate(data.timestamp || new Date().toISOString());
+
+                // Try to fetch historical data
+                let historyData = [];
+                try {
+                    const histResponse = await MetricsCommon.fetchData('/api/metrics/cointime/history', { days: 365 });
+                    if (histResponse && histResponse.data) {
+                        historyData = histResponse.data;
+                    }
+                } catch (histErr) {
+                    console.log('History not available');
+                }
+
+                // Build chart
+                const traces = [];
+
+                if (historyData.length > 0) {
+                    // Historical Liveliness line
+                    traces.push({
+                        x: historyData.map(d => d.date || d.timestamp),
+                        y: historyData.map(d => d.liveliness),
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'Liveliness',
+                        line: { color: '#f7931a', width: 2 },
+                        fill: 'tozeroy',
+                        fillcolor: 'rgba(247, 147, 26, 0.1)',
+                        hovertemplate: '%{y:.4f}<extra>Liveliness</extra>'
+                    });
+
+                    // Vaultedness line
+                    traces.push({
+                        x: historyData.map(d => d.date || d.timestamp),
+                        y: historyData.map(d => d.vaultedness || (1 - d.liveliness)),
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'Vaultedness',
+                        line: { color: '#4caf50', width: 1, dash: 'dot' },
+                        hovertemplate: '%{y:.4f}<extra>Vaultedness</extra>'
+                    });
+                } else {
+                    // Show current state as gauge
+                    traces.push({
+                        type: 'indicator',
+                        mode: 'gauge+number',
+                        value: liveliness,
+                        title: { text: 'Liveliness', font: { color: '#fff' } },
+                        number: { valueformat: '.4f' },
+                        gauge: {
+                            axis: { range: [0, 1], tickcolor: '#fff' },
+                            bar: { color: zoneColor },
+                            bgcolor: '#1a1a2e',
+                            borderwidth: 2,
+                            bordercolor: '#2a2a4a',
+                            steps: [
+                                { range: [0, 0.3], color: 'rgba(76, 175, 80, 0.3)' },
+                                { range: [0.3, 0.6], color: 'rgba(255, 152, 0, 0.3)' },
+                                { range: [0.6, 1], color: 'rgba(244, 67, 54, 0.3)' }
+                            ]
+                        }
+                    });
+                }
+
+                const layout = historyData.length > 0 ?
+                    ChartThemes.getLayout('Cointime Liveliness (Historical)', 'Liveliness', {
+                        yaxis: {
+                            ...ChartThemes.dark.layout.yaxis,
+                            title: 'Liveliness / Vaultedness',
+                            range: [0, 1]
+                        },
+                        shapes: [
+                            // HODLing zone
+                            { type: 'rect', xref: 'paper', yref: 'y', x0: 0, x1: 1, y0: 0, y1: 0.3, fillcolor: 'rgba(76, 175, 80, 0.1)', line: { width: 0 } },
+                            // Spending zone
+                            { type: 'rect', xref: 'paper', yref: 'y', x0: 0, x1: 1, y0: 0.6, y1: 1, fillcolor: 'rgba(244, 67, 54, 0.1)', line: { width: 0 } }
+                        ]
+                    }) :
+                    {
+                        paper_bgcolor: '#0d1117',
+                        plot_bgcolor: '#0d1117',
+                        font: { color: '#fff' },
+                        margin: { t: 50, b: 50, l: 50, r: 50 }
+                    };
+
+                MetricsCommon.render(chartId, traces, layout);
+
+            } catch (error) {
+                console.error('Error loading Liveliness data:', error);
+                MetricsCommon.showError(chartId, error.message);
+            }
+        })();
+    </script>
+</body>
+</html>

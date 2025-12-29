@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Power Law Model | UTXOracle Metrics</title>
+    <meta name="description" content="Bitcoin Price Power Law Model - Long-term price corridor based on logarithmic regression since genesis">
+    <link rel="stylesheet" href="../css/metrics.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+</head>
+<body>
+    <div class="metrics-page">
+        <header class="metrics-header">
+            <h1><span class="btc-icon">&#8383;</span> Power Law Model</h1>
+            <div id="last-updated"></div>
+        </header>
+
+        <nav class="metrics-nav">
+            <a href="index.html">Dashboard</a>
+            <a href="mvrv.html">MVRV</a>
+            <a href="nupl.html">NUPL</a>
+            <a href="sopr.html">SOPR</a>
+            <a href="power_law.html" class="active">Power Law</a>
+            <a href="cost_basis.html">Cost Basis</a>
+        </nav>
+
+        <div id="info-boxes" class="info-boxes"></div>
+
+        <div id="chart" class="chart-container"></div>
+
+        <section class="legend-section">
+            <h3>Price Zones</h3>
+            <div class="legend-items">
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #4caf50;"></div>
+                    <span>Undervalued - Price &lt; -20% from fair value</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ff9800;"></div>
+                    <span>Fair Value - Price within -20% to +50%</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #f44336;"></div>
+                    <span>Overvalued - Price &gt; +50% from fair value</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="metric-description">
+            <h3>About the Power Law Model</h3>
+            <p>The Bitcoin Power Law model describes long-term price behavior using the formula:</p>
+            <div class="formula-box">
+                Price(t) = 10^(α + β × log₁₀(days_since_genesis))
+            </div>
+            <p>Where α (intercept) and β (slope/power exponent) are fitted from historical data. The model suggests Bitcoin's price follows a power law relationship with time since genesis (January 3, 2009).</p>
+        </section>
+
+        <footer class="metrics-footer">
+            <p>Data from UTXOracle API | Based on spec-034 implementation</p>
+        </footer>
+    </div>
+
+    <script src="../js/chart-themes.js"></script>
+    <script src="../js/metrics-common.js"></script>
+    <script>
+        (async function() {
+            const chartId = 'chart';
+            const infoId = 'info-boxes';
+
+            MetricsCommon.showLoading(chartId);
+
+            try {
+                // Fetch current Power Law data
+                const data = await MetricsCommon.fetchData('/api/v1/models/power-law');
+
+                if (!data) {
+                    MetricsCommon.showNoData(chartId);
+                    return;
+                }
+
+                // Get model parameters
+                const price = data.current_price || 0;
+                const fairValue = data.fair_value || data.predicted_price || 0;
+                const deviation = data.deviation_percent || ((price - fairValue) / fairValue * 100);
+                const zone = deviation < -20 ? 'UNDERVALUED' : deviation > 50 ? 'OVERVALUED' : 'FAIR VALUE';
+                const zoneColor = deviation < -20 ? '#4caf50' : deviation > 50 ? '#f44336' : '#ff9800';
+
+                // Update info boxes
+                MetricsCommon.updateInfoBoxes(infoId, [
+                    { title: 'BTC Price', value: '$' + price.toLocaleString(), subtitle: 'Current Price' },
+                    { title: 'Fair Value', value: '$' + fairValue.toLocaleString(), subtitle: 'Power Law Model' },
+                    { title: 'Deviation', value: deviation.toFixed(1) + '%', subtitle: 'From Fair Value' },
+                    { title: 'Zone', value: zone, subtitle: 'Market Phase' }
+                ]);
+
+                // Style the zone box
+                const infoBoxes = document.querySelectorAll('.metric-info-box');
+                if (infoBoxes[3]) {
+                    infoBoxes[3].style.borderColor = zoneColor;
+                }
+
+                // Update timestamp
+                document.getElementById('last-updated').textContent =
+                    'Updated: ' + MetricsCommon.formatDate(data.timestamp || new Date().toISOString());
+
+                // Try to fetch historical data
+                let historyData = [];
+                try {
+                    const histResponse = await MetricsCommon.fetchData('/api/v1/models/power-law/history', { days: 365 });
+                    if (histResponse && histResponse.data) {
+                        historyData = histResponse.data;
+                    }
+                } catch (histErr) {
+                    console.log('History not available');
+                }
+
+                // Build chart
+                const traces = [];
+
+                if (historyData.length > 0) {
+                    // Historical price line
+                    traces.push({
+                        x: historyData.map(d => d.date || d.timestamp),
+                        y: historyData.map(d => d.price || d.current_price),
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'BTC Price',
+                        line: { color: '#f7931a', width: 2 },
+                        hovertemplate: '$%{y:,.0f}<extra>BTC Price</extra>'
+                    });
+
+                    // Fair value line
+                    traces.push({
+                        x: historyData.map(d => d.date || d.timestamp),
+                        y: historyData.map(d => d.fair_value || d.predicted_price),
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'Fair Value',
+                        line: { color: '#00d4ff', width: 2, dash: 'dash' },
+                        hovertemplate: '$%{y:,.0f}<extra>Fair Value</extra>'
+                    });
+
+                    // Upper band (+50%)
+                    if (historyData[0]?.upper_band) {
+                        traces.push({
+                            x: historyData.map(d => d.date || d.timestamp),
+                            y: historyData.map(d => d.upper_band),
+                            type: 'scatter',
+                            mode: 'lines',
+                            name: 'Upper Band (+50%)',
+                            line: { color: '#f44336', width: 1, dash: 'dot' },
+                            hovertemplate: '$%{y:,.0f}<extra>Upper Band</extra>'
+                        });
+                    }
+
+                    // Lower band (-20%)
+                    if (historyData[0]?.lower_band) {
+                        traces.push({
+                            x: historyData.map(d => d.date || d.timestamp),
+                            y: historyData.map(d => d.lower_band),
+                            type: 'scatter',
+                            mode: 'lines',
+                            name: 'Lower Band (-20%)',
+                            line: { color: '#4caf50', width: 1, dash: 'dot' },
+                            hovertemplate: '$%{y:,.0f}<extra>Lower Band</extra>'
+                        });
+                    }
+                } else {
+                    // Show current values as gauge
+                    traces.push({
+                        type: 'indicator',
+                        mode: 'gauge+number+delta',
+                        value: price,
+                        delta: { reference: fairValue, relative: true, valueformat: '.1%' },
+                        title: { text: 'BTC Price vs Fair Value', font: { color: '#fff' } },
+                        number: { prefix: '$', valueformat: ',.0f' },
+                        gauge: {
+                            axis: { range: [fairValue * 0.5, fairValue * 2], tickprefix: '$', tickformat: ',.0f' },
+                            bar: { color: zoneColor },
+                            bgcolor: '#1a1a2e',
+                            borderwidth: 2,
+                            bordercolor: '#2a2a4a',
+                            steps: [
+                                { range: [fairValue * 0.5, fairValue * 0.8], color: 'rgba(76, 175, 80, 0.3)' },
+                                { range: [fairValue * 0.8, fairValue * 1.5], color: 'rgba(255, 152, 0, 0.3)' },
+                                { range: [fairValue * 1.5, fairValue * 2], color: 'rgba(244, 67, 54, 0.3)' }
+                            ],
+                            threshold: {
+                                line: { color: '#00d4ff', width: 4 },
+                                thickness: 0.75,
+                                value: fairValue
+                            }
+                        }
+                    });
+                }
+
+                const layout = historyData.length > 0 ?
+                    ChartThemes.getLayout('Bitcoin Power Law Model', 'Price (USD)', {
+                        yaxis: {
+                            ...ChartThemes.dark.layout.yaxis,
+                            type: 'log',
+                            title: 'Price (USD, log scale)'
+                        }
+                    }) :
+                    {
+                        paper_bgcolor: '#0d1117',
+                        plot_bgcolor: '#0d1117',
+                        font: { color: '#fff' },
+                        margin: { t: 50, b: 50, l: 50, r: 50 }
+                    };
+
+                MetricsCommon.render(chartId, traces, layout);
+
+            } catch (error) {
+                console.error('Error loading Power Law data:', error);
+                MetricsCommon.showError(chartId, error.message);
+            }
+        })();
+    </script>
+</body>
+</html>

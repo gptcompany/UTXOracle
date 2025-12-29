@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reserve Risk | UTXOracle Metrics</title>
+    <meta name="description" content="Reserve Risk - HODL confidence metric measuring risk/reward based on long-term holder behavior">
+    <link rel="stylesheet" href="../css/metrics.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+</head>
+<body>
+    <div class="metrics-page">
+        <header class="metrics-header">
+            <h1><span class="btc-icon">&#8383;</span> Reserve Risk</h1>
+            <div id="last-updated"></div>
+        </header>
+
+        <nav class="metrics-nav">
+            <a href="index.html">Dashboard</a>
+            <a href="mvrv.html">MVRV</a>
+            <a href="nupl.html">NUPL</a>
+            <a href="puell_multiple.html">Puell Multiple</a>
+            <a href="reserve_risk.html" class="active">Reserve Risk</a>
+        </nav>
+
+        <div id="info-boxes" class="info-boxes"></div>
+
+        <div id="chart" class="chart-container"></div>
+
+        <section class="legend-section">
+            <h3>Risk Zones</h3>
+            <div class="legend-items">
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #4caf50;"></div>
+                    <span>Low Risk (&lt;0.0008) - High HODL confidence, good entry</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ff9800;"></div>
+                    <span>Medium Risk (0.0008-0.002) - Fair value range</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #f44336;"></div>
+                    <span>High Risk (&gt;0.002) - Cycle top territory</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="metric-description">
+            <h3>About Reserve Risk</h3>
+            <p>Reserve Risk assesses the risk/reward of investing in Bitcoin at any given point by comparing the price to long-term holder confidence (HODL Bank).</p>
+            <ul>
+                <li><strong>Low Reserve Risk</strong>: High confidence among HODLers, price may be undervalued</li>
+                <li><strong>High Reserve Risk</strong>: Low confidence, often coincides with cycle tops</li>
+            </ul>
+            <p>Formula: Reserve Risk = Price / (HODL Bank)</p>
+        </section>
+
+        <footer class="metrics-footer">
+            <p>Data from UTXOracle API | Long-term holder confidence indicator</p>
+        </footer>
+    </div>
+
+    <script src="../js/chart-themes.js"></script>
+    <script src="../js/metrics-common.js"></script>
+    <script>
+        (async function() {
+            const chartId = 'chart';
+            const infoId = 'info-boxes';
+
+            MetricsCommon.showLoading(chartId);
+
+            try {
+                // Fetch Reserve Risk data
+                const data = await MetricsCommon.fetchData('/api/metrics/reserve-risk');
+
+                if (!data) {
+                    MetricsCommon.showNoData(chartId);
+                    return;
+                }
+
+                // Calculate zone
+                const reserveRisk = data.reserve_risk || 0;
+                const zone = reserveRisk < 0.0008 ? 'LOW RISK' : reserveRisk > 0.002 ? 'HIGH RISK' : 'MEDIUM';
+                const zoneColor = reserveRisk < 0.0008 ? '#4caf50' : reserveRisk > 0.002 ? '#f44336' : '#ff9800';
+
+                // Update info boxes
+                MetricsCommon.updateInfoBoxes(infoId, [
+                    { title: 'Reserve Risk', value: reserveRisk.toFixed(6), subtitle: 'Price / HODL Bank' },
+                    { title: 'BTC Price', value: '$' + (data.current_price_usd || 0).toLocaleString(), subtitle: 'Current Price' },
+                    { title: 'MVRV', value: (data.mvrv || 0).toFixed(2), subtitle: 'Market/Realized Value' },
+                    { title: 'Signal', value: zone, subtitle: data.signal_zone || 'Market Phase' }
+                ]);
+
+                // Style the signal box
+                const infoBoxes = document.querySelectorAll('.metric-info-box');
+                if (infoBoxes[3]) {
+                    infoBoxes[3].style.borderColor = zoneColor;
+                }
+
+                // Update timestamp
+                document.getElementById('last-updated').textContent =
+                    'Updated: ' + MetricsCommon.formatDate(data.timestamp || new Date().toISOString());
+
+                // Try to fetch historical data
+                let historyData = [];
+                try {
+                    const histResponse = await MetricsCommon.fetchData('/api/metrics/reserve-risk/history', { days: 365 });
+                    if (histResponse && histResponse.data) {
+                        historyData = histResponse.data;
+                    }
+                } catch (histErr) {
+                    console.log('History not available');
+                }
+
+                // Build chart
+                const traces = [];
+
+                if (historyData.length > 0) {
+                    // Historical Reserve Risk line
+                    traces.push({
+                        x: historyData.map(d => d.date || d.timestamp),
+                        y: historyData.map(d => d.reserve_risk),
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'Reserve Risk',
+                        line: { color: '#f7931a', width: 2 },
+                        fill: 'tozeroy',
+                        fillcolor: 'rgba(247, 147, 26, 0.1)',
+                        hovertemplate: '%{y:.6f}<extra>Reserve Risk</extra>'
+                    });
+                } else {
+                    // Show current value as gauge
+                    traces.push({
+                        type: 'indicator',
+                        mode: 'gauge+number',
+                        value: reserveRisk,
+                        title: { text: 'Reserve Risk', font: { color: '#fff' } },
+                        number: { valueformat: '.6f' },
+                        gauge: {
+                            axis: { range: [0, 0.004], tickformat: '.4f', tickcolor: '#fff' },
+                            bar: { color: zoneColor },
+                            bgcolor: '#1a1a2e',
+                            borderwidth: 2,
+                            bordercolor: '#2a2a4a',
+                            steps: [
+                                { range: [0, 0.0008], color: 'rgba(76, 175, 80, 0.3)' },
+                                { range: [0.0008, 0.002], color: 'rgba(255, 152, 0, 0.3)' },
+                                { range: [0.002, 0.004], color: 'rgba(244, 67, 54, 0.3)' }
+                            ]
+                        }
+                    });
+                }
+
+                const layout = historyData.length > 0 ?
+                    ChartThemes.getLayout('Reserve Risk (Historical)', 'Reserve Risk', {
+                        yaxis: {
+                            ...ChartThemes.dark.layout.yaxis,
+                            type: 'log',
+                            title: 'Reserve Risk (log scale)'
+                        },
+                        shapes: [
+                            // Low risk zone
+                            { type: 'line', xref: 'paper', yref: 'y', x0: 0, x1: 1, y0: 0.0008, y1: 0.0008, line: { color: '#4caf50', width: 1, dash: 'dash' } },
+                            // High risk zone
+                            { type: 'line', xref: 'paper', yref: 'y', x0: 0, x1: 1, y0: 0.002, y1: 0.002, line: { color: '#f44336', width: 1, dash: 'dash' } }
+                        ]
+                    }) :
+                    {
+                        paper_bgcolor: '#0d1117',
+                        plot_bgcolor: '#0d1117',
+                        font: { color: '#fff' },
+                        margin: { t: 50, b: 50, l: 50, r: 50 }
+                    };
+
+                MetricsCommon.render(chartId, traces, layout);
+
+            } catch (error) {
+                console.error('Error loading Reserve Risk data:', error);
+                MetricsCommon.showError(chartId, error.message);
+            }
+        })();
+    </script>
+</body>
+</html>

@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>P/L Ratio | UTXOracle Metrics</title>
+    <meta name="description" content="Profit/Loss Ratio - Compares addresses/supply in profit vs loss for market sentiment analysis">
+    <link rel="stylesheet" href="../css/metrics.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+</head>
+<body>
+    <div class="metrics-page">
+        <header class="metrics-header">
+            <h1><span class="btc-icon">&#8383;</span> Profit/Loss Ratio</h1>
+            <div id="last-updated"></div>
+        </header>
+
+        <nav class="metrics-nav">
+            <a href="index.html">Dashboard</a>
+            <a href="sopr.html">SOPR</a>
+            <a href="nupl.html">NUPL</a>
+            <a href="pl_ratio.html" class="active">P/L Ratio</a>
+            <a href="pro_risk.html">Pro Risk</a>
+        </nav>
+
+        <div id="info-boxes" class="info-boxes"></div>
+
+        <div id="chart" class="chart-container"></div>
+
+        <section class="legend-section">
+            <h3>Interpretation</h3>
+            <div class="legend-items">
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #4caf50;"></div>
+                    <span>High P/L (&gt;5) - Most supply in profit, bullish sentiment</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #888888;"></div>
+                    <span>Balanced (1-5) - Mixed sentiment</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #f44336;"></div>
+                    <span>Low P/L (&lt;1) - More supply in loss, capitulation zone</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="metric-description">
+            <h3>About P/L Ratio</h3>
+            <p>The Profit/Loss Ratio compares the amount of Bitcoin supply currently in profit versus in loss. It provides insight into overall market sentiment and potential support/resistance zones.</p>
+            <ul>
+                <li><strong>Supply in Profit</strong>: BTC acquired below current price</li>
+                <li><strong>Supply in Loss</strong>: BTC acquired above current price</li>
+                <li><strong>P/L Ratio</strong>: Supply in Profit / Supply in Loss</li>
+            </ul>
+        </section>
+
+        <footer class="metrics-footer">
+            <p>Data from UTXOracle API | Market sentiment indicator</p>
+        </footer>
+    </div>
+
+    <script src="../js/chart-themes.js"></script>
+    <script src="../js/metrics-common.js"></script>
+    <script>
+        (async function() {
+            const chartId = 'chart';
+            const infoId = 'info-boxes';
+
+            MetricsCommon.showLoading(chartId);
+
+            try {
+                // Fetch P/L Ratio data
+                const data = await MetricsCommon.fetchData('/api/metrics/pl-ratio');
+
+                if (!data) {
+                    MetricsCommon.showNoData(chartId);
+                    return;
+                }
+
+                // Calculate zone
+                const plRatio = data.pl_ratio || 0;
+                const supplyInProfit = data.supply_in_profit || 0;
+                const supplyInLoss = data.supply_in_loss || 0;
+                const totalSupply = supplyInProfit + supplyInLoss;
+                const profitPercent = data.percent_in_profit || (totalSupply > 0 ? (supplyInProfit / totalSupply * 100) : 0);
+
+                const zone = plRatio < 1 ? 'CAPITULATION' : plRatio > 5 ? 'EUPHORIA' : 'BALANCED';
+                const zoneColor = plRatio < 1 ? '#f44336' : plRatio > 5 ? '#4caf50' : '#888888';
+
+                // Update info boxes
+                MetricsCommon.updateInfoBoxes(infoId, [
+                    { title: 'P/L Ratio', value: plRatio.toFixed(2), subtitle: 'Profit/Loss Ratio' },
+                    { title: 'In Profit', value: profitPercent.toFixed(1) + '%', subtitle: MetricsCommon.formatNumber(supplyInProfit) + ' BTC' },
+                    { title: 'In Loss', value: (100 - profitPercent).toFixed(1) + '%', subtitle: MetricsCommon.formatNumber(supplyInLoss) + ' BTC' },
+                    { title: 'Sentiment', value: zone, subtitle: 'Market Phase' }
+                ]);
+
+                // Style the sentiment box
+                const infoBoxes = document.querySelectorAll('.metric-info-box');
+                if (infoBoxes[3]) {
+                    infoBoxes[3].style.borderColor = zoneColor;
+                }
+
+                // Update timestamp
+                document.getElementById('last-updated').textContent =
+                    'Updated: ' + MetricsCommon.formatDate(data.timestamp || new Date().toISOString());
+
+                // Try to fetch historical data
+                let historyData = [];
+                try {
+                    const histResponse = await MetricsCommon.fetchData('/api/metrics/pl-ratio/history', { days: 365 });
+                    if (histResponse && histResponse.data) {
+                        historyData = histResponse.data;
+                    }
+                } catch (histErr) {
+                    console.log('History not available');
+                }
+
+                // Build chart
+                const traces = [];
+
+                if (historyData.length > 0) {
+                    // Historical P/L Ratio line
+                    traces.push({
+                        x: historyData.map(d => d.date || d.timestamp),
+                        y: historyData.map(d => d.pl_ratio),
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'P/L Ratio',
+                        line: { color: '#f7931a', width: 2 },
+                        hovertemplate: '%{y:.2f}<extra>P/L Ratio</extra>'
+                    });
+
+                    // Percent in profit line (secondary axis)
+                    traces.push({
+                        x: historyData.map(d => d.date || d.timestamp),
+                        y: historyData.map(d => d.percent_in_profit),
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: '% in Profit',
+                        line: { color: '#4caf50', width: 1, dash: 'dot' },
+                        yaxis: 'y2',
+                        hovertemplate: '%{y:.1f}%<extra>% in Profit</extra>'
+                    });
+                } else {
+                    // Show current state as pie chart
+                    traces.push({
+                        values: [supplyInProfit, supplyInLoss],
+                        labels: ['In Profit', 'In Loss'],
+                        type: 'pie',
+                        marker: {
+                            colors: ['#4caf50', '#f44336']
+                        },
+                        hole: 0.5,
+                        textinfo: 'percent+label',
+                        textfont: { color: '#fff' },
+                        hovertemplate: '%{label}: %{value:,.0f} BTC (%{percent})<extra></extra>'
+                    });
+                }
+
+                const layout = historyData.length > 0 ?
+                    {
+                        ...ChartThemes.getLayout('P/L Ratio (Historical)', 'P/L Ratio'),
+                        yaxis: {
+                            ...ChartThemes.dark.layout.yaxis,
+                            title: 'P/L Ratio',
+                            type: 'log'
+                        },
+                        yaxis2: {
+                            ...ChartThemes.dark.layout.yaxis,
+                            title: '% in Profit',
+                            overlaying: 'y',
+                            side: 'right',
+                            range: [0, 100],
+                            showgrid: false
+                        },
+                        shapes: [
+                            // Break-even line
+                            { type: 'line', xref: 'paper', yref: 'y', x0: 0, x1: 1, y0: 1, y1: 1, line: { color: '#fff', width: 1, dash: 'dash' } }
+                        ]
+                    } :
+                    {
+                        paper_bgcolor: '#0d1117',
+                        plot_bgcolor: '#0d1117',
+                        font: { color: '#fff' },
+                        margin: { t: 50, b: 50, l: 50, r: 50 },
+                        showlegend: true,
+                        legend: { font: { color: '#fff' } },
+                        annotations: [{
+                            text: `P/L Ratio: ${plRatio.toFixed(2)}`,
+                            showarrow: false,
+                            font: { size: 20, color: '#fff' },
+                            x: 0.5,
+                            y: 0.5
+                        }]
+                    };
+
+                MetricsCommon.render(chartId, traces, layout);
+
+            } catch (error) {
+                console.error('Error loading P/L Ratio data:', error);
+                MetricsCommon.showError(chartId, error.message);
+            }
+        })();
+    </script>
+</body>
+</html>

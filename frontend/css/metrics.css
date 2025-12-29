@@ -313,6 +313,242 @@ body {
   }
 }
 
+/* Controls toolbar */
+.controls-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 20px;
+  padding: 15px;
+  background-color: var(--bg-secondary);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+}
+
+.control-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.control-group label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+}
+
+.control-group select,
+.control-group button {
+  padding: 8px 12px;
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.control-group select:hover,
+.control-group button:hover {
+  border-color: var(--accent-primary);
+}
+
+.control-group select:focus,
+.control-group button:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.2);
+}
+
+.control-group button.primary {
+  background-color: var(--accent-primary);
+  color: var(--bg-primary);
+  border-color: var(--accent-primary);
+}
+
+.control-group button.primary:hover {
+  opacity: 0.9;
+}
+
+/* Theme toggle button */
+.theme-toggle {
+  padding: 8px 12px;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: all 0.2s ease;
+}
+
+.theme-toggle:hover {
+  border-color: var(--accent-primary);
+}
+
+/* Refresh indicator */
+.refresh-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-left: auto;
+}
+
+.refresh-indicator.loading .refresh-spinner {
+  animation: spin 1s linear infinite;
+}
+
+.refresh-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--accent-primary);
+  border-radius: 50%;
+}
+
+.refresh-indicator .last-refresh {
+  font-size: 0.7rem;
+}
+
+/* Export buttons */
+.export-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.export-buttons button {
+  padding: 6px 12px;
+  font-size: 0.75rem;
+  background-color: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.export-buttons button:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-primary);
+}
+
+/* Light theme */
+body.light-theme {
+  --bg-primary: #f5f5f5;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #e8e8e8;
+  --text-primary: #1a1a2e;
+  --text-secondary: #666666;
+  --border-color: #d0d0d0;
+}
+
+body.light-theme .chart-container {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+body.light-theme .metric-info-box {
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+/* Info box (alternative naming for updateInfoBoxes) */
+.info-box {
+  background-color: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 15px 20px;
+  border: 1px solid var(--border-color);
+  text-align: center;
+  transition: border-color 0.2s ease;
+}
+
+.info-box .metric-title {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  margin-bottom: 5px;
+}
+
+.info-box .metric-value {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--accent-primary);
+}
+
+.info-box .metric-subtitle {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-top: 5px;
+}
+
+/* Formula box for descriptions */
+.formula-box {
+  background-color: var(--bg-tertiary);
+  padding: 15px;
+  border-radius: 6px;
+  font-family: 'Monaco', 'Consolas', monospace;
+  font-size: 0.875rem;
+  margin: 10px 0;
+  border: 1px solid var(--border-color);
+}
+
+/* Metric description section */
+.metric-description {
+  background-color: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 15px 20px;
+  margin-bottom: 20px;
+  border: 1px solid var(--border-color);
+}
+
+.metric-description h3 {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.metric-description p {
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+}
+
+.metric-description ul {
+  font-size: 0.875rem;
+  line-height: 1.6;
+  padding-left: 20px;
+  color: var(--text-primary);
+}
+
+.metric-description li {
+  margin-bottom: 5px;
+}
+
+/* Responsive controls toolbar */
+@media (max-width: 768px) {
+  .controls-toolbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .refresh-indicator {
+    margin-left: 0;
+    margin-top: 10px;
+    width: 100%;
+  }
+
+  .export-buttons {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+
 /* Print styles */
 @media print {
   body {
@@ -321,12 +557,15 @@ body {
   }
 
   .metrics-nav,
-  .error-state button {
+  .error-state button,
+  .controls-toolbar,
+  .theme-toggle {
     display: none;
   }
 
   .chart-container,
   .metric-info-box,
+  .info-box,
   .legend-section {
     border: 1px solid #ccc;
     background-color: white;
