@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from scripts.config import UTXORACLE_DB_PATH
+
 if TYPE_CHECKING:
     pass
 

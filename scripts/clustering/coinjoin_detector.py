@@ -14,6 +14,8 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass, field
 
+from scripts.config import UTXORACLE_DB_PATH
+
 
 # Whirlpool fixed denominations in SATOSHIS (for electrs API compatibility)
 # 0.001 BTC = 100,000 sats, 0.01 BTC = 1,000,000 sats, etc.
