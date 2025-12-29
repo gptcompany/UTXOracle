@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pro Risk Indicator | UTXOracle Metrics</title>
+    <meta name="description" content="Pro Risk composite indicator - combines multiple on-chain signals for market timing">
+    <link rel="stylesheet" href="../css/metrics.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+</head>
+<body>
+    <div class="metrics-page">
+        <header class="metrics-header">
+            <h1><span class="btc-icon">&#8383;</span> Pro Risk Indicator</h1>
+            <div id="last-updated"></div>
+        </header>
+
+        <nav class="metrics-nav">
+            <a href="index.html">Dashboard</a>
+            <a href="mvrv.html">MVRV</a>
+            <a href="nupl.html">NUPL</a>
+            <a href="sopr.html">SOPR</a>
+            <a href="pro_risk.html" class="active">Pro Risk</a>
+            <a href="cost_basis.html">Cost Basis</a>
+        </nav>
+
+        <div id="info-boxes" class="info-boxes"></div>
+
+        <div id="chart" class="chart-container"></div>
+
+        <section class="legend-section">
+            <h3>Risk Zones</h3>
+            <div class="legend-items">
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #4caf50;"></div>
+                    <span>Low Risk (0-25) - Accumulation Zone</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #8bc34a;"></div>
+                    <span>Moderate (25-50) - Fair Value</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ff9800;"></div>
+                    <span>Elevated (50-75) - Caution</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #f44336;"></div>
+                    <span>High Risk (75-100) - Distribution Zone</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="metric-description">
+            <h3>About Pro Risk</h3>
+            <p>The Pro Risk indicator is a composite metric that combines multiple on-chain signals to provide a single risk assessment score from 0 to 100. Components include:</p>
+            <ul>
+                <li><strong>MVRV-Z Score</strong> - Market valuation vs realized valuation</li>
+                <li><strong>NUPL</strong> - Net unrealized profit/loss</li>
+                <li><strong>SOPR</strong> - Spent output profit ratio</li>
+                <li><strong>Reserve Risk</strong> - HODL confidence indicator</li>
+                <li><strong>Puell Multiple</strong> - Miner revenue health</li>
+            </ul>
+        </section>
+
+        <footer class="metrics-footer">
+            <p>Data from UTXOracle API | Composite risk indicator (spec-033)</p>
+        </footer>
+    </div>
+
+    <script src="../js/chart-themes.js"></script>
+    <script src="../js/metrics-common.js"></script>
+    <script>
+        (async function() {
+            const chartId = 'chart';
+            const infoId = 'info-boxes';
+
+            MetricsCommon.showLoading(chartId);
+
+            try {
+                // Fetch Pro Risk data
+                const data = await MetricsCommon.fetchData('/api/metrics/pro-risk');
+
+                if (!data) {
+                    MetricsCommon.showNoData(chartId);
+                    return;
+                }
+
+                // Update info boxes
+                const risk = data.pro_risk || data.risk_score || 0;
+                const zone = risk < 25 ? 'LOW RISK' :
+                            risk < 50 ? 'MODERATE' :
+                            risk < 75 ? 'ELEVATED' : 'HIGH RISK';
+                const zoneColor = risk < 25 ? '#4caf50' :
+                                 risk < 50 ? '#8bc34a' :
+                                 risk < 75 ? '#ff9800' : '#f44336';
+
+                MetricsCommon.updateInfoBoxes(infoId, [
+                    { title: 'Pro Risk Score', value: risk.toFixed(1), subtitle: 'Composite Risk (0-100)' },
+                    { title: 'Risk Zone', value: zone, subtitle: 'Current Market Phase' },
+                    { title: 'BTC Price', value: '$' + (data.price_usd || 0).toLocaleString(), subtitle: 'Current Price' },
+                    { title: 'Components', value: '5', subtitle: 'On-chain Signals' }
+                ]);
+
+                // Style the risk zone box
+                const infoBoxes = document.querySelectorAll('.info-box');
+                if (infoBoxes[1]) {
+                    infoBoxes[1].style.borderColor = zoneColor;
+                }
+
+                // Update timestamp
+                document.getElementById('last-updated').textContent =
+                    'Updated: ' + MetricsCommon.formatDate(data.timestamp || new Date().toISOString());
+
+                // Try to fetch historical data
+                let historyData = [];
+                try {
+                    const histResponse = await MetricsCommon.fetchData('/api/metrics/pro-risk/history', { days: 365 });
+                    if (histResponse && histResponse.data) {
+                        historyData = histResponse.data;
+                    }
+                } catch (histErr) {
+                    console.log('History not available');
+                }
+
+                // Build chart
+                const traces = [];
+
+                if (historyData.length > 0) {
+                    // Historical Pro Risk line
+                    traces.push({
+                        x: historyData.map(d => d.date || d.timestamp),
+                        y: historyData.map(d => d.pro_risk || d.risk_score),
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'Pro Risk',
+                        line: { color: '#f7931a', width: 2 },
+                        fill: 'tozeroy',
+                        fillcolor: 'rgba(247, 147, 26, 0.1)',
+                        hovertemplate: '%{y:.1f}<extra>Pro Risk</extra>'
+                    });
+                } else {
+                    // Show current value as gauge-like display
+                    traces.push({
+                        type: 'indicator',
+                        mode: 'gauge+number',
+                        value: risk,
+                        title: { text: 'Pro Risk Score', font: { color: '#fff' } },
+                        gauge: {
+                            axis: { range: [0, 100], tickcolor: '#fff' },
+                            bar: { color: zoneColor },
+                            bgcolor: '#1a1a2e',
+                            borderwidth: 2,
+                            bordercolor: '#2a2a4a',
+                            steps: [
+                                { range: [0, 25], color: 'rgba(76, 175, 80, 0.3)' },
+                                { range: [25, 50], color: 'rgba(139, 195, 74, 0.3)' },
+                                { range: [50, 75], color: 'rgba(255, 152, 0, 0.3)' },
+                                { range: [75, 100], color: 'rgba(244, 67, 54, 0.3)' }
+                            ]
+                        }
+                    });
+                }
+
+                const layout = historyData.length > 0 ?
+                    ChartThemes.getLayout('Pro Risk Score (Historical)', 'Risk Score (0-100)', {
+                        yaxis: {
+                            ...ChartThemes.dark.layout.yaxis,
+                            range: [0, 100],
+                            title: 'Risk Score'
+                        },
+                        shapes: [
+                            // Zone backgrounds
+                            { type: 'rect', xref: 'paper', yref: 'y', x0: 0, x1: 1, y0: 0, y1: 25, fillcolor: 'rgba(76, 175, 80, 0.1)', line: { width: 0 } },
+                            { type: 'rect', xref: 'paper', yref: 'y', x0: 0, x1: 1, y0: 25, y1: 50, fillcolor: 'rgba(139, 195, 74, 0.1)', line: { width: 0 } },
+                            { type: 'rect', xref: 'paper', yref: 'y', x0: 0, x1: 1, y0: 50, y1: 75, fillcolor: 'rgba(255, 152, 0, 0.1)', line: { width: 0 } },
+                            { type: 'rect', xref: 'paper', yref: 'y', x0: 0, x1: 1, y0: 75, y1: 100, fillcolor: 'rgba(244, 67, 54, 0.1)', line: { width: 0 } }
+                        ]
+                    }) :
+                    {
+                        paper_bgcolor: '#0d1117',
+                        plot_bgcolor: '#0d1117',
+                        font: { color: '#fff' },
+                        margin: { t: 50, b: 50, l: 50, r: 50 }
+                    };
+
+                MetricsCommon.render(chartId, traces, layout);
+
+            } catch (error) {
+                console.error('Error loading Pro Risk data:', error);
+                MetricsCommon.showError(chartId, error.message);
+            }
+        })();
+    </script>
+</body>
+</html>

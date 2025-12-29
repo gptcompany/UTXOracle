@@ -168,6 +168,36 @@
 
 ---
 
+## Phase 11: Dashboard Expansion (Added 2025-12-29)
+
+**Purpose**: Add missing high-value metrics and improve UX
+
+### Index & Navigation
+
+- [x] T034 Create metrics index page (frontend/metrics/index.html) with card grid
+- [x] T035 Add metric categories (Valuation, Profitability, Supply, Mining)
+- [x] T036 Add search/filter functionality for metrics
+
+### New Metric Pages (Priority Order)
+
+- [x] T037 [P] Create Pro Risk page (frontend/metrics/pro_risk.html) - composite risk indicator
+- [ ] T038 [P] Create Power Law page (frontend/metrics/power_law.html) - price model
+- [ ] T039 [P] Create Puell Multiple page (frontend/metrics/puell_multiple.html) - mining metric
+- [ ] T040 [P] Create Reserve Risk page (frontend/metrics/reserve_risk.html) - HODL confidence
+- [ ] T041 [P] Create P/L Ratio page (frontend/metrics/pl_ratio.html) - profit/loss indicator
+- [ ] T042 [P] Create Liveliness page (frontend/metrics/liveliness.html) - cointime metric
+
+### UX Improvements
+
+- [ ] T043 Add dark/light theme toggle to all pages
+- [ ] T044 Add date range selector (7d, 30d, 90d, 1y, all)
+- [ ] T045 Add export to PNG/CSV functionality
+- [ ] T046 Add real-time data refresh indicator
+
+**Checkpoint**: Full dashboard with 14+ metrics and improved UX
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies
@@ -225,20 +255,22 @@ Task: "T027-T029 Exchange Netflow page"
 
 ## Summary
 
-| Phase | Tasks | Description |
-|-------|-------|-------------|
-| 1 | T001-T004 | Setup (shared infrastructure) |
-| 2 | T005-T008 | MVRV (MVP) |
-| 3 | T009-T011 | NUPL |
-| 4 | T012-T014 | SOPR |
-| 5 | T015-T017 | Cost Basis |
-| 6 | T018-T020 | Hash Ribbons |
-| 7 | T021-T023 | Binary CDD |
-| 8 | T024-T026 | Wallet Waves |
-| 9 | T027-T029 | Exchange Netflow |
-| 10 | T030-T033 | Polish |
+| Phase | Tasks | Description | Status |
+|-------|-------|-------------|--------|
+| 1 | T001-T004 | Setup (shared infrastructure) | ✅ |
+| 2 | T005-T008 | MVRV (MVP) | ✅ |
+| 3 | T009-T011 | NUPL | ✅ |
+| 4 | T012-T014 | SOPR | ✅ |
+| 5 | T015-T017 | Cost Basis | ✅ |
+| 6 | T018-T020 | Hash Ribbons | ✅ |
+| 7 | T021-T023 | Binary CDD | ✅ |
+| 8 | T024-T026 | Wallet Waves | ✅ |
+| 9 | T027-T029 | Exchange Netflow | ✅ |
+| 10 | T030-T033 | Polish | 3/4 |
+| 11 | T034-T046 | Dashboard Expansion | 4/13 |
 
-**Total**: 33 tasks across 10 phases
-**MVP**: T001-T008 (8 tasks)
-**Core Validation**: T001-T020 (20 tasks)
-**Full Dashboard**: T001-T033 (33 tasks)
+**Total**: 46 tasks across 11 phases
+**Completed**: 36/46 (78%)
+**MVP**: T001-T008 (8 tasks) ✅
+**Core Validation**: T001-T020 (20 tasks) ✅
+**Full Dashboard**: T001-T046 (46 tasks)

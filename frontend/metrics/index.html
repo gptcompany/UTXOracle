@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>On-Chain Metrics Dashboard | UTXOracle</title>
+    <meta name="description" content="Bitcoin on-chain metrics dashboard - MVRV, NUPL, SOPR, Cost Basis, and more">
+    <link rel="stylesheet" href="../css/metrics.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1.5rem;
+            padding: 1.5rem;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .metric-card {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            border: 1px solid #2a2a4a;
+            border-radius: 12px;
+            padding: 1.5rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            color: inherit;
+            display: block;
+        }
+
+        .metric-card:hover {
+            transform: translateY(-4px);
+            border-color: #f7931a;
+            box-shadow: 0 8px 32px rgba(247, 147, 26, 0.2);
+        }
+
+        .metric-card.coming-soon {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .metric-card.coming-soon:hover {
+            transform: none;
+            border-color: #2a2a4a;
+            box-shadow: none;
+        }
+
+        .metric-card h3 {
+            color: #f7931a;
+            margin: 0 0 0.5rem 0;
+            font-size: 1.25rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .metric-card .category {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: #888;
+            margin-bottom: 0.75rem;
+        }
+
+        .metric-card p {
+            color: #ccc;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            margin: 0;
+        }
+
+        .metric-card .badge {
+            font-size: 0.7rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            background: #2a2a4a;
+            color: #888;
+        }
+
+        .metric-card .badge.new {
+            background: #f7931a;
+            color: #000;
+        }
+
+        .category-section {
+            margin-bottom: 2rem;
+        }
+
+        .category-section h2 {
+            color: #fff;
+            font-size: 1.1rem;
+            margin: 0 0 1rem 1.5rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid #2a2a4a;
+            display: inline-block;
+        }
+
+        .search-container {
+            max-width: 600px;
+            margin: 0 auto 2rem;
+            padding: 0 1.5rem;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 1rem 1.5rem;
+            font-size: 1rem;
+            border: 1px solid #2a2a4a;
+            border-radius: 8px;
+            background: #1a1a2e;
+            color: #fff;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        .search-input:focus {
+            border-color: #f7931a;
+        }
+
+        .search-input::placeholder {
+            color: #666;
+        }
+
+        .stats-bar {
+            display: flex;
+            justify-content: center;
+            gap: 3rem;
+            padding: 1rem;
+            background: #1a1a2e;
+            border-bottom: 1px solid #2a2a4a;
+            margin-bottom: 1rem;
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #f7931a;
+        }
+
+        .stat-label {
+            font-size: 0.75rem;
+            color: #888;
+            text-transform: uppercase;
+        }
+    </style>
+</head>
+<body>
+    <div class="metrics-page">
+        <header class="metrics-header">
+            <h1><span class="btc-icon">&#8383;</span> On-Chain Metrics Dashboard</h1>
+            <div id="last-updated">UTXOracle - Bitcoin Native Analytics</div>
+        </header>
+
+        <div class="stats-bar">
+            <div class="stat-item">
+                <div class="stat-value" id="total-metrics">14</div>
+                <div class="stat-label">Metrics</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="total-categories">4</div>
+                <div class="stat-label">Categories</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="api-status">-</div>
+                <div class="stat-label">API Status</div>
+            </div>
+        </div>
+
+        <div class="search-container">
+            <input type="text" class="search-input" id="metric-search" placeholder="Search metrics...">
+        </div>
+
+        <!-- Valuation Metrics -->
+        <section class="category-section" data-category="valuation">
+            <h2>Valuation</h2>
+            <div class="metrics-grid">
+                <a href="mvrv.html" class="metric-card" data-metric="mvrv">
+                    <h3>MVRV-Z Score</h3>
+                    <div class="category">Valuation</div>
+                    <p>Market Value to Realized Value ratio. Identifies overbought/oversold conditions using Z-score normalization.</p>
+                </a>
+                <a href="nupl.html" class="metric-card" data-metric="nupl">
+                    <h3>NUPL</h3>
+                    <div class="category">Valuation</div>
+                    <p>Net Unrealized Profit/Loss. Shows aggregate profit/loss state of all Bitcoin holders.</p>
+                </a>
+                <a href="cost_basis.html" class="metric-card" data-metric="cost_basis">
+                    <h3>Cost Basis</h3>
+                    <div class="category">Valuation</div>
+                    <p>Realized price and STH/LTH cost basis. Shows average acquisition price of Bitcoin supply.</p>
+                </a>
+                <a href="power_law.html" class="metric-card" data-metric="power_law">
+                    <h3>Power Law <span class="badge new">NEW</span></h3>
+                    <div class="category">Valuation</div>
+                    <p>Bitcoin price power law model. Long-term price corridor based on logarithmic regression.</p>
+                </a>
+            </div>
+        </section>
+
+        <!-- Profitability Metrics -->
+        <section class="category-section" data-category="profitability">
+            <h2>Profitability</h2>
+            <div class="metrics-grid">
+                <a href="sopr.html" class="metric-card" data-metric="sopr">
+                    <h3>SOPR</h3>
+                    <div class="category">Profitability</div>
+                    <p>Spent Output Profit Ratio. Measures profit/loss of coins being spent on-chain.</p>
+                </a>
+                <a href="pl_ratio.html" class="metric-card coming-soon" data-metric="pl_ratio">
+                    <h3>P/L Ratio <span class="badge">Coming Soon</span></h3>
+                    <div class="category">Profitability</div>
+                    <p>Profit/Loss ratio indicator. Compares addresses in profit vs loss.</p>
+                </a>
+                <a href="pro_risk.html" class="metric-card" data-metric="pro_risk">
+                    <h3>Pro Risk <span class="badge new">NEW</span></h3>
+                    <div class="category">Profitability</div>
+                    <p>Composite risk indicator combining multiple on-chain signals for market timing.</p>
+                </a>
+            </div>
+        </section>
+
+        <!-- Supply Metrics -->
+        <section class="category-section" data-category="supply">
+            <h2>Supply Distribution</h2>
+            <div class="metrics-grid">
+                <a href="wallet_waves.html" class="metric-card" data-metric="wallet_waves">
+                    <h3>Wallet Waves</h3>
+                    <div class="category">Supply</div>
+                    <p>HODL waves visualization. Shows age distribution of Bitcoin supply over time.</p>
+                </a>
+                <a href="exchange_netflow.html" class="metric-card" data-metric="exchange_netflow">
+                    <h3>Exchange Netflow</h3>
+                    <div class="category">Supply</div>
+                    <p>Exchange inflows/outflows. Tracks Bitcoin moving to and from exchanges.</p>
+                </a>
+                <a href="binary_cdd.html" class="metric-card" data-metric="binary_cdd">
+                    <h3>Binary CDD</h3>
+                    <div class="category">Supply</div>
+                    <p>Coin Days Destroyed binary signal. Detects large old coin movements.</p>
+                </a>
+                <a href="liveliness.html" class="metric-card coming-soon" data-metric="liveliness">
+                    <h3>Liveliness <span class="badge">Coming Soon</span></h3>
+                    <div class="category">Supply</div>
+                    <p>Cointime liveliness metric. Measures velocity of coin movement vs HODLing.</p>
+                </a>
+            </div>
+        </section>
+
+        <!-- Mining Metrics -->
+        <section class="category-section" data-category="mining">
+            <h2>Mining</h2>
+            <div class="metrics-grid">
+                <a href="hash_ribbons.html" class="metric-card" data-metric="hash_ribbons">
+                    <h3>Hash Ribbons</h3>
+                    <div class="category">Mining</div>
+                    <p>Hash rate moving average crossover. Identifies miner capitulation and recovery.</p>
+                </a>
+                <a href="puell_multiple.html" class="metric-card coming-soon" data-metric="puell_multiple">
+                    <h3>Puell Multiple <span class="badge">Coming Soon</span></h3>
+                    <div class="category">Mining</div>
+                    <p>Miner revenue indicator. Compares daily issuance value to yearly average.</p>
+                </a>
+                <a href="reserve_risk.html" class="metric-card coming-soon" data-metric="reserve_risk">
+                    <h3>Reserve Risk <span class="badge">Coming Soon</span></h3>
+                    <div class="category">Mining</div>
+                    <p>HODL confidence metric. Measures risk/reward based on long-term holder behavior.</p>
+                </a>
+            </div>
+        </section>
+
+        <footer class="metrics-footer">
+            <p>Powered by UTXOracle | <a href="/">Home</a> | <a href="/api/docs" target="_blank">API Docs</a></p>
+        </footer>
+    </div>
+
+    <script>
+        // Search functionality
+        document.getElementById('metric-search').addEventListener('input', function(e) {
+            const query = e.target.value.toLowerCase();
+            document.querySelectorAll('.metric-card').forEach(card => {
+                const text = card.textContent.toLowerCase();
+                const matches = text.includes(query);
+                card.style.display = matches ? 'block' : 'none';
+            });
+
+            // Hide empty categories
+            document.querySelectorAll('.category-section').forEach(section => {
+                const visibleCards = section.querySelectorAll('.metric-card[style="display: block"], .metric-card:not([style])');
+                const hasVisible = Array.from(visibleCards).some(card =>
+                    card.style.display !== 'none'
+                );
+                section.style.display = hasVisible ? 'block' : 'none';
+            });
+        });
+
+        // Check API status
+        async function checkApiStatus() {
+            try {
+                const response = await fetch('/api/health');
+                const statusEl = document.getElementById('api-status');
+                if (response.ok) {
+                    statusEl.textContent = 'OK';
+                    statusEl.style.color = '#4caf50';
+                } else {
+                    statusEl.textContent = 'Error';
+                    statusEl.style.color = '#f44336';
+                }
+            } catch (e) {
+                document.getElementById('api-status').textContent = 'Offline';
+                document.getElementById('api-status').style.color = '#f44336';
+            }
+        }
+
+        checkApiStatus();
+    </script>
+</body>
+</html>
