@@ -210,6 +210,30 @@
 
 ---
 
+## Phase 8: RBN API v2 Migration (Added 2025-12-29)
+
+**Purpose**: Migrate to Bitcoin Lab API v2 before v1 sunset (Feb 14, 2026)
+
+**Announcement**: RBN email Dec 29 - v2 launches Jan 3, 2025
+
+**Key Changes**:
+- v2 processes every transaction (vs v1 snapshot-based) → more accurate
+- Token renewal required every 90 days
+- Metric naming/labeling conventions may differ
+- Full historical re-download may be needed for spent output metrics
+
+- [ ] T044 Review API v2 documentation when available (Jan 3)
+- [ ] T045 Update RBNConfig.base_url to support v2 endpoint
+- [ ] T046 Add token renewal reminder/automation (90-day expiry)
+- [ ] T047 Map v1 metric names to v2 naming conventions
+- [ ] T048 Re-download golden data from v2 for validation
+- [ ] T049 Validate all P1 metrics against v2 data
+- [ ] T050 Update quickstart.md with v2 instructions
+
+**Checkpoint**: All validation passes with v2 API, v1 deprecated
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies
@@ -311,8 +335,10 @@ Task: "Create error_response.json in tests/fixtures/rbn_mock_responses/"
 | MVRV-Z Alignment | 7 (3 done, 4 pending) |
 | Parallel Opportunities | 6 task groups |
 | MVP Scope | T001-T023 (23 tasks) |
-| **Completion** | **39/43 (91%)** |
+| API v2 Migration | 7 (0 done, 7 pending Jan 3) |
+| **Completion** | **39/50 (78%)** |
 
 ### Pending Tasks
 - T034: Validate quickstart.md (awaiting backfill)
 - T040-T043: MVRV-Z RBN alignment (awaiting backfill)
+- T044-T050: API v2 migration (available Jan 3, 2025)
