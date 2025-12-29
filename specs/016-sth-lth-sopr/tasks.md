@@ -168,7 +168,7 @@
 - [X] T050 Run full test suite: `uv run pytest tests/ -v --tb=short`
 - [X] T051 Run linter: `ruff check scripts/metrics/sopr.py && ruff format scripts/metrics/sopr.py`
 - [X] T052 Validate quickstart.md scenarios work end-to-end
-- [ ] T053 Run backtest to verify SOPR contribution to Sharpe ratio (OPTIONAL - requires historical SOPR data)
+- [X] T053 Run backtest to verify SOPR contribution to Sharpe ratio (OPTIONAL - SKIPPED: no historical SOPR data available)
 - [X] T054 Benchmark `calculate_block_sopr()` against NFR-001 target (<100ms per block with 3000 outputs)
 - [X] T055 Create PR with summary and merge
 
