@@ -210,7 +210,7 @@ def test_calculate_net_flow(whale_transactions_sample):
 
     # Mock transaction processing
     test_txs = whale_transactions_sample[:3]
-    inflow_btc, outflow_btc, internal_btc = detector._calculate_net_flow(test_txs)
+    inflow_btc, outflow_btc, internal_btc, _ = detector._calculate_net_flow(test_txs)
 
     # Verify calculations (values in satoshis in fixture, converted to BTC)
     assert abs(inflow_btc - 50.1) < 0.1, f"Expected ~50.1 BTC inflow, got {inflow_btc}"
