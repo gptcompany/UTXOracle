@@ -102,6 +102,7 @@ python3 scripts/utxoracle_batch.py 2025/10/01 2025/10/10 /home/sam/.bitcoin 12
 | spec-016 | metrics/sopr | ✅ Complete |
 | spec-017 | metrics/utxo_lifecycle | ✅ Complete |
 | spec-018 | metrics/cointime | ✅ Complete |
+| spec-020 | metrics/mvrv (extended) | ✅ Complete |
 
 ## Repository Organization
 
