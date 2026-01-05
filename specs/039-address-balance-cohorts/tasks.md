@@ -20,7 +20,7 @@
 
 **Purpose**: Verify existing infrastructure is ready for new metric
 
-- [ ] T001 Verify `utxo_lifecycle_full` VIEW exists and has required columns (address, btc_value, creation_price_usd, is_spent) in DuckDB database
+- [x] T001 Verify `utxo_lifecycle_full` VIEW exists and has required columns (address, btc_value, creation_price_usd, is_spent) in DuckDB database
 
 ---
 
@@ -30,9 +30,9 @@
 
 **⚠️ CRITICAL**: The dataclasses must be created before tests or implementation can proceed.
 
-- [ ] T002 Add `AddressCohort` enum (RETAIL, MID_TIER, WHALE) to scripts/models/metrics_models.py
-- [ ] T003 Add `CohortMetrics` dataclass to scripts/models/metrics_models.py following spec.md structure
-- [ ] T004 Add `AddressCohortsResult` dataclass to scripts/models/metrics_models.py following spec.md structure
+- [x] T002 Add `AddressCohort` enum (RETAIL, MID_TIER, WHALE) to scripts/models/metrics_models.py
+- [x] T003 Add `CohortMetrics` dataclass to scripts/models/metrics_models.py following spec.md structure
+- [x] T004 Add `AddressCohortsResult` dataclass to scripts/models/metrics_models.py following spec.md structure
 
 **Checkpoint**: Foundation ready - User Story 1 implementation can now begin
 
@@ -50,25 +50,25 @@
 
 **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [ ] T005 [US1] Write test_calculate_retail_cohort_basic in tests/test_address_cohorts.py
-- [ ] T006 [US1] Write test_calculate_whale_cohort_basic in tests/test_address_cohorts.py
-- [ ] T007 [US1] Write test_calculate_mid_tier_cohort_basic in tests/test_address_cohorts.py
-- [ ] T008 [US1] Write test_cohort_mvrv_calculation in tests/test_address_cohorts.py
-- [ ] T009 [US1] Write test_whale_retail_spread_calculation in tests/test_address_cohorts.py
-- [ ] T010 [US1] Write test_empty_cohort_handling in tests/test_address_cohorts.py
-- [ ] T011 [US1] Write test_null_address_excluded in tests/test_address_cohorts.py
+- [x] T005 [US1] Write test_calculate_retail_cohort_basic in tests/test_address_cohorts.py
+- [x] T006 [US1] Write test_calculate_whale_cohort_basic in tests/test_address_cohorts.py
+- [x] T007 [US1] Write test_calculate_mid_tier_cohort_basic in tests/test_address_cohorts.py
+- [x] T008 [US1] Write test_cohort_mvrv_calculation in tests/test_address_cohorts.py
+- [x] T009 [US1] Write test_whale_retail_spread_calculation in tests/test_address_cohorts.py
+- [x] T010 [US1] Write test_empty_cohort_handling in tests/test_address_cohorts.py
+- [x] T011 [US1] Write test_null_address_excluded in tests/test_address_cohorts.py
 
 **Checkpoint**: All tests written and failing (RED phase complete)
 
 ### Implementation for User Story 1
 
-- [ ] T012 [US1] Create scripts/metrics/address_cohorts.py with module docstring and imports
-- [ ] T013 [E] [US1] Implement `calculate_address_cohorts()` function with two-stage SQL aggregation in scripts/metrics/address_cohorts.py
-- [ ] T014 [US1] Implement `_classify_cohort()` helper function for balance → cohort mapping in scripts/metrics/address_cohorts.py
-- [ ] T015 [US1] Implement `_calculate_mvrv()` helper function in scripts/metrics/address_cohorts.py
-- [ ] T016 [US1] Implement `_calculate_cross_cohort_signals()` function in scripts/metrics/address_cohorts.py
-- [ ] T017 [US1] Run full test suite: `uv run pytest tests/test_address_cohorts.py -v --cov=scripts/metrics/address_cohorts --cov-report=term-missing`
-- [ ] T018 [P] [US1] Run linter and formatter: `ruff check scripts/metrics/address_cohorts.py && ruff format scripts/metrics/address_cohorts.py`
+- [x] T012 [US1] Create scripts/metrics/address_cohorts.py with module docstring and imports
+- [x] T013 [E] [US1] Implement `calculate_address_cohorts()` function with two-stage SQL aggregation in scripts/metrics/address_cohorts.py
+- [x] T014 [US1] Implement `_classify_cohort()` helper function for balance → cohort mapping in scripts/metrics/address_cohorts.py
+- [x] T015 [US1] Implement `_calculate_mvrv()` helper function in scripts/metrics/address_cohorts.py
+- [x] T016 [US1] Implement `_calculate_cross_cohort_signals()` function in scripts/metrics/address_cohorts.py
+- [x] T017 [US1] Run full test suite: `uv run pytest tests/test_address_cohorts.py -v --cov=scripts/metrics/address_cohorts --cov-report=term-missing`
+- [x] T018 [P] [US1] Run linter and formatter: `ruff check scripts/metrics/address_cohorts.py && ruff format scripts/metrics/address_cohorts.py`
 
 **Checkpoint**: Core calculation complete - all tests passing (GREEN phase)
 
@@ -83,15 +83,15 @@
 
 ### Tests for User Story 2 (TDD)
 
-- [ ] T019 [US2] Write test_address_cohorts_api_endpoint_success in tests/test_address_cohorts.py
-- [ ] T020 [US2] Write test_address_cohorts_api_endpoint_error_handling in tests/test_address_cohorts.py
+- [x] T019 [US2] Write test_address_cohorts_api_endpoint_success in tests/test_address_cohorts.py
+- [x] T020 [US2] Write test_address_cohorts_api_endpoint_error_handling in tests/test_address_cohorts.py
 
 ### Implementation for User Story 2
 
-- [ ] T021 [US2] Add `AddressCohortsResponse` Pydantic model to api/main.py
-- [ ] T022 [US2] Add GET `/api/metrics/address-cohorts` endpoint to api/main.py
-- [ ] T023 [US2] Add proper error handling and logging to endpoint in api/main.py
-- [ ] T024 [P] [US2] Run API tests: `uv run pytest tests/test_address_cohorts.py::test_address_cohorts_api -v`
+- [x] T021 [US2] Add `AddressCohortsResponse` Pydantic model to api/main.py
+- [x] T022 [US2] Add GET `/api/metrics/address-cohorts` endpoint to api/main.py
+- [x] T023 [US2] Add proper error handling and logging to endpoint in api/main.py
+- [x] T024 [P] [US2] Run API tests: `uv run pytest tests/test_address_cohorts.py::test_address_cohorts_api -v`
 
 **Checkpoint**: API endpoint functional
 
@@ -101,10 +101,10 @@
 
 **Purpose**: Documentation and final validation
 
-- [ ] T025 [P] Update docs/ARCHITECTURE.md with Address Cohorts metric documentation
-- [ ] T026 [P] Add usage examples to scripts/metrics/address_cohorts.py docstrings
-- [ ] T027 Run full test suite with coverage: `uv run pytest tests/ -v --cov=scripts/metrics/address_cohorts --cov-fail-under=85`
-- [ ] T028 Validate against success criteria from spec.md
+- [x] T025 [P] Update docs/ARCHITECTURE.md with Address Cohorts metric documentation
+- [x] T026 [P] Add usage examples to scripts/metrics/address_cohorts.py docstrings
+- [x] T027 Run full test suite with coverage: `uv run pytest tests/ -v --cov=scripts/metrics/address_cohorts --cov-fail-under=85`
+- [x] T028 Validate against success criteria from spec.md
 
 ---
 

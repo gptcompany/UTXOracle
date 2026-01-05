@@ -662,6 +662,26 @@ Supply distribution analysis by wallet age cohorts:
 
 ---
 
+## Address Balance Cohorts (spec-039)
+
+Balance-based cohort analysis for cost basis and MVRV by holder size:
+
+* **Three Cohorts**: RETAIL (<1 BTC), MID_TIER (1-100 BTC), WHALE (>=100 BTC)
+* **Per-Cohort Metrics**: cost_basis, supply_btc, supply_pct, mvrv, address_count
+* **Cross-Cohort Signals**:
+  - `whale_retail_spread`: Negative = whales have better cost basis (conviction)
+  - `whale_retail_mvrv_ratio`: >1 = whales more profitable than retail
+
+**Implementation:**
+- `scripts/metrics/address_cohorts.py` - Two-stage SQL aggregation
+- `scripts/models/metrics_models.py` - AddressCohort, CohortMetrics, AddressCohortsResult
+- `tests/test_address_cohorts.py` - TDD test suite (87% coverage)
+
+**API Endpoints:**
+- `GET /api/metrics/address-cohorts` - Cohort analysis with MVRV and cross-cohort signals
+
+---
+
 ## Exchange Netflow (spec-026)
 
 Exchange flow analysis for accumulation/distribution detection:

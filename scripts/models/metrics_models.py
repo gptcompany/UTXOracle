@@ -2986,3 +2986,140 @@ class MiningEconomicsResult:
             if hasattr(self.timestamp, "isoformat")
             else str(self.timestamp),
         }
+
+
+# =============================================================================
+# Address Balance Cohorts (spec-039)
+# =============================================================================
+
+
+class AddressCohort(Enum):
+    """Address balance cohort classification.
+
+    Three-tier structure aligned with whale detection thresholds:
+    - RETAIL: Small holders (< 1 BTC)
+    - MID_TIER: Affluent individuals (1-100 BTC)
+    - WHALE: Institutions/Funds (>= 100 BTC)
+
+    The 100 BTC whale threshold aligns with spec-004, spec-005.
+    Spec: spec-039
+    """
+
+    RETAIL = "retail"  # < 1 BTC
+    MID_TIER = "mid_tier"  # 1-100 BTC
+    WHALE = "whale"  # >= 100 BTC
+
+
+@dataclass
+class CohortMetrics:
+    """Metrics for a single address balance cohort.
+
+    Per-cohort aggregation of cost basis, supply, and MVRV.
+    Cost basis uses same methodology as spec-023 (weighted average).
+
+    Attributes:
+        cohort: Enum value for type safety
+        cost_basis: Weighted avg acquisition price (SUM(price*btc)/SUM(btc))
+        supply_btc: Total BTC held by this cohort
+        supply_pct: Percentage of total supply held
+        mvrv: Market value to realized value (current_price / cost_basis)
+        address_count: Number of unique addresses in cohort
+
+    Spec: spec-039
+    """
+
+    cohort: AddressCohort
+    cost_basis: float
+    supply_btc: float
+    supply_pct: float
+    mvrv: float
+    address_count: int
+
+    def __post_init__(self):
+        """Validate cohort metrics fields."""
+        if self.supply_btc < 0:
+            raise ValueError(f"supply_btc must be >= 0: {self.supply_btc}")
+        if not 0 <= self.supply_pct <= 100:
+            raise ValueError(f"supply_pct must be 0-100: {self.supply_pct}")
+        if self.address_count < 0:
+            raise ValueError(f"address_count must be >= 0: {self.address_count}")
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "cohort": self.cohort.value,
+            "cost_basis": self.cost_basis,
+            "supply_btc": self.supply_btc,
+            "supply_pct": self.supply_pct,
+            "mvrv": self.mvrv,
+            "address_count": self.address_count,
+        }
+
+
+@dataclass
+class AddressCohortsResult:
+    """Complete address cohorts analysis result.
+
+    Combines per-cohort metrics with cross-cohort analysis signals.
+    Reveals accumulation/distribution patterns and conviction levels.
+
+    Cross-Cohort Signals:
+    - whale_retail_spread > 0: Whales bought higher (retail has better basis)
+    - whale_retail_spread < 0: Whales bought lower (whales have conviction)
+    - whale_retail_mvrv_ratio < 1: Whales more profitable than retail
+
+    Attributes:
+        timestamp: When analysis was performed
+        block_height: Bitcoin block height at calculation time
+        current_price_usd: Price used for MVRV calculations
+        retail: Metrics for retail cohort (< 1 BTC)
+        mid_tier: Metrics for mid-tier cohort (1-100 BTC)
+        whale: Metrics for whale cohort (>= 100 BTC)
+        whale_retail_spread: whale_cost_basis - retail_cost_basis
+        whale_retail_mvrv_ratio: whale_mvrv / retail_mvrv
+        total_supply_btc: Sum of all cohort supplies
+        total_addresses: Sum of all cohort address counts
+
+    Spec: spec-039
+    """
+
+    timestamp: datetime
+    block_height: int
+    current_price_usd: float
+    retail: CohortMetrics
+    mid_tier: CohortMetrics
+    whale: CohortMetrics
+    whale_retail_spread: float
+    whale_retail_mvrv_ratio: float
+    total_supply_btc: float
+    total_addresses: int
+
+    def __post_init__(self):
+        """Validate address cohorts result fields."""
+        if self.current_price_usd <= 0:
+            raise ValueError(f"current_price_usd must be > 0: {self.current_price_usd}")
+        if self.total_supply_btc < 0:
+            raise ValueError(f"total_supply_btc must be >= 0: {self.total_supply_btc}")
+        if self.total_addresses < 0:
+            raise ValueError(f"total_addresses must be >= 0: {self.total_addresses}")
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "timestamp": self.timestamp.isoformat()
+            if hasattr(self.timestamp, "isoformat")
+            else str(self.timestamp),
+            "block_height": self.block_height,
+            "current_price_usd": self.current_price_usd,
+            "cohorts": {
+                "retail": self.retail.to_dict(),
+                "mid_tier": self.mid_tier.to_dict(),
+                "whale": self.whale.to_dict(),
+            },
+            "analysis": {
+                "whale_retail_spread": self.whale_retail_spread,
+                "whale_retail_mvrv_ratio": self.whale_retail_mvrv_ratio,
+            },
+            "total_supply_btc": self.total_supply_btc,
+            "total_addresses": self.total_addresses,
+        }

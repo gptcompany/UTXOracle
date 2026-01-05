@@ -2675,6 +2675,100 @@ async def get_cost_basis(
 
 
 # =============================================================================
+# Spec-039: Address Balance Cohorts Endpoints
+# =============================================================================
+
+
+class CohortMetricsResponse(BaseModel):
+    """Response model for a single cohort's metrics."""
+
+    cohort: str = Field(..., description="Cohort name (retail, mid_tier, whale)")
+    cost_basis: float = Field(..., description="Weighted average cost basis (USD)")
+    supply_btc: float = Field(..., description="Total BTC held by this cohort")
+    supply_pct: float = Field(..., description="Percentage of total supply (0-100)")
+    mvrv: float = Field(..., description="Market Value to Realized Value ratio")
+    address_count: int = Field(..., description="Number of addresses in this cohort")
+
+
+class AddressCohortsAnalysis(BaseModel):
+    """Cross-cohort analysis signals."""
+
+    whale_retail_spread: float = Field(
+        ...,
+        description="whale_cost_basis - retail_cost_basis (negative = whales have conviction)",
+    )
+    whale_retail_mvrv_ratio: float = Field(
+        ..., description="whale_mvrv / retail_mvrv (>1 = whales more profitable)"
+    )
+
+
+class AddressCohortsResponse(BaseModel):
+    """Address balance cohorts analysis (spec-039)."""
+
+    timestamp: str = Field(..., description="ISO timestamp of calculation")
+    block_height: int = Field(..., description="Bitcoin block height at calculation")
+    current_price_usd: float = Field(..., description="Price used for MVRV calculation")
+    cohorts: dict[str, CohortMetricsResponse] = Field(
+        ..., description="Per-cohort metrics (retail, mid_tier, whale)"
+    )
+    analysis: AddressCohortsAnalysis = Field(..., description="Cross-cohort signals")
+    total_supply_btc: float = Field(..., description="Sum of all cohort supplies")
+    total_addresses: int = Field(..., description="Sum of all cohort address counts")
+
+
+@app.get("/api/metrics/address-cohorts", response_model=AddressCohortsResponse)
+async def get_address_cohorts(
+    current_price: float = Query(
+        default=100000.0,
+        ge=1.0,
+        description="Current BTC price for MVRV calculation",
+    ),
+):
+    """
+    Calculate Address Balance Cohorts metrics (spec-039).
+
+    Segments addresses into three cohorts based on total balance:
+    - **retail**: < 1 BTC (small holders)
+    - **mid_tier**: 1-100 BTC (affluent individuals)
+    - **whale**: >= 100 BTC (institutions, funds)
+
+    **Key Signals:**
+    - **whale_retail_spread < 0**: Whales bought at lower prices (conviction)
+    - **whale_retail_mvrv_ratio > 1**: Whales more profitable than retail
+
+    Uses `utxo_lifecycle_full` VIEW for two-stage aggregation.
+    """
+    import duckdb
+
+    conn = None
+    try:
+        db_path = os.getenv("UTXO_LIFECYCLE_DB", "data/utxo_lifecycle.duckdb")
+        conn = duckdb.connect(db_path, read_only=True)
+
+        # Get current block height
+        result = conn.execute(
+            "SELECT MAX(creation_block) FROM utxo_lifecycle_full"
+        ).fetchone()
+        current_block = result[0] if result and result[0] else 0
+
+        from scripts.metrics.address_cohorts import calculate_address_cohorts
+
+        result = calculate_address_cohorts(
+            conn=conn,
+            current_block=current_block,
+            current_price_usd=current_price,
+        )
+
+        return result.to_dict()
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Calculation error: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+# =============================================================================
 # Spec-025: Wallet Waves & Absorption Rates Endpoints
 # =============================================================================
 
