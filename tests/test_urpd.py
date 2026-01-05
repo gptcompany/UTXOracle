@@ -7,7 +7,11 @@ TDD: Tests written BEFORE implementation.
 import duckdb
 import pytest
 
-from scripts.models.metrics_models import URPDBucket, URPDResult
+from scripts.models.metrics_models import (
+    CostBasisPercentiles,
+    URPDBucket,
+    URPDResult,
+)
 
 
 @pytest.fixture
@@ -379,3 +383,163 @@ class TestURPDResult:
         assert d["block_height"] == 875000
         assert len(d["buckets"]) == 1
         assert d["dominant_bucket"]["btc_amount"] == 3.0
+
+
+class TestCostBasisPercentiles:
+    """Tests for CostBasisPercentiles dataclass."""
+
+    def test_valid_percentiles(self):
+        """Valid percentiles creation succeeds."""
+        percentiles = CostBasisPercentiles(
+            p10=10000.0,
+            p25=25000.0,
+            p50=50000.0,
+            p75=75000.0,
+            p90=90000.0,
+        )
+        assert percentiles.p10 == 10000.0
+        assert percentiles.p50 == 50000.0
+        assert percentiles.p90 == 90000.0
+
+    def test_percentiles_not_ascending_fails(self):
+        """Percentiles not in ascending order raises ValueError."""
+        with pytest.raises(ValueError, match="must be in ascending order"):
+            CostBasisPercentiles(
+                p10=50000.0,  # Higher than p25!
+                p25=25000.0,
+                p50=50000.0,
+                p75=75000.0,
+                p90=90000.0,
+            )
+
+    def test_negative_percentile_fails(self):
+        """Negative percentile value raises ValueError."""
+        with pytest.raises(ValueError, match="must be >= 0"):
+            CostBasisPercentiles(
+                p10=-1000.0,
+                p25=25000.0,
+                p50=50000.0,
+                p75=75000.0,
+                p90=90000.0,
+            )
+
+    def test_to_dict(self):
+        """to_dict() returns correct structure."""
+        percentiles = CostBasisPercentiles(
+            p10=10000.0,
+            p25=25000.0,
+            p50=50000.0,
+            p75=75000.0,
+            p90=90000.0,
+        )
+        d = percentiles.to_dict()
+        assert d["p10"] == 10000.0
+        assert d["p25"] == 25000.0
+        assert d["p50"] == 50000.0
+        assert d["p75"] == 75000.0
+        assert d["p90"] == 90000.0
+
+
+class TestCalculateCostBasisPercentiles:
+    """Tests for calculate_cost_basis_percentiles() function."""
+
+    def test_percentiles_calculation(self, test_db):
+        """T016: Percentiles are correctly calculated weighted by BTC value."""
+        from scripts.metrics.urpd import calculate_cost_basis_percentiles
+
+        result = calculate_cost_basis_percentiles(test_db)
+
+        assert result is not None
+        assert isinstance(result, CostBasisPercentiles)
+
+        # Test data has:
+        # - 3 BTC at $10k-$15k range (1.5 @ $12k, 1.5 @ $14k)
+        # - 2 BTC at $50k-$55k range (1.0 @ $52k, 1.0 @ $53k)
+        # - 1.5 BTC at $95k-$100k range (0.75 @ $97k, 0.75 @ $99k)
+        # Total: 6.5 BTC
+
+        # Cumulative distribution:
+        # @$12k: 1.5/6.5 = 23.1%
+        # @$14k: 3.0/6.5 = 46.2%
+        # @$52k: 4.0/6.5 = 61.5%
+        # @$53k: 5.0/6.5 = 76.9%
+        # @$97k: 5.75/6.5 = 88.5%
+        # @$99k: 6.5/6.5 = 100.0%
+
+        # p10 (10%) should be around $12k (first UTXO)
+        assert 11000 <= result.p10 <= 13000
+
+        # p25 (25%) should be around $12k-$14k
+        assert 12000 <= result.p25 <= 14000
+
+        # p50 (50%) should be around $52k (between $14k and $52k)
+        assert 20000 <= result.p50 <= 53000
+
+        # p75 (75%) should be around $53k (just before $97k)
+        assert 52000 <= result.p75 <= 70000
+
+        # p90 (90%) should be around $97k-$99k
+        assert 95000 <= result.p90 <= 100000
+
+        # Verify ascending order
+        assert result.p10 <= result.p25 <= result.p50 <= result.p75 <= result.p90
+
+    def test_percentiles_in_urpd_result(self, test_db):
+        """T017: calculate_urpd() includes percentiles in result."""
+        from scripts.metrics.urpd import calculate_urpd
+
+        result = calculate_urpd(
+            conn=test_db,
+            current_price_usd=100000.0,
+            bucket_size_usd=5000.0,
+            block_height=875000,
+        )
+
+        # Verify percentiles are included
+        assert result.percentiles is not None
+        assert isinstance(result.percentiles, CostBasisPercentiles)
+        assert result.percentiles.p10 > 0
+        assert result.percentiles.p90 > 0
+
+    def test_percentiles_empty_db(self):
+        """T018: Empty database returns None for percentiles."""
+        from scripts.metrics.urpd import calculate_cost_basis_percentiles
+
+        # Create empty database
+        conn = duckdb.connect(":memory:")
+        conn.execute(
+            """
+            CREATE TABLE utxo_lifecycle (
+                outpoint VARCHAR PRIMARY KEY,
+                creation_price_usd DOUBLE,
+                btc_value DOUBLE,
+                is_spent BOOLEAN DEFAULT FALSE
+            )
+            """
+        )
+        conn.execute("CREATE VIEW utxo_lifecycle_full AS SELECT * FROM utxo_lifecycle")
+
+        result = calculate_cost_basis_percentiles(conn)
+        conn.close()
+
+        assert result is None
+
+    def test_percentiles_to_dict_in_urpd(self, test_db):
+        """T019: URPDResult.to_dict() includes percentiles."""
+        from scripts.metrics.urpd import calculate_urpd
+
+        result = calculate_urpd(
+            conn=test_db,
+            current_price_usd=100000.0,
+            bucket_size_usd=5000.0,
+            block_height=875000,
+        )
+
+        d = result.to_dict()
+        assert "percentiles" in d
+        assert d["percentiles"] is not None
+        assert "p10" in d["percentiles"]
+        assert "p25" in d["percentiles"]
+        assert "p50" in d["percentiles"]
+        assert "p75" in d["percentiles"]
+        assert "p90" in d["percentiles"]

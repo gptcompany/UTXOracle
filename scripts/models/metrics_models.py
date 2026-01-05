@@ -1215,6 +1215,58 @@ class URPDBucket:
 
 
 @dataclass
+class CostBasisPercentiles:
+    """Cost basis percentiles weighted by BTC value.
+
+    Shows distribution of UTXO acquisition prices at key percentiles.
+    Useful for understanding support/resistance levels where significant
+    supply was accumulated.
+
+    Attributes:
+        p10: 10th percentile price (10% of supply acquired below this price)
+        p25: 25th percentile price (1st quartile)
+        p50: 50th percentile price (median cost basis)
+        p75: 75th percentile price (3rd quartile)
+        p90: 90th percentile price (90% of supply acquired below this price)
+    """
+
+    p10: float
+    p25: float
+    p50: float
+    p75: float
+    p90: float
+
+    def __post_init__(self):
+        """Validate percentiles are in ascending order."""
+        percentiles = [self.p10, self.p25, self.p50, self.p75, self.p90]
+        for i, p in enumerate(percentiles):
+            if p < 0:
+                raise ValueError(
+                    f"Percentile values must be >= 0: p{[10, 25, 50, 75, 90][i]} = {p}"
+                )
+
+        # Check ascending order
+        if not all(
+            percentiles[i] <= percentiles[i + 1] for i in range(len(percentiles) - 1)
+        ):
+            raise ValueError(
+                f"Percentiles must be in ascending order: "
+                f"p10={self.p10}, p25={self.p25}, p50={self.p50}, "
+                f"p75={self.p75}, p90={self.p90}"
+            )
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "p10": self.p10,
+            "p25": self.p25,
+            "p50": self.p50,
+            "p75": self.p75,
+            "p90": self.p90,
+        }
+
+
+@dataclass
 class URPDResult:
     """UTXO Realized Price Distribution result.
 
@@ -1231,6 +1283,7 @@ class URPDResult:
         supply_above_price_pct: % of supply in loss
         supply_below_price_pct: % of supply in profit
         dominant_bucket: Bucket with highest BTC amount
+        percentiles: Cost basis percentiles (optional)
         block_height: Block height at calculation
         timestamp: Calculation timestamp
     """
@@ -1245,6 +1298,7 @@ class URPDResult:
     supply_below_price_pct: float
     dominant_bucket: Optional["URPDBucket"]
     block_height: int
+    percentiles: Optional[CostBasisPercentiles] = None
     timestamp: datetime = field(default_factory=datetime.utcnow)
 
     def __post_init__(self):
@@ -1270,6 +1324,7 @@ class URPDResult:
             "dominant_bucket": self.dominant_bucket.to_dict()
             if self.dominant_bucket
             else None,
+            "percentiles": self.percentiles.to_dict() if self.percentiles else None,
             "block_height": self.block_height,
             "timestamp": self.timestamp.isoformat()
             if hasattr(self.timestamp, "isoformat")

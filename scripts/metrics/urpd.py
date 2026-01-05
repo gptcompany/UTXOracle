@@ -26,7 +26,11 @@ from typing import TYPE_CHECKING
 
 import duckdb
 
-from scripts.models.metrics_models import URPDBucket, URPDResult
+from scripts.models.metrics_models import (
+    CostBasisPercentiles,
+    URPDBucket,
+    URPDResult,
+)
 
 if TYPE_CHECKING:
     pass
@@ -99,6 +103,7 @@ def calculate_urpd(
             supply_above_price_pct=0.0,
             supply_below_price_pct=0.0,
             dominant_bucket=None,
+            percentiles=None,
             block_height=block_height,
             timestamp=datetime.utcnow(),
         )
@@ -148,6 +153,9 @@ def calculate_urpd(
     supply_above_pct = (supply_above / total_supply) * 100 if total_supply > 0 else 0.0
     supply_below_pct = (supply_below / total_supply) * 100 if total_supply > 0 else 0.0
 
+    # Calculate cost basis percentiles
+    percentiles = calculate_cost_basis_percentiles(conn)
+
     if max_btc_bucket:
         logger.info(
             f"URPD calculated: {len(buckets)} buckets, {total_supply:.2f} BTC total, "
@@ -169,8 +177,117 @@ def calculate_urpd(
         supply_above_price_pct=supply_above_pct,
         supply_below_price_pct=supply_below_pct,
         dominant_bucket=max_btc_bucket,
+        percentiles=percentiles,
         block_height=block_height,
         timestamp=datetime.utcnow(),
+    )
+
+
+def calculate_cost_basis_percentiles(
+    conn: duckdb.DuckDBPyConnection,
+) -> CostBasisPercentiles | None:
+    """Calculate cost basis percentiles weighted by BTC value.
+
+    Computes percentiles (p10, p25, p50, p75, p90) of UTXO acquisition prices
+    weighted by BTC value. For example, p50 is the price where 50% of the
+    total supply (by BTC amount) was acquired below that price.
+
+    Args:
+        conn: DuckDB connection with utxo_lifecycle table.
+
+    Returns:
+        CostBasisPercentiles or None if no data available.
+
+    Example:
+        >>> percentiles = calculate_cost_basis_percentiles(conn)
+        >>> percentiles.p50  # Median cost basis
+        67000.0
+        >>> percentiles.p90  # 90% of supply acquired below this price
+        95000.0
+    """
+    logger.debug("Calculating cost basis percentiles")
+
+    # Query: Get all unspent UTXOs sorted by creation price
+    # We'll calculate percentiles client-side for flexibility
+    query = """
+        SELECT
+            creation_price_usd,
+            btc_value
+        FROM utxo_lifecycle_full
+        WHERE is_spent = FALSE
+          AND creation_price_usd IS NOT NULL
+        ORDER BY creation_price_usd ASC
+    """
+
+    result = conn.execute(query).fetchall()
+
+    if not result:
+        logger.warning("No unspent UTXOs found for percentile calculation")
+        return None
+
+    # Build cumulative distribution
+    prices = []
+    btc_amounts = []
+    total_btc = 0.0
+
+    for row in result:
+        price = float(row[0])
+        btc = float(row[1])
+        prices.append(price)
+        btc_amounts.append(btc)
+        total_btc += btc
+
+    if total_btc == 0:
+        logger.warning("Total BTC is zero, cannot calculate percentiles")
+        return None
+
+    # Calculate cumulative BTC
+    cumulative_btc = 0.0
+    cumulative_pcts = []
+
+    for btc in btc_amounts:
+        cumulative_btc += btc
+        cumulative_pcts.append(cumulative_btc / total_btc)
+
+    # Find percentile values using linear interpolation
+    def find_percentile(target_pct: float) -> float:
+        """Find price at target percentile using linear interpolation."""
+        for i, pct in enumerate(cumulative_pcts):
+            if pct >= target_pct:
+                if i == 0:
+                    return prices[0]
+                # Linear interpolation between i-1 and i
+                pct_prev = cumulative_pcts[i - 1]
+                pct_curr = pct
+                price_prev = prices[i - 1]
+                price_curr = prices[i]
+
+                # Interpolate
+                if pct_curr == pct_prev:
+                    return price_curr
+                weight = (target_pct - pct_prev) / (pct_curr - pct_prev)
+                return price_prev + weight * (price_curr - price_prev)
+
+        # If we get here, return the highest price
+        return prices[-1]
+
+    p10 = find_percentile(0.10)
+    p25 = find_percentile(0.25)
+    p50 = find_percentile(0.50)
+    p75 = find_percentile(0.75)
+    p90 = find_percentile(0.90)
+
+    logger.info(
+        f"Percentiles calculated: p10=${p10:,.0f}, p25=${p25:,.0f}, "
+        f"p50=${p50:,.0f}, p75=${p75:,.0f}, p90=${p90:,.0f}"
+    )
+
+    return CostBasisPercentiles(
+        p10=p10,
+        p25=p25,
+        p50=p50,
+        p75=p75,
+        p90=p90,
     )
 
 

@@ -81,6 +81,18 @@ Advanced analytics built on top of UTXOracle price calculation:
   * Low confidence flag when UTXOracle confidence <0.3
   * Performance: <1ms per 1000 transactions
 
+- **NVT Ratio** (`scripts/metrics/nvt.py`)
+  * NVT = Market Cap / Daily TX Volume (USD)
+  * Similar to P/E ratio for stocks
+  * Signals: undervalued (<30), fair (30-90), overvalued (>90)
+  * API: `/api/metrics/nvt`
+
+- **Volatility** (`scripts/metrics/volatility.py`)
+  * Annualized volatility from log returns std deviation
+  * Regimes: low (<30%), normal (30-60%), high (60-100%), extreme (>100%)
+  * Configurable rolling window (2-365 days)
+  * API: `/api/metrics/volatility`
+
 - **Data Models** (`scripts/models/metrics_models.py`)
   * `MonteCarloFusionResult`: Signal stats and CI
   * `ActiveAddressesMetric`: Address activity counts

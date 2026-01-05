@@ -3128,6 +3128,45 @@ class SOPRResponse(BaseModel):
 
 
 # =============================================================================
+# NVT Response Model
+# =============================================================================
+
+
+class NVTResponse(BaseModel):
+    """NVT (Network Value to Transactions) ratio response model.
+
+    NVT = Market Cap / Daily TX Volume (USD)
+    Similar to P/E ratio - measures network valuation vs utility.
+    """
+
+    nvt_ratio: float = Field(..., description="NVT ratio value")
+    market_cap_usd: float = Field(..., ge=0, description="Total market cap in USD")
+    tx_volume_usd: float = Field(..., gt=0, description="Daily TX volume in USD")
+    signal: str = Field(..., description="undervalued, fair, or overvalued")
+    date: str = Field(..., description="Date of calculation (YYYY-MM-DD)")
+    timestamp: str = Field(..., description="ISO timestamp of calculation")
+
+
+# =============================================================================
+# Volatility Response Model
+# =============================================================================
+
+
+class VolatilityResponse(BaseModel):
+    """Price volatility response model.
+
+    Annualized volatility based on log returns standard deviation.
+    """
+
+    daily_volatility: float = Field(..., description="Daily volatility (decimal)")
+    annualized_pct: float = Field(..., ge=0, description="Annualized volatility %")
+    window_days: int = Field(..., ge=2, description="Calculation window in days")
+    regime: str = Field(..., description="low, normal, high, or extreme")
+    date: str = Field(..., description="Date of calculation (YYYY-MM-DD)")
+    timestamp: str = Field(..., description="ISO timestamp of calculation")
+
+
+# =============================================================================
 # Puell Multiple Response Model (spec-021)
 # =============================================================================
 
@@ -4733,6 +4772,166 @@ async def get_sopr(
                 status_code=404, detail="UTXO lifecycle table not found."
             )
         logging.error(f"Error calculating SOPR: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+# =============================================================================
+# NVT Ratio Endpoint
+# =============================================================================
+
+
+@app.get("/api/metrics/nvt", response_model=NVTResponse)
+async def get_nvt(
+    current_price: float = Query(
+        default=100000.0, ge=1.0, description="Current BTC price"
+    ),
+):
+    """
+    Calculate NVT (Network Value to Transactions) Ratio.
+
+    NVT = Market Cap / Daily TX Volume (USD)
+
+    **Interpretation:**
+    - **NVT < 30**: Network undervalued - high utility vs valuation
+    - **NVT 30-90**: Fair value range
+    - **NVT > 90**: Network overvalued - speculation > utility
+
+    Similar to P/E ratio for stocks.
+    """
+    import duckdb
+    from datetime import datetime, date
+
+    from scripts.config import UTXORACLE_DB_PATH
+    from scripts.metrics.nvt import calculate_nvt
+
+    conn = None
+    try:
+        conn = duckdb.connect(str(UTXORACLE_DB_PATH), read_only=True)
+
+        # Get circulating supply
+        supply_result = conn.execute(
+            """
+            SELECT COALESCE(SUM(btc_value), 0) AS supply
+            FROM utxo_lifecycle_full
+            WHERE is_spent = FALSE
+            """
+        ).fetchone()
+        circulating_supply = supply_result[0] if supply_result else 0
+
+        # Get daily TX volume (last 24h spent UTXOs)
+        volume_result = conn.execute(
+            """
+            SELECT COALESCE(SUM(btc_value), 0) AS volume
+            FROM utxo_lifecycle_full
+            WHERE is_spent = TRUE
+              AND spent_block >= (SELECT MAX(height) - 144 FROM block_heights)
+            """
+        ).fetchone()
+        tx_volume_btc = volume_result[0] if volume_result else 0
+
+        if circulating_supply <= 0 or tx_volume_btc <= 0:
+            raise HTTPException(
+                status_code=503, detail="Insufficient data for NVT calculation"
+            )
+
+        market_cap_usd = circulating_supply * current_price
+        tx_volume_usd = tx_volume_btc * current_price
+
+        result = calculate_nvt(market_cap_usd, tx_volume_usd, date.today())
+
+        return NVTResponse(
+            nvt_ratio=round(result.nvt_ratio, 2),
+            market_cap_usd=round(result.market_cap_usd, 0),
+            tx_volume_usd=round(result.tx_volume_usd, 0),
+            signal=result.signal,
+            date=result.date.isoformat(),
+            timestamp=datetime.now().isoformat(),
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error calculating NVT: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+# =============================================================================
+# Volatility Endpoint
+# =============================================================================
+
+
+@app.get("/api/metrics/volatility", response_model=VolatilityResponse)
+async def get_volatility(
+    window_days: int = Query(
+        default=30, ge=2, le=365, description="Rolling window in days"
+    ),
+):
+    """
+    Calculate Bitcoin price volatility.
+
+    Uses log returns standard deviation, annualized.
+
+    **Interpretation:**
+    - **< 30%**: Low volatility (rare for BTC)
+    - **30-60%**: Normal BTC volatility
+    - **60-100%**: High volatility
+    - **> 100%**: Extreme volatility
+
+    **Parameters:**
+    - window_days: Rolling window (default 30, max 365)
+    """
+    import duckdb
+    from datetime import datetime, date
+
+    from scripts.config import UTXORACLE_DB_PATH
+    from scripts.metrics.volatility import calculate_volatility
+
+    conn = None
+    try:
+        conn = duckdb.connect(str(UTXORACLE_DB_PATH), read_only=True)
+
+        # Get price history from daily_prices table
+        result = conn.execute(
+            """
+            SELECT price_usd
+            FROM daily_prices
+            WHERE price_usd > 0
+            ORDER BY date DESC
+            LIMIT ?
+            """,
+            [window_days + 1],
+        ).fetchall()
+
+        if len(result) < 2:
+            raise HTTPException(
+                status_code=503,
+                detail="Insufficient price history for volatility calculation",
+            )
+
+        # Prices are DESC, reverse for oldest-first
+        prices = [row[0] for row in reversed(result)]
+
+        vol_result = calculate_volatility(prices, window_days, date.today())
+
+        return VolatilityResponse(
+            daily_volatility=round(vol_result.daily_volatility, 6),
+            annualized_pct=round(vol_result.annualized_pct, 2),
+            window_days=vol_result.window_days,
+            regime=vol_result.regime,
+            date=vol_result.date.isoformat(),
+            timestamp=datetime.now().isoformat(),
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error calculating volatility: {e}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
     finally:
         if conn:
