@@ -48,12 +48,17 @@ class TestCalculateVolatility:
 
     def test_single_price_raises(self):
         """Test single price raises ValueError."""
-        with pytest.raises(ValueError, match="At least 2 prices required"):
+        with pytest.raises(ValueError, match="At least 3 prices required"):
             calculate_volatility([100])
+
+    def test_two_prices_raises(self):
+        """Test two prices raises ValueError (need 3 for meaningful variance)."""
+        with pytest.raises(ValueError, match="At least 3 prices required"):
+            calculate_volatility([100, 105])
 
     def test_empty_prices_raises(self):
         """Test empty prices raises ValueError."""
-        with pytest.raises(ValueError, match="At least 2 prices required"):
+        with pytest.raises(ValueError, match="At least 3 prices required"):
             calculate_volatility([])
 
     def test_window_days_limits_data(self):

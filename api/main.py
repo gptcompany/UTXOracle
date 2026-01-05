@@ -4947,7 +4947,19 @@ async def get_nvt(
 
     except HTTPException:
         raise
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=503,
+            detail="Database not found. Run bootstrap scripts first.",
+        )
     except Exception as e:
+        error_msg = str(e).lower()
+        # B2 fix: Handle missing table/view errors with specific 503 response
+        if "does not exist" in error_msg or "catalog error" in error_msg:
+            raise HTTPException(
+                status_code=503,
+                detail="Required tables not found. Run schema migration first.",
+            )
         logging.error(f"Error calculating NVT: {e}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
     finally:
@@ -5002,10 +5014,11 @@ async def get_volatility(
             [window_days + 1],
         ).fetchall()
 
-        if len(result) < 2:
+        # B1 fix: Require at least 3 prices (2 log returns for meaningful variance)
+        if len(result) < 3:
             raise HTTPException(
                 status_code=503,
-                detail="Insufficient price history for volatility calculation",
+                detail="Insufficient price history for volatility calculation (need at least 3 days)",
             )
 
         # Prices are DESC, reverse for oldest-first
@@ -5024,7 +5037,19 @@ async def get_volatility(
 
     except HTTPException:
         raise
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=503,
+            detail="Database not found. Run bootstrap scripts first.",
+        )
     except Exception as e:
+        error_msg = str(e).lower()
+        # B2 fix: Handle missing table/view errors with specific 503 response
+        if "does not exist" in error_msg or "catalog error" in error_msg:
+            raise HTTPException(
+                status_code=503,
+                detail="Required tables not found. Run schema migration first.",
+            )
         logging.error(f"Error calculating volatility: {e}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
     finally:

@@ -73,6 +73,7 @@ def calculate_urpd(
     # Query: Group unspent UTXOs by price bucket
     # FLOOR(price / bucket_size) * bucket_size gives the bucket's lower bound
     # B1 fix: Filter out NULL creation_price_usd to prevent crash
+    # B3 fix: Filter out negative creation_price_usd to prevent ValueError in URPDBucket
     query = """
         SELECT
             FLOOR(creation_price_usd / ?) * ? AS price_bucket,
@@ -81,6 +82,7 @@ def calculate_urpd(
         FROM utxo_lifecycle_full
         WHERE is_spent = FALSE
           AND creation_price_usd IS NOT NULL
+          AND creation_price_usd > 0
         GROUP BY price_bucket
         ORDER BY price_bucket DESC
     """
@@ -209,6 +211,7 @@ def calculate_cost_basis_percentiles(
 
     # Query: Get all unspent UTXOs sorted by creation price
     # We'll calculate percentiles client-side for flexibility
+    # B3 fix: Filter out negative creation_price_usd to prevent ValueError
     query = """
         SELECT
             creation_price_usd,
@@ -216,6 +219,7 @@ def calculate_cost_basis_percentiles(
         FROM utxo_lifecycle_full
         WHERE is_spent = FALSE
           AND creation_price_usd IS NOT NULL
+          AND creation_price_usd > 0
         ORDER BY creation_price_usd ASC
     """
 

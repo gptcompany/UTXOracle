@@ -75,10 +75,12 @@ def calculate_volatility(
         VolatilityResult with daily and annualized volatility
 
     Raises:
-        ValueError: If fewer than 2 prices provided
+        ValueError: If fewer than 3 prices provided (need 2+ log returns for variance)
     """
-    if len(prices) < 2:
-        raise ValueError("At least 2 prices required for volatility calculation")
+    # B1 fix: Require 3 prices for meaningful volatility (2 log returns for variance)
+    # With only 2 prices we get 1 log return, and variance of single value is always 0
+    if len(prices) < 3:
+        raise ValueError("At least 3 prices required for volatility calculation")
 
     # Use all prices if window not specified
     if window_days is None:
