@@ -45,7 +45,9 @@ Using simplified 3-tier structure (aligned with spec-025 but consolidated):
 |--------|---------|--------|
 | `whale_retail_spread` | whale_cost_basis - retail_cost_basis | Positive = whales bought higher |
 | `whale_retail_mvrv_ratio` | whale_mvrv / retail_mvrv | < 1 = whales more profitable |
-| `accumulation_signal` | -1 to +1 based on supply flow | Who's accumulating? |
+
+**Future Enhancement** (requires historical data):
+| `accumulation_signal` | Δwhale_supply_pct vs Δprice correlation | -1 to +1, who's accumulating? |
 
 ### Signal Interpretation
 
@@ -54,7 +56,7 @@ Using simplified 3-tier structure (aligned with spec-025 but consolidated):
 - Spread < 0: Whales bought at lower prices (whales have conviction)
 - Spread narrowing during dip: Whales accumulating
 
-**Accumulation Signal:**
+**Accumulation Signal** (future enhancement - requires historical tracking):
 - +1.0: Strong whale accumulation (whale supply % increasing during price decline)
 - -1.0: Strong whale distribution (whale supply % decreasing during price rise)
 - 0.0: Neutral (balanced flows or sideways market)
@@ -110,10 +112,18 @@ GROUP BY cohort;
 ### Output Structure
 
 ```python
+from enum import Enum
+
+class AddressCohort(Enum):
+    """Address balance cohort classification."""
+    RETAIL = "retail"       # < 1 BTC
+    MID_TIER = "mid_tier"   # 1-100 BTC
+    WHALE = "whale"         # >= 100 BTC
+
 @dataclass
 class CohortMetrics:
     """Metrics for a single address cohort."""
-    cohort: str                 # "retail", "mid_tier", "whale"
+    cohort: AddressCohort       # Enum value for type safety
     cost_basis: float           # Weighted avg acquisition price
     supply_btc: float           # Total BTC in cohort
     supply_pct: float           # % of total supply
