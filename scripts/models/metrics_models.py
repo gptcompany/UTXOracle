@@ -3037,10 +3037,14 @@ class CohortMetrics:
 
     def __post_init__(self):
         """Validate cohort metrics fields."""
+        if self.cost_basis < 0:
+            raise ValueError(f"cost_basis must be >= 0: {self.cost_basis}")
         if self.supply_btc < 0:
             raise ValueError(f"supply_btc must be >= 0: {self.supply_btc}")
         if not 0 <= self.supply_pct <= 100:
             raise ValueError(f"supply_pct must be 0-100: {self.supply_pct}")
+        if self.mvrv < 0:
+            raise ValueError(f"mvrv must be >= 0: {self.mvrv}")
         if self.address_count < 0:
             raise ValueError(f"address_count must be >= 0: {self.address_count}")
 

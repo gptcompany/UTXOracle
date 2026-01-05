@@ -87,15 +87,17 @@ def _calculate_mvrv(current_price: float, cost_basis: float) -> float:
         cost_basis: Weighted average acquisition price.
 
     Returns:
-        MVRV ratio, or 0.0 if cost_basis is zero or negative.
+        MVRV ratio, or 0.0 if cost_basis or current_price is zero or negative.
 
     Examples:
         >>> _calculate_mvrv(95000.0, 50000.0)
         1.9
         >>> _calculate_mvrv(95000.0, 0.0)
         0.0
+        >>> _calculate_mvrv(-100.0, 50000.0)
+        0.0
     """
-    if cost_basis <= 0:
+    if cost_basis <= 0 or current_price <= 0:
         return 0.0
     return current_price / cost_basis
 
