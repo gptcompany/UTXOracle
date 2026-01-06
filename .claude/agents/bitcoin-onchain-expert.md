@@ -4,6 +4,7 @@ description: Bitcoin mempool and blockchain specialist. Use proactively for Task
 tools: Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch, mcp__serena__*, mcp__context7__get-library-docs, mcp__context7__resolve-library-id, TodoWrite
 model: opus
 color: orange
+version: 1.0.0
 ---
 
 # Bitcoin On-Chain Expert

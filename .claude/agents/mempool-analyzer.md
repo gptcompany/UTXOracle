@@ -4,6 +4,7 @@ description: Real-time price estimation specialist. Use proactively for Task 03 
 tools: Read, Write, Edit, Bash, Glob, Grep, mcp__serena__*, mcp__context7__get-library-docs, TodoWrite
 model: opus
 color: teal
+version: 1.0.0
 ---
 
 # Mempool Analyzer

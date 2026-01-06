@@ -5,6 +5,7 @@ tools: Read, Write, Edit, Bash, Glob, Grep, mcp__playwright__browser_navigate, m
 model: opus
 color: magenta
 permissionMode: default
+version: 1.2.0
 ---
 
 # Alpha Visual - Iterative Visual Validator

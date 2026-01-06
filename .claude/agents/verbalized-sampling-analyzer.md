@@ -2,8 +2,9 @@
 name: verbalized-sampling-analyzer
 description: Gemini CLI-powered analyzer for /vsample A/B test logs. Manages large-scale pattern detection across week-long experiments comparing Claude Sonnet 4.5 vs Gemini 2.5 Pro creative generation quality.
 tools: Bash, Read
-model: opus
+model: sonnet
 color: yellow
+version: 1.0.0
 ---
 
 # Verbalized Sampling Analyzer Subagent

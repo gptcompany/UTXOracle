@@ -5,6 +5,7 @@ tools: Read, Write, Edit, Bash, Glob, Grep, TodoWrite
 model: opus
 color: green
 permissionMode: default
+version: 1.4.0
 ---
 
 # Alpha-Evolve - Multi-Implementation Generator
