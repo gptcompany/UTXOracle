@@ -259,6 +259,8 @@ playground/
 # Claude Code session data (local only, not for remote)
 .claude/context_bundles/
 .claude/stats/
+.claude/settings.local*.json
+.claude/logs/
 
 # Production data (Phase 1 - mempool.space integration)
 /media/sam/2TB-NVMe/
