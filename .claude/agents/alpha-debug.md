@@ -5,6 +5,7 @@ tools: Read, Bash, Glob, Grep, Edit, TodoWrite
 model: opus
 color: purple
 permissionMode: default
+version: 1.5.0
 ---
 
 # Alpha Debug - Evolutionary Bug Hunter
