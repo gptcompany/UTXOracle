@@ -1,0 +1,37 @@
+# CI Pipeline using organization reusable workflows
+# Runs security, lint, and test checks on push/PR
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  security:
+    name: Security Scan
+    uses: gptprojectmanager/claude-hooks-shared/.github/workflows/_reusable-security.yml@main
+    with:
+      bandit-paths: '.'
+      fail-on-high-severity: true
+
+  lint:
+    name: Lint & Types
+    uses: gptprojectmanager/claude-hooks-shared/.github/workflows/_reusable-lint.yml@main
+    with:
+      python-version: '3.12'
+      mypy-paths: '.'
+      fail-on-type-errors: false
+
+  test:
+    name: Tests
+    needs: [security, lint]
+    uses: gptprojectmanager/claude-hooks-shared/.github/workflows/_reusable-tests.yml@main
+    with:
+      python-version: '3.12'
+      test-paths: 'tests/'
+      coverage-paths: '.'
+      coverage-threshold: 70
