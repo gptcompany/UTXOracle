@@ -14,7 +14,14 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Environment configuration
-JWT_SECRET = os.getenv("JWT_SECRET", "whale-dashboard-secret-dev")
+# SECURITY: JWT_SECRET must be set in environment - no insecure defaults
+_jwt_secret = os.getenv("JWT_SECRET")
+if not _jwt_secret:
+    raise ValueError(
+        "SECURITY ERROR: JWT_SECRET environment variable is required. "
+        "Generate with: openssl rand -base64 64"
+    )
+JWT_SECRET = _jwt_secret
 DUCKDB_PATH = os.getenv("DUCKDB_PATH", "/media/sam/1TB/UTXOracle/data/utxoracle.duckdb")
 MEMPOOL_API_URL = os.getenv("MEMPOOL_API_URL", "http://localhost:8999")
 WHALE_MIN_BTC = float(os.getenv("WHALE_MIN_BTC", "100"))
