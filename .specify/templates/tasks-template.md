@@ -15,7 +15,7 @@ description: "Task list template for feature implementation"
 
 ### Task Markers
 - **[P]**: Can run in parallel (different files, no dependencies)
-- **[E]**: Alpha-Evolve trigger - use for complex algorithmic tasks requiring multi-implementation exploration
+- **[E]**: Explore/Evolve - task requires multiple variants or iterations
 - **[Story]**: Which user story this task belongs to (e.g., US1, US2, US3)
 
 ### When to use [P] marker (CRITICAL)
@@ -27,10 +27,10 @@ description: "Task list template for feature implementation"
   - ❌ `T001 [P] Write test_foo in test_x.py` + `T002 [P] Write test_bar in test_x.py` → same file, WRONG
 
 ### When to use [E] marker
-- Core algorithm implementations (statistical, mathematical)
-- Distance metrics, similarity calculations
-- State machines with complex transition logic
-- Performance-critical code needing optimization exploration
+- Algorithm implementations needing comparison (e.g., 3 variants to benchmark)
+- Optimization tasks requiring iterations (e.g., tune until metric < threshold)
+- Complex logic benefiting from exploration (state machines, calculations)
+- Format: `[E:3]` = 3 variants, `[E:N]` = iterate until success
 
 Include exact file paths in descriptions
 
@@ -257,9 +257,9 @@ With multiple developers:
 
 ## Notes
 
-- [P] tasks = different files, no dependencies (processed by /speckit.implement)
-- [E] tasks = complex algorithms triggering alpha-evolve (processed by auto-alpha-debug hook)
-- [Story] label maps task to specific user story for traceability
+- **[P]** tasks = different files, no dependencies (NEVER same file)
+- **[E]** tasks = explore variants or iterate until success
+- **[Story]** label maps task to specific user story for traceability
 - Each user story should be independently completable and testable
 - Verify tests fail before implementing
 - Commit after each task or logical group
