@@ -1,0 +1,20 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: utxoracle
+  description: UTXOracle - UTXO-based oracle and data analysis
+  annotations:
+    github.com/project-slug: gptprojectmanager/UTXOracle
+    backstage.io/techdocs-ref: dir:.
+    grafana/dashboard-selector: "uid in (utxoracle-mempool, utxoracle-historical)"
+    grafana/alert-label-selector: "category=claude"
+  tags:
+    - bitcoin
+    - utxo
+    - oracle
+    - data-analysis
+spec:
+  type: service
+  lifecycle: production
+  owner: user:default/sam
+  system: claude-infrastructure
