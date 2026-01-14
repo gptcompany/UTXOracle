@@ -8,6 +8,7 @@ metadata:
     backstage.io/techdocs-ref: dir:.
     grafana/dashboard-selector: "uid in (utxoracle-mempool, utxoracle-historical)"
     grafana/alert-label-selector: "category=claude"
+    backstage.io/slo-template: slo-template-standard
   tags:
     - bitcoin
     - utxo
