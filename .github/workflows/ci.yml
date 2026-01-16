@@ -13,14 +13,14 @@ on:
 jobs:
   security:
     name: Security Scan
-    uses: gptprojectmanager/claude-hooks-shared/.github/workflows/_reusable-security.yml@main
+    uses: gptcompany/claude-hooks-shared/.github/workflows/_reusable-security.yml@main
     with:
       bandit-paths: '.'
       fail-on-high-severity: true
 
   lint:
     name: Lint & Types
-    uses: gptprojectmanager/claude-hooks-shared/.github/workflows/_reusable-lint.yml@main
+    uses: gptcompany/claude-hooks-shared/.github/workflows/_reusable-lint.yml@main
     with:
       python-version: '3.12'
       mypy-paths: '.'
@@ -29,7 +29,7 @@ jobs:
   test:
     name: Tests
     needs: [security, lint]
-    uses: gptprojectmanager/claude-hooks-shared/.github/workflows/_reusable-tests.yml@main
+    uses: gptcompany/claude-hooks-shared/.github/workflows/_reusable-tests.yml@main
     with:
       python-version: '3.12'
       test-paths: 'tests/'
