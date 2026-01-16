@@ -4,14 +4,18 @@ Task T006: Create logging configuration with rotation.
 """
 
 import os
+import sys
 import logging
 import logging.handlers
 from pathlib import Path
 from typing import Optional
-from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+# Use SOPS-encrypted secrets (drop-in replacement for load_dotenv)
+sys.path.insert(0, "/media/sam/1TB/claude-hooks-shared/scripts")
+from secrets_loader import load_secrets
+
+# Load environment variables (from .env.enc if available, falls back to .env)
+load_secrets()
 
 # Environment configuration
 # SECURITY: JWT_SECRET must be set in environment - no insecure defaults

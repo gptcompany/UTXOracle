@@ -18,16 +18,19 @@ import argparse
 import json
 import logging
 import os
+import sys
 import subprocess
 from pathlib import Path
 from typing import List
-from dotenv import load_dotenv
+# Use SOPS-encrypted secrets
+sys.path.insert(0, "/media/sam/1TB/claude-hooks-shared/scripts")
+from secrets_loader import load_secrets
 
 import duckdb
 
 from UTXOracle_library import UTXOracleCalculator
 
-load_dotenv()
+load_secrets()
 
 # Configuration
 RPC_USER = os.getenv("RPC_USER", "")

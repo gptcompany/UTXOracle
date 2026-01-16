@@ -287,3 +287,5 @@ UTXOracle_*.html
 
 # RBN API Integration cache (spec-035)
 cache/rbn/
+!.env.enc
+!.env.example

@@ -43,12 +43,31 @@ class BitcoinRPC:
     """Thread-safe Bitcoin Core RPC client."""
 
     def __init__(self, datadir: str = None):
-        datadir = datadir or os.getenv("BITCOIN_DATADIR", "/media/sam/3TB-WDC/Bitcoin")
-        cookie_path = Path(datadir) / ".cookie"
+        # Try env vars first, then bitcoin.conf, then cookie
+        user = os.getenv("BITCOIN_RPC_USER")
+        pw = os.getenv("BITCOIN_RPC_PASSWORD")
 
-        with open(cookie_path) as f:
-            cookie = f.read().strip()
-        user, pw = cookie.split(":")
+        if not user or not pw:
+            # Try reading from bitcoin.conf
+            conf_path = Path(os.path.expanduser("~/.bitcoin/bitcoin.conf"))
+            if conf_path.exists():
+                with open(conf_path) as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith("rpcuser="):
+                            user = line.split("=", 1)[1]
+                        elif line.startswith("rpcpassword="):
+                            pw = line.split("=", 1)[1]
+
+        if not user or not pw:
+            # Fallback to cookie auth
+            datadir = datadir or os.getenv(
+                "BITCOIN_DATADIR", "/media/sam/3TB-WDC/Bitcoin"
+            )
+            cookie_path = Path(datadir) / ".cookie"
+            with open(cookie_path) as f:
+                cookie = f.read().strip()
+            user, pw = cookie.split(":")
 
         self.auth = base64.b64encode(f"{user}:{pw}".encode()).decode()
 

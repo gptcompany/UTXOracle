@@ -28,7 +28,6 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from dotenv import load_dotenv
 import aiohttp
 import psutil
 
@@ -110,14 +109,22 @@ except ImportError as e:
 
 
 # =============================================================================
-# T064: Configuration Management
+# T064: Configuration Management (SOPS-encrypted)
 # =============================================================================
 
-# Load .env file (override=True to prioritize .env over existing env vars)
+# Use SOPS-encrypted secrets (drop-in replacement for load_dotenv)
+sys.path.insert(0, "/media/sam/1TB/claude-hooks-shared/scripts")
+from secrets_loader import load_secrets
+
+# Load secrets from .env.enc (falls back to .env for dev)
+env_enc_path = Path(__file__).parent.parent / ".env.enc"
 env_path = Path(__file__).parent.parent / ".env"
-if env_path.exists():
-    load_dotenv(env_path, override=True)
-    logging.info(f"Config loaded from .env file at {env_path} (override=True)")
+if env_enc_path.exists():
+    load_secrets(str(env_enc_path))
+    logging.info(f"Config loaded from encrypted .env.enc file at {env_enc_path}")
+elif env_path.exists():
+    load_secrets(str(env_path))
+    logging.info(f"Config loaded from .env file at {env_path}")
 else:
     logging.info("Config loaded from environment variables (no .env file found)")
 

@@ -29,7 +29,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 # Third-party imports
 import requests
 import duckdb
-from dotenv import load_dotenv
+# Use SOPS-encrypted secrets
+sys.path.insert(0, "/media/sam/1TB/claude-hooks-shared/scripts")
+from secrets_loader import load_secrets
 
 # Local imports
 from UTXOracle_library import UTXOracleCalculator
@@ -167,7 +169,7 @@ def load_config() -> Dict[str, str]:
     # Load .env file if exists (override=True to prioritize .env over existing env vars)
     env_path = Path(__file__).parent.parent / ".env"
     if env_path.exists():
-        load_dotenv(env_path, override=True)
+        load_secrets()
         logging.info(f"Config loaded from .env file at {env_path} (override=True)")
     else:
         logging.info("Config loaded from environment variables (no .env file found)")

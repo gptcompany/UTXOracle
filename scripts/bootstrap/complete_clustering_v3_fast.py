@@ -48,7 +48,9 @@ from scripts.config import UTXORACLE_DB_PATH
 import numpy as np
 import pyarrow as pa
 import pyarrow.csv as pv_csv
-from dotenv import load_dotenv
+# Use SOPS-encrypted secrets
+sys.path.insert(0, "/media/sam/1TB/claude-hooks-shared/scripts")
+from secrets_loader import load_secrets
 
 # Add project root to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -64,7 +66,7 @@ except ImportError:
     print("WARNING: Cython extension not found. Run:")
     print("  cd scripts/bootstrap/cython_uf && python setup.py build_ext --inplace")
 
-load_dotenv()
+load_secrets()
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),

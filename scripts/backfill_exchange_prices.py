@@ -19,14 +19,16 @@ from typing import List
 
 import requests
 import duckdb
-from dotenv import load_dotenv
+# Use SOPS-encrypted secrets
+sys.path.insert(0, "/media/sam/1TB/claude-hooks-shared/scripts")
+from secrets_loader import load_secrets
 from scripts.config import UTXORACLE_DB_PATH
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Load environment
-load_dotenv()
+load_secrets()
 
 # Configuration
 MEMPOOL_PUBLIC_API = "https://mempool.space/api/v1/historical-price"

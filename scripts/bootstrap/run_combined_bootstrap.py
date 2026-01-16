@@ -49,7 +49,9 @@ from pathlib import Path
 from typing import Any
 
 import duckdb
-from dotenv import load_dotenv
+# Use SOPS-encrypted secrets
+sys.path.insert(0, "/media/sam/1TB/claude-hooks-shared/scripts")
+from secrets_loader import load_secrets
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -58,7 +60,7 @@ from scripts.clustering.union_find import UnionFind
 from scripts.clustering.address_clustering import cluster_addresses
 
 # Load environment
-load_dotenv()
+load_secrets()
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
