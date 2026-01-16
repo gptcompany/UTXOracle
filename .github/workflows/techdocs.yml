@@ -1,0 +1,60 @@
+# TechDocs CI Workflow Template v1.0
+# Deploy: cp ~/.claude/templates/workflows/techdocs.yml .github/workflows/
+# Builds documentation on push to main
+
+name: TechDocs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'ARCHITECTURE.md'
+      - 'README.md'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install mkdocs-techdocs-core mkdocs-material
+
+      - name: Build docs
+        run: mkdocs build --strict
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: techdocs-site
+          path: site/
+          retention-days: 7
+
+  # Optional: Deploy to GitHub Pages
+  # Uncomment if using GitHub Pages for docs
+  # deploy:
+  #   needs: build
+  #   if: github.ref == 'refs/heads/main'
+  #   runs-on: ubuntu-latest
+  #   permissions:
+  #     pages: write
+  #     id-token: write
+  #   environment:
+  #     name: github-pages
+  #     url: ${{ steps.deployment.outputs.page_url }}
+  #   steps:
+  #     - uses: actions/deploy-pages@v4
+  #       id: deployment
