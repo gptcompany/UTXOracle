@@ -1,0 +1,14 @@
+# AI Code Review - calls organization reusable workflow
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '**/*.py'
+
+jobs:
+  review:
+    uses: gptcompany/.github/.github/workflows/_reusable-ai-review.yml@main
+    with:
+      review-focus: "security,data-integrity,bitcoin-patterns"
