@@ -1,0 +1,45 @@
+# MkDocs Template v1.0
+# Maintained at: ~/.claude/templates/mkdocs.yml
+# Deploy: sed 's/UTXOracle/<name>/g' ~/.claude/templates/mkdocs.yml > <repo>/mkdocs.yml
+# Build: mkdocs build --strict
+# Serve: mkdocs serve
+
+site_name: UTXOracle Documentation
+site_description: Technical documentation for UTXOracle
+repo_url: https://github.com/gptcompany/UTXOracle
+
+nav:
+  - Home: index.md
+  - Architecture: ARCHITECTURE.md
+  - API Reference: api/index.md
+  - Runbooks:
+      - Overview: runbooks/index.md
+
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - search.highlight
+    - content.code.copy
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+
+plugins:
+  - techdocs-core
+
+markdown_extensions:
+  - admonition
+  - codehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
