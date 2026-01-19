@@ -23,13 +23,21 @@ jobs:
 
       - name: Download and run sync
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Use PAT if available (can create projects), fallback to GITHUB_TOKEN (issues only)
+          GH_TOKEN: ${{ secrets.GH_PROJECT_PAT || secrets.GITHUB_TOKEN }}
+          HAS_PAT: ${{ secrets.GH_PROJECT_PAT && 'true' || 'false' }}
         run: |
           curl -sL https://raw.githubusercontent.com/gptcompany/claude-config/main/scripts/github_sync_core.py -o github_sync_core.py
           curl -sL https://raw.githubusercontent.com/gptcompany/claude-config/main/scripts/roadmaptoissues.py -o roadmaptoissues.py
 
           if [ -f .planning/ROADMAP.md ]; then
-            python roadmaptoissues.py --roadmap .planning/ROADMAP.md --auto-project
+            if [ "$HAS_PAT" = "true" ]; then
+              # PAT available: can create projects
+              python roadmaptoissues.py --roadmap .planning/ROADMAP.md --auto-project --create-project
+            else
+              # GITHUB_TOKEN: link to existing project only
+              python roadmaptoissues.py --roadmap .planning/ROADMAP.md --auto-project
+            fi
           else
             echo "No .planning/ROADMAP.md found"
           fi
