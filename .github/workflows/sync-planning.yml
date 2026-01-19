@@ -29,7 +29,7 @@ jobs:
           curl -sL https://raw.githubusercontent.com/gptcompany/claude-config/main/scripts/roadmaptoissues.py -o roadmaptoissues.py
 
           if [ -f .planning/ROADMAP.md ]; then
-            python roadmaptoissues.py --roadmap .planning/ROADMAP.md --auto-project --create-project
+            python roadmaptoissues.py --roadmap .planning/ROADMAP.md --auto-project
           else
             echo "No .planning/ROADMAP.md found"
           fi
