@@ -8,7 +8,28 @@ on:
 
 jobs:
   sync:
-    uses: gptcompany/.github/.github/workflows/_reusable-sync-planning.yml@main
-    with:
-      framework: 'auto'
-      create-project: true
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Download and run sync
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -sL https://raw.githubusercontent.com/gptcompany/claude-config/main/scripts/github_sync_core.py -o github_sync_core.py
+          curl -sL https://raw.githubusercontent.com/gptcompany/claude-config/main/scripts/roadmaptoissues.py -o roadmaptoissues.py
+
+          if [ -f .planning/ROADMAP.md ]; then
+            python roadmaptoissues.py --roadmap .planning/ROADMAP.md --auto-project --create-project
+          else
+            echo "No .planning/ROADMAP.md found"
+          fi
