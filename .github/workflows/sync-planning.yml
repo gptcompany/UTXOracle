@@ -32,11 +32,11 @@ jobs:
 
           if [ -f .planning/ROADMAP.md ]; then
             if [ "$HAS_PAT" = "true" ]; then
-              # PAT available: can create projects
+              # PAT available: can create projects + link to project board
               python roadmaptoissues.py --roadmap .planning/ROADMAP.md --auto-project --create-project
             else
-              # GITHUB_TOKEN: link to existing project only
-              python roadmaptoissues.py --roadmap .planning/ROADMAP.md --auto-project
+              # GITHUB_TOKEN: just milestones and issues, no project board
+              python roadmaptoissues.py --roadmap .planning/ROADMAP.md --no-project
             fi
           else
             echo "No .planning/ROADMAP.md found"
