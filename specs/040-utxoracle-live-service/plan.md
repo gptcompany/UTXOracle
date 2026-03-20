@@ -138,12 +138,13 @@ Create `scripts/live/worker.py`.
 Current worker implementation:
 - one-cycle collection path is implemented
 - block-bound refresh already keys off observed `electrs` tip height
+- market cadence polling is implemented through `LiveWorker.run(...)`
 - degraded carry-forward semantics are implemented
 - optional snapshot persistence hook writes into DuckDB storage
 
 Remaining worker work:
-- long-running market cadence loop
-- periodic write scheduling and service lifecycle wiring
+- service lifecycle wiring around the long-running loop
+- shutdown and runner integration for the final Docker services
 
 ### 6. API Layer
 

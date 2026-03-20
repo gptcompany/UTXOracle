@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Protocol
@@ -49,8 +50,12 @@ class LiveWorker:
     def last_snapshot(self) -> LiveSnapshot | None:
         return self._last_snapshot
 
-    async def collect_once(self) -> LiveSnapshot | None:
-        electrs_read = await self.electrs_client.fetch_tip_height()
+    async def collect_once(
+        self,
+        *,
+        electrs_read: SourceRead[int] | None = None,
+    ) -> LiveSnapshot | None:
+        electrs_read = electrs_read or await self.electrs_client.fetch_tip_height()
 
         mempool_task = asyncio.create_task(self.mempool_client.fetch_exchange_price())
         brk_task = asyncio.create_task(self.brk_client.fetch_curated_features())
@@ -152,6 +157,59 @@ class LiveWorker:
         if self.snapshot_store is not None:
             await asyncio.to_thread(self.snapshot_store.write_snapshot, snapshot)
         return snapshot
+
+
+    async def run(
+        self,
+        *,
+        market_interval_seconds: float,
+        block_poll_interval_seconds: float,
+        max_cycles: int | None = None,
+        stop_event: asyncio.Event | None = None,
+        monotonic: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    ) -> list[LiveSnapshot]:
+        if market_interval_seconds <= 0:
+            raise ValueError("market_interval_seconds must be > 0")
+        if block_poll_interval_seconds <= 0:
+            raise ValueError("block_poll_interval_seconds must be > 0")
+
+        produced: list[LiveSnapshot] = []
+        last_market_run_at: float | None = None
+        cycles = 0
+
+        while True:
+            if stop_event is not None and stop_event.is_set():
+                break
+            if max_cycles is not None and cycles >= max_cycles:
+                break
+
+            electrs_read = await self.electrs_client.fetch_tip_height()
+            now = monotonic()
+            block_changed = (
+                electrs_read.value is not None
+                and electrs_read.value != self._last_observed_block_height
+            )
+            market_due = (
+                last_market_run_at is None
+                or (now - last_market_run_at) >= market_interval_seconds
+            )
+
+            if block_changed or market_due:
+                snapshot = await self.collect_once(electrs_read=electrs_read)
+                if snapshot is not None:
+                    produced.append(snapshot)
+                last_market_run_at = now
+
+            cycles += 1
+            if max_cycles is not None and cycles >= max_cycles:
+                break
+            if stop_event is not None and stop_event.is_set():
+                break
+
+            await sleep(block_poll_interval_seconds)
+
+        return produced
 
     async def _resolve_oracle(self, block_height: int | None) -> SourceRead[OracleObservation]:
         if block_height is None:

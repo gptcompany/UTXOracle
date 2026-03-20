@@ -94,13 +94,14 @@ Implements the upstream client layer:
 
 ### `scripts/live/worker.py`
 
-Implements one-cycle snapshot collection:
+Implements snapshot collection and cadence control:
 - aligns on current Electrs block height
 - fetches mempool, BRK, and Hyperliquid concurrently
 - calls the canonical UTXOracle resolver
 - computes live comparisons
 - carries forward prior values when an upstream is temporarily unavailable
 - marks carried-forward sources as `stale`
+- runs a market cadence loop that polls Electrs and triggers collection on new blocks or market interval expiry
 
 ### `scripts/live/storage.py`
 
@@ -142,7 +143,7 @@ The verified Hyperliquid comparison source on this host is the filtered oracle-u
 ### Completed
 
 - Python syntax compilation succeeded for the new live modules and tests
-- targeted unit suite is green through storage and API: `23 passed in 3.25s`
+- targeted unit suite is green through storage, API, and cadence loop: `26 passed in 4.05s`
 - live runtime endpoints and port collisions were manually verified on host
 
 ### Concrete smoke results
@@ -168,11 +169,11 @@ If green, proceed to deployment and service-lifecycle phases.
 
 ## Next Session Recommended Order
 
-1. implement the long-running worker loop and market cadence scheduling
-2. extend host-level `/health` with live source summary when `LIVE_ENABLED=true`
-3. create `Dockerfile.live` and `docker-compose.live.yml`
-4. bind `LIVE_DUCKDB_PATH` and service ports in deployment assets
-5. perform live smoke tests against the verified upstreams and the new `/api/v1/live/*` routes
+1. extend host-level `/health` with live source summary when `LIVE_ENABLED=true`
+2. create `Dockerfile.live` and `docker-compose.live.yml`
+3. bind `LIVE_DUCKDB_PATH` and service ports in deployment assets
+4. perform live smoke tests against the verified upstreams and the new `/api/v1/live/*` routes
+5. finish the remaining BRK helper alignment tasks outside the core live package
 
 ## Open Risks
 

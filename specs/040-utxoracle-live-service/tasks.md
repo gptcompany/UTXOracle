@@ -109,14 +109,14 @@
 - [x] T027 [US3] Write test for healthy worker cycle that writes one snapshot row
 - [x] T028 [US3] Write test for block height change triggering block-bound refresh
 - [x] T029 [US3] Write test for degraded upstream cycle retaining last good snapshot semantics
-- [ ] T030 [US3] Write test that snapshot rows include comparison fields and curated BRK features
+- [x] T030 [US3] Write test that snapshot rows include comparison fields and curated BRK features
 
 ### Implementation for User Story 3
 
 - [x] T031 [US3] Create `scripts/live/storage.py` with DuckDB schema bootstrap and read helpers
 - [x] T032 [US3] Create `scripts/live/worker.py` with polling loop and snapshot assembly
 - [x] T033 [E] [US3] Implement block cadence refresh logic based on `electrs` tip
-- [ ] T034 [US3] Implement market cadence refresh logic for mempool and Hyperliquid inputs
+- [x] T034 [US3] Implement market cadence refresh logic for mempool and Hyperliquid inputs
 - [x] T035 [US3] Implement degraded state behavior and last-good-snapshot handling
 - [x] T036 [US3] Run `uv run pytest tests/test_live_worker.py -v`
 
