@@ -14,13 +14,14 @@ Implement a Docker deployable UTXOracle live service that combines the canonical
 
 ## Repo Reality Check
 
-Current repo and host state impose five immediate constraints:
+Current repo and host state impose six immediate constraints:
 
 1. several modules still default to `electrs` on `localhost:3001`, but live runtime is `127.0.0.1:3002`
 2. BRK validation scripts still default to `localhost:3110`, but host runtime is `127.0.0.1:7070`
 3. existing API docs and tests still mention `8000`, while the current systemd service runs on `8001`
 4. the repo already exposes many historical metrics, but does not yet expose one clean live comparison surface
-5. `127.0.0.1:12345` is reachable today but currently returns non-Hyperliquid content, so the live client must validate payload shape and fall back to filesystem data when needed
+5. `127.0.0.1:12345` is not the correct Hyperliquid comparison endpoint on this host; it serves unrelated HTML content
+6. the verified Hyperliquid stack is `POST http://127.0.0.1:3001/info`, `http://127.0.0.1:9101/metrics`, and filtered oracle updates on `/media/sam/4TB-NVMe/hyperliquid/filtered/hip3_oracle_updates_by_block`, but the filtered dataset must be freshness-checked because realtime persistence is currently off
 
 ## Files to Create
 
@@ -35,7 +36,9 @@ tests/test_live_models.py
 tests/test_live_source_clients.py
 tests/test_live_comparison.py
 tests/test_live_worker.py
+tests/test_live_storage.py
 tests/test_live_api.py
+api/routes/live.py
 Dockerfile.live
 docker-compose.live.yml
 ```
@@ -66,7 +69,8 @@ Create `scripts/live/source_clients.py` with focused clients:
 
 Responsibilities:
 - isolate HTTP or file access
-- map upstream payloads into local models
+- parse Hyperliquid filtered `.zst` oracle updates from the verified 4TB path
+- support `POST /info` parsing for future direct Hyperliquid price extraction when available
 - return source health metadata with latency and last success
 - hide current endpoint drift behind env config
 
@@ -77,6 +81,7 @@ Create `scripts/live/models.py` with normalized models for:
 - `LiveFeatureSet`
 - `LiveComparison`
 - `LiveSnapshot`
+- `LiveComparisonSnapshot`
 - `LiveHistoryQuery`
 
 These models define both the consumer contract and the storage contract.
@@ -99,26 +104,30 @@ Initial comparisons:
 
 Create `scripts/live/storage.py` backed by DuckDB.
 
-Proposed table:
+Implemented storage model:
+- dedicated live database path via `LIVE_DUCKDB_PATH`
+- single writer from the worker
+- short-lived `read_only` connections from API handlers
+- indexed timestamp and block-height columns plus full normalized `snapshot_json` payload
+
+Implemented table:
 
 ```sql
 CREATE TABLE IF NOT EXISTS live_snapshots (
-  timestamp TIMESTAMP PRIMARY KEY,
+  snapshot_ts TIMESTAMPTZ PRIMARY KEY,
+  schema_version VARCHAR NOT NULL,
   block_height BIGINT,
   utxoracle_price DOUBLE,
   utxoracle_confidence DOUBLE,
   mempool_exchange_price DOUBLE,
   hyperliquid_oracle_price DOUBLE,
   hyperliquid_mark_price DOUBLE,
-  utxo_vs_mempool_bps DOUBLE,
-  utxo_vs_hl_oracle_bps DOUBLE,
-  utxo_vs_hl_mark_bps DOUBLE,
-  brk_realized_price DOUBLE,
-  brk_liveliness DOUBLE,
-  brk_reserve_risk DOUBLE,
-  source_health_json VARCHAR,
-  source_timestamps_json VARCHAR,
-  schema_version VARCHAR
+  comparison_json TEXT NOT NULL,
+  features_json TEXT NOT NULL,
+  source_health_json TEXT NOT NULL,
+  source_timestamps_json TEXT NOT NULL,
+  snapshot_json TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 )
 ```
 
@@ -126,23 +135,28 @@ CREATE TABLE IF NOT EXISTS live_snapshots (
 
 Create `scripts/live/worker.py`.
 
-Worker loop design:
-- poll market sources every configurable market interval
-- refresh block-bound context when observed `electrs` tip height changes
-- calculate comparison fields via `comparison.py`
-- write a new snapshot row when enough upstream data is available
-- preserve last good snapshot on degraded cycles
+Current worker implementation:
+- one-cycle collection path is implemented
+- block-bound refresh already keys off observed `electrs` tip height
+- degraded carry-forward semantics are implemented
+- optional snapshot persistence hook writes into DuckDB storage
+
+Remaining worker work:
+- long-running market cadence loop
+- periodic write scheduling and service lifecycle wiring
 
 ### 6. API Layer
 
-Extend `api/main.py` with live endpoints first rather than creating a second FastAPI app.
+Keep live API code isolated in `api/routes/live.py` and include that router from `api/main.py`.
 
-Add endpoints:
+Implemented endpoints:
 - `GET /api/v1/live/snapshot`
 - `GET /api/v1/live/history?minutes=...`
 - `GET /api/v1/live/comparison/latest`
-- enhance `GET /health` with live source health summary when `LIVE_ENABLED=true`
-- add `GET /ready`
+- `GET /api/v1/live/ready`
+
+Remaining API task:
+- enhance host-level `GET /health` with live source health summary when `LIVE_ENABLED=true`
 
 ### 7. Deployment Layer
 
@@ -153,7 +167,8 @@ Compose services:
 - `utxoracle-live-api`
 
 Runtime assumptions:
-- host can reach `127.0.0.1:3002`, `127.0.0.1:8999`, and `127.0.0.1:7070`
+- host can reach `127.0.0.1:3002`, `127.0.0.1:8999`, `127.0.0.1:7070`, `127.0.0.1:3001/info`, and `127.0.0.1:9101/metrics`
+- host has access to `/media/sam/4TB-NVMe/hyperliquid/filtered/hip3_oracle_updates_by_block`
 - local bind mount for DuckDB and logs
 - `network_mode: host` is acceptable for MVP on this node if it simplifies source access
 
@@ -163,11 +178,17 @@ Add or align env vars:
 
 ```text
 DUCKDB_PATH
+LIVE_DUCKDB_PATH
 FASTAPI_PORT
 ELECTRS_HTTP_URL
 MEMPOOL_API_URL
 BRK_BASE_URL
+HYPERLIQUID_NODE_API_URL
+HYPERLIQUID_NODE_INFO_REQUEST_TYPE
+HYPERLIQUID_METRICS_URL
 HYPERLIQUID_DATA_ROOT
+HYPERLIQUID_FILTERED_STREAM
+HYPERLIQUID_MAX_AGE_SECONDS
 LIVE_MARKET_INTERVAL_SECONDS
 LIVE_BLOCK_POLL_INTERVAL_SECONDS
 LIVE_RETENTION_HOURS
@@ -198,11 +219,11 @@ Host runtime differs from repo defaults. Configuration centralization is mandato
 
 ### Risk 2: Hyperliquid Freshness
 
-`HYPERLIQUID_NODE_API_URL` is configured as the intended primary live source, but the host endpoint on `12345` currently does not return the expected JSON payload. The implementation must validate the response at runtime, fall back to local files under `HYPERLIQUID_DATA_ROOT`, and define what counts as fresh enough for live comparison.
+The verified Hyperliquid comparison source on this host is the filtered oracle-update dataset under `HYPERLIQUID_DATA_ROOT`. It contains both `coin_to_oracle_px` and `coin_to_mark_px`, but it may lag when the realtime consumer is off. The implementation must classify this source as `healthy`, `stale`, or `unavailable` based on timestamp age, and it must treat `POST /info` support for direct oracle and mark queries as optional until the supported request type is confirmed on the node.
 
 ### Risk 3: API Surface Bloat
 
-`api/main.py` is already large. The MVP should keep live code grouped and extract later only if needed.
+`api/main.py` is already large. The live implementation now keeps route logic in `api/routes/live.py`; future edits should preserve that separation rather than adding more live logic inline.
 
 ### Risk 4: BRK Scope Creep
 

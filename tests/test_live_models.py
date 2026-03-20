@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 from scripts.live.models import (
     LiveComparison,
+    LiveComparisonSnapshot,
     LiveFeatureSet,
     LiveSnapshot,
     SourceHealth,
@@ -36,3 +37,24 @@ def test_live_snapshot_preserves_nested_models_and_source_timestamps():
     assert snapshot.source_timestamps["electrs"] is not None
     assert snapshot.source_timestamps["electrs"].tzinfo == timezone.utc
     assert snapshot.model_dump()["comparison"]["utxo_vs_mempool_bps"] == -10.75
+
+
+def test_source_health_accepts_nanosecond_iso_strings():
+    health = SourceHealth(
+        status="healthy",
+        last_success="2026-03-20T12:59:59.633355851",
+    )
+
+    assert health.last_success is not None
+    assert health.last_success.tzinfo == timezone.utc
+    assert health.last_success.microsecond == 633355
+
+
+def test_live_comparison_snapshot_normalizes_timestamp():
+    snapshot = LiveComparisonSnapshot(
+        timestamp="2026-03-20T17:14:00.123456789Z",
+        block_height=941453,
+        utxoracle_price=84211.52,
+    )
+
+    assert snapshot.timestamp == datetime(2026, 3, 20, 17, 14, 0, 123456, tzinfo=timezone.utc)

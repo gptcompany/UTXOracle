@@ -3,7 +3,9 @@
 from scripts.live.comparison import build_live_comparison, compute_basis_points
 from scripts.live.models import (
     HyperliquidPriceSnapshot,
+    LiveHistoryQuery,
     LiveComparison,
+    LiveComparisonSnapshot,
     LiveFeatureSet,
     LiveSnapshot,
     OracleObservation,
@@ -15,6 +17,7 @@ from scripts.live.source_clients import (
     HyperliquidSnapshotClient,
     MempoolApiClient,
 )
+from scripts.live.storage import LiveSnapshotStore
 from scripts.live.worker import LiveWorker
 
 __all__ = [
@@ -23,8 +26,11 @@ __all__ = [
     "HyperliquidPriceSnapshot",
     "HyperliquidSnapshotClient",
     "LiveComparison",
+    "LiveComparisonSnapshot",
     "LiveFeatureSet",
+    "LiveHistoryQuery",
     "LiveSnapshot",
+    "LiveSnapshotStore",
     "LiveWorker",
     "MempoolApiClient",
     "OracleObservation",

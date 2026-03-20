@@ -277,6 +277,18 @@ except ImportError as e:
     logging.warning(f"⚠️ Price models endpoints not available: {e}")
 
 # =============================================================================
+# spec-040: Include Live Service API Router
+# =============================================================================
+
+try:
+    from api.routes.live import router as live_router
+
+    app.include_router(live_router, prefix="/api/v1")
+    logging.info("✅ Live service API endpoints registered at /api/v1/live/*")
+except ImportError as e:
+    logging.warning(f"⚠️ Live service endpoints not available: {e}")
+
+# =============================================================================
 # Pydantic Models
 # =============================================================================
 

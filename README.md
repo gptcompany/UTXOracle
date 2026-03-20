@@ -11,7 +11,7 @@ The current live-first direction is:
 - `BRK` is the main upstream feature provider for broad on-chain metrics and query ergonomics
 - `mempool-api` remains the live mempool and exchange-price context source
 - `electrs` remains low-level confirmed-chain infrastructure
-- `Hyperliquid` remains the external oracle and derivatives comparison source
+- `Hyperliquid` remains the external oracle and derivatives comparison source, surfaced locally through `hyperliquid-node` and its filtered oracle-update dataset
 
 Current host runtime verified on 2026-03-20:
 - `UTXOracle API`: `127.0.0.1:8001`
@@ -19,6 +19,9 @@ Current host runtime verified on 2026-03-20:
 - `electrs`: `127.0.0.1:3002`
 - `mempool-api`: `127.0.0.1:8999`
 - `mempool-web`: `127.0.0.1:8080`
+- `hyperliquid-node /info`: `127.0.0.1:3001` via `POST /info`
+- `hyperliquid-node metrics`: `127.0.0.1:9101/metrics`
+- `hyperliquid filtered oracle updates`: `/media/sam/4TB-NVMe/hyperliquid/filtered/hip3_oracle_updates_by_block`
 
 ## How It Works
 
@@ -91,10 +94,11 @@ For the current live migration, do not rely on older step-by-step commands blind
 
 ## Notes on Older Documentation
 
-Some older repo documents still reflect an earlier runtime model and may contain stale ports such as:
+Some older repo documents still reflect an earlier runtime model and may contain stale ports or stale Hyperliquid assumptions such as:
 - `electrs` on `3001`
 - `BRK` on `3110`
 - FastAPI on `8000`
+- `127.0.0.1:12345` as if it were the canonical Hyperliquid comparison source
 
 Treat the documents listed in `Current Documentation` as the current source of truth for the live migration.
 

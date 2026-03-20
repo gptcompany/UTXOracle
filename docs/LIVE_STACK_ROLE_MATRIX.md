@@ -14,7 +14,10 @@ This document defines the correct role of `UTXOracle`, `BRK`, `electrs`, `mempoo
 | `electrs` | `http://127.0.0.1:3002` | Confirmed chain index and raw lookup |
 | `mempool-api` | `http://127.0.0.1:8999/api/v1` | Live mempool, fees, mining stats, exchange price |
 | `mempool-web` | `http://127.0.0.1:8080` | Explorer UI |
-| `hyperliquid-realtime-data` | `/media/sam/1TB/hyperliquid-realtime-data` | External oracle, mark, funding, OI reference |
+| `hyperliquid-node /info` | `http://127.0.0.1:3001/info` (POST) | Verified node metadata surface and future direct market query surface |
+| `hyperliquid-node metrics` | `http://127.0.0.1:9101/metrics` | Hyperliquid node health and block-height metrics |
+| `hyperliquid-node filtered oracle updates` | `/media/sam/4TB-NVMe/hyperliquid/filtered/hip3_oracle_updates_by_block` | Current verified oracle and mark comparison source |
+| `hyperliquid-node realtime` | `/media/sam/4TB-NVMe/hyperliquid/realtime` | Optional low-latency persistence path; currently empty/off |
 
 ## Correct Component Roles
 
@@ -76,16 +79,19 @@ Important distinction:
 
 ### Hyperliquid
 
-`Hyperliquid` is an external market reference.
+`Hyperliquid` is an external market reference delivered locally through the `hyperliquid-node` stack.
 
 Primary responsibilities:
 - oracle price reference
 - mark price reference
 - funding and open interest context for fusion or comparison
+- node metadata and health visibility through `/info` and exporter metrics
 
 Important distinction:
 - `Hyperliquid` is never the canonical Bitcoin on-chain oracle source
-- it is an external comparator and derivatives context source
+- the currently verified comparison source is the filtered oracle-update dataset on `4TB-NVMe`
+- `POST /info` is a real node API surface, but direct oracle and mark extraction remains optional until its supported request type is confirmed on this host
+- `127.0.0.1:12345` is not part of the canonical Hyperliquid comparison path
 
 ## Feature Matrix
 
@@ -153,7 +159,11 @@ The repo still contains legacy references that should not be treated as current 
 Current host reality is:
 - `electrs` on `3002`
 - `BRK` on `7070`
+- `hyperliquid-node /info` on `3001` via `POST`
+- `hyperliquid-node metrics` on `9101`
+- filtered oracle updates on `/media/sam/4TB-NVMe/hyperliquid/filtered/hip3_oracle_updates_by_block`
 - current systemd FastAPI on `8001`
+- `127.0.0.1:12345` is not the canonical Hyperliquid source for this stack
 
 ## Immediate Live Direction
 

@@ -20,8 +20,8 @@
 
 **Purpose**: Verify runtime assumptions and prepare the implementation workspace.
 
-- [x] T001 Verify current host endpoints for `electrs`, `mempool-api`, and `BRK` and capture them in `.env` or deployment docs
-- [x] T002 Verify local Hyperliquid data path and confirm latest oracle and mark fields are available for consumption
+- [x] T001 Verify current host endpoints for `electrs`, `mempool-api`, `BRK`, `hyperliquid-node /info`, and `hyperliquid-node metrics`, and capture them in docs or env config
+- [x] T002 Verify the local Hyperliquid filtered path on `4TB-NVMe` and confirm `coin_to_oracle_px` and `coin_to_mark_px` are available for consumption
 - [x] T003 Create `scripts/live/` package scaffold and import path tests
 
 ---
@@ -55,7 +55,7 @@
 - [x] T009 [US1] Write client tests for electrs tip and health behavior
 - [x] T010 [US1] Write client tests for mempool price and failure handling
 - [x] T011 [US1] Write client tests for curated BRK feature fetches
-- [x] T012 [US1] Write client tests for Hyperliquid local snapshot loading
+- [x] T012 [US1] Write client tests for Hyperliquid filtered oracle-update loading and optional `POST /info` parsing
 
 ### Implementation for User Story 1
 
@@ -63,7 +63,7 @@
 - [x] T014 [E] [US1] Implement `ElectrsClient`
 - [x] T015 [E] [US1] Implement `MempoolApiClient`
 - [x] T016 [E] [US1] Implement `BrkClient`
-- [x] T017 [US1] Implement `HyperliquidSnapshotClient`
+- [x] T017 [US1] Implement `HyperliquidSnapshotClient` against `hyperliquid-node` filtered oracle updates and optional `POST /info` parsing
 - [x] T018 [US1] Run `uv run pytest tests/test_live_source_clients.py -v`
 
 **Checkpoint**: All upstreams can be queried through one normalized interface.
@@ -106,14 +106,14 @@
 
 ### Tests for User Story 3
 
-- [ ] T027 [US3] Write test for healthy worker cycle that writes one snapshot row
+- [x] T027 [US3] Write test for healthy worker cycle that writes one snapshot row
 - [x] T028 [US3] Write test for block height change triggering block-bound refresh
 - [x] T029 [US3] Write test for degraded upstream cycle retaining last good snapshot semantics
 - [ ] T030 [US3] Write test that snapshot rows include comparison fields and curated BRK features
 
 ### Implementation for User Story 3
 
-- [ ] T031 [US3] Create `scripts/live/storage.py` with DuckDB schema bootstrap and read helpers
+- [x] T031 [US3] Create `scripts/live/storage.py` with DuckDB schema bootstrap and read helpers
 - [x] T032 [US3] Create `scripts/live/worker.py` with polling loop and snapshot assembly
 - [x] T033 [E] [US3] Implement block cadence refresh logic based on `electrs` tip
 - [ ] T034 [US3] Implement market cadence refresh logic for mempool and Hyperliquid inputs
@@ -134,18 +134,18 @@
 
 ### Tests for User Story 4
 
-- [ ] T037 [US4] Write API test for `GET /api/v1/live/snapshot`
-- [ ] T038 [US4] Write API test for `GET /api/v1/live/history`
-- [ ] T039 [US4] Write API test for `GET /api/v1/live/comparison/latest`
-- [ ] T040 [US4] Write API test for `GET /ready`
+- [x] T037 [US4] Write API test for `GET /api/v1/live/snapshot`
+- [x] T038 [US4] Write API test for `GET /api/v1/live/history`
+- [x] T039 [US4] Write API test for `GET /api/v1/live/comparison/latest`
+- [x] T040 [US4] Write API test for `GET /api/v1/live/ready`
 
 ### Implementation for User Story 4
 
-- [ ] T041 [US4] Extend `api/main.py` with live response models and live routes
-- [ ] T042 [US4] Wire live storage reads into API handlers
+- [x] T041 [US4] Extend `api/main.py` with live response models and live routes
+- [x] T042 [US4] Wire live storage reads into API handlers
 - [ ] T043 [US4] Extend `GET /health` with live source summary when `LIVE_ENABLED=true`
-- [ ] T044 [US4] Add `GET /ready` probe endpoint
-- [ ] T045 [US4] Run `uv run pytest tests/test_live_api.py -v`
+- [x] T044 [US4] Add `GET /api/v1/live/ready` probe endpoint
+- [x] T045 [US4] Run `uv run pytest tests/test_live_api.py -v`
 
 **Checkpoint**: One consumer API endpoint family is available for live usage.
 

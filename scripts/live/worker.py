@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from datetime import datetime
+from typing import Protocol
 
 from scripts.live.comparison import build_live_comparison
 from scripts.live.models import (
@@ -18,6 +19,10 @@ from scripts.live.source_clients import SourceRead
 OracleResolver = Callable[[int, bool], Awaitable[OracleObservation]]
 
 
+class SnapshotStore(Protocol):
+    def write_snapshot(self, snapshot: LiveSnapshot) -> None: ...
+
+
 class LiveWorker:
     def __init__(
         self,
@@ -27,6 +32,7 @@ class LiveWorker:
         brk_client,
         hyperliquid_client,
         oracle_resolver: OracleResolver,
+        snapshot_store: SnapshotStore | None = None,
         clock: Callable[[], datetime] = utc_now,
     ) -> None:
         self.electrs_client = electrs_client
@@ -34,6 +40,7 @@ class LiveWorker:
         self.brk_client = brk_client
         self.hyperliquid_client = hyperliquid_client
         self.oracle_resolver = oracle_resolver
+        self.snapshot_store = snapshot_store
         self.clock = clock
         self._last_snapshot: LiveSnapshot | None = None
         self._last_observed_block_height: int | None = None
@@ -142,6 +149,8 @@ class LiveWorker:
         self._last_snapshot = snapshot
         if electrs_read.value is not None:
             self._last_observed_block_height = electrs_read.value
+        if self.snapshot_store is not None:
+            await asyncio.to_thread(self.snapshot_store.write_snapshot, snapshot)
         return snapshot
 
     async def _resolve_oracle(self, block_height: int | None) -> SourceRead[OracleObservation]:

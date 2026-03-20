@@ -40,6 +40,14 @@ class RecordingResolver:
         return self._observations.popleft()
 
 
+class RecordingSnapshotStore:
+    def __init__(self):
+        self.snapshots = []
+
+    def write_snapshot(self, snapshot):
+        self.snapshots.append(snapshot)
+
+
 @pytest.mark.asyncio
 async def test_worker_builds_snapshot_and_tracks_block_changes():
     electrs = QueueClient(
@@ -203,3 +211,72 @@ async def test_worker_carries_forward_previous_values_when_sources_fail():
     assert second.source_health["mempool_api"].status == "stale"
     assert second.source_health["brk"].status == "stale"
     assert second.source_health["hyperliquid"].status == "stale"
+
+
+@pytest.mark.asyncio
+async def test_worker_persists_snapshot_when_store_is_configured():
+    electrs = QueueClient(
+        "fetch_tip_height",
+        [
+            SourceRead(
+                value=941453,
+                health=SourceHealth(status="healthy", observed_height=941453),
+                source_timestamp="2026-03-20T17:14:00Z",
+            ),
+        ],
+    )
+    mempool = QueueClient(
+        "fetch_exchange_price",
+        [
+            SourceRead(
+                value=84302.11,
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:14:00Z",
+            ),
+        ],
+    )
+    brk = QueueClient(
+        "fetch_curated_features",
+        [
+            SourceRead(
+                value=LiveFeatureSet(brk_realized_price=54311.39, brk_liveliness=0.63),
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:13:19Z",
+            ),
+        ],
+    )
+    hyperliquid = QueueClient(
+        "fetch_snapshot",
+        [
+            SourceRead(
+                value=HyperliquidPriceSnapshot(
+                    source="api",
+                    timestamp="2026-03-20T17:14:00Z",
+                    oracle_price=84295.40,
+                    mark_price=84310.80,
+                ),
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:14:00Z",
+            ),
+        ],
+    )
+    resolver = RecordingResolver(
+        [OracleObservation(timestamp="2026-03-20T17:14:00Z", price=84211.52, confidence=0.82)]
+    )
+    store = RecordingSnapshotStore()
+
+    worker = LiveWorker(
+        electrs_client=electrs,
+        mempool_client=mempool,
+        brk_client=brk,
+        hyperliquid_client=hyperliquid,
+        oracle_resolver=resolver,
+        snapshot_store=store,
+        clock=lambda: datetime(2026, 3, 20, 17, 14, 0, tzinfo=timezone.utc),
+    )
+
+    snapshot = await worker.collect_once()
+
+    assert snapshot is not None
+    assert len(store.snapshots) == 1
+    assert store.snapshots[0].utxoracle_price == pytest.approx(84211.52)

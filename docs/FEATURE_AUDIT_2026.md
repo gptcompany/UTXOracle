@@ -138,7 +138,7 @@ These should remain owned by this repository even in a BRK-centered live topolog
 These should remain tied to their respective upstreams:
 - `electrs`: low-level confirmed-chain indexing and raw query workflows
 - `mempool-api`: live mempool feed, fee estimates, mining stats, exchange BTC/USD updater
-- `Hyperliquid`: oracle price, mark price, funding, open interest context
+- `Hyperliquid`: oracle price, mark price, funding, open interest context, sourced locally through `hyperliquid-node` and the filtered oracle-update dataset on `4TB-NVMe`
 
 ## Correct Live Ownership per Capability
 
@@ -158,6 +158,7 @@ These should remain tied to their respective upstreams:
 3. `mempool-api` should be documented as broader than whale detection alone.
 4. `electrs` should be documented as infrastructure, not as the main analytics surface.
 5. Older references to `3001`, `3110`, and `8000` must be treated as legacy until configuration alignment is implemented.
+6. `127.0.0.1:12345` must not be treated as the Hyperliquid comparison endpoint for the live service; the verified local sources are `POST /info`, `9101/metrics`, and the filtered oracle updates on `4TB-NVMe`.
 
 ## Immediate Implementation Conclusions
 

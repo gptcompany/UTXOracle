@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -12,6 +13,9 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+_ISO_FRACTION_TRIM_RE = re.compile(r"(\.\d{6})\d+(?=(?:[+-]\d{2}:\d{2})?$)")
+
+
 def coerce_utc_datetime(value: datetime | str | int | float | None) -> datetime | None:
     if value is None:
         return None
@@ -19,7 +23,9 @@ def coerce_utc_datetime(value: datetime | str | int | float | None) -> datetime 
         timestamp = value / 1000.0 if value > 1_000_000_000_000 else value
         return datetime.fromtimestamp(timestamp, tz=timezone.utc)
     if isinstance(value, str):
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        normalized = value.replace("Z", "+00:00")
+        normalized = _ISO_FRACTION_TRIM_RE.sub(r"\1", normalized)
+        parsed = datetime.fromisoformat(normalized)
         return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
@@ -80,6 +86,25 @@ class OracleObservation(BaseModel):
     timestamp: datetime = Field(default_factory=utc_now)
     price: float | None = Field(default=None, gt=0)
     confidence: float | None = Field(default=None, ge=0, le=1)
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def _normalize_timestamp(
+        cls, value: datetime | str | int | float | None
+    ) -> datetime | None:
+        return coerce_utc_datetime(value)
+
+
+class LiveComparisonSnapshot(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    timestamp: datetime
+    block_height: int | None = Field(default=None, ge=0)
+    utxoracle_price: float | None = Field(default=None, gt=0)
+    mempool_exchange_price: float | None = Field(default=None, gt=0)
+    hyperliquid_oracle_price: float | None = Field(default=None, gt=0)
+    hyperliquid_mark_price: float | None = Field(default=None, gt=0)
+    comparison: LiveComparison = Field(default_factory=LiveComparison)
 
     @field_validator("timestamp", mode="before")
     @classmethod

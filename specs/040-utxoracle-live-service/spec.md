@@ -49,15 +49,19 @@ Current repo capabilities are split across batch jobs, historical APIs, and vali
 | `electrs` | `http://127.0.0.1:3002` | confirmed chain context and tip height |
 | `mempool-api` | `http://127.0.0.1:8999/api/v1` | exchange BTC/USD price, mempool, fee context |
 | `BRK` | `http://127.0.0.1:7070` | curated on-chain features only |
-| `Hyperliquid Node API` | `http://127.0.0.1:12345` | Current MVP source for oracle and mark price |
-| `Hyperliquid Websocket` | (Future Activation) | Upcoming real-time source for lowest latency |
-| `hyperliquid-realtime-data` | `/media/sam/1TB/hyperliquid-realtime-data` | historical and fallback reference (files) |
+| `Hyperliquid Node API` | `http://127.0.0.1:3001/info` (POST) | verified node metadata surface and future direct market query surface |
+| `Hyperliquid Metrics` | `http://127.0.0.1:9101/metrics` | node health and block-height monitoring |
+| `hyperliquid-node filtered oracle updates` | `/media/sam/4TB-NVMe/hyperliquid/filtered/hip3_oracle_updates_by_block` | currently verified oracle and mark comparison source (`coin_to_oracle_px`, `coin_to_mark_px`) |
+| `hyperliquid-node realtime` | `/media/sam/4TB-NVMe/hyperliquid/realtime` | optional low-latency persistence path; currently empty/off |
+| `Hyperliquid Websocket` | `ws://127.0.0.1:8765` (on-demand) | future low-latency source when consumer is enabled |
 | `UTXOracle API` today | systemd on `8001` | existing API baseline, not final MVP deployment |
 
 Implementation note verified on `2026-03-20`:
-- `12345` is listening on the host, but current responses do not match the expected Hyperliquid JSON payload.
-- The MVP implementation must therefore validate the node response at runtime and fall back to `hyperliquid-realtime-data` when the node endpoint is invalid or unavailable.
-- The architecture still preserves `Hyperliquid Node API` as the intended primary live comparison source once the endpoint is corrected.
+- `127.0.0.1:12345` responds with HTML and is not part of the Hyperliquid comparison path for this MVP.
+- `GET http://127.0.0.1:3001/info` returns `405`; the verified node API surface is `POST /info`.
+- `POST http://127.0.0.1:3001/info` with `{"type":"meta"}` returns JSON, confirming the node stack is reachable.
+- The currently verified oracle and mark source on this host is the filtered dataset on `4TB-NVMe`, where `hip3_oracle_updates_by_block` contains both `coin_to_oracle_px` and `coin_to_mark_px` for `cash:BTC`.
+- The filtered dataset must expose freshness explicitly because the realtime persistence path is currently empty/off.
 
 ## Primary Users
 
@@ -103,8 +107,10 @@ The worker MUST collect and normalize data from:
 - `electrs` for confirmed Bitcoin data and block height context
 - `mempool-api` for market reference price and mempool context
 - `BRK` for a curated subset of on-chain features only
-- `Hyperliquid Node API` for primary oracle and mark price comparison when valid
-- `hyperliquid-realtime-data` as the required local fallback for external oracle and mark price comparison
+- `hyperliquid-node filtered oracle updates` as the current verified source for `hyperliquid_oracle_price` and `hyperliquid_mark_price`
+- `Hyperliquid Node API` (`POST /info`) as the verified node metadata surface and future direct market query surface
+- `Hyperliquid Metrics` for node health and block-height visibility
+- `hyperliquid-node realtime` as an optional future low-latency persistence path when the consumer is enabled
 
 ### FR4: Declared Live Comparisons
 
@@ -132,12 +138,18 @@ The API MUST expose at least:
 - `GET /api/v1/live/snapshot`
 - `GET /api/v1/live/history`
 - `GET /api/v1/live/comparison/latest`
-- `GET /health`
-- `GET /ready`
+- `GET /api/v1/live/ready`
+- host-level `GET /health` remains the baseline process health endpoint
+
+Implementation status verified on `2026-03-20`:
+- `/api/v1/live/snapshot`, `/api/v1/live/history`, `/api/v1/live/comparison/latest`, and `/api/v1/live/ready` are implemented through `api/routes/live.py` and wired into `api/main.py`.
+- live source summary on the host-level `/health` endpoint is still a remaining task.
 
 ### FR7: History and Persistence
 
 The system MUST persist normalized live snapshots into local storage suitable for latest reads and short-horizon history queries.
+
+The current implementation uses a dedicated DuckDB file controlled by `LIVE_DUCKDB_PATH` (default `/media/sam/1TB/UTXOracle/data/utxoracle_live.duckdb`). The worker is the only writer and API handlers must use short-lived `read_only` connections.
 
 ### FR8: Configurability
 
@@ -154,6 +166,10 @@ If one or more upstreams fail temporarily, the service MUST continue serving the
 ### FR11: Future Visual Validation Boundary
 
 The spec MUST explicitly reserve BRK visual validation as a follow-up track. The MVP live consumer API MUST NOT be coupled to the future chart validation dashboard.
+
+### FR12: Hyperliquid Freshness Classification
+
+The service MUST classify Hyperliquid comparison data as `healthy`, `stale`, or `unavailable` based on source timestamps and env-driven freshness thresholds. Older filtered data MUST NOT be presented as live without a degraded or stale status.
 
 ## Live Snapshot Contract
 
@@ -180,10 +196,37 @@ Example response for `GET /api/v1/live/snapshot`:
     "brk_reserve_risk": 0.0041
   },
   "source_health": {
-    "electrs": "healthy",
-    "mempool_api": "healthy",
-    "brk": "healthy",
-    "hyperliquid": "healthy"
+    "electrs": {
+      "status": "healthy",
+      "last_success": "2026-03-20T11:45:00Z",
+      "observed_height": 941428,
+      "details": {}
+    },
+    "mempool_api": {
+      "status": "healthy",
+      "last_success": "2026-03-20T11:45:00Z",
+      "details": {}
+    },
+    "brk": {
+      "status": "healthy",
+      "last_success": "2026-03-20T11:44:59Z",
+      "details": {}
+    },
+    "hyperliquid": {
+      "status": "stale",
+      "last_success": "2026-03-20T11:44:20Z",
+      "details": {
+        "backend": "filtered_zst",
+        "age_seconds": 40.0
+      }
+    }
+  },
+  "source_timestamps": {
+    "electrs": "2026-03-20T11:45:00Z",
+    "utxoracle": "2026-03-20T11:45:00Z",
+    "mempool_api": "2026-03-20T11:45:00Z",
+    "brk": "2026-03-20T11:44:59Z",
+    "hyperliquid": "2026-03-20T11:44:20Z"
   }
 }
 ```

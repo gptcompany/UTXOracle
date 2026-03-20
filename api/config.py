@@ -27,6 +27,9 @@ if not _jwt_secret:
     )
 JWT_SECRET = _jwt_secret
 DUCKDB_PATH = os.getenv("DUCKDB_PATH", "/media/sam/1TB/UTXOracle/data/utxoracle.duckdb")
+LIVE_DUCKDB_PATH = os.getenv(
+    "LIVE_DUCKDB_PATH", "/media/sam/1TB/UTXOracle/data/utxoracle_live.duckdb"
+)
 MEMPOOL_API_URL = os.getenv("MEMPOOL_API_URL", "http://127.0.0.1:8999")
 WHALE_MIN_BTC = float(os.getenv("WHALE_MIN_BTC", "100"))
 WHALE_WS_PORT = int(os.getenv("WHALE_WS_PORT", "8001"))
@@ -34,9 +37,13 @@ FASTAPI_PORT = int(os.getenv("FASTAPI_PORT", "8001"))
 ELECTRS_HTTP_URL = os.getenv("ELECTRS_HTTP_URL", "http://127.0.0.1:3002")
 MEMPOOL_API_V1_URL = os.getenv("MEMPOOL_API_V1_URL", f"{MEMPOOL_API_URL.rstrip('/')}/api/v1")
 BRK_BASE_URL = os.getenv("BRK_BASE_URL", "http://127.0.0.1:7070")
-HYPERLIQUID_NODE_API_URL = os.getenv("HYPERLIQUID_NODE_API_URL", "http://127.0.0.1:12345")
+HYPERLIQUID_NODE_API_URL = os.getenv("HYPERLIQUID_NODE_API_URL", "http://127.0.0.1:3001/info")
+HYPERLIQUID_NODE_INFO_REQUEST_TYPE = os.getenv("HYPERLIQUID_NODE_INFO_REQUEST_TYPE", "")
 HYPERLIQUID_NODE_SNAPSHOT_PATH = os.getenv("HYPERLIQUID_NODE_SNAPSHOT_PATH", "")
-HYPERLIQUID_DATA_ROOT = os.getenv("HYPERLIQUID_DATA_ROOT", "/media/sam/1TB/hyperliquid-realtime-data")
+HYPERLIQUID_METRICS_URL = os.getenv("HYPERLIQUID_METRICS_URL", "http://127.0.0.1:9101/metrics")
+HYPERLIQUID_DATA_ROOT = os.getenv("HYPERLIQUID_DATA_ROOT", "/media/sam/4TB-NVMe/hyperliquid/filtered")
+HYPERLIQUID_FILTERED_STREAM = os.getenv("HYPERLIQUID_FILTERED_STREAM", "hip3_oracle_updates_by_block")
+HYPERLIQUID_MAX_AGE_SECONDS = float(os.getenv("HYPERLIQUID_MAX_AGE_SECONDS", "900"))
 LIVE_ENABLED = os.getenv("LIVE_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
 LIVE_API_PORT = int(os.getenv("LIVE_API_PORT", "8011"))
 LIVE_SOURCE_TIMEOUT_SECONDS = float(os.getenv("LIVE_SOURCE_TIMEOUT_SECONDS", "5.0"))
