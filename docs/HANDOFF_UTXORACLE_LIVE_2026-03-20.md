@@ -143,7 +143,7 @@ The verified Hyperliquid comparison source on this host is the filtered oracle-u
 ### Completed
 
 - Python syntax compilation succeeded for the new live modules and tests
-- targeted unit suite is green through storage, API, and cadence loop: `26 passed in 4.05s`
+- targeted unit suite is green through storage, API, cadence loop, and health summary: `28 passed in 3.57s`
 - live runtime endpoints and port collisions were manually verified on host
 
 ### Concrete smoke results
@@ -169,11 +169,10 @@ If green, proceed to deployment and service-lifecycle phases.
 
 ## Next Session Recommended Order
 
-1. extend host-level `/health` with live source summary when `LIVE_ENABLED=true`
-2. create `Dockerfile.live` and `docker-compose.live.yml`
-3. bind `LIVE_DUCKDB_PATH` and service ports in deployment assets
-4. perform live smoke tests against the verified upstreams and the new `/api/v1/live/*` routes
-5. finish the remaining BRK helper alignment tasks outside the core live package
+1. create `Dockerfile.live` and `docker-compose.live.yml`
+2. bind `LIVE_DUCKDB_PATH` and service ports in deployment assets
+3. perform live smoke tests against the verified upstreams and the new `/api/v1/live/*` routes
+4. finish the remaining BRK helper alignment tasks outside the core live package
 
 ## Open Risks
 

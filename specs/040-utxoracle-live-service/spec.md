@@ -143,7 +143,7 @@ The API MUST expose at least:
 
 Implementation status verified on `2026-03-20`:
 - `/api/v1/live/snapshot`, `/api/v1/live/history`, `/api/v1/live/comparison/latest`, and `/api/v1/live/ready` are implemented through `api/routes/live.py` and wired into `api/main.py`.
-- live source summary on the host-level `/health` endpoint is still a remaining task.
+- host-level `/health` now includes a live summary when `LIVE_ENABLED=true`, sourced from the latest persisted live snapshot.
 
 ### FR7: History and Persistence
 

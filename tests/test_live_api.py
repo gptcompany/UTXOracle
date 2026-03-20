@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from api.routes.live import get_live_snapshot_store, router
+from api.routes.live import build_live_health_summary, get_live_snapshot_store, router
 from scripts.live.models import LiveComparison, LiveFeatureSet, LiveSnapshot, SourceHealth
 from scripts.live.storage import LiveSnapshotStore
 
@@ -111,3 +111,27 @@ def test_live_ready_returns_503_when_snapshot_missing(tmp_path):
 
     assert response.status_code == 503
     assert response.json()["detail"] == "live snapshot unavailable"
+
+
+def test_build_live_health_summary_reports_unavailable_when_store_empty(tmp_path):
+    store = LiveSnapshotStore(tmp_path / "live.duckdb")
+
+    summary = build_live_health_summary(store)
+
+    assert summary["status"] == "unavailable"
+    assert summary["sources"] == {}
+
+
+def test_build_live_health_summary_reports_degraded_sources(tmp_path):
+    timestamp = datetime(2026, 3, 20, 18, 0, tzinfo=timezone.utc)
+    store = LiveSnapshotStore(tmp_path / "live.duckdb")
+    store.initialize()
+    snapshot = _build_snapshot(timestamp=timestamp, block_height=941456, price=84211.52)
+    snapshot.source_health["hyperliquid"] = SourceHealth(status="stale", last_success=timestamp)
+    store.write_snapshot(snapshot)
+
+    summary = build_live_health_summary(store)
+
+    assert summary["status"] == "degraded"
+    assert summary["block_height"] == 941456
+    assert summary["sources"] == {"electrs": "healthy", "hyperliquid": "stale"}

@@ -21,7 +21,7 @@ import time
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, date
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
@@ -340,6 +340,9 @@ class HealthStatus(BaseModel):
     started_at: str
     checks: Dict[str, ServiceCheck] = Field(
         default_factory=dict, description="Individual service health checks"
+    )
+    live: Optional[Dict[str, Any]] = Field(
+        default=None, description="UTXOracle live summary when LIVE_ENABLED=true"
     )
 
     # T035: Memory usage indicator
@@ -4276,6 +4279,29 @@ async def health_check():
         "mempool_backend": mempool_check,
     }
 
+    live_summary = None
+    if LIVE_ENABLED:
+        try:
+            from api.routes.live import build_live_health_summary, get_live_snapshot_store
+
+            live_summary = build_live_health_summary(get_live_snapshot_store())
+            live_status = str(live_summary.get("status", "unavailable"))
+            if live_status == "unavailable":
+                checks["utxoracle_live"] = ServiceCheck(
+                    status="error",
+                    error="live snapshot unavailable",
+                )
+            else:
+                checks["utxoracle_live"] = ServiceCheck(
+                    status="ok",
+                    last_success=live_summary.get("timestamp"),
+                    error=None if live_status == "healthy" else f"live status: {live_status}",
+                )
+        except Exception as e:
+            logging.warning(f"Failed to build live health summary: {e}")
+            live_summary = {"status": "unavailable", "sources": {}}
+            checks["utxoracle_live"] = ServiceCheck(status="error", error=str(e))
+
     # Determine overall status
     if all(c.status == "ok" for c in checks.values()):
         # All services OK
@@ -4288,12 +4314,18 @@ async def health_check():
     else:
         overall_status = "degraded"  # Non-critical service issues
 
+    if LIVE_ENABLED and live_summary is not None:
+        live_status = str(live_summary.get("status", "unavailable"))
+        if live_status != "healthy" and overall_status == "healthy":
+            overall_status = "degraded"
+
     return HealthStatus(
         status=overall_status,
         timestamp=datetime.utcnow(),
         uptime_seconds=uptime,
         started_at=STARTUP_TIME.isoformat(),
         checks=checks,
+        live=live_summary,
         # T035: Memory usage
         memory_mb=memory_mb,
         memory_percent=memory_percent,

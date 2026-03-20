@@ -156,8 +156,12 @@ Implemented endpoints:
 - `GET /api/v1/live/comparison/latest`
 - `GET /api/v1/live/ready`
 
-Remaining API task:
-- enhance host-level `GET /health` with live source health summary when `LIVE_ENABLED=true`
+Current API status:
+- `/api/v1/live/*` route family is implemented
+- host-level `/health` includes a live summary when `LIVE_ENABLED=true`
+
+Remaining API work before deployment:
+- keep the `/health` payload stable as deployment assets and runner wiring are added
 
 ### 7. Deployment Layer
 

@@ -143,7 +143,7 @@
 
 - [x] T041 [US4] Extend `api/main.py` with live response models and live routes
 - [x] T042 [US4] Wire live storage reads into API handlers
-- [ ] T043 [US4] Extend `GET /health` with live source summary when `LIVE_ENABLED=true`
+- [x] T043 [US4] Extend `GET /health` with live source summary when `LIVE_ENABLED=true`
 - [x] T044 [US4] Add `GET /api/v1/live/ready` probe endpoint
 - [x] T045 [US4] Run `uv run pytest tests/test_live_api.py -v`
 

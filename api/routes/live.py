@@ -27,6 +27,31 @@ def _require_snapshot(store: LiveSnapshotStore) -> LiveSnapshot:
     return snapshot
 
 
+def build_live_health_summary(store: LiveSnapshotStore) -> dict[str, object]:
+    snapshot = store.get_latest()
+    if snapshot is None:
+        return {
+            "status": "unavailable",
+            "sources": {},
+        }
+
+    source_statuses = {
+        name: health.status
+        for name, health in snapshot.source_health.items()
+    }
+    overall_status = (
+        "healthy"
+        if source_statuses and all(status == "healthy" for status in source_statuses.values())
+        else "degraded"
+    )
+    return {
+        "status": overall_status,
+        "timestamp": snapshot.timestamp.isoformat(),
+        "block_height": snapshot.block_height,
+        "sources": source_statuses,
+    }
+
+
 @router.get("/snapshot", response_model=LiveSnapshot)
 async def get_live_snapshot(
     store: Annotated[LiveSnapshotStore, Depends(get_live_snapshot_store)],
