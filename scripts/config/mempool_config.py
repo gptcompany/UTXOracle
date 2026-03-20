@@ -37,7 +37,7 @@ class MempoolConfig:
 
     # electrs HTTP API
     electrs_http_url: str = field(
-        default_factory=lambda: os.getenv("ELECTRS_HTTP_URL", "http://localhost:3001")
+        default_factory=lambda: os.getenv("ELECTRS_HTTP_URL", "http://127.0.0.1:3002")
     )
 
     # ==================== Database ====================

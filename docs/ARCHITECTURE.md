@@ -1,5 +1,9 @@
 # UTXOracle Architecture
 
+> **2026-03-20 Update**: This file contains important architectural history, but the current live-first production direction now spans `UTXOracle`, `BRK`, `mempool-api`, `electrs`, and `Hyperliquid`.
+> Read [`docs/LIVE_STACK_ROLE_MATRIX.md`](docs/LIVE_STACK_ROLE_MATRIX.md) first for current role assignment and runtime endpoints.
+> Current host runtime verified on 2026-03-20: `UTXOracle API` on `8001`, `BRK` on `7070`, `electrs` on `3002`, `mempool-api` on `8999`.
+
 > **Note**: This file is the canonical source for architecture documentation.
 > When implementing new specs, update THIS file (not CLAUDE.md).
 

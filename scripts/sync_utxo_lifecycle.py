@@ -72,7 +72,7 @@ SNAPSHOT_INTERVAL = int(os.getenv("UTXO_SNAPSHOT_INTERVAL", "144"))
 STH_THRESHOLD_DAYS = int(os.getenv("UTXO_STH_THRESHOLD_DAYS", "155"))
 
 # Electrs configuration
-ELECTRS_URL = os.getenv("ELECTRS_HTTP_URL", "http://localhost:3001")
+ELECTRS_URL = os.getenv("ELECTRS_HTTP_URL", "http://127.0.0.1:3002")
 
 
 # =============================================================================

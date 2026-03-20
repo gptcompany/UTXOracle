@@ -31,7 +31,7 @@ import aiohttp
 logger = logging.getLogger(__name__)
 
 # Configuration
-DEFAULT_ELECTRS_URL = "http://localhost:3001"
+DEFAULT_ELECTRS_URL = "http://127.0.0.1:3002"
 DEFAULT_MAX_CONNECTIONS = 50  # Reduced from 100 to prevent electrs contention
 DEFAULT_CONCURRENT_PER_BATCH = 30  # Reduced from 50: optimal for local electrs
 DEFAULT_BATCH_SIZE = 100

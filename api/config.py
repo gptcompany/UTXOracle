@@ -27,9 +27,22 @@ if not _jwt_secret:
     )
 JWT_SECRET = _jwt_secret
 DUCKDB_PATH = os.getenv("DUCKDB_PATH", "/media/sam/1TB/UTXOracle/data/utxoracle.duckdb")
-MEMPOOL_API_URL = os.getenv("MEMPOOL_API_URL", "http://localhost:8999")
+MEMPOOL_API_URL = os.getenv("MEMPOOL_API_URL", "http://127.0.0.1:8999")
 WHALE_MIN_BTC = float(os.getenv("WHALE_MIN_BTC", "100"))
 WHALE_WS_PORT = int(os.getenv("WHALE_WS_PORT", "8001"))
+FASTAPI_PORT = int(os.getenv("FASTAPI_PORT", "8001"))
+ELECTRS_HTTP_URL = os.getenv("ELECTRS_HTTP_URL", "http://127.0.0.1:3002")
+MEMPOOL_API_V1_URL = os.getenv("MEMPOOL_API_V1_URL", f"{MEMPOOL_API_URL.rstrip('/')}/api/v1")
+BRK_BASE_URL = os.getenv("BRK_BASE_URL", "http://127.0.0.1:7070")
+HYPERLIQUID_NODE_API_URL = os.getenv("HYPERLIQUID_NODE_API_URL", "http://127.0.0.1:12345")
+HYPERLIQUID_NODE_SNAPSHOT_PATH = os.getenv("HYPERLIQUID_NODE_SNAPSHOT_PATH", "")
+HYPERLIQUID_DATA_ROOT = os.getenv("HYPERLIQUID_DATA_ROOT", "/media/sam/1TB/hyperliquid-realtime-data")
+LIVE_ENABLED = os.getenv("LIVE_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
+LIVE_API_PORT = int(os.getenv("LIVE_API_PORT", "8011"))
+LIVE_SOURCE_TIMEOUT_SECONDS = float(os.getenv("LIVE_SOURCE_TIMEOUT_SECONDS", "5.0"))
+LIVE_MARKET_INTERVAL_SECONDS = float(os.getenv("LIVE_MARKET_INTERVAL_SECONDS", "5.0"))
+LIVE_BLOCK_POLL_INTERVAL_SECONDS = float(os.getenv("LIVE_BLOCK_POLL_INTERVAL_SECONDS", "2.0"))
+LIVE_RETENTION_HOURS = int(os.getenv("LIVE_RETENTION_HOURS", "24"))
 
 # WebSocket configuration
 WS_HEARTBEAT_INTERVAL = 30  # seconds

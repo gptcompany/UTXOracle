@@ -1,40 +1,83 @@
-<p align="center">
-  <img src="https://utxo.live/oracle/oracle_yesterday.png" alt="UTXOracle Chart" width="100%">
-</p>
-
 # UTXOracle
 
-**UTXOracle** is a Bitcoin-native, exchange-free price oracle that calculates the market price of Bitcoin directly from the blockchain.
+UTXOracle is a Bitcoin-native, exchange-free price oracle that calculates the market price of Bitcoin directly from the blockchain.
 
-Unlike traditional oracles that rely on exchange APIs, UTXOracle identifies the most statistically probable BTC/USD exchange rate by analyzing recent transactions on-chain — no external price feeds required.
+Unlike traditional oracles that rely on exchange APIs, UTXOracle estimates a BTC/USD price directly from confirmed on-chain activity. The repository now also contains a large DuckDB-backed analytics surface and is being repositioned as a live production service that integrates `BRK`, `mempool-api`, `electrs`, and `Hyperliquid`.
 
-> ⚡ Pure Python. No dependencies. No assumptions. Just Bitcoin data.
+## Current 2026 Status
 
----
+The current live-first direction is:
+- `UTXOracle` remains the canonical oracle and the future consumer-facing live API
+- `BRK` is the main upstream feature provider for broad on-chain metrics and query ergonomics
+- `mempool-api` remains the live mempool and exchange-price context source
+- `electrs` remains low-level confirmed-chain infrastructure
+- `Hyperliquid` remains the external oracle and derivatives comparison source
 
-## 🔍 How It Works
+Current host runtime verified on 2026-03-20:
+- `UTXOracle API`: `127.0.0.1:8001`
+- `BRK`: `127.0.0.1:7070`
+- `electrs`: `127.0.0.1:3002`
+- `mempool-api`: `127.0.0.1:8999`
+- `mempool-web`: `127.0.0.1:8080`
 
-UTXOracle analyzes confirmed Bitcoin transactions and uses statistical clustering to isolate a "canonical" price point:
-- Filters out coinbase, self-spends, and spam transactions.
-- Focuses on economically meaningful outputs (within a dynamic BTC range).
-- Calculates a volume-weighted median from clustered prices across a recent window of blocks.
+## How It Works
 
-The result is a Bitcoin price **derived from actual usage**, not speculative trading.
+UTXOracle analyzes confirmed Bitcoin transactions and isolates a canonical price point from on-chain economic activity:
+- filters coinbase, spam, and low-signal outputs
+- focuses on economically meaningful transaction outputs
+- derives a Bitcoin price directly from chain behavior rather than exchange APIs
 
----
+The result is a reproducible on-chain oracle that remains the conceptual center of this repository.
 
-## 🧠 Why It Matters
+## Repository Roles
 
-- 🛑 **Exchange Independence**: Trust the chain, not custodians.
-- 🔎 **Transparency**: Every price is reproducible from public block data.
-- 🎯 **On-Chain Signal**: Derived from organic BTC/USD activity.
-- 🐍 **Minimalism**: The core logic fits in a single, readable Python file.
+This repository now serves three distinct purposes:
+- canonical oracle engine via `UTXOracle.py` and `UTXOracle_library.py`
+- DuckDB-backed analytics and research workspace with many custom metrics
+- foundation for a live production service with a normalized downstream API
 
----
+## Core Components
 
-## 📦 Getting Started
+- `UTXOracle.py`: immutable reference implementation of the oracle logic
+- `UTXOracle_library.py`: reusable oracle engine extracted from the reference implementation
+- `api/`: FastAPI backend with historical metrics and dashboards
+- `scripts/`: batch jobs, sync utilities, whale pipeline, and integration tooling
+- `scripts/metrics/`: custom analytics modules built on top of the local data model
+- `docs/`: architecture, integration notes, and operational references
+- `specs/`: implementation specs, including the new live-service direction
 
-Clone the repo and run the reference script:
+## What Is Unique to UTXOracle
+
+These remain first-class responsibilities of this repository even when BRK is present:
+- canonical on-chain Bitcoin price oracle methodology
+- DuckDB-backed local research datasets and custom analytics
+- UTXO lifecycle based metrics and experimental features
+- whale-flow, exchange-netflow, and fusion logic specific to this repo
+- normalized live API contract for Nautilus Trader and backtest engines
+
+## Current Documentation
+
+Start here before following older setup or deployment instructions:
+- [Live Stack Role Matrix](docs/LIVE_STACK_ROLE_MATRIX.md)
+- [Feature Audit 2026](docs/FEATURE_AUDIT_2026.md)
+- [UTXOracle Live Service Spec](specs/040-utxoracle-live-service/spec.md)
+- [BRK Integration Analysis](docs/BRK_INTEGRATION.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Mempool + electrs Architecture](MEMPOOL_ELECTRS_ARCHITECTURE.md)
+
+## Production Direction
+
+The intended production topology is:
+1. `bitcoind` as root truth
+2. `electrs` as confirmed-chain raw index
+3. `mempool-api` as live mempool and exchange-price context
+4. `BRK` as the primary on-chain feature provider and validation surface
+5. `Hyperliquid` as external oracle and derivatives comparator
+6. `UTXOracle Live API` as the only downstream consumer contract
+
+## Getting Started
+
+For the reference oracle only:
 
 ```bash
 git clone https://github.com/Unbesteveable/UTXOracle.git
@@ -42,178 +85,23 @@ cd UTXOracle
 python3 UTXOracle.py
 ```
 
-This will connect to your local `bitcoind` node and print the current UTXOracle price.
+This requires a local `bitcoind` node with RPC enabled.
 
-**Requirements:**
-- A running Bitcoin Core node (RPC enabled)
-- Python 3.8+
+For the current live migration, do not rely on older step-by-step commands blindly. Read the documents listed in `Current Documentation` first.
 
----
+## Notes on Older Documentation
 
-## 🌐 Live Example
+Some older repo documents still reflect an earlier runtime model and may contain stale ports such as:
+- `electrs` on `3001`
+- `BRK` on `3110`
+- FastAPI on `8000`
 
-Check the live visual version of UTXOracle here:  
-📺 **https://utxo.live**
+Treat the documents listed in `Current Documentation` as the current source of truth for the live migration.
 
-- Includes historical charts and real-time YouTube stream
-- Based entirely on the same logic as the reference script
+## License
 
----
+UTXOracle is licensed under the [Blue Oak Model License 1.0.0](./LICENSE).
 
-## 🛠 Structure
+## Credits
 
-- `UTXOracle.py` – The main reference implementation (v9.1) - IMMUTABLE
-- `UTXOracle_library.py` – Reusable library extracted from reference implementation
-- `api/` – FastAPI backend for price comparison dashboard
-- `frontend/` – Plotly.js visualization dashboard
-- `scripts/` – Integration service and batch processing utilities
-- `archive/` – Historical versions (v7, v8, v9, spec-002)
-- `docs/` – Algorithm documentation and task specifications
-
----
-
-## 📚 Documentation
-
-- **[CHANGELOG_SPEC.md](CHANGELOG_SPEC.md)** – Detailed version evolution (v7→v8→v9→v9.1) with trigger-response-philosophy analysis
-- **[CLAUDE.md](CLAUDE.md)** – Claude Code development instructions
-- **[MODULAR_ARCHITECTURE.md](MODULAR_ARCHITECTURE.md)** – Black box module design philosophy
-- **[TECHNICAL_SPEC.md](TECHNICAL_SPEC.md)** – MVP implementation plan for live system
-
----
-
-## ⚖️ License
-
-UTXOracle is licensed under the [Blue Oak Model License 1.0.0](./LICENSE), a permissive open-source license designed to be simple, fair, and developer-friendly.
-
-You are free to use, modify, and distribute this software with very few restrictions.
-
----
-
-## 🙏 Credits
-
-Created by [@Unbesteveable](https://github.com/Unbesteveable)  
-Inspired by the idea that **Bitcoin's price should come from Bitcoin itself.**
-
----
-
-## 🚀 Price Comparison Dashboard - UTXOracle vs Exchange Prices
-
-**New Feature** (spec-003): Self-hosted infrastructure with real-time price comparison
-
-### Architecture Overview
-
-**4-Layer Hybrid Architecture**:
-
-1. **Reference Implementation** (`UTXOracle.py`) - IMMUTABLE, educational transparency
-2. **Reusable Library** (`UTXOracle_library.py`) - Extracted core algorithm for reuse
-3. **Self-Hosted Infrastructure** - mempool.space + electrs Docker stack (replaces custom ZMQ parsing)
-4. **Integration & Visualization** - FastAPI backend + Plotly.js frontend
-
-**Benefits**:
-- ✅ Zero custom ZMQ/transaction parsing code (1,122 lines eliminated)
-- ✅ Battle-tested mempool.space infrastructure
-- ✅ Focus on core algorithm, not infrastructure
-- ✅ Real-time price comparison every 10 minutes
-- ✅ Historical data visualization (7/30/90 days)
-
-### Quick Start (Price Comparison Dashboard)
-
-**Prerequisites**:
-- Bitcoin Core 25.0+ (fully synced, RPC enabled)
-- Docker & Docker Compose
-- Python 3.10+ (3.11+ recommended)
-- UV package manager ([install guide](https://docs.astral.sh/uv/))
-- 50GB free disk space (NVMe recommended for electrs index)
-
-> **📝 Note**: During Bitcoin Core re-sync, the system can run with **public mempool.space API** temporarily. See `specs/003-mempool-integration-refactor/TEMPORARY_CONFIG.md` for details.
-
-**Installation**:
-
-```bash
-# 1. Clone repository
-git clone https://github.com/Unbesteveable/UTXOracle.git
-cd UTXOracle
-git checkout 003-mempool-integration-refactor
-
-# 2. Install UV package manager
-curl -LsSf https://astral.sh/uv/install.sh | sh
-source $HOME/.cargo/env
-
-# 3. Install dependencies
-uv sync
-
-# 4. Deploy mempool.space infrastructure (3-4 hour electrs sync on NVMe)
-bash scripts/setup_full_mempool_stack.sh
-
-# 5. Monitor electrs sync (wait for "finished full compaction")
-cd /media/sam/2TB-NVMe/prod/apps/mempool-stack
-docker-compose logs -f electrs
-
-# 6. Start FastAPI backend (after electrs sync completes)
-sudo systemctl start utxoracle-api
-
-# 7. Open price comparison dashboard
-xdg-open http://localhost:8000/static/comparison.html
-```
-
-**Expected Display**:
-- Time series chart: UTXOracle price (green) vs Exchange price (red)
-- Stats cards: Average difference, Max difference, Correlation
-- Timeframe selector: 7/30/90 days
-- Black background + orange theme (UTXOracle branding)
-
-**System Requirements**:
-- RAM: 16GB minimum (32GB recommended for electrs)
-- CPU: 4+ cores recommended
-- Disk: 50GB free (NVMe recommended for fast electrs sync)
-- Network: Active Bitcoin Core node
-
-For detailed setup instructions, see [specs/003-mempool-integration-refactor/spec.md](specs/003-mempool-integration-refactor/spec.md)
-
-### Production Deployment
-
-**Systemd Services**:
-- `utxoracle-api.service` - FastAPI backend (auto-starts on boot)
-- Cron job: `scripts/daily_analysis.py` (runs every 10 minutes)
-
-**Docker Stack** (mempool.space + electrs):
-```bash
-cd /media/sam/2TB-NVMe/prod/apps/mempool-stack
-docker-compose up -d  # Auto-starts on boot
-```
-
-**Health Checks**:
-```bash
-# API status
-curl http://localhost:8000/health | jq
-
-# Latest price comparison
-curl http://localhost:8000/api/prices/latest | jq
-
-# Historical data (7 days)
-curl http://localhost:8000/api/prices/historical?days=7 | jq
-```
-
-### Migration from spec-002
-
-If upgrading from the old spec-002 implementation (custom ZMQ/transaction parsing):
-
-1. Backup old `/live/` directory (archived in `archive/live-spec002/`)
-2. Follow installation steps above
-3. Review [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) for detailed migration path
-
-**Code Reduction** (spec-002 → spec-003):
-- **3,102 → 1,598 core lines** (48.5% reduction)
-- Eliminated 1,122 lines of custom ZMQ/transaction parsing
-- Replaced by battle-tested mempool.space Docker stack
-- 50% maintenance reduction (no binary parsing complexity)
-- See [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) for complete details
-
-**Implementation Status**: ✅ **Phase 0-4 Complete** (72% of spec-003)
-- Full documentation: `specs/003-mempool-integration-refactor/IMPLEMENTATION_STATUS.md`
-
----
-
-<p align="center">
-  <i>Signal from noise.</i>
-</p>
+Created by [@Unbesteveable](https://github.com/Unbesteveable).

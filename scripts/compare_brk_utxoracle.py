@@ -26,7 +26,7 @@ from urllib.error import URLError
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-BRK_BASE_URL = "http://localhost:3110"
+BRK_BASE_URL = "http://127.0.0.1:7070"
 
 # Metric mapping: BRK name -> (UTXOracle table, column, tolerance%)
 METRIC_MAPPING = {
