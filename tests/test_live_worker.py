@@ -508,3 +508,124 @@ async def test_worker_persists_comparison_and_curated_features_to_store(tmp_path
     assert persisted.features.brk_realized_price == pytest.approx(54311.39)
     assert persisted.features.brk_liveliness == pytest.approx(0.63)
     assert persisted.features.brk_reserve_risk == pytest.approx(4.100239e-06)
+
+
+@pytest.mark.asyncio
+async def test_worker_marks_comparisons_unavailable_when_canonical_oracle_is_stale():
+    electrs = QueueClient(
+        "fetch_tip_height",
+        [
+            SourceRead(value=941453, health=SourceHealth(status="healthy", observed_height=941453), source_timestamp="2026-03-20T17:14:00Z"),
+            SourceRead(value=941454, health=SourceHealth(status="healthy", observed_height=941454), source_timestamp="2026-03-20T17:14:10Z"),
+        ],
+    )
+    mempool = QueueClient(
+        "fetch_exchange_price",
+        [
+            SourceRead(value=84302.11, health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:14:00Z"),
+            SourceRead(value=84305.0, health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:14:10Z"),
+        ],
+    )
+    brk = QueueClient(
+        "fetch_curated_features",
+        [
+            SourceRead(value=LiveFeatureSet(brk_realized_price=54311.39), health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:13:19Z"),
+            SourceRead(value=LiveFeatureSet(brk_realized_price=54312.00), health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:13:20Z"),
+        ],
+    )
+    hyperliquid = QueueClient(
+        "fetch_snapshot",
+        [
+            SourceRead(value=HyperliquidPriceSnapshot(source="api", timestamp="2026-03-20T17:14:00Z", oracle_price=84295.40, mark_price=84310.80), health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:14:00Z"),
+            SourceRead(value=HyperliquidPriceSnapshot(source="api", timestamp="2026-03-20T17:14:10Z", oracle_price=84296.00, mark_price=84311.00), health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:14:10Z"),
+        ],
+    )
+    resolver = RecordingResolver(
+        [
+            OracleObservation(timestamp="2026-03-20T17:14:00Z", price=84211.52, confidence=0.82),
+            OracleObservation(timestamp="2026-03-20T17:14:10Z", price=None, confidence=None),
+        ]
+    )
+    timestamps = deque(
+        [
+            datetime(2026, 3, 20, 17, 14, 0, tzinfo=timezone.utc),
+            datetime(2026, 3, 20, 17, 14, 10, tzinfo=timezone.utc),
+        ]
+    )
+    worker = LiveWorker(
+        electrs_client=electrs,
+        mempool_client=mempool,
+        brk_client=brk,
+        hyperliquid_client=hyperliquid,
+        oracle_resolver=resolver,
+        clock=lambda: timestamps.popleft(),
+    )
+
+    first = await worker.collect_once()
+    second = await worker.collect_once()
+
+    assert first is not None
+    assert second is not None
+    assert second.source_health["utxoracle"].status == "stale"
+    assert second.comparison.utxo_vs_mempool_bps is None
+    assert second.comparison.utxo_vs_hl_oracle_bps is None
+    assert second.comparison.utxo_vs_hl_mark_bps is None
+
+
+@pytest.mark.asyncio
+async def test_worker_remembers_observed_block_after_failed_initial_collection():
+    electrs = QueueClient(
+        "fetch_tip_height",
+        [
+            SourceRead(value=941453, health=SourceHealth(status="healthy", observed_height=941453), source_timestamp="2026-03-20T17:14:00Z"),
+            SourceRead(value=941453, health=SourceHealth(status="healthy", observed_height=941453), source_timestamp="2026-03-20T17:14:05Z"),
+        ],
+    )
+    mempool = QueueClient(
+        "fetch_exchange_price",
+        [
+            SourceRead(value=84302.11, health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:14:00Z"),
+            SourceRead(value=84305.0, health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:14:05Z"),
+        ],
+    )
+    brk = QueueClient(
+        "fetch_curated_features",
+        [
+            SourceRead(value=LiveFeatureSet(brk_realized_price=54311.39), health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:13:19Z"),
+            SourceRead(value=LiveFeatureSet(brk_realized_price=54312.00), health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:13:20Z"),
+        ],
+    )
+    hyperliquid = QueueClient(
+        "fetch_snapshot",
+        [
+            SourceRead(value=HyperliquidPriceSnapshot(source="api", timestamp="2026-03-20T17:14:00Z", oracle_price=84295.40, mark_price=84310.80), health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:14:00Z"),
+            SourceRead(value=HyperliquidPriceSnapshot(source="api", timestamp="2026-03-20T17:14:05Z", oracle_price=84296.00, mark_price=84311.00), health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:14:05Z"),
+        ],
+    )
+    resolver = RecordingResolver(
+        [
+            OracleObservation(timestamp="2026-03-20T17:14:00Z", price=None, confidence=None),
+            OracleObservation(timestamp="2026-03-20T17:14:05Z", price=84212.00, confidence=0.83),
+        ]
+    )
+    timestamps = deque(
+        [
+            datetime(2026, 3, 20, 17, 14, 0, tzinfo=timezone.utc),
+            datetime(2026, 3, 20, 17, 14, 5, tzinfo=timezone.utc),
+        ]
+    )
+    worker = LiveWorker(
+        electrs_client=electrs,
+        mempool_client=mempool,
+        brk_client=brk,
+        hyperliquid_client=hyperliquid,
+        oracle_resolver=resolver,
+        clock=lambda: timestamps.popleft(),
+    )
+
+    first = await worker.collect_once()
+    second = await worker.collect_once()
+
+    assert first is None
+    assert second is not None
+    assert resolver.calls == [(941453, True), (941453, False)]

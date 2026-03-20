@@ -20,18 +20,23 @@ class LiveSnapshotStore:
     def __init__(self, db_path: str | Path, *, retention_hours: int = 24) -> None:
         self.db_path = Path(db_path)
         self.retention_hours = retention_hours
+        self._initialized = False
 
     def initialize(self) -> None:
+        if self._initialized:
+            return
         self._ensure_parent_dir()
         with self._connect(read_only=False) as conn:
             self._ensure_schema(conn)
+        self._initialized = True
 
     def write_snapshot(self, snapshot: LiveSnapshot) -> None:
+        if not self._initialized:
+            raise RuntimeError("LiveSnapshotStore.initialize() must be called before write_snapshot()")
+
         payload = snapshot.model_dump(mode="json")
-        self._ensure_parent_dir()
 
         with self._connect(read_only=False) as conn:
-            self._ensure_schema(conn)
             conn.execute(
                 "DELETE FROM live_snapshots WHERE snapshot_ts = ?",
                 [snapshot.timestamp],
@@ -136,7 +141,6 @@ class LiveSnapshotStore:
         cutoff = (now or utc_now()) - timedelta(hours=self.retention_hours)
 
         with self._connect(read_only=False) as conn:
-            self._ensure_schema(conn)
             deleted = conn.execute(
                 "SELECT COUNT(*) FROM live_snapshots WHERE snapshot_ts < ?",
                 [cutoff],

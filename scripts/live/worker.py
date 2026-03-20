@@ -23,6 +23,8 @@ OracleResolver = Callable[[int, bool], Awaitable[OracleObservation]]
 class SnapshotStore(Protocol):
     def write_snapshot(self, snapshot: LiveSnapshot) -> None: ...
 
+    def initialize(self) -> None: ...
+
 
 class LiveWorker:
     def __init__(
@@ -42,6 +44,8 @@ class LiveWorker:
         self.hyperliquid_client = hyperliquid_client
         self.oracle_resolver = oracle_resolver
         self.snapshot_store = snapshot_store
+        if self.snapshot_store is not None and hasattr(self.snapshot_store, "initialize"):
+            self.snapshot_store.initialize()
         self.clock = clock
         self._last_snapshot: LiveSnapshot | None = None
         self._last_observed_block_height: int | None = None
@@ -57,16 +61,26 @@ class LiveWorker:
     ) -> LiveSnapshot | None:
         electrs_read = electrs_read or await self.electrs_client.fetch_tip_height()
 
-        mempool_task = asyncio.create_task(self.mempool_client.fetch_exchange_price())
-        brk_task = asyncio.create_task(self.brk_client.fetch_curated_features())
-        hyperliquid_task = asyncio.create_task(self.hyperliquid_client.fetch_snapshot())
-
         effective_height = electrs_read.value
         if effective_height is None and self._last_snapshot is not None:
             effective_height = self._last_snapshot.block_height
 
-        utxo_read = await self._resolve_oracle(effective_height)
-        mempool_read, brk_read, hyperliquid_read = await asyncio.gather(
+        block_changed = (
+            effective_height is not None
+            and effective_height != self._last_observed_block_height
+        )
+        if electrs_read.value is not None:
+            self._last_observed_block_height = electrs_read.value
+
+        utxo_task = asyncio.create_task(
+            self._resolve_oracle(effective_height, block_changed=bool(block_changed))
+        )
+        mempool_task = asyncio.create_task(self.mempool_client.fetch_exchange_price())
+        brk_task = asyncio.create_task(self.brk_client.fetch_curated_features())
+        hyperliquid_task = asyncio.create_task(self.hyperliquid_client.fetch_snapshot())
+
+        utxo_read, mempool_read, brk_read, hyperliquid_read = await asyncio.gather(
+            utxo_task,
             mempool_task,
             brk_task,
             hyperliquid_task,
@@ -126,6 +140,21 @@ class LiveWorker:
             ),
         }
 
+        comparison = build_live_comparison(
+            utxoracle_price if source_health["utxoracle"].status == "healthy" else None,
+            mempool_exchange_price if source_health["mempool_api"].status == "healthy" else None,
+            (
+                hyperliquid_snapshot.oracle_price
+                if hyperliquid_snapshot and source_health["hyperliquid"].status == "healthy"
+                else None
+            ),
+            (
+                hyperliquid_snapshot.mark_price
+                if hyperliquid_snapshot and source_health["hyperliquid"].status == "healthy"
+                else None
+            ),
+        )
+
         snapshot = LiveSnapshot(
             timestamp=self.clock(),
             block_height=effective_height,
@@ -134,12 +163,7 @@ class LiveWorker:
             mempool_exchange_price=mempool_exchange_price,
             hyperliquid_oracle_price=hyperliquid_snapshot.oracle_price if hyperliquid_snapshot else None,
             hyperliquid_mark_price=hyperliquid_snapshot.mark_price if hyperliquid_snapshot else None,
-            comparison=build_live_comparison(
-                utxoracle_price,
-                mempool_exchange_price,
-                hyperliquid_snapshot.oracle_price if hyperliquid_snapshot else None,
-                hyperliquid_snapshot.mark_price if hyperliquid_snapshot else None,
-            ),
+            comparison=comparison,
             features=features,
             source_health=source_health,
             source_timestamps={
@@ -152,8 +176,6 @@ class LiveWorker:
         )
 
         self._last_snapshot = snapshot
-        if electrs_read.value is not None:
-            self._last_observed_block_height = electrs_read.value
         if self.snapshot_store is not None:
             await asyncio.to_thread(self.snapshot_store.write_snapshot, snapshot)
         return snapshot
@@ -211,7 +233,12 @@ class LiveWorker:
 
         return produced
 
-    async def _resolve_oracle(self, block_height: int | None) -> SourceRead[OracleObservation]:
+    async def _resolve_oracle(
+        self,
+        block_height: int | None,
+        *,
+        block_changed: bool,
+    ) -> SourceRead[OracleObservation]:
         if block_height is None:
             return SourceRead(
                 value=None,
@@ -221,7 +248,6 @@ class LiveWorker:
                 ),
             )
 
-        block_changed = block_height != self._last_observed_block_height
         try:
             observation = await self.oracle_resolver(block_height, block_changed)
         except Exception as exc:

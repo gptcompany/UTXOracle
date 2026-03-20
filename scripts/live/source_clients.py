@@ -116,7 +116,7 @@ class ElectrsClient(AsyncHttpSource):
                 headers={"Accept": "text/plain"},
             )
             response.raise_for_status()
-            height = int(response.text.strip().replace(chr(34), ""))
+            height = int(response.text.strip().strip(chr(34)))
             now = utc_now()
             return SourceRead(
                 value=height,
@@ -316,6 +316,10 @@ class HyperliquidSnapshotClient(AsyncHttpSource):
             "HYPERLIQUID_NODE_INFO_REQUEST_TYPE",
             DEFAULT_HYPERLIQUID_INFO_REQUEST_TYPE,
         )
+        if not self.info_request_type:
+            logger.warning(
+                "Hyperliquid direct /info request type is not configured; filesystem fallback remains primary"
+            )
         self.filtered_stream = filtered_stream or os.getenv(
             "HYPERLIQUID_FILTERED_STREAM",
             DEFAULT_HYPERLIQUID_FILTERED_STREAM,

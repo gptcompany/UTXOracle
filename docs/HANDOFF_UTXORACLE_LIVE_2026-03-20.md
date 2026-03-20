@@ -143,7 +143,7 @@ The verified Hyperliquid comparison source on this host is the filtered oracle-u
 ### Completed
 
 - Python syntax compilation succeeded for the new live modules and tests
-- targeted unit suite is green through storage, API, cadence loop, and health summary: `28 passed in 3.57s`
+- targeted unit suite is green through storage, API, cadence loop, health summary, and review hardening checks: `32 passed in 4.90s`
 - live runtime endpoints and port collisions were manually verified on host
 
 ### Concrete smoke results

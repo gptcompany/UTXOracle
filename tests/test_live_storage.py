@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import duckdb
+import pytest
 
 from scripts.live.models import (
     LiveComparison,
@@ -148,3 +149,37 @@ def test_store_uses_read_only_connections_for_reads(tmp_path, monkeypatch):
     assert len(store.get_history(60, now=datetime(2026, 3, 20, 18, 30, tzinfo=timezone.utc))) == 1
     assert observed_modes
     assert all(observed_modes)
+
+
+def test_store_write_snapshot_requires_initialize(tmp_path):
+    store = LiveSnapshotStore(tmp_path / "live.duckdb")
+
+    with pytest.raises(RuntimeError, match="initialize"):
+        store.write_snapshot(
+            _build_snapshot(
+                timestamp=datetime(2026, 3, 20, 18, 0, tzinfo=timezone.utc),
+                block_height=941456,
+                price=84211.52,
+            )
+        )
+
+
+def test_store_write_snapshot_skips_schema_check_after_initialize(tmp_path, monkeypatch):
+    store = LiveSnapshotStore(tmp_path / "live.duckdb")
+    store.initialize()
+    schema_calls = []
+
+    def tracking_schema(_conn):
+        schema_calls.append(True)
+
+    monkeypatch.setattr(store, "_ensure_schema", tracking_schema)
+
+    store.write_snapshot(
+        _build_snapshot(
+            timestamp=datetime(2026, 3, 20, 18, 0, tzinfo=timezone.utc),
+            block_height=941456,
+            price=84211.52,
+        )
+    )
+
+    assert schema_calls == []
