@@ -1,0 +1,22 @@
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_LINK_MODE=copy
+
+WORKDIR /app
+
+COPY pyproject.toml uv.lock README.md /app/
+COPY api /app/api
+COPY scripts /app/scripts
+COPY frontend /app/frontend
+COPY UTXOracle_library.py /app/UTXOracle_library.py
+
+RUN uv sync --frozen --no-dev --no-install-project
+
+RUN mkdir -p /app/data /app/logs /app/external/hyperliquid
+
+ENV PATH="/app/.venv/bin:${PATH}" \
+    PYTHONPATH=/app
+
+CMD ["/app/.venv/bin/python", "-m", "scripts.live.runtime"]

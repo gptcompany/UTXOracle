@@ -161,11 +161,11 @@
 
 ### Implementation for User Story 5
 
-- [ ] T046 [US5] Create `Dockerfile.live`
-- [ ] T047 [US5] Create `docker-compose.live.yml` with `utxoracle-live-worker` and `utxoracle-live-api`
-- [ ] T048 [US5] Update `utxoracle-api.service` or add a companion service unit for live API mode
-- [ ] T049 [US5] Document runtime env vars and volume mounts in `docs/ARCHITECTURE.md`
-- [ ] T050 [P] [US5] Run compose validation and startup smoke checks
+- [x] T046 [US5] Create `Dockerfile.live`
+- [x] T047 [US5] Create `docker-compose.live.yml` with `utxoracle-live-worker` and `utxoracle-live-api`
+- [x] T048 [US5] Update `utxoracle-api.service` or add a companion service unit for live API mode
+- [x] T049 [US5] Document runtime env vars and volume mounts in `docs/ARCHITECTURE.md`
+- [x] T050 [P] [US5] Run compose validation and startup smoke checks
 
 **Checkpoint**: Live service can be started and monitored as a host-level Docker deployment.
 
@@ -175,8 +175,8 @@
 
 **Purpose**: Remove known integration drift that would confuse operators and future work.
 
-- [ ] T051 [P] Update `scripts/compare_brk_utxoracle.py` to default to env-driven `BRK_BASE_URL`
-- [ ] T052 [P] Update `scripts/validate_brk_integration.py` to default to env-driven `BRK_BASE_URL`
+- [x] T051 [P] Update `scripts/compare_brk_utxoracle.py` to default to env-driven `BRK_BASE_URL`
+- [x] T052 [P] Update `scripts/validate_brk_integration.py` to default to env-driven `BRK_BASE_URL`
 - [x] T053 [P] Update any live-critical `electrs` references that still default to `localhost:3001`
 - [x] T054 [P] Add operational notes for port alignment and current host topology
 - [x] T055 Run targeted regression tests for touched modules

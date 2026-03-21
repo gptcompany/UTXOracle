@@ -1,4 +1,4 @@
-# UTXOracle Live Handoff - 2026-03-20
+# UTXOracle Live Handoff - 2026-03-21
 
 ## Goal
 
@@ -29,10 +29,11 @@ Move the repository from dormant batch-oriented state toward one Dockerized `UTX
 - `3002` must therefore be consumed as the Electrs upstream, not reused by any new service
 - the new Dockerized live API must remain configurable via ENV to avoid collision with the existing `8001` service
 
-## Phase 1-4 Implementation Completed
+## Phase 1-5 Implementation Completed
 
 ### New live scaffolding
 
+- `scripts/live/runtime.py`
 - `scripts/live/models.py`
 - `scripts/live/comparison.py`
 - `scripts/live/source_clients.py`
@@ -43,12 +44,20 @@ Move the repository from dormant batch-oriented state toward one Dockerized `UTX
 
 ### Tests added
 
+- `tests/test_live_runtime.py`
 - `tests/test_live_models.py`
 - `tests/test_live_comparison.py`
 - `tests/test_live_source_clients.py`
 - `tests/test_live_storage.py`
 - `tests/test_live_worker.py`
 - `tests/test_live_api.py`
+
+### Deployment assets added
+
+- `.dockerignore`
+- `Dockerfile.live`
+- `docker-compose.live.yml`
+- `utxoracle-live-compose.service`
 
 ### Legacy defaults corrected
 
@@ -103,6 +112,7 @@ Implements snapshot collection and cadence control:
 - marks carried-forward sources as `stale`
 - runs a market cadence loop that polls Electrs and triggers collection on new blocks or market interval expiry
 - acquires a single-process worker lock for the long-running `run()` path to prevent concurrent writers
+- adds a runtime bootstrap that instantiates the canonical UTXOracle resolver from `electrs` block transactions
 
 ### `scripts/live/storage.py`
 
@@ -143,43 +153,45 @@ The verified Hyperliquid comparison source on this host is the filtered oracle-u
 
 ### Completed
 
-- Python syntax compilation succeeded for the new live modules and tests
-- targeted unit suite is green through storage, API, cadence loop, health summary, review hardening, and process-lock checks: `34 passed in 3.88s`
-- live runtime endpoints and port collisions were manually verified on host
+- Python syntax compilation succeeded for `api/main.py`, the new live runtime, and the deployment scaffolding
+- local environment was synced with `uv sync` after adding `zstandard` for Hyperliquid filtered `.zst` support
+- full live-targeted unit suite is green: `36 passed in 3.46s`
+- `docker compose -f docker-compose.live.yml config` is valid
+- `.dockerignore` now excludes `.git`, `data/`, `logs/`, tests, specs, and other large local artifacts, reducing live image build context from an accidental repo-wide payload to roughly `2.7MB`
 
 ### Concrete smoke results
 
-- `curl -fsS http://127.0.0.1:3002/blocks/tip/height` -> `941456`
-- `curl -fsS http://127.0.0.1:8999/api/v1/prices` returned BTC/USD payload with `USD: 69834`
-- `curl -fsS http://127.0.0.1:7070/health` returned `status: healthy` and `blocks_behind: 0`
+- `env DOCKER_BUILDKIT=0 COMPOSE_DOCKER_CLI_BUILD=0 JWT_SECRET=test-secret docker compose -f docker-compose.live.yml up -d --build` successfully built `utxoracle-live:local`
+- `env JWT_SECRET=test-secret docker compose -f docker-compose.live.yml up -d --no-build` started both services from the built image
+- `docker compose -f docker-compose.live.yml ps` showed `utxoracle-live-api` and `utxoracle-live-worker` up, with API healthcheck reaching `healthy`
+- `curl -i -sS http://127.0.0.1:8011/api/v1/live/ready` returned `200 OK` with `block_height=941521`
+- `curl -fsS http://127.0.0.1:8011/api/v1/live/snapshot` returned a valid live snapshot payload containing `utxoracle_price`, `mempool_exchange_price`, Hyperliquid fallback prices, source health, and comparison fields
+- `curl -fsS http://127.0.0.1:3002/blocks/tip/height` reached Electrs on the verified port
+- `curl -fsS http://127.0.0.1:8999/api/v1/prices` reached the mempool price feed
+- `curl -fsS http://127.0.0.1:7070/health` confirmed BRK itself is healthy on host even though curated feature fetches in the live worker are still unavailable
 - `curl -i -sS --max-time 2 http://127.0.0.1:3001/info` returned `405 Method Not Allowed`, confirming the verified node surface is `POST /info`
 - `curl -sS -X POST http://127.0.0.1:3001/info -H "Content-Type: application/json" -d "{\"type\":\"meta\"}"` returned JSON, confirming the node stack is reachable
 - `curl -sS http://127.0.0.1:9101/metrics | rg hl_core_block_height` returned the block-height gauge
 - the latest verified filtered oracle-update file on `4TB-NVMe` contained both `coin_to_oracle_px` and `coin_to_mark_px` for `cash:BTC`
 - `curl http://127.0.0.1:12345` returned `Content-Type: text/html; charset=utf-8`, confirming it is not part of the Hyperliquid comparison path
 
-### Required after further edits
+### Operational notes from smoke
 
-Rerun the targeted unit suite:
-
-```bash
-pytest tests/test_live_models.py tests/test_live_comparison.py tests/test_live_source_clients.py tests/test_live_storage.py tests/test_live_worker.py tests/test_live_api.py -q
-```
-
-If green, proceed to deployment and service-lifecycle phases.
+- the long-running worker can take noticeable warm-up time before the first persisted snapshot becomes available because the canonical oracle is computed from real block transactions fetched via Electrs
+- the running container used for smoke needed hotfixes only because the Docker image had been built before the final `api/main.py` health-check alignment landed; the repository code now uses env-driven Electrs and mempool URLs
 
 ## Next Session Recommended Order
 
-1. create `Dockerfile.live` and `docker-compose.live.yml`
-2. bind `LIVE_DUCKDB_PATH` and service ports in deployment assets
-3. perform live smoke tests against the verified upstreams and the new `/api/v1/live/*` routes
-4. finish the remaining BRK helper alignment tasks outside the core live package
+1. perform a clean rebuild of `utxoracle-live:local` so the running API image reflects the final `api/main.py` upstream URL fixes without hotpatching
+2. confirm the supported Hyperliquid `POST /info` request type for direct oracle or mark extraction and reduce reliance on stale filtered fallback
+3. investigate why BRK curated metric fetches are unavailable from the live worker even though host BRK health is green
+4. decide whether `/health` should report overall `degraded` when only live references are stale versus when core service readiness is intact
 
 ## Open Risks
 
-1. Hyperliquid oracle and mark comparison currently depends on the filtered dataset under `4TB-NVMe`, so freshness must be enforced explicitly
+1. Hyperliquid oracle and mark comparison still depends primarily on the filtered dataset under `4TB-NVMe`, so freshness must be enforced explicitly
 2. direct `POST /info` extraction for oracle and mark is still optional until the supported request type is confirmed on this node
-3. `api/main.py` is already large, so live endpoints should be integrated carefully and kept isolated by helper modules
-4. `BRK` feature scope must remain curated; do not leak raw metric fanout into the public live API
-5. the existing systemd API on `8001` means Docker port selection must stay explicit to avoid accidental overlap
-6. live history now depends on the dedicated `LIVE_DUCKDB_PATH`, so deployment assets must mount it explicitly
+3. BRK feature scope must remain curated; do not leak raw metric fanout into the public live API
+4. the existing systemd API on `8001` means Docker port selection must stay explicit to avoid accidental overlap
+5. `api/main.py` is still large, even though the live routes are isolated; further router cleanup is still warranted over time
+6. compose builds can appear sticky on this host after image creation, so operators should prefer validating the built image explicitly and then using `up -d --no-build` if compose does not return promptly

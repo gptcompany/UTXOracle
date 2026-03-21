@@ -1,0 +1,95 @@
+services:
+  utxoracle-live-worker:
+    image: utxoracle-live:local
+    build:
+      context: .
+      dockerfile: Dockerfile.live
+    command: ["/app/.venv/bin/python", "-m", "scripts.live.runtime"]
+    restart: unless-stopped
+    init: true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LIVE_ENABLED: "true"
+      LIVE_DUCKDB_PATH: /app/data/utxoracle_live.duckdb
+      LIVE_WORKER_LOCK_PATH: /app/data/utxoracle_live.duckdb.worker.lock
+      LIVE_RETENTION_HOURS: ${LIVE_RETENTION_HOURS:-24}
+      LIVE_SOURCE_TIMEOUT_SECONDS: ${LIVE_SOURCE_TIMEOUT_SECONDS:-5.0}
+      LIVE_MARKET_INTERVAL_SECONDS: ${LIVE_MARKET_INTERVAL_SECONDS:-5.0}
+      LIVE_BLOCK_POLL_INTERVAL_SECONDS: ${LIVE_BLOCK_POLL_INTERVAL_SECONDS:-2.0}
+      LIVE_ORACLE_TX_CONCURRENCY: ${LIVE_ORACLE_TX_CONCURRENCY:-32}
+      LIVE_ORACLE_MIN_TX_COUNT: ${LIVE_ORACLE_MIN_TX_COUNT:-1000}
+      DUCKDB_PATH: /app/data/utxoracle.duckdb
+      UTXORACLE_DB_PATH: /app/data/utxoracle.duckdb
+      ELECTRS_HTTP_URL: ${ELECTRS_HTTP_URL:-http://host.docker.internal:3002}
+      MEMPOOL_API_URL: ${MEMPOOL_API_URL:-http://host.docker.internal:8999}
+      MEMPOOL_API_V1_URL: ${MEMPOOL_API_V1_URL:-http://host.docker.internal:8999/api/v1}
+      BRK_BASE_URL: ${BRK_BASE_URL:-http://host.docker.internal:7070}
+      HYPERLIQUID_NODE_API_URL: ${HYPERLIQUID_NODE_API_URL:-http://host.docker.internal:3001/info}
+      HYPERLIQUID_NODE_INFO_REQUEST_TYPE: ${HYPERLIQUID_NODE_INFO_REQUEST_TYPE:-}
+      HYPERLIQUID_NODE_SNAPSHOT_PATH: ${HYPERLIQUID_NODE_SNAPSHOT_PATH:-}
+      HYPERLIQUID_METRICS_URL: ${HYPERLIQUID_METRICS_URL:-http://host.docker.internal:9101/metrics}
+      HYPERLIQUID_DATA_ROOT: /app/external/hyperliquid/filtered
+      HYPERLIQUID_FILTERED_STREAM: ${HYPERLIQUID_FILTERED_STREAM:-hip3_oracle_updates_by_block}
+      HYPERLIQUID_MAX_AGE_SECONDS: ${HYPERLIQUID_MAX_AGE_SECONDS:-900}
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - /media/sam/4TB-NVMe/hyperliquid/filtered:/app/external/hyperliquid/filtered:ro
+
+  utxoracle-live-api:
+    image: utxoracle-live:local
+    build:
+      context: .
+      dockerfile: Dockerfile.live
+    command:
+      - /app/.venv/bin/uvicorn
+      - api.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8011"
+      - --workers
+      - "1"
+      - --log-level
+      - info
+    restart: unless-stopped
+    init: true
+    depends_on:
+      - utxoracle-live-worker
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${LIVE_API_PORT:-8011}:8011"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      JWT_SECRET: ${JWT_SECRET:-}
+      FASTAPI_PORT: "8011"
+      LIVE_API_PORT: "8011"
+      LIVE_ENABLED: "true"
+      DUCKDB_PATH: /app/data/utxoracle.duckdb
+      UTXORACLE_DB_PATH: /app/data/utxoracle.duckdb
+      LIVE_DUCKDB_PATH: /app/data/utxoracle_live.duckdb
+      LIVE_RETENTION_HOURS: ${LIVE_RETENTION_HOURS:-24}
+      ELECTRS_HTTP_URL: ${ELECTRS_HTTP_URL:-http://host.docker.internal:3002}
+      MEMPOOL_API_URL: ${MEMPOOL_API_URL:-http://host.docker.internal:8999}
+      MEMPOOL_API_V1_URL: ${MEMPOOL_API_V1_URL:-http://host.docker.internal:8999/api/v1}
+      BRK_BASE_URL: ${BRK_BASE_URL:-http://host.docker.internal:7070}
+      HYPERLIQUID_NODE_API_URL: ${HYPERLIQUID_NODE_API_URL:-http://host.docker.internal:3001/info}
+      HYPERLIQUID_NODE_INFO_REQUEST_TYPE: ${HYPERLIQUID_NODE_INFO_REQUEST_TYPE:-}
+      HYPERLIQUID_NODE_SNAPSHOT_PATH: ${HYPERLIQUID_NODE_SNAPSHOT_PATH:-}
+      HYPERLIQUID_METRICS_URL: ${HYPERLIQUID_METRICS_URL:-http://host.docker.internal:9101/metrics}
+      HYPERLIQUID_DATA_ROOT: /app/external/hyperliquid/filtered
+      HYPERLIQUID_FILTERED_STREAM: ${HYPERLIQUID_FILTERED_STREAM:-hip3_oracle_updates_by_block}
+      HYPERLIQUID_MAX_AGE_SECONDS: ${HYPERLIQUID_MAX_AGE_SECONDS:-900}
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - /media/sam/4TB-NVMe/hyperliquid/filtered:/app/external/hyperliquid/filtered:ro
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8011/health', timeout=2)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

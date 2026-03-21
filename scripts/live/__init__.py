@@ -19,6 +19,7 @@ from scripts.live.source_clients import (
 )
 from scripts.live.storage import LiveSnapshotStore
 from scripts.live.worker import LiveWorker
+from scripts.live.runtime import ElectrsBlockOracleResolver, LiveWorkerRuntime, build_live_runtime
 
 __all__ = [
     "BrkClient",
@@ -33,6 +34,9 @@ __all__ = [
     "LiveSnapshotStore",
     "LiveWorker",
     "MempoolApiClient",
+    "ElectrsBlockOracleResolver",
+    "LiveWorkerRuntime",
+    "build_live_runtime",
     "OracleObservation",
     "SourceHealth",
     "build_live_comparison",

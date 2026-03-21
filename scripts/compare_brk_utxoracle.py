@@ -11,11 +11,12 @@ Usage:
     python scripts/compare_brk_utxoracle.py --integration-check
 
 Requirements:
-    - BRK server running on localhost:3110
+    - BRK server running on BRK_BASE_URL (default: http://127.0.0.1:7070)
     - UTXOracle DuckDB database
 """
 
 import argparse
+import os
 import json
 import sys
 from datetime import datetime, timedelta
@@ -26,7 +27,7 @@ from urllib.error import URLError
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-BRK_BASE_URL = "http://127.0.0.1:7070"
+BRK_BASE_URL = os.getenv("BRK_BASE_URL", "http://127.0.0.1:7070")
 
 # Metric mapping: BRK name -> (UTXOracle table, column, tolerance%)
 METRIC_MAPPING = {

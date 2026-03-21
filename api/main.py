@@ -112,21 +112,35 @@ except ImportError as e:
 # T064: Configuration Management (SOPS-encrypted)
 # =============================================================================
 
-# Use SOPS-encrypted secrets (drop-in replacement for load_dotenv)
-sys.path.insert(0, "/media/sam/1TB/claude-hooks-shared/scripts")
-from secrets_loader import load_secrets
+# Use SOPS-encrypted secrets when available, otherwise fall back to dotenv/plain env
+try:
+    sys.path.insert(0, "/media/sam/1TB/claude-hooks-shared/scripts")
+    from secrets_loader import load_secrets
 
-# Load secrets from .env.enc (falls back to .env for dev)
+    _secrets_mode = "sops"
+except ImportError:
+    try:
+        from dotenv import load_dotenv as load_secrets
+
+        _secrets_mode = "dotenv"
+    except ImportError:
+        def load_secrets(_path: str | None = None):
+            return False
+
+        _secrets_mode = "env"
+
+# Load secrets from .env.enc when SOPS is available; otherwise prefer plain .env
 env_enc_path = Path(__file__).parent.parent / ".env.enc"
 env_path = Path(__file__).parent.parent / ".env"
-if env_enc_path.exists():
+if _secrets_mode == "sops" and env_enc_path.exists():
     load_secrets(str(env_enc_path))
     logging.info(f"Config loaded from encrypted .env.enc file at {env_enc_path}")
 elif env_path.exists():
     load_secrets(str(env_path))
     logging.info(f"Config loaded from .env file at {env_path}")
 else:
-    logging.info("Config loaded from environment variables (no .env file found)")
+    load_secrets(None)
+    logging.info("Config loaded from environment variables (no local env file found)")
 
 # Configuration with defaults
 DUCKDB_PATH = os.getenv(
@@ -135,6 +149,10 @@ DUCKDB_PATH = os.getenv(
 FASTAPI_HOST = os.getenv("FASTAPI_HOST", "0.0.0.0")
 FASTAPI_PORT = int(os.getenv("FASTAPI_PORT", "8000"))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+LIVE_ENABLED = os.getenv("LIVE_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
+ELECTRS_HTTP_URL = os.getenv("ELECTRS_HTTP_URL", "http://127.0.0.1:3002").rstrip("/")
+MEMPOOL_API_URL = os.getenv("MEMPOOL_API_URL", "http://127.0.0.1:8999").rstrip("/")
+MEMPOOL_API_V1_URL = os.getenv("MEMPOOL_API_V1_URL", f"{MEMPOOL_API_URL}/api/v1").rstrip("/")
 
 # Wasserstein Distance Configuration (spec-010)
 WASSERSTEIN_SHIFT_THRESHOLD = float(os.getenv("WASSERSTEIN_SHIFT_THRESHOLD", "0.10"))
@@ -1048,7 +1066,7 @@ async def get_advanced_metrics():
         async with aiohttp.ClientSession() as session:
             # Get latest block hash
             async with session.get(
-                "http://localhost:3001/blocks/tip/hash",
+                f"{ELECTRS_HTTP_URL}/blocks/tip/hash",
                 timeout=aiohttp.ClientTimeout(total=10.0),
             ) as response:
                 if response.status != 200:
@@ -1057,7 +1075,7 @@ async def get_advanced_metrics():
 
             # Get transaction IDs from block
             async with session.get(
-                f"http://localhost:3001/block/{best_hash}/txids",
+                f"{ELECTRS_HTTP_URL}/block/{best_hash}/txids",
                 timeout=aiohttp.ClientTimeout(total=30.0),
             ) as response:
                 if response.status != 200:
@@ -1075,7 +1093,7 @@ async def get_advanced_metrics():
             for txid in sample_txids:
                 try:
                     async with session.get(
-                        f"http://localhost:3001/tx/{txid}",
+                        f"{ELECTRS_HTTP_URL}/tx/{txid}",
                         timeout=aiohttp.ClientTimeout(total=5.0),
                     ) as response:
                         if response.status == 200:
@@ -4135,7 +4153,7 @@ async def check_electrs_connectivity() -> ServiceCheck:
     Returns:
         ServiceCheck: Status, latency, and error details
     """
-    url = "http://localhost:3001/blocks/tip/height"
+    url = f"{ELECTRS_HTTP_URL}/blocks/tip/height"
     try:
         start = time.time()
         async with aiohttp.ClientSession() as session:
@@ -4165,7 +4183,7 @@ async def check_mempool_backend() -> ServiceCheck:
     Returns:
         ServiceCheck: Status, latency, and error details
     """
-    url = "http://localhost:8999/api/v1/prices"
+    url = f"{MEMPOOL_API_V1_URL}/prices"
     try:
         start = time.time()
         async with aiohttp.ClientSession() as session:

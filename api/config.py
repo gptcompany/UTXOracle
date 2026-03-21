@@ -10,12 +10,33 @@ import logging.handlers
 from pathlib import Path
 from typing import Optional
 
-# Use SOPS-encrypted secrets (drop-in replacement for load_dotenv)
-sys.path.insert(0, "/media/sam/1TB/claude-hooks-shared/scripts")
-from secrets_loader import load_secrets
+# Use SOPS-encrypted secrets when available, otherwise fall back to dotenv/plain env
+try:
+    sys.path.insert(0, "/media/sam/1TB/claude-hooks-shared/scripts")
+    from secrets_loader import load_secrets
 
-# Load environment variables (from .env.enc if available, falls back to .env)
-load_secrets()
+    _secrets_mode = "sops"
+except ImportError:
+    try:
+        from dotenv import load_dotenv as load_secrets
+
+        _secrets_mode = "dotenv"
+    except ImportError:
+        def load_secrets(_path: str | None = None):
+            return False
+
+        _secrets_mode = "env"
+
+# Load environment variables (from .env.enc when SOPS is available, otherwise .env or current env)
+_project_root = Path(__file__).resolve().parent.parent
+_env_enc_path = _project_root / ".env.enc"
+_env_path = _project_root / ".env"
+if _secrets_mode == "sops" and _env_enc_path.exists():
+    load_secrets(str(_env_enc_path))
+elif _env_path.exists():
+    load_secrets(str(_env_path))
+else:
+    load_secrets(None)
 
 # Environment configuration
 # SECURITY: JWT_SECRET must be set in environment - no insecure defaults
@@ -53,6 +74,8 @@ LIVE_RETENTION_HOURS = int(os.getenv("LIVE_RETENTION_HOURS", "24"))
 LIVE_WORKER_LOCK_PATH = os.getenv(
     "LIVE_WORKER_LOCK_PATH", str(Path(LIVE_DUCKDB_PATH).parent / f"{Path(LIVE_DUCKDB_PATH).name}.worker.lock")
 )
+LIVE_ORACLE_TX_CONCURRENCY = int(os.getenv("LIVE_ORACLE_TX_CONCURRENCY", "32"))
+LIVE_ORACLE_MIN_TX_COUNT = int(os.getenv("LIVE_ORACLE_MIN_TX_COUNT", "1000"))
 
 # WebSocket configuration
 WS_HEARTBEAT_INTERVAL = 30  # seconds

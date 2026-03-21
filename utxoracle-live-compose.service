@@ -1,0 +1,22 @@
+[Unit]
+Description=UTXOracle Live Docker Compose Stack
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=sam
+Group=sam
+WorkingDirectory=/media/sam/1TB/UTXOracle
+Environment=COMPOSE_PROJECT_NAME=utxoracle-live
+EnvironmentFile=-/media/sam/1TB/UTXOracle/.env
+ExecStart=/usr/bin/docker compose -f /media/sam/1TB/UTXOracle/docker-compose.live.yml up -d --build
+ExecStop=/usr/bin/docker compose -f /media/sam/1TB/UTXOracle/docker-compose.live.yml down
+ExecReload=/usr/bin/docker compose -f /media/sam/1TB/UTXOracle/docker-compose.live.yml up -d --build
+TimeoutStartSec=0
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

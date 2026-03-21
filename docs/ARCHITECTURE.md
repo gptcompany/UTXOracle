@@ -7,6 +7,46 @@
 > **Note**: This file is the canonical source for architecture documentation.
 > When implementing new specs, update THIS file (not CLAUDE.md).
 
+## 2026-03-21 Live Docker Deployment (spec-040)
+
+The current live deployment target is the dedicated compose stack in `docker-compose.live.yml`. It is intentionally separate from the existing systemd API on `8001`.
+
+### Live Services
+
+- `utxoracle-live-worker`: runs `python -m scripts.live.runtime` and writes the canonical live snapshot DuckDB
+- `utxoracle-live-api`: runs `uvicorn api.main:app` with `LIVE_ENABLED=true` and exposes `/api/v1/live/*` plus `/health`
+
+### Required Volume Mounts
+
+- `./data -> /app/data`
+- `./logs -> /app/logs`
+- `/media/sam/4TB-NVMe/hyperliquid/filtered -> /app/external/hyperliquid/filtered:ro`
+
+### Critical Environment Variables
+
+| Variable | Purpose | Default in live compose |
+|----------|---------|-------------------------|
+| `LIVE_DUCKDB_PATH` | persisted live snapshot store | `/app/data/utxoracle_live.duckdb` |
+| `LIVE_WORKER_LOCK_PATH` | single-writer guard for worker runtime | `/app/data/utxoracle_live.duckdb.worker.lock` |
+| `LIVE_API_PORT` | host-facing live API port | `8011` |
+| `ELECTRS_HTTP_URL` | upstream chain context | `http://host.docker.internal:3002` |
+| `MEMPOOL_API_V1_URL` | upstream mempool/exchange price | `http://host.docker.internal:8999/api/v1` |
+| `BRK_BASE_URL` | curated BRK feature source | `http://host.docker.internal:7070` |
+| `HYPERLIQUID_NODE_API_URL` | verified Hyperliquid node API surface | `http://host.docker.internal:3001/info` |
+| `HYPERLIQUID_DATA_ROOT` | filtered oracle/mark fallback mount | `/app/external/hyperliquid/filtered` |
+| `LIVE_ORACLE_TX_CONCURRENCY` | concurrent electrs tx fetches for canonical oracle | `32` |
+| `LIVE_ORACLE_MIN_TX_COUNT` | minimum tx count before accepting a block snapshot | `1000` |
+
+### Network Topology
+
+Containers reach host-level infra through `host.docker.internal`:
+- `electrs` on `3002`
+- `mempool-api` on `8999`
+- `BRK` on `7070`
+- `hyperliquid-node` on `3001` and `9101`
+
+The live API remains on `8011` specifically to avoid collision with the existing baseline API on `8001`.
+
 ## Current Implementation (spec-003: Hybrid Architecture)
 
 **4-Layer Architecture** - Combines reference implementation with self-hosted infrastructure:
