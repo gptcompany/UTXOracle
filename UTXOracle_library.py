@@ -65,6 +65,10 @@ class UTXOracleCalculator:
         # Build bins once during initialization
         self.bins = self._build_histogram_bins()
 
+        # Pre-calculate stencils once to save CPU during live processing
+        self.smooth_stencil = self._build_smooth_stencil()
+        self.spike_stencil = self._build_spike_stencil()
+
     def _build_histogram_bins(self) -> List[float]:
         """
         T020: Create logarithmically-spaced histogram bins (Step 5).
@@ -121,36 +125,6 @@ class UTXOracleCalculator:
 
         # Otherwise return previous bin (amount falls between bins[idx-1] and bins[idx])
         return idx - 1 if idx > 0 else 0
-
-    def _remove_round_amounts(self, histogram: Dict[float, int]) -> Dict[float, int]:
-        """
-        T022: Filter out round Bitcoin amounts from histogram (Step 7).
-
-        Round BTC amounts (1.0, 5.0, 10.0, etc.) are likely test transactions
-        or non-market activity and should be excluded from price analysis.
-
-        Args:
-            histogram: Dict mapping amounts (BTC) to counts
-
-        Returns:
-            dict: Filtered histogram
-
-        Extracted from UTXOracle.py lines 889-970 (Step 7)
-        """
-        filtered = {}
-
-        for amount, count in histogram.items():
-            # Check if amount is "round" (ends in .0, .00, .000, etc.)
-            # Round integers: 1.0, 2.0, 5.0, 10.0, 100.0
-            # Allow: 0.5, 1.5, 1.23456, etc.
-            if isinstance(amount, float):
-                # Check if it's a whole number
-                if amount == int(amount) and amount >= 1.0:
-                    continue  # Skip round amounts
-
-            filtered[amount] = count
-
-        return filtered
 
     def _build_smooth_stencil(self) -> Dict[int, float]:
         """
@@ -254,9 +228,9 @@ class UTXOracleCalculator:
                 "peak_btc": None,
             }
 
-        # Build stencils
-        smooth_stencil = self._build_smooth_stencil()
-        spike_stencil = self._build_spike_stencil()
+        # Use pre-calculated stencils
+        smooth_stencil = self.smooth_stencil
+        spike_stencil = self.spike_stencil
 
         # Convolve histogram with stencils to find peaks
         convolved = {}
