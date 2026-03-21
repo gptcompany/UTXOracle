@@ -102,6 +102,7 @@ Implements snapshot collection and cadence control:
 - carries forward prior values when an upstream is temporarily unavailable
 - marks carried-forward sources as `stale`
 - runs a market cadence loop that polls Electrs and triggers collection on new blocks or market interval expiry
+- acquires a single-process worker lock for the long-running `run()` path to prevent concurrent writers
 
 ### `scripts/live/storage.py`
 
@@ -143,7 +144,7 @@ The verified Hyperliquid comparison source on this host is the filtered oracle-u
 ### Completed
 
 - Python syntax compilation succeeded for the new live modules and tests
-- targeted unit suite is green through storage, API, cadence loop, health summary, and review hardening checks: `32 passed in 4.90s`
+- targeted unit suite is green through storage, API, cadence loop, health summary, review hardening, and process-lock checks: `34 passed in 3.88s`
 - live runtime endpoints and port collisions were manually verified on host
 
 ### Concrete smoke results

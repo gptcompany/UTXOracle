@@ -13,7 +13,7 @@ from scripts.live.models import (
 )
 from scripts.live.source_clients import SourceRead
 from scripts.live.storage import LiveSnapshotStore
-from scripts.live.worker import LiveWorker
+from scripts.live.worker import LiveWorker, ProcessLockError, _WorkerProcessLock
 
 
 class QueueClient:
@@ -629,3 +629,91 @@ async def test_worker_remembers_observed_block_after_failed_initial_collection()
     assert first is None
     assert second is not None
     assert resolver.calls == [(941453, True), (941453, False)]
+
+
+def test_worker_process_lock_is_exclusive(tmp_path):
+    lock_path = tmp_path / "live.worker.lock"
+    first = _WorkerProcessLock(lock_path)
+    second = _WorkerProcessLock(lock_path)
+
+    first.acquire()
+    try:
+        with pytest.raises(ProcessLockError, match="already held"):
+            second.acquire()
+    finally:
+        first.release()
+
+    second.acquire()
+    second.release()
+    assert not lock_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_worker_run_releases_process_lock_after_completion(tmp_path):
+    lock_path = tmp_path / "live.worker.lock"
+    electrs = QueueClient(
+        "fetch_tip_height",
+        [
+            SourceRead(
+                value=941453,
+                health=SourceHealth(status="healthy", observed_height=941453),
+                source_timestamp="2026-03-20T17:14:00Z",
+            ),
+        ],
+    )
+    mempool = QueueClient(
+        "fetch_exchange_price",
+        [
+            SourceRead(
+                value=84302.11,
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:14:00Z",
+            ),
+        ],
+    )
+    brk = QueueClient(
+        "fetch_curated_features",
+        [
+            SourceRead(
+                value=LiveFeatureSet(brk_realized_price=54311.39, brk_liveliness=0.63),
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:13:19Z",
+            ),
+        ],
+    )
+    hyperliquid = QueueClient(
+        "fetch_snapshot",
+        [
+            SourceRead(
+                value=HyperliquidPriceSnapshot(
+                    source="api",
+                    timestamp="2026-03-20T17:14:00Z",
+                    oracle_price=84295.40,
+                    mark_price=84310.80,
+                ),
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:14:00Z",
+            ),
+        ],
+    )
+    resolver = RecordingResolver(
+        [OracleObservation(timestamp="2026-03-20T17:14:00Z", price=84211.52, confidence=0.82)]
+    )
+    worker = LiveWorker(
+        electrs_client=electrs,
+        mempool_client=mempool,
+        brk_client=brk,
+        hyperliquid_client=hyperliquid,
+        oracle_resolver=resolver,
+        process_lock_path=lock_path,
+        clock=lambda: datetime(2026, 3, 20, 17, 14, 0, tzinfo=timezone.utc),
+    )
+
+    snapshots = await worker.run(
+        market_interval_seconds=5.0,
+        block_poll_interval_seconds=2.0,
+        max_cycles=1,
+    )
+
+    assert len(snapshots) == 1
+    assert not lock_path.exists()
