@@ -1,0 +1,52 @@
+name: Notify PePeRS Integration
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    if: github.repository_owner == 'gptcompany'
+    runs-on: [self-hosted, Linux, X64, sam-workstation]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract Metadata
+        id: meta
+        run: |
+          VERSION=$(grep '^version =' pyproject.toml | cut -d '"' -f 2)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "build_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve dispatch tokens via dotenvx (self-hosted fallback)
+        id: tokens
+        run: |
+          PD_TOKEN="${{ secrets.PROGRESSIVE_DEPLOY_REPO_DISPATCH_TOKEN || secrets.PAT }}"
+          if command -v dotenvx &> /dev/null && [[ -f .env ]]; then
+            if [[ -z "$PD_TOKEN" ]]; then
+              echo "Resolving token via dotenvx..."
+              PD_TOKEN=$(dotenvx get PROGRESSIVE_DEPLOY_REPO_DISPATCH_TOKEN || dotenvx get GITHUB_PAT || dotenvx get PAT || true)
+            fi
+          fi
+          if [[ -n "$PD_TOKEN" ]]; then
+            echo "pd_token=$PD_TOKEN" >> "$GITHUB_OUTPUT"
+            echo "::add-mask::$PD_TOKEN"
+          fi
+
+      - name: Repository dispatch to progressive-deploy
+        id: progressive_dispatch
+        if: steps.tokens.outputs.pd_token != ''
+        continue-on-error: true
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ steps.tokens.outputs.pd_token }}
+          repository: gptcompany/progressive-deploy
+          event-type: utxoracle-build
+          client-payload: >-
+            {"source_repo":"${{ github.repository }}","source_ref":"${{ github.ref_name }}","source_sha":"${{ github.sha }}","source_workflow":"${{ github.workflow }}","ref":"${{ github.sha }}","version":"${{ steps.meta.outputs.version }}","commit_sha":"${{ steps.meta.outputs.sha }}","build_at":"${{ steps.meta.outputs.build_at }}"}

@@ -5,6 +5,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.live
+      args:
+        VERSION: ${UTXORACLE_VERSION:-unknown}
+        COMMIT_SHA: ${UTXORACLE_COMMIT_SHA:-unknown}
+        BUILD_AT: ${UTXORACLE_BUILD_AT:-unknown}
     command: ["/app/.venv/bin/python", "-m", "scripts.live.runtime"]
     ulimits:
       nproc: 65535
@@ -50,6 +54,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.live
+      args:
+        VERSION: ${UTXORACLE_VERSION:-unknown}
+        COMMIT_SHA: ${UTXORACLE_COMMIT_SHA:-unknown}
+        BUILD_AT: ${UTXORACLE_BUILD_AT:-unknown}
     command:
       - /app/.venv/bin/uvicorn
       - api.main:app
