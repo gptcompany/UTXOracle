@@ -109,3 +109,7 @@ UTXOracle is licensed under the [Blue Oak Model License 1.0.0](./LICENSE).
 ## Credits
 
 Created by [@Unbesteveable](https://github.com/Unbesteveable).
+
+## Monitoring
+Check service status and version:
+`curl -s http://localhost:8011/health | jq .`
