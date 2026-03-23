@@ -48,7 +48,7 @@ def _build_test_client(store: LiveSnapshotStore) -> TestClient:
 
 
 def test_live_snapshot_endpoint_returns_latest_snapshot(tmp_path):
-    store = LiveSnapshotStore(tmp_path / "live.duckdb")
+    store = LiveSnapshotStore(tmp_path / "live.sqlite3")
     store.initialize(for_write=True)
     store.write_snapshot(
         _build_snapshot(
@@ -69,7 +69,7 @@ def test_live_snapshot_endpoint_returns_latest_snapshot(tmp_path):
 
 def test_live_history_endpoint_returns_recent_snapshots(tmp_path):
     now = datetime.now(timezone.utc)
-    store = LiveSnapshotStore(tmp_path / "live.duckdb")
+    store = LiveSnapshotStore(tmp_path / "live.sqlite3")
     store.initialize(for_write=True)
     store.write_snapshot(_build_snapshot(timestamp=now - timedelta(minutes=10), block_height=941450, price=84100.0))
     store.write_snapshot(_build_snapshot(timestamp=now - timedelta(minutes=4), block_height=941451, price=84200.0))
@@ -84,7 +84,7 @@ def test_live_history_endpoint_returns_recent_snapshots(tmp_path):
 
 
 def test_live_comparison_latest_endpoint_returns_compact_payload(tmp_path):
-    store = LiveSnapshotStore(tmp_path / "live.duckdb")
+    store = LiveSnapshotStore(tmp_path / "live.sqlite3")
     store.initialize(for_write=True)
     store.write_snapshot(
         _build_snapshot(
@@ -104,7 +104,7 @@ def test_live_comparison_latest_endpoint_returns_compact_payload(tmp_path):
 
 
 def test_live_ready_returns_503_when_snapshot_missing(tmp_path):
-    store = LiveSnapshotStore(tmp_path / "live.duckdb")
+    store = LiveSnapshotStore(tmp_path / "live.sqlite3")
     client = _build_test_client(store)
 
     response = client.get("/api/v1/live/ready")
@@ -114,7 +114,7 @@ def test_live_ready_returns_503_when_snapshot_missing(tmp_path):
 
 
 def test_live_ready_returns_503_when_snapshot_is_stale(tmp_path):
-    store = LiveSnapshotStore(tmp_path / "live.duckdb")
+    store = LiveSnapshotStore(tmp_path / "live.sqlite3")
     store.initialize(for_write=True)
     stale_timestamp = utc_now() - timedelta(seconds=61)
     store.write_snapshot(_build_snapshot(timestamp=stale_timestamp, block_height=941456, price=84211.52))
@@ -127,7 +127,7 @@ def test_live_ready_returns_503_when_snapshot_is_stale(tmp_path):
 
 
 def test_build_live_health_summary_reports_unavailable_when_store_empty(tmp_path):
-    store = LiveSnapshotStore(tmp_path / "live.duckdb")
+    store = LiveSnapshotStore(tmp_path / "live.sqlite3")
 
     summary = build_live_health_summary(store)
 
@@ -137,7 +137,7 @@ def test_build_live_health_summary_reports_unavailable_when_store_empty(tmp_path
 
 def test_build_live_health_summary_reports_degraded_sources(tmp_path):
     timestamp = utc_now()
-    store = LiveSnapshotStore(tmp_path / "live.duckdb")
+    store = LiveSnapshotStore(tmp_path / "live.sqlite3")
     store.initialize(for_write=True)
     snapshot = _build_snapshot(timestamp=timestamp, block_height=941456, price=84211.52)
     snapshot.source_health["hyperliquid"] = SourceHealth(status="stale", last_success=timestamp)
@@ -151,7 +151,7 @@ def test_build_live_health_summary_reports_degraded_sources(tmp_path):
 
 
 def test_build_live_health_summary_reports_stale_snapshot_age(tmp_path):
-    store = LiveSnapshotStore(tmp_path / "live.duckdb")
+    store = LiveSnapshotStore(tmp_path / "live.sqlite3")
     store.initialize(for_write=True)
     stale_timestamp = utc_now() - timedelta(seconds=61)
     store.write_snapshot(_build_snapshot(timestamp=stale_timestamp, block_height=941456, price=84211.52))

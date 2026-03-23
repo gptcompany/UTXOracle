@@ -13,19 +13,13 @@ router = APIRouter(prefix="/live", tags=["live"])
 
 def get_live_snapshot_store() -> LiveSnapshotStore:
     db_path = os.getenv(
-        "LIVE_DUCKDB_PATH",
-        "/media/sam/1TB/UTXOracle/data/utxoracle_live.duckdb",
+        "LIVE_DB_PATH",
+        "/media/sam/1TB/UTXOracle/data/utxoracle_live.sqlite3",
     )
     retention_hours = int(os.getenv("LIVE_RETENTION_HOURS", "24"))
-    connect_retry_attempts = int(os.getenv("LIVE_DUCKDB_CONNECT_RETRY_ATTEMPTS", "5"))
-    connect_retry_backoff_seconds = float(
-        os.getenv("LIVE_DUCKDB_CONNECT_RETRY_BACKOFF_SECONDS", "0.05")
-    )
     return LiveSnapshotStore(
         db_path,
         retention_hours=retention_hours,
-        connect_retry_attempts=connect_retry_attempts,
-        connect_retry_backoff_seconds=connect_retry_backoff_seconds,
     )
 
 

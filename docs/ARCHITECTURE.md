@@ -18,7 +18,7 @@ The live deployment runs via the dedicated compose stack in `docker-compose.live
 
 ### Live Services
 
-- `utxoracle-live-worker`: runs `python -m scripts.live.runtime` and writes the canonical live snapshot DuckDB
+- `utxoracle-live-worker`: runs `python -m scripts.live.runtime` and writes the canonical live snapshot to SQLite WAL
 - `utxoracle-live-api`: runs `uvicorn api.main:app` with `LIVE_ENABLED=true` and exposes `/api/v1/live/*` plus `/health`
 
 ### Required Volume Mounts
@@ -31,8 +31,8 @@ The live deployment runs via the dedicated compose stack in `docker-compose.live
 
 | Variable | Purpose | Default in live compose |
 |----------|---------|-------------------------|
-| `LIVE_DUCKDB_PATH` | persisted live snapshot store | `/app/data/utxoracle_live.duckdb` |
-| `LIVE_WORKER_LOCK_PATH` | single-writer guard for worker runtime | `/app/data/utxoracle_live.duckdb.worker.lock` |
+| `LIVE_DB_PATH` | persisted live snapshot store (SQLite WAL) | `/app/data/utxoracle_live.sqlite3` |
+| `LIVE_WORKER_LOCK_PATH` | single-writer guard for worker runtime | `/app/data/utxoracle_live.sqlite3.worker.lock` |
 | `LIVE_API_PORT` | host-facing live API port | `8011` |
 | `ELECTRS_HTTP_URL` | upstream chain context | `http://host.docker.internal:3002` |
 | `MEMPOOL_API_V1_URL` | upstream mempool/exchange price | `http://host.docker.internal:8999/api/v1` |

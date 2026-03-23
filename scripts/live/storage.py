@@ -3,24 +3,15 @@ from __future__ import annotations
 import fcntl
 import json
 import os
-import time
+import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 
-import duckdb
-
 from scripts.live.models import LiveHistoryQuery, LiveSnapshot, utc_now
-
-DEFAULT_DUCKDB_CONNECT_RETRY_ATTEMPTS = int(
-    os.getenv("LIVE_DUCKDB_CONNECT_RETRY_ATTEMPTS", "5")
-)
-DEFAULT_DUCKDB_CONNECT_RETRY_BACKOFF_SECONDS = float(
-    os.getenv("LIVE_DUCKDB_CONNECT_RETRY_BACKOFF_SECONDS", "0.05")
-)
 
 
 class LiveSnapshotStore:
-    """DuckDB-backed storage for short-horizon live snapshots."""
+    """SQLite-backed storage for short-horizon live snapshots in WAL mode."""
 
     def __init__(
         self,
@@ -28,14 +19,10 @@ class LiveSnapshotStore:
         *,
         retention_hours: int = 24,
         lock_path: str | Path | None = None,
-        connect_retry_attempts: int = DEFAULT_DUCKDB_CONNECT_RETRY_ATTEMPTS,
-        connect_retry_backoff_seconds: float = DEFAULT_DUCKDB_CONNECT_RETRY_BACKOFF_SECONDS,
     ) -> None:
         self.db_path = Path(db_path)
         self.retention_hours = retention_hours
         self.lock_path = Path(lock_path) if lock_path else self.db_path.with_suffix(".lock")
-        self.connect_retry_attempts = max(int(connect_retry_attempts), 1)
-        self.connect_retry_backoff_seconds = max(float(connect_retry_backoff_seconds), 0.0)
         self._initialized = False
         self._lock_fd: int | None = None
 
@@ -49,7 +36,7 @@ class LiveSnapshotStore:
             self._initialized = True
 
         if for_write:
-            with self._connect(read_only=False) as conn:
+            with self._connect(for_write=True) as conn:
                 self._ensure_schema(conn)
 
     def _acquire_lock(self) -> None:
@@ -81,13 +68,14 @@ class LiveSnapshotStore:
             raise RuntimeError("LiveSnapshotStore.initialize() must be called before write_snapshot()")
 
         payload = snapshot.model_dump(mode="json")
+        snapshot_ts_iso = snapshot.timestamp.isoformat()
 
-        with self._connect(read_only=False) as conn:
+        with self._connect(for_write=True) as conn:
             conn.execute("BEGIN TRANSACTION")
             try:
                 conn.execute(
                     "DELETE FROM live_snapshots WHERE snapshot_ts = ?",
-                    [snapshot.timestamp],
+                    [snapshot_ts_iso],
                 )
                 conn.execute(
                     """
@@ -108,7 +96,7 @@ class LiveSnapshotStore:
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
-                        snapshot.timestamp,
+                        snapshot_ts_iso,
                         snapshot.schema_version,
                         snapshot.block_height,
                         snapshot.utxoracle_price,
@@ -125,7 +113,7 @@ class LiveSnapshotStore:
                 )
 
                 if self.retention_hours > 0:
-                    cutoff = snapshot.timestamp - timedelta(hours=self.retention_hours)
+                    cutoff = (snapshot.timestamp - timedelta(hours=self.retention_hours)).isoformat()
                     conn.execute(
                         "DELETE FROM live_snapshots WHERE snapshot_ts < ?",
                         [cutoff],
@@ -140,7 +128,7 @@ class LiveSnapshotStore:
             return None
 
         try:
-            with self._connect(read_only=True) as conn:
+            with self._connect(for_write=False) as conn:
                 row = conn.execute(
                     """
                     SELECT snapshot_json
@@ -149,7 +137,7 @@ class LiveSnapshotStore:
                     LIMIT 1
                     """
                 ).fetchone()
-        except duckdb.CatalogException:
+        except sqlite3.OperationalError:
             return None
 
         return self._deserialize_snapshot(row[0]) if row else None
@@ -168,10 +156,10 @@ class LiveSnapshotStore:
         elif isinstance(query, int):
             query = LiveHistoryQuery(minutes=query)
 
-        start_time = (now or utc_now()) - timedelta(minutes=query.minutes)
+        start_time_iso = ((now or utc_now()) - timedelta(minutes=query.minutes)).isoformat()
 
         try:
-            with self._connect(read_only=True) as conn:
+            with self._connect(for_write=False) as conn:
                 rows = conn.execute(
                     """
                     SELECT snapshot_json
@@ -179,9 +167,9 @@ class LiveSnapshotStore:
                     WHERE snapshot_ts >= ?
                     ORDER BY snapshot_ts ASC
                     """,
-                    [start_time],
+                    [start_time_iso],
                 ).fetchall()
-        except duckdb.CatalogException:
+        except sqlite3.OperationalError:
             return []
 
         return [self._deserialize_snapshot(row[0]) for row in rows]
@@ -190,9 +178,9 @@ class LiveSnapshotStore:
         if self.retention_hours <= 0 or not self.db_path.exists():
             return 0
 
-        cutoff = (now or utc_now()) - timedelta(hours=self.retention_hours)
+        cutoff = ((now or utc_now()) - timedelta(hours=self.retention_hours)).isoformat()
 
-        with self._connect(read_only=False) as conn:
+        with self._connect(for_write=True) as conn:
             deleted = conn.execute(
                 "SELECT COUNT(*) FROM live_snapshots WHERE snapshot_ts < ?",
                 [cutoff],
@@ -204,48 +192,35 @@ class LiveSnapshotStore:
 
         return int(deleted[0]) if deleted else 0
 
-    def _connect(self, *, read_only: bool) -> duckdb.DuckDBPyConnection:
-        for attempt in range(1, self.connect_retry_attempts + 1):
-            try:
-                return duckdb.connect(str(self.db_path), read_only=read_only)
-            except duckdb.IOException as exc:
-                if not self._is_retryable_connect_error(exc) or attempt >= self.connect_retry_attempts:
-                    raise
-                delay = self.connect_retry_backoff_seconds * attempt
-                if delay > 0:
-                    time.sleep(delay)
-        raise RuntimeError("duckdb connection retries exhausted")
-
-    @staticmethod
-    def _is_retryable_connect_error(exc: duckdb.IOException) -> bool:
-        message = str(exc)
-        return (
-            "Could not set lock on file" in message
-            or "Conflicting lock is held" in message
-        )
+    def _connect(self, *, for_write: bool) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path, timeout=15.0, isolation_level=None)
+        if for_write:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+        return conn
 
     def _ensure_parent_dir(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
     @staticmethod
-    def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
+    def _ensure_schema(conn: sqlite3.Connection) -> None:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS live_snapshots (
-                snapshot_ts TIMESTAMPTZ PRIMARY KEY,
-                schema_version VARCHAR NOT NULL,
-                block_height BIGINT,
-                utxoracle_price DOUBLE,
-                utxoracle_confidence DOUBLE,
-                mempool_exchange_price DOUBLE,
-                hyperliquid_oracle_price DOUBLE,
-                hyperliquid_mark_price DOUBLE,
+                snapshot_ts TEXT PRIMARY KEY,
+                schema_version TEXT NOT NULL,
+                block_height INTEGER,
+                utxoracle_price REAL,
+                utxoracle_confidence REAL,
+                mempool_exchange_price REAL,
+                hyperliquid_oracle_price REAL,
+                hyperliquid_mark_price REAL,
                 comparison_json TEXT NOT NULL,
                 features_json TEXT NOT NULL,
                 source_health_json TEXT NOT NULL,
                 source_timestamps_json TEXT NOT NULL,
                 snapshot_json TEXT NOT NULL,
-                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
             """
         )

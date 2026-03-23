@@ -486,7 +486,7 @@ async def test_worker_persists_comparison_and_curated_features_to_store(tmp_path
     resolver = RecordingResolver(
         [OracleObservation(timestamp="2026-03-20T17:14:00Z", price=84211.52, confidence=0.82)]
     )
-    store = LiveSnapshotStore(tmp_path / "live.duckdb")
+    store = LiveSnapshotStore(tmp_path / "live.sqlite3")
     store.initialize(for_write=True)
 
     worker = LiveWorker(

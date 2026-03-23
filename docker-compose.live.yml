@@ -18,8 +18,8 @@ services:
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LIVE_ENABLED: "true"
-      LIVE_DUCKDB_PATH: /app/data/utxoracle_live.duckdb
-      LIVE_WORKER_LOCK_PATH: /app/data/utxoracle_live.duckdb.worker.lock
+      LIVE_DB_PATH: /app/data/utxoracle_live.sqlite3
+      LIVE_WORKER_LOCK_PATH: /app/data/utxoracle_live.sqlite3.worker.lock
       LIVE_RETENTION_HOURS: ${LIVE_RETENTION_HOURS:-24}
       LIVE_SOURCE_TIMEOUT_SECONDS: ${LIVE_SOURCE_TIMEOUT_SECONDS:-5.0}
       LIVE_MARKET_INTERVAL_SECONDS: ${LIVE_MARKET_INTERVAL_SECONDS:-5.0}
@@ -82,7 +82,7 @@ services:
       LIVE_ENABLED: "true"
       DUCKDB_PATH: /app/data/utxoracle.duckdb
       UTXORACLE_DB_PATH: /app/data/utxoracle.duckdb
-      LIVE_DUCKDB_PATH: /app/data/utxoracle_live.duckdb
+      LIVE_DB_PATH: /app/data/utxoracle_live.sqlite3
       LIVE_RETENTION_HOURS: ${LIVE_RETENTION_HOURS:-24}
       ELECTRS_HTTP_URL: ${ELECTRS_HTTP_URL:-http://host.docker.internal:3002}
       MEMPOOL_API_URL: ${MEMPOOL_API_URL:-http://host.docker.internal:8999}

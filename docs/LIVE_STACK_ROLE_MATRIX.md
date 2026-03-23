@@ -10,7 +10,7 @@ This document defines the correct role of `UTXOracle`, `BRK`, `electrs`, `mempoo
 | Component | Runtime endpoint or path | Role |
 |-----------|--------------------------|------|
 | `UTXOracle Live API` | `http://127.0.0.1:8011` | **Primary live consumer API** — `GET /api/v1/live/*` + `/health` (Docker, `LIVE_ENABLED=true`) |
-| `UTXOracle Live Worker` | Docker container (no port) | Polling worker — writes live snapshots to `utxoracle_live.duckdb` |
+| `UTXOracle Live Worker` | Docker container (no port) | Polling worker — writes live snapshots to `utxoracle_live.sqlite3` |
 | `UTXOracle API` | `http://127.0.0.1:8001` | Legacy FastAPI + historical metrics (systemd, batch-oriented) |
 | `BRK` | `http://127.0.0.1:7070` | Query surface + computed on-chain metrics |
 | `electrs` | `http://127.0.0.1:3002` | Confirmed chain index and raw lookup |

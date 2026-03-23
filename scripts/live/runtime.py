@@ -181,11 +181,7 @@ class LiveWorkerRuntime:
 def build_live_runtime() -> LiveWorkerRuntime:
     timeout_seconds = float(os.getenv("LIVE_SOURCE_TIMEOUT_SECONDS", str(DEFAULT_SOURCE_TIMEOUT_SECONDS)))
     retention_hours = int(os.getenv("LIVE_RETENTION_HOURS", "24"))
-    connect_retry_attempts = int(os.getenv("LIVE_DUCKDB_CONNECT_RETRY_ATTEMPTS", "5"))
-    connect_retry_backoff_seconds = float(
-        os.getenv("LIVE_DUCKDB_CONNECT_RETRY_BACKOFF_SECONDS", "0.05")
-    )
-    live_db_path = os.getenv("LIVE_DUCKDB_PATH", "data/utxoracle_live.duckdb")
+    live_db_path = os.getenv("LIVE_DB_PATH", "data/utxoracle_live.sqlite3")
     process_lock_path = os.getenv("LIVE_WORKER_LOCK_PATH") or None
 
     electrs_client = ElectrsClient(timeout_seconds=timeout_seconds)
@@ -200,8 +196,6 @@ def build_live_runtime() -> LiveWorkerRuntime:
     snapshot_store = LiveSnapshotStore(
         live_db_path,
         retention_hours=retention_hours,
-        connect_retry_attempts=connect_retry_attempts,
-        connect_retry_backoff_seconds=connect_retry_backoff_seconds,
     )
     worker = LiveWorker(
         electrs_client=electrs_client,

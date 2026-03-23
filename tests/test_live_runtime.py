@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import duckdb
+import sqlite3
 import httpx
 import pytest
 
@@ -66,7 +66,7 @@ async def test_electrs_block_oracle_resolver_fetches_and_caches_current_block():
 
 @pytest.mark.asyncio
 async def test_build_live_runtime_uses_env_driven_paths(monkeypatch, tmp_path):
-    monkeypatch.setenv("LIVE_DUCKDB_PATH", str(tmp_path / "live.duckdb"))
+    monkeypatch.setenv("LIVE_DB_PATH", str(tmp_path / "live.sqlite3"))
     monkeypatch.setenv("LIVE_WORKER_LOCK_PATH", str(tmp_path / "worker.lock"))
     monkeypatch.setenv("ELECTRS_HTTP_URL", "http://electrs.local")
     monkeypatch.setenv("MEMPOOL_API_V1_URL", "http://mempool.local/api/v1")
@@ -77,7 +77,7 @@ async def test_build_live_runtime_uses_env_driven_paths(monkeypatch, tmp_path):
 
     runtime = build_live_runtime()
     try:
-        assert runtime.worker.snapshot_store.db_path == Path(tmp_path / "live.duckdb")
+        assert runtime.worker.snapshot_store.db_path == Path(tmp_path / "live.sqlite3")
         assert runtime.worker.process_lock_path == Path(tmp_path / "worker.lock")
         assert runtime.worker.electrs_client.base_url == "http://electrs.local"
         assert runtime.worker.mempool_client.base_url == "http://mempool.local/api/v1"
@@ -89,7 +89,7 @@ async def test_build_live_runtime_uses_env_driven_paths(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_runtime_run_initializes_schema_before_worker_run(monkeypatch, tmp_path):
-    monkeypatch.setenv("LIVE_DUCKDB_PATH", str(tmp_path / "live.duckdb"))
+    monkeypatch.setenv("LIVE_DB_PATH", str(tmp_path / "live.sqlite3"))
     monkeypatch.setenv("LIVE_WORKER_LOCK_PATH", str(tmp_path / "worker.lock"))
     monkeypatch.setenv("ELECTRS_HTTP_URL", "http://electrs.local")
     monkeypatch.setenv("MEMPOOL_API_V1_URL", "http://mempool.local/api/v1")
@@ -102,7 +102,7 @@ async def test_runtime_run_initializes_schema_before_worker_run(monkeypatch, tmp
     async def fake_run(*, market_interval_seconds: float, block_poll_interval_seconds: float):
         assert market_interval_seconds == 5.0
         assert block_poll_interval_seconds == 2.0
-        conn = duckdb.connect(str(runtime.worker.snapshot_store.db_path), read_only=False)
+        conn = sqlite3.connect(str(runtime.worker.snapshot_store.db_path))
         try:
             assert conn.execute("SELECT COUNT(*) FROM live_snapshots").fetchone() == (0,)
         finally:

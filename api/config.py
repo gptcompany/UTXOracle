@@ -49,8 +49,8 @@ if not _jwt_secret:
 JWT_SECRET = _jwt_secret
 DUCKDB_PATH = os.getenv("DUCKDB_PATH", "/media/sam/1TB/UTXOracle/data/utxoracle.duckdb")
 UTXO_DB_PATH = os.getenv("UTXO_DB_PATH", DUCKDB_PATH)
-LIVE_DUCKDB_PATH = os.getenv(
-    "LIVE_DUCKDB_PATH", "/media/sam/1TB/UTXOracle/data/utxoracle_live.duckdb"
+LIVE_DB_PATH = os.getenv(
+    "LIVE_DB_PATH", "/media/sam/1TB/UTXOracle/data/utxoracle_live.sqlite3"
 )
 MEMPOOL_API_URL = os.getenv("MEMPOOL_API_URL", "http://127.0.0.1:8999")
 WHALE_MIN_BTC = float(os.getenv("WHALE_MIN_BTC", "100"))
@@ -74,7 +74,7 @@ LIVE_MARKET_INTERVAL_SECONDS = float(os.getenv("LIVE_MARKET_INTERVAL_SECONDS", "
 LIVE_BLOCK_POLL_INTERVAL_SECONDS = float(os.getenv("LIVE_BLOCK_POLL_INTERVAL_SECONDS", "2.0"))
 LIVE_RETENTION_HOURS = int(os.getenv("LIVE_RETENTION_HOURS", "24"))
 LIVE_WORKER_LOCK_PATH = os.getenv(
-    "LIVE_WORKER_LOCK_PATH", str(Path(LIVE_DUCKDB_PATH).parent / f"{Path(LIVE_DUCKDB_PATH).name}.worker.lock")
+    "LIVE_WORKER_LOCK_PATH", str(Path(LIVE_DB_PATH).parent / f"{Path(LIVE_DB_PATH).name}.worker.lock")
 )
 LIVE_ORACLE_TX_CONCURRENCY = int(os.getenv("LIVE_ORACLE_TX_CONCURRENCY", "32"))
 LIVE_ORACLE_MIN_TX_COUNT = int(os.getenv("LIVE_ORACLE_MIN_TX_COUNT", "1000"))

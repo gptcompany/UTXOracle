@@ -162,8 +162,8 @@ Implements snapshot collection and cadence control:
 
 ### `scripts/live/storage.py`
 
-Implements dedicated live DuckDB persistence:
-- dedicated path via `LIVE_DUCKDB_PATH`
+Implements dedicated live SQLite WAL persistence:
+- dedicated path via `LIVE_DB_PATH`
 - worker-only write path with short-lived write connections
 - API read path with short-lived `read_only` connections
 - latest snapshot reads plus short-horizon history queries
