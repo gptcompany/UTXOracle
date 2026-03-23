@@ -36,7 +36,7 @@
 - [x] T005 Align legacy default ports in `scripts/config/mempool_config.py` with env-driven overrides
 - [x] T006 [US1] Create `scripts/live/models.py` with `SourceHealth`, `LiveFeatureSet`, `LiveComparison`, and `LiveSnapshot`
 - [x] T007 [US1] Write `tests/test_live_models.py` for schema validation and serialization
-- [ ] T008 [US1] Run `uv run pytest tests/test_live_models.py -v` and confirm RED then GREEN workflow
+- [x] T008 [US1] Run `uv run pytest tests/test_live_models.py -v` and confirm RED then GREEN workflow
 
 **Checkpoint**: Configuration and contract are ready for integration work.
 
@@ -180,6 +180,28 @@
 - [x] T053 [P] Update any live-critical `electrs` references that still default to `localhost:3001`
 - [x] T054 [P] Add operational notes for port alignment and current host topology
 - [x] T055 Run targeted regression tests for touched modules
+
+---
+
+## Phase 9: Hardening and Performance
+
+**Purpose**: Fix identified latency and I/O bottlenecks for production-readiness.
+
+- [x] T056 [E] Optimize Electrs resolver with 100+ concurrency and in-memory block cache
+- [x] T057 [E] Implement ZST early-stop in Hyperliquid filesystem reader to prevent I/O spikes
+- [x] T058 [US5] Finalize L4 Node API configuration (`l4Book`) in Docker Compose
+- [x] T059 Refactor `api/main.py` to centralize all defaults in `api/config.py`
+- [x] T060 Perform clean Docker rebuild and smoke test on host-gateway networking
+
+---
+
+## Phase 10: Curated Feature Activation (BRK)
+
+**Purpose**: Unblock curated on-chain metrics from BRK upstream.
+
+- [x] T061 [E] Debug BRK 0.1.9 API paths and parameters (indexes vs indexes)
+- [x] T062 [US3] Align `BrkClient` with `/api/metrics/bulk` (removing legacy `/v1`)
+- [x] T063 [US3] Verify successful population of `realized_price`, `liveliness`, and `reserve_risk` in live snapshots
 
 ---
 

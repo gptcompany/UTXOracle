@@ -21,8 +21,8 @@ from scripts.live.storage import LiveSnapshotStore
 from scripts.live.worker import LiveWorker
 
 logger = logging.getLogger(__name__)
-DEFAULT_LIVE_ORACLE_TX_CONCURRENCY = int(os.getenv("LIVE_ORACLE_TX_CONCURRENCY", "32"))
-DEFAULT_LIVE_ORACLE_MIN_TX_COUNT = int(os.getenv("LIVE_ORACLE_MIN_TX_COUNT", "1000"))
+DEFAULT_LIVE_ORACLE_TX_CONCURRENCY = int(os.getenv("LIVE_ORACLE_TX_CONCURRENCY", "50"))
+DEFAULT_LIVE_ORACLE_MIN_TX_COUNT = int(os.getenv("LIVE_ORACLE_MIN_TX_COUNT", "500"))
 
 
 class ElectrsBlockOracleResolver:
@@ -47,12 +47,16 @@ class ElectrsBlockOracleResolver:
         self._owns_client = client is None
         self._last_height: int | None = None
         self._last_observation: OracleObservation | None = None
+        # Cache for oracle results to avoid re-calculating same block
+        self._block_cache: dict[int, OracleObservation] = {}
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
+            # Use higher limits for high-concurrency fetching
+            limits = httpx.Limits(max_keepalive_connections=20, max_connections=self.tx_fetch_concurrency + 10)
             self._client = httpx.AsyncClient(
                 timeout=self.timeout_seconds,
-                transport=self._transport,
+                transport=self._transport or httpx.AsyncHTTPTransport(limits=limits),
             )
         return self._client
 
@@ -62,6 +66,10 @@ class ElectrsBlockOracleResolver:
             self._client = None
 
     async def __call__(self, block_height: int, block_changed: bool) -> OracleObservation:
+        # Check cache first
+        if block_height in self._block_cache:
+            return self._block_cache[block_height]
+
         if (
             not block_changed
             and self._last_observation is not None
@@ -69,20 +77,29 @@ class ElectrsBlockOracleResolver:
         ):
             return self._last_observation
 
-        transactions = await self.fetch_block_transactions(block_height)
-        result = await asyncio.to_thread(
-            self._calculator.calculate_price_for_transactions,
-            transactions,
-        )
-        observation = OracleObservation(
-            timestamp=utc_now(),
-            price=_coerce_float(result.get("price_usd")),
-            confidence=_coerce_float(result.get("confidence")),
-        )
-        if observation.price is not None:
-            self._last_height = block_height
-            self._last_observation = observation
-        return observation
+        try:
+            transactions = await self.fetch_block_transactions(block_height)
+            result = await asyncio.to_thread(
+                self._calculator.calculate_price_for_transactions,
+                transactions,
+            )
+            observation = OracleObservation(
+                timestamp=utc_now(),
+                price=_coerce_float(result.get("price_usd")),
+                confidence=_coerce_float(result.get("confidence")),
+            )
+            if observation.price is not None:
+                self._last_height = block_height
+                self._last_observation = observation
+                # Only cache if successful and not too many items
+                if len(self._block_cache) > 10:
+                    self._block_cache.clear()
+                self._block_cache[block_height] = observation
+            return observation
+        except Exception as exc:
+            logger.error(f"Oracle resolution failed for block {block_height}: {exc}")
+            # Return empty observation so worker can handle carry-forward
+            return OracleObservation(timestamp=utc_now(), price=None, confidence=None)
 
     async def fetch_block_transactions(self, block_height: int) -> list[dict[str, Any]]:
         client = await self._get_client()
@@ -140,6 +157,10 @@ class LiveWorkerRuntime:
         self._resources = resources
 
     async def run(self) -> list:
+        # Initialize storage with for_write=True to acquire the exclusive lock
+        if self.worker.snapshot_store is not None:
+            self.worker.snapshot_store.initialize(for_write=True)
+
         return await self.worker.run(
             market_interval_seconds=float(os.getenv("LIVE_MARKET_INTERVAL_SECONDS", "5.0")),
             block_poll_interval_seconds=float(os.getenv("LIVE_BLOCK_POLL_INTERVAL_SECONDS", "2.0")),
@@ -150,6 +171,11 @@ class LiveWorkerRuntime:
             close = getattr(resource, "aclose", None)
             if close is not None:
                 await close()
+
+        # Ensure storage is closed and locks released
+        if self.worker.snapshot_store is not None:
+            if hasattr(self.worker.snapshot_store, "close"):
+                self.worker.snapshot_store.close()
 
 
 def build_live_runtime() -> LiveWorkerRuntime:

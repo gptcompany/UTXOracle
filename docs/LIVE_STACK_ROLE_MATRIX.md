@@ -1,7 +1,7 @@
 # Live Stack Role Matrix
 
 **Status**: Active reference for the live production direction
-**Updated**: 2026-03-20
+**Updated**: 2026-03-23 (spec-040 COMPLETE)
 
 This document defines the correct role of `UTXOracle`, `BRK`, `electrs`, `mempool`, and `Hyperliquid` in the current live-first architecture.
 
@@ -9,7 +9,9 @@ This document defines the correct role of `UTXOracle`, `BRK`, `electrs`, `mempoo
 
 | Component | Runtime endpoint or path | Role |
 |-----------|--------------------------|------|
-| `UTXOracle API` | `http://127.0.0.1:8001` | Existing FastAPI + historical metrics |
+| `UTXOracle Live API` | `http://127.0.0.1:8011` | **Primary live consumer API** — `GET /api/v1/live/*` + `/health` (Docker, `LIVE_ENABLED=true`) |
+| `UTXOracle Live Worker` | Docker container (no port) | Polling worker — writes live snapshots to `utxoracle_live.duckdb` |
+| `UTXOracle API` | `http://127.0.0.1:8001` | Legacy FastAPI + historical metrics (systemd, batch-oriented) |
 | `BRK` | `http://127.0.0.1:7070` | Query surface + computed on-chain metrics |
 | `electrs` | `http://127.0.0.1:3002` | Confirmed chain index and raw lookup |
 | `mempool-api` | `http://127.0.0.1:8999/api/v1` | Live mempool, fees, mining stats, exchange price |
@@ -165,10 +167,10 @@ Current host reality is:
 - current systemd FastAPI on `8001`
 - `127.0.0.1:12345` is not the canonical Hyperliquid source for this stack
 
-## Immediate Live Direction
+## Immediate Live Direction (spec-040 COMPLETE — 2026-03-23)
 
-1. keep `UTXOracle` as the canonical live API contract
-2. consume curated `BRK` features instead of exposing BRK raw metric fanout
-3. keep `mempool-api` for live market and whale feeds
-4. keep `electrs` available for raw confirmed-chain workflows and fallbacks
-5. build a separate BRK visual validation dashboard for 1:1 comparison with CheckOnChain-style charts
+1. ✅ `UTXOracle Live API` on `8011` is operational — primary consumer contract
+2. ✅ curated `BRK` features consumed via `BrkClient.fetch_curated_features()` (stale when BRK is down, gracefully degraded)
+3. ✅ `mempool-api` live exchange price and mempool context wired into worker
+4. ✅ `electrs` block tip polling drives the block-cadence refresh loop
+5. deferred: BRK visual validation dashboard for CheckOnChain-style chart parity

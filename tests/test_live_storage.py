@@ -57,7 +57,7 @@ def test_store_round_trips_latest_snapshot(tmp_path):
         price=84211.52,
     )
 
-    store.initialize()
+    store.initialize(for_write=True)
     store.write_snapshot(snapshot)
     latest = store.get_latest()
 
@@ -72,7 +72,7 @@ def test_store_round_trips_latest_snapshot(tmp_path):
 def test_store_returns_recent_history_in_ascending_order(tmp_path):
     now = datetime(2026, 3, 20, 18, 15, tzinfo=timezone.utc)
     store = LiveSnapshotStore(tmp_path / "live.duckdb")
-    store.initialize()
+    store.initialize(for_write=True)
 
     older = _build_snapshot(
         timestamp=now - timedelta(minutes=12),
@@ -103,7 +103,7 @@ def test_store_returns_recent_history_in_ascending_order(tmp_path):
 def test_store_prunes_rows_older_than_retention_window(tmp_path):
     now = datetime(2026, 3, 20, 18, 0, tzinfo=timezone.utc)
     store = LiveSnapshotStore(tmp_path / "live.duckdb", retention_hours=1)
-    store.initialize()
+    store.initialize(for_write=True)
 
     stale_snapshot = _build_snapshot(
         timestamp=now - timedelta(hours=2),
@@ -127,7 +127,7 @@ def test_store_prunes_rows_older_than_retention_window(tmp_path):
 def test_store_uses_read_only_connections_for_reads(tmp_path, monkeypatch):
     db_path = tmp_path / "live.duckdb"
     store = LiveSnapshotStore(db_path)
-    store.initialize()
+    store.initialize(for_write=True)
     store.write_snapshot(
         _build_snapshot(
             timestamp=datetime(2026, 3, 20, 18, 0, tzinfo=timezone.utc),
@@ -166,7 +166,7 @@ def test_store_write_snapshot_requires_initialize(tmp_path):
 
 def test_store_write_snapshot_skips_schema_check_after_initialize(tmp_path, monkeypatch):
     store = LiveSnapshotStore(tmp_path / "live.duckdb")
-    store.initialize()
+    store.initialize(for_write=True)
     schema_calls = []
 
     def tracking_schema(_conn):

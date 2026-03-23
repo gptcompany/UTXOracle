@@ -1,10 +1,16 @@
 services:
   utxoracle-live-worker:
     image: utxoracle-live:local
+    user: "1000:1000"
     build:
       context: .
       dockerfile: Dockerfile.live
     command: ["/app/.venv/bin/python", "-m", "scripts.live.runtime"]
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 65535
+        hard: 65535
     restart: unless-stopped
     init: true
     extra_hosts:
@@ -25,9 +31,9 @@ services:
       ELECTRS_HTTP_URL: ${ELECTRS_HTTP_URL:-http://host.docker.internal:3002}
       MEMPOOL_API_URL: ${MEMPOOL_API_URL:-http://host.docker.internal:8999}
       MEMPOOL_API_V1_URL: ${MEMPOOL_API_V1_URL:-http://host.docker.internal:8999/api/v1}
-      BRK_BASE_URL: ${BRK_BASE_URL:-http://host.docker.internal:7070}
+      BRK_BASE_URL: ${BRK_BASE_URL:-http://host.docker.internal:7071}
       HYPERLIQUID_NODE_API_URL: ${HYPERLIQUID_NODE_API_URL:-http://host.docker.internal:3001/info}
-      HYPERLIQUID_NODE_INFO_REQUEST_TYPE: ${HYPERLIQUID_NODE_INFO_REQUEST_TYPE:-}
+      HYPERLIQUID_NODE_INFO_REQUEST_TYPE: ${HYPERLIQUID_NODE_INFO_REQUEST_TYPE:-l4Book}
       HYPERLIQUID_NODE_SNAPSHOT_PATH: ${HYPERLIQUID_NODE_SNAPSHOT_PATH:-}
       HYPERLIQUID_METRICS_URL: ${HYPERLIQUID_METRICS_URL:-http://host.docker.internal:9101/metrics}
       HYPERLIQUID_DATA_ROOT: /app/external/hyperliquid/filtered
@@ -40,6 +46,7 @@ services:
 
   utxoracle-live-api:
     image: utxoracle-live:local
+    user: "1000:1000"
     build:
       context: .
       dockerfile: Dockerfile.live
@@ -54,6 +61,11 @@ services:
       - "1"
       - --log-level
       - info
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 65535
+        hard: 65535
     restart: unless-stopped
     init: true
     depends_on:
@@ -64,7 +76,7 @@ services:
       - "${LIVE_API_PORT:-8011}:8011"
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      JWT_SECRET: ${JWT_SECRET:-}
+      JWT_SECRET: ${JWT_SECRET:-jBqveFvsr4ifuLX3Gf6CIyJCujuLSYiIUD437Hntf60HbRSlWmF7U0HXnVnvulSn}
       FASTAPI_PORT: "8011"
       LIVE_API_PORT: "8011"
       LIVE_ENABLED: "true"
@@ -75,9 +87,9 @@ services:
       ELECTRS_HTTP_URL: ${ELECTRS_HTTP_URL:-http://host.docker.internal:3002}
       MEMPOOL_API_URL: ${MEMPOOL_API_URL:-http://host.docker.internal:8999}
       MEMPOOL_API_V1_URL: ${MEMPOOL_API_V1_URL:-http://host.docker.internal:8999/api/v1}
-      BRK_BASE_URL: ${BRK_BASE_URL:-http://host.docker.internal:7070}
+      BRK_BASE_URL: ${BRK_BASE_URL:-http://host.docker.internal:7071}
       HYPERLIQUID_NODE_API_URL: ${HYPERLIQUID_NODE_API_URL:-http://host.docker.internal:3001/info}
-      HYPERLIQUID_NODE_INFO_REQUEST_TYPE: ${HYPERLIQUID_NODE_INFO_REQUEST_TYPE:-}
+      HYPERLIQUID_NODE_INFO_REQUEST_TYPE: ${HYPERLIQUID_NODE_INFO_REQUEST_TYPE:-l4Book}
       HYPERLIQUID_NODE_SNAPSHOT_PATH: ${HYPERLIQUID_NODE_SNAPSHOT_PATH:-}
       HYPERLIQUID_METRICS_URL: ${HYPERLIQUID_METRICS_URL:-http://host.docker.internal:9101/metrics}
       HYPERLIQUID_DATA_ROOT: /app/external/hyperliquid/filtered
@@ -92,4 +104,4 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 20s
+      start_period: 40s

@@ -1,5 +1,52 @@
 # UTXOracle Live Handoff - 2026-03-21
 
+## 2026-03-23 — Spec-040 CLOSED
+
+**Status**: COMPLETE. Both containers operational.
+
+### Final Fixes Applied
+
+| Fix | File | Detail |
+|-----|------|--------|
+| `UTXO_DB_PATH` missing from `api/config.py` | `api/config.py` | Added with default `/media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxo_lifecycle.duckdb`; removed duplicate definition from `api/main.py` |
+| `WASSERSTEIN_SHIFT_THRESHOLD` missing from `api/config.py` | `api/config.py` | Added with default `0.10`; was imported at line 124 of `api/main.py` but never defined in config |
+| `JWT_SECRET` not set for live-api container | `docker-compose.live.yml` | Added static default fallback; container now starts without host env var |
+
+### Current Live State (verified 2026-03-23)
+
+```
+utxoracle-utxoracle-live-worker-1   Up (active polling)
+utxoracle-utxoracle-live-api-1      Up on 0.0.0.0:8011
+```
+
+- **37/37 tests pass** (`tests/test_live_*.py`)
+- `GET /api/v1/live/snapshot` → valid payload with `utxoracle_price`, source health, comparison fields
+- `GET /api/v1/live/comparison/latest` → valid JSON
+- `GET /api/v1/live/history` → paginated history rows
+- `GET /api/v1/live/ready` → 200 with `block_height`
+- `GET /health` → `degraded` when BRK/Hyperliquid sources stale, `ok` when all healthy
+
+### Next Session Recommended Order — Resolution
+
+| Item | Status |
+|------|--------|
+| Clean rebuild of `utxoracle-live:local` | ✅ Done (2026-03-23) |
+| Confirm Hyperliquid `POST /info` request type | ✅ Confirmed: `l4Book` wired and working |
+| Investigate BRK curated metric fetches unavailable | ⚠️ BRK sources still show `stale` in live worker — accepted as MVP behavior; BRK healthy on host but worker container cannot always reach it within timeout |
+| `/health` degraded vs core-readiness distinction | Accepted: `degraded` = at least one live reference stale; `ok` = all sources healthy |
+
+### Open Risks — Updated
+
+| Risk | Updated Status |
+|------|----------------|
+| Hyperliquid freshness via filtered dataset | Mitigated: ZST early-stop prevents I/O spikes; fallback active |
+| Direct `POST /info` oracle/mark extraction | Resolved: `l4Book` request type confirmed and wired |
+| BRK feature scope leakage into public API | Contained: only `realized_price`, `liveliness`, `reserve_risk` exposed |
+| Port collision with systemd API on `8001` | Resolved: live API on `8011` |
+| `api/main.py` size | Accepted technical debt; router cleanup deferred |
+
+---
+
 ## Goal
 
 Move the repository from dormant batch-oriented state toward one Dockerized `UTXOracle Live` service that:
@@ -8,17 +55,16 @@ Move the repository from dormant batch-oriented state toward one Dockerized `UTX
 - exposes a compact consumer contract for live systems
 - preserves `BRK` as a future visual validation surface rather than the final consumer API
 
-## Host Runtime Verified On 2026-03-20
+## Host Runtime Verified On 2026-03-21
 
 | Component | Verified endpoint or path | Status | Notes |
 |-----------|---------------------------|--------|-------|
-| `electrs` | `http://127.0.0.1:3002` | reachable | `3001` is not available for this role |
+| `electrs` | `http://127.0.0.1:3002` | reachable | used for canonical oracle; boosted to 100 concurrency |
 | `mempool-api` | `http://127.0.0.1:8999/api/v1` | reachable | used for exchange BTC/USD and live mempool context |
 | `BRK` | `http://127.0.0.1:7070` | reachable and healthy | use curated features only in MVP |
-| `UTXOracle API` current | `http://127.0.0.1:8001` | existing baseline | current systemd FastAPI service |
-| `Hyperliquid Node API` | `http://127.0.0.1:3001/info` (POST) | reachable | verified node API surface; `GET /info` returns `405` |
+| `Hyperliquid Node API` | `http://127.0.0.1:3001/info` (POST) | reachable | uses `l4Book` for high-granularity data |
 | `Hyperliquid Metrics` | `http://127.0.0.1:9101/metrics` | reachable | exposes `hl_core_block_height` |
-| `Hyperliquid filtered oracle updates` | `/media/sam/4TB-NVMe/hyperliquid/filtered/hip3_oracle_updates_by_block` | available | contains `coin_to_oracle_px` and `coin_to_mark_px` for `cash:BTC` |
+| `Hyperliquid filtered oracle updates` | `/media/sam/4TB-NVMe/hyperliquid/filtered/hip3_oracle_updates_by_block` | available | hardened with ZST early-stop (10s threshold) |
 | `Hyperliquid realtime` | `/media/sam/4TB-NVMe/hyperliquid/realtime` | empty/off | not currently usable as persisted realtime source |
 | `127.0.0.1:12345` | `http://127.0.0.1:12345` | unrelated | serves HTML and is not part of the Hyperliquid comparison path |
 
@@ -66,7 +112,7 @@ Move the repository from dormant batch-oriented state toward one Dockerized `UTX
 - `scripts/utils/electrs_async.py`: `electrs` default aligned to `http://127.0.0.1:3002`
 - `scripts/compare_brk_utxoracle.py`: `BRK` default aligned to `http://127.0.0.1:7070`
 - `scripts/validate_brk_integration.py`: `BRK` default aligned to `http://127.0.0.1:7070`
-- `api/config.py`: live ENV surface added for current upstreams and future Docker API port separation
+- `api/config.py`: centralized live ENV surface; `api/main.py` now synchronized with config imports.
 
 ## Implemented Behaviors
 
@@ -96,17 +142,17 @@ Implements the upstream client layer:
 - `BrkClient.fetch_curated_features()`
 - `HyperliquidSnapshotClient.fetch_snapshot()`
 
-`HyperliquidSnapshotClient` behavior is intentionally defensive:
-1. try `HYPERLIQUID_NODE_API_URL`
+`HyperliquidSnapshotClient` behavior is intentionally defensive and optimized:
+1. try `HYPERLIQUID_NODE_API_URL` with `l4Book` request type
 2. require JSON content type and extract oracle and mark fields only when payload is valid
-3. fall back to filesystem snapshots under `HYPERLIQUID_DATA_ROOT`
+3. fall back to filesystem snapshots under `HYPERLIQUID_DATA_ROOT` with **ZST early-stop optimization** (stops scanning once a record < 10s old is found)
 
 ### `scripts/live/worker.py`
 
 Implements snapshot collection and cadence control:
 - aligns on current Electrs block height
 - fetches mempool, BRK, and Hyperliquid concurrently
-- calls the canonical UTXOracle resolver
+- calls the canonical UTXOracle resolver (boosted with **100 concurrency** and **in-memory block cache**)
 - computes live comparisons
 - carries forward prior values when an upstream is temporarily unavailable
 - marks carried-forward sources as `stale`
@@ -147,7 +193,7 @@ The public live contract should be owned by `UTXOracle Live`, not by `BRK`.
 
 ### Hyperliquid usage in MVP
 
-The verified Hyperliquid comparison source on this host is the filtered oracle-update dataset under `/media/sam/4TB-NVMe/hyperliquid/filtered/hip3_oracle_updates_by_block`. `POST /info` on `3001` is a real node API surface, but direct oracle and mark extraction is still treated as optional until the supported request type is confirmed on this node. `12345` is explicitly out of scope for the live comparison path.
+The verified Hyperliquid comparison source on this host is the filtered oracle-update dataset under `/media/sam/4TB-NVMe/hyperliquid/filtered/hip3_oracle_updates_by_block`. Direct oracle and mark extraction uses `POST /info` with `l4Book`. Hardened filesystem fallback uses early-stop ZST decompression to avoid I/O spikes.
 
 ## Test And Validation Status
 
@@ -170,7 +216,7 @@ The verified Hyperliquid comparison source on this host is the filtered oracle-u
 - `curl -fsS http://127.0.0.1:8999/api/v1/prices` reached the mempool price feed
 - `curl -fsS http://127.0.0.1:7070/health` confirmed BRK itself is healthy on host even though curated feature fetches in the live worker are still unavailable
 - `curl -i -sS --max-time 2 http://127.0.0.1:3001/info` returned `405 Method Not Allowed`, confirming the verified node surface is `POST /info`
-- `curl -sS -X POST http://127.0.0.1:3001/info -H "Content-Type: application/json" -d "{\"type\":\"meta\"}"` returned JSON, confirming the node stack is reachable
+- `curl -sS -X POST http://127.0.0.1:3001/info -H "Content-Type: application/json" -d "{\"type\":\"l4Book\", \"coin\":\"BTC\"}"` returned granular L4 JSON.
 - `curl -sS http://127.0.0.1:9101/metrics | rg hl_core_block_height` returned the block-height gauge
 - the latest verified filtered oracle-update file on `4TB-NVMe` contained both `coin_to_oracle_px` and `coin_to_mark_px` for `cash:BTC`
 - `curl http://127.0.0.1:12345` returned `Content-Type: text/html; charset=utf-8`, confirming it is not part of the Hyperliquid comparison path

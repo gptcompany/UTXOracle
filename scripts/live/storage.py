@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import fcntl
 import json
+import os
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -17,18 +19,55 @@ class LiveSnapshotStore:
     - API process: read-only readers with short-lived read connections
     """
 
-    def __init__(self, db_path: str | Path, *, retention_hours: int = 24) -> None:
+    def __init__(
+        self,
+        db_path: str | Path,
+        *,
+        retention_hours: int = 24,
+        lock_path: str | Path | None = None,
+    ) -> None:
         self.db_path = Path(db_path)
         self.retention_hours = retention_hours
+        self.lock_path = Path(lock_path) if lock_path else self.db_path.with_suffix(".lock")
         self._initialized = False
+        self._lock_fd: int | None = None
 
-    def initialize(self) -> None:
+    def initialize(self, *, for_write: bool = False) -> None:
         if self._initialized:
             return
+        
         self._ensure_parent_dir()
-        with self._connect(read_only=False) as conn:
-            self._ensure_schema(conn)
+
+        if for_write:
+            self._acquire_lock()
+            with self._connect(read_only=False) as conn:
+                self._ensure_schema(conn)
+        
         self._initialized = True
+
+    def _acquire_lock(self) -> None:
+        """Acquire an exclusive lock on the lockfile."""
+        try:
+            self._lock_fd = os.open(self.lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+            fcntl.flock(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except (OSError, IOError):
+            if self._lock_fd is not None:
+                os.close(self._lock_fd)
+                self._lock_fd = None
+            raise RuntimeError(
+                f"Could not acquire lock on {self.lock_path}. "
+                "Another worker process might be running."
+            )
+
+    def close(self) -> None:
+        """Release the lock and clean up."""
+        if self._lock_fd is not None:
+            try:
+                fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
+                os.close(self._lock_fd)
+            except OSError:
+                pass
+            self._lock_fd = None
 
     def write_snapshot(self, snapshot: LiveSnapshot) -> None:
         if not self._initialized:

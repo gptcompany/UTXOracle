@@ -48,6 +48,7 @@ if not _jwt_secret:
     )
 JWT_SECRET = _jwt_secret
 DUCKDB_PATH = os.getenv("DUCKDB_PATH", "/media/sam/1TB/UTXOracle/data/utxoracle.duckdb")
+UTXO_DB_PATH = os.getenv("UTXO_DB_PATH", DUCKDB_PATH)
 LIVE_DUCKDB_PATH = os.getenv(
     "LIVE_DUCKDB_PATH", "/media/sam/1TB/UTXOracle/data/utxoracle_live.duckdb"
 )
@@ -65,6 +66,7 @@ HYPERLIQUID_METRICS_URL = os.getenv("HYPERLIQUID_METRICS_URL", "http://127.0.0.1
 HYPERLIQUID_DATA_ROOT = os.getenv("HYPERLIQUID_DATA_ROOT", "/media/sam/4TB-NVMe/hyperliquid/filtered")
 HYPERLIQUID_FILTERED_STREAM = os.getenv("HYPERLIQUID_FILTERED_STREAM", "hip3_oracle_updates_by_block")
 HYPERLIQUID_MAX_AGE_SECONDS = float(os.getenv("HYPERLIQUID_MAX_AGE_SECONDS", "900"))
+WASSERSTEIN_SHIFT_THRESHOLD = float(os.getenv("WASSERSTEIN_SHIFT_THRESHOLD", "0.10"))
 LIVE_ENABLED = os.getenv("LIVE_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
 LIVE_API_PORT = int(os.getenv("LIVE_API_PORT", "8011"))
 LIVE_SOURCE_TIMEOUT_SECONDS = float(os.getenv("LIVE_SOURCE_TIMEOUT_SECONDS", "5.0"))

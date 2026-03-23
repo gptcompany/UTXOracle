@@ -1,15 +1,20 @@
 # UTXOracle Architecture
 
-> **2026-03-20 Update**: This file contains important architectural history, but the current live-first production direction now spans `UTXOracle`, `BRK`, `mempool-api`, `electrs`, and `Hyperliquid`.
+> **2026-03-23 Update**: spec-040 (UTXOracle Live Service) is **COMPLETE**. Both Docker containers are operational.
 > Read [`docs/LIVE_STACK_ROLE_MATRIX.md`](docs/LIVE_STACK_ROLE_MATRIX.md) first for current role assignment and runtime endpoints.
-> Current host runtime verified on 2026-03-20: `UTXOracle API` on `8001`, `BRK` on `7070`, `electrs` on `3002`, `mempool-api` on `8999`.
+> Current host runtime verified on 2026-03-23: `UTXOracle API` on `8001` (legacy systemd) | `UTXOracle Live API` on `8011` | `BRK` on `7070` | `electrs` on `3002` | `mempool-api` on `8999`.
 
 > **Note**: This file is the canonical source for architecture documentation.
 > When implementing new specs, update THIS file (not CLAUDE.md).
 
-## 2026-03-21 Live Docker Deployment (spec-040)
+## 2026-03-21 Live Docker Deployment (spec-040) — COMPLETE 2026-03-23
 
-The current live deployment target is the dedicated compose stack in `docker-compose.live.yml`. It is intentionally separate from the existing systemd API on `8001`.
+The live deployment runs via the dedicated compose stack in `docker-compose.live.yml`. It is intentionally separate from the existing systemd API on `8001`.
+
+**Completion fixes applied on 2026-03-23:**
+- `UTXO_DB_PATH` and `WASSERSTEIN_SHIFT_THRESHOLD` added to `api/config.py` (were incorrectly imported from there before being defined)
+- `JWT_SECRET` default added to `docker-compose.live.yml` (the API requires it at startup)
+- Test suite: 37 tests passing (`tests/test_live_*.py`)
 
 ### Live Services
 

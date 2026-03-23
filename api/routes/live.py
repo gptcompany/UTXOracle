@@ -5,7 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from scripts.live.models import LiveComparisonSnapshot, LiveHistoryQuery, LiveSnapshot
+from scripts.live.models import LiveComparisonSnapshot, LiveHistoryQuery, LiveSnapshot, utc_now
 from scripts.live.storage import LiveSnapshotStore
 
 router = APIRouter(prefix="/live", tags=["live"])
@@ -35,18 +35,27 @@ def build_live_health_summary(store: LiveSnapshotStore) -> dict[str, object]:
             "sources": {},
         }
 
+    now = utc_now()
+    age_seconds = (now - snapshot.timestamp).total_seconds()
+
     source_statuses = {
         name: health.status
         for name, health in snapshot.source_health.items()
     }
-    overall_status = (
-        "healthy"
-        if source_statuses and all(status == "healthy" for status in source_statuses.values())
-        else "degraded"
-    )
+    
+    if age_seconds > 60:
+        overall_status = "stale"
+    else:
+        overall_status = (
+            "healthy"
+            if source_statuses and all(status == "healthy" for status in source_statuses.values())
+            else "degraded"
+        )
+        
     return {
         "status": overall_status,
         "timestamp": snapshot.timestamp.isoformat(),
+        "age_seconds": round(age_seconds, 1),
         "block_height": snapshot.block_height,
         "sources": source_statuses,
     }
@@ -88,8 +97,18 @@ async def get_live_ready(
     store: Annotated[LiveSnapshotStore, Depends(get_live_snapshot_store)],
 ) -> dict[str, object]:
     snapshot = _require_snapshot(store)
+    now = utc_now()
+    age_seconds = (now - snapshot.timestamp).total_seconds()
+    
+    if age_seconds > 60:
+        raise HTTPException(
+            status_code=503, 
+            detail=f"live data is stale ({age_seconds:.1f}s old)"
+        )
+        
     return {
         "status": "ready",
         "timestamp": snapshot.timestamp,
         "block_height": snapshot.block_height,
+        "age_seconds": round(age_seconds, 1),
     }

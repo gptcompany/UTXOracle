@@ -7,9 +7,26 @@ Coverage areas:
 - Structured logging with correlation_id middleware
 """
 
-import pytest
-from unittest.mock import patch, MagicMock
+import os
+import sys
+import types
 import uuid
+from unittest.mock import patch, MagicMock
+
+import pytest
+
+os.environ.setdefault("JWT_SECRET", "test-secret")
+if "secrets_loader" not in sys.modules:
+    secrets_loader = types.ModuleType("secrets_loader")
+    secrets_loader.load_secrets = lambda _path=None: False
+    sys.modules["secrets_loader"] = secrets_loader
+
+import api.config as _api_config
+
+if not hasattr(_api_config, "UTXO_DB_PATH"):
+    _api_config.UTXO_DB_PATH = _api_config.DUCKDB_PATH
+if not hasattr(_api_config, "WASSERSTEIN_SHIFT_THRESHOLD"):
+    _api_config.WASSERSTEIN_SHIFT_THRESHOLD = 0.10
 
 # Import ServiceCheck for creating proper mock return values
 from api.main import ServiceCheck
@@ -180,6 +197,108 @@ async def test_health_endpoint_latency_tracking(client):
         assert data["checks"]["mempool_backend"]["latency_ms"] == 45.67
         assert data["checks"]["database"]["latency_ms"] is not None
         assert data["checks"]["database"]["latency_ms"] > 0
+
+
+@pytest.mark.asyncio
+async def test_health_endpoint_live_summary_stale_degrades_overall_status(client):
+    with (
+        patch("api.main.LIVE_ENABLED", True),
+        patch("api.main.check_electrs_connectivity") as mock_electrs,
+        patch("api.main.check_mempool_backend") as mock_mempool,
+        patch("api.main.get_db_connection") as mock_db,
+        patch("api.routes.live.get_live_snapshot_store", return_value=object()),
+        patch(
+            "api.routes.live.build_live_health_summary",
+            return_value={
+                "status": "stale",
+                "timestamp": "2026-03-21T10:00:00+00:00",
+                "age_seconds": 61.0,
+                "block_height": 941521,
+                "sources": {"electrs": "healthy", "brk": "degraded"},
+            },
+        ),
+    ):
+        mock_electrs.return_value = ServiceCheck(status="ok", latency_ms=15.2)
+        mock_mempool.return_value = ServiceCheck(status="ok", latency_ms=22.5)
+        mock_db_conn = MagicMock()
+        mock_db_conn.execute.return_value.fetchone.return_value = (1,)
+        mock_db_conn.execute.return_value.fetchall.return_value = []
+        mock_db.return_value = mock_db_conn
+
+        response = client.get("/health")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "degraded"
+        assert data["live"]["status"] == "stale"
+        assert data["checks"]["utxoracle_live"]["status"] == "ok"
+        assert data["checks"]["utxoracle_live"]["error"] == "live status: stale"
+
+
+@pytest.mark.asyncio
+async def test_health_endpoint_live_summary_unavailable_marks_live_check_error(client):
+    with (
+        patch("api.main.LIVE_ENABLED", True),
+        patch("api.main.check_electrs_connectivity") as mock_electrs,
+        patch("api.main.check_mempool_backend") as mock_mempool,
+        patch("api.main.get_db_connection") as mock_db,
+        patch("api.routes.live.get_live_snapshot_store", return_value=object()),
+        patch(
+            "api.routes.live.build_live_health_summary",
+            return_value={"status": "unavailable", "sources": {}},
+        ),
+    ):
+        mock_electrs.return_value = ServiceCheck(status="ok", latency_ms=15.2)
+        mock_mempool.return_value = ServiceCheck(status="ok", latency_ms=22.5)
+        mock_db_conn = MagicMock()
+        mock_db_conn.execute.return_value.fetchone.return_value = (1,)
+        mock_db_conn.execute.return_value.fetchall.return_value = []
+        mock_db.return_value = mock_db_conn
+
+        response = client.get("/health")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "degraded"
+        assert data["live"]["status"] == "unavailable"
+        assert data["checks"]["utxoracle_live"]["status"] == "error"
+        assert data["checks"]["utxoracle_live"]["error"] == "live snapshot unavailable"
+
+
+@pytest.mark.asyncio
+async def test_health_endpoint_live_summary_healthy_preserves_healthy_status(client):
+    with (
+        patch("api.main.LIVE_ENABLED", True),
+        patch("api.main.check_electrs_connectivity") as mock_electrs,
+        patch("api.main.check_mempool_backend") as mock_mempool,
+        patch("api.main.get_db_connection") as mock_db,
+        patch("api.routes.live.get_live_snapshot_store", return_value=object()),
+        patch(
+            "api.routes.live.build_live_health_summary",
+            return_value={
+                "status": "healthy",
+                "timestamp": "2026-03-21T10:00:00+00:00",
+                "age_seconds": 4.2,
+                "block_height": 941521,
+                "sources": {"electrs": "healthy", "brk": "healthy"},
+            },
+        ),
+    ):
+        mock_electrs.return_value = ServiceCheck(status="ok", latency_ms=15.2)
+        mock_mempool.return_value = ServiceCheck(status="ok", latency_ms=22.5)
+        mock_db_conn = MagicMock()
+        mock_db_conn.execute.return_value.fetchone.return_value = (1,)
+        mock_db_conn.execute.return_value.fetchall.return_value = []
+        mock_db.return_value = mock_db_conn
+
+        response = client.get("/health")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "healthy"
+        assert data["live"]["status"] == "healthy"
+        assert data["checks"]["utxoracle_live"]["status"] == "ok"
+        assert data["checks"]["utxoracle_live"]["error"] is None
 
 
 # =============================================================================

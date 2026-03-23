@@ -112,56 +112,21 @@ except ImportError as e:
 # T064: Configuration Management (SOPS-encrypted)
 # =============================================================================
 
-# Use SOPS-encrypted secrets when available, otherwise fall back to dotenv/plain env
-try:
-    sys.path.insert(0, "/media/sam/1TB/claude-hooks-shared/scripts")
-    from secrets_loader import load_secrets
-
-    _secrets_mode = "sops"
-except ImportError:
-    try:
-        from dotenv import load_dotenv as load_secrets
-
-        _secrets_mode = "dotenv"
-    except ImportError:
-        def load_secrets(_path: str | None = None):
-            return False
-
-        _secrets_mode = "env"
-
-# Load secrets from .env.enc when SOPS is available; otherwise prefer plain .env
-env_enc_path = Path(__file__).parent.parent / ".env.enc"
-env_path = Path(__file__).parent.parent / ".env"
-if _secrets_mode == "sops" and env_enc_path.exists():
-    load_secrets(str(env_enc_path))
-    logging.info(f"Config loaded from encrypted .env.enc file at {env_enc_path}")
-elif env_path.exists():
-    load_secrets(str(env_path))
-    logging.info(f"Config loaded from .env file at {env_path}")
-else:
-    load_secrets(None)
-    logging.info("Config loaded from environment variables (no local env file found)")
-
-# Configuration with defaults
-DUCKDB_PATH = os.getenv(
-    "DUCKDB_PATH", "/media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxoracle_cache.db"
+from api.config import (
+    DUCKDB_PATH,
+    UTXO_DB_PATH,
+    FASTAPI_PORT,
+    LOG_LEVEL,
+    LIVE_ENABLED,
+    ELECTRS_HTTP_URL,
+    MEMPOOL_API_URL,
+    MEMPOOL_API_V1_URL,
+    WASSERSTEIN_SHIFT_THRESHOLD,
+    setup_logging
 )
+
+logger = setup_logging(__name__)
 FASTAPI_HOST = os.getenv("FASTAPI_HOST", "0.0.0.0")
-FASTAPI_PORT = int(os.getenv("FASTAPI_PORT", "8000"))
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
-LIVE_ENABLED = os.getenv("LIVE_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
-ELECTRS_HTTP_URL = os.getenv("ELECTRS_HTTP_URL", "http://127.0.0.1:3002").rstrip("/")
-MEMPOOL_API_URL = os.getenv("MEMPOOL_API_URL", "http://127.0.0.1:8999").rstrip("/")
-MEMPOOL_API_V1_URL = os.getenv("MEMPOOL_API_V1_URL", f"{MEMPOOL_API_URL}/api/v1").rstrip("/")
-
-# Wasserstein Distance Configuration (spec-010)
-WASSERSTEIN_SHIFT_THRESHOLD = float(os.getenv("WASSERSTEIN_SHIFT_THRESHOLD", "0.10"))
-
-# Setup logging
-logging.basicConfig(
-    level=getattr(logging, LOG_LEVEL.upper()),
-    format="%(asctime)s [%(levelname)s] %(message)s",
-)
 
 
 # T064a: Config validation
@@ -1774,11 +1739,6 @@ class URPDResponse(BaseModel):
     timestamp: str
 
 
-# UTXO Lifecycle Database Path (separate from price_analysis DB)
-UTXO_DB_PATH = os.getenv(
-    "UTXO_DB_PATH",
-    "/media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxo_lifecycle.duckdb",
-)
 
 
 @app.get("/api/metrics/urpd", response_model=URPDResponse)
