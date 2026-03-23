@@ -181,6 +181,10 @@ class LiveWorkerRuntime:
 def build_live_runtime() -> LiveWorkerRuntime:
     timeout_seconds = float(os.getenv("LIVE_SOURCE_TIMEOUT_SECONDS", str(DEFAULT_SOURCE_TIMEOUT_SECONDS)))
     retention_hours = int(os.getenv("LIVE_RETENTION_HOURS", "24"))
+    connect_retry_attempts = int(os.getenv("LIVE_DUCKDB_CONNECT_RETRY_ATTEMPTS", "5"))
+    connect_retry_backoff_seconds = float(
+        os.getenv("LIVE_DUCKDB_CONNECT_RETRY_BACKOFF_SECONDS", "0.05")
+    )
     live_db_path = os.getenv("LIVE_DUCKDB_PATH", "data/utxoracle_live.duckdb")
     process_lock_path = os.getenv("LIVE_WORKER_LOCK_PATH") or None
 
@@ -193,7 +197,12 @@ def build_live_runtime() -> LiveWorkerRuntime:
         tx_fetch_concurrency=int(os.getenv("LIVE_ORACLE_TX_CONCURRENCY", str(DEFAULT_LIVE_ORACLE_TX_CONCURRENCY))),
         min_tx_count=int(os.getenv("LIVE_ORACLE_MIN_TX_COUNT", str(DEFAULT_LIVE_ORACLE_MIN_TX_COUNT))),
     )
-    snapshot_store = LiveSnapshotStore(live_db_path, retention_hours=retention_hours)
+    snapshot_store = LiveSnapshotStore(
+        live_db_path,
+        retention_hours=retention_hours,
+        connect_retry_attempts=connect_retry_attempts,
+        connect_retry_backoff_seconds=connect_retry_backoff_seconds,
+    )
     worker = LiveWorker(
         electrs_client=electrs_client,
         mempool_client=mempool_client,

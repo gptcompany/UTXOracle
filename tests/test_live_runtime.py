@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import duckdb
 import httpx
 import pytest
 
@@ -82,5 +83,35 @@ async def test_build_live_runtime_uses_env_driven_paths(monkeypatch, tmp_path):
         assert runtime.worker.mempool_client.base_url == "http://mempool.local/api/v1"
         assert runtime.worker.brk_client.base_url == "http://brk.local"
         assert runtime.worker.hyperliquid_client.base_url == "http://hl.local/info"
+    finally:
+        await runtime.aclose()
+
+
+@pytest.mark.asyncio
+async def test_runtime_run_initializes_schema_before_worker_run(monkeypatch, tmp_path):
+    monkeypatch.setenv("LIVE_DUCKDB_PATH", str(tmp_path / "live.duckdb"))
+    monkeypatch.setenv("LIVE_WORKER_LOCK_PATH", str(tmp_path / "worker.lock"))
+    monkeypatch.setenv("ELECTRS_HTTP_URL", "http://electrs.local")
+    monkeypatch.setenv("MEMPOOL_API_V1_URL", "http://mempool.local/api/v1")
+    monkeypatch.setenv("BRK_BASE_URL", "http://brk.local")
+    monkeypatch.setenv("HYPERLIQUID_NODE_API_URL", "http://hl.local/info")
+    monkeypatch.setenv("HYPERLIQUID_DATA_ROOT", str(tmp_path / "hl"))
+
+    runtime = build_live_runtime()
+
+    async def fake_run(*, market_interval_seconds: float, block_poll_interval_seconds: float):
+        assert market_interval_seconds == 5.0
+        assert block_poll_interval_seconds == 2.0
+        conn = duckdb.connect(str(runtime.worker.snapshot_store.db_path), read_only=False)
+        try:
+            assert conn.execute("SELECT COUNT(*) FROM live_snapshots").fetchone() == (0,)
+        finally:
+            conn.close()
+        return []
+
+    monkeypatch.setattr(runtime.worker, "run", fake_run)
+
+    try:
+        assert await runtime.run() == []
     finally:
         await runtime.aclose()

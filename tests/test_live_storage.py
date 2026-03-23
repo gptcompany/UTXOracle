@@ -183,3 +183,39 @@ def test_store_write_snapshot_skips_schema_check_after_initialize(tmp_path, monk
     )
 
     assert schema_calls == []
+
+
+def test_store_retries_duckdb_lock_contention_for_read_and_write(tmp_path, monkeypatch):
+    store = LiveSnapshotStore(
+        tmp_path / "live.duckdb",
+        connect_retry_attempts=3,
+        connect_retry_backoff_seconds=0.01,
+    )
+    original_connect = duckdb.connect
+    sleeps: list[float] = []
+    failures = {False: 1, True: 1}
+
+    def tracking_connect(*args, **kwargs):
+        read_only = bool(kwargs.get("read_only", False))
+        if failures[read_only] > 0:
+            failures[read_only] -= 1
+            raise duckdb.IOException(
+                'IO Error: Could not set lock on file "/tmp/live.duckdb": Conflicting lock is held'
+            )
+        return original_connect(*args, **kwargs)
+
+    monkeypatch.setattr("scripts.live.storage.duckdb.connect", tracking_connect)
+    monkeypatch.setattr("scripts.live.storage.time.sleep", lambda delay: sleeps.append(delay))
+
+    store.initialize(for_write=True)
+    store.write_snapshot(
+        _build_snapshot(
+            timestamp=datetime(2026, 3, 20, 18, 0, tzinfo=timezone.utc),
+            block_height=941456,
+            price=84211.52,
+        )
+    )
+
+    assert store.get_latest() is not None
+    assert failures == {False: 0, True: 0}
+    assert sleeps == [0.01, 0.01]

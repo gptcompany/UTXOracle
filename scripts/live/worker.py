@@ -68,18 +68,10 @@ class _WorkerProcessLock:
             self._handle.close()
             self._handle = None
 
-        try:
-            self.path.unlink()
-        except FileNotFoundError:
-            pass
-        except OSError:
-            pass
 
 
 class SnapshotStore(Protocol):
     def write_snapshot(self, snapshot: LiveSnapshot) -> None: ...
-
-    def initialize(self) -> None: ...
 
 
 class LiveWorker:
@@ -110,8 +102,6 @@ class LiveWorker:
             if self.process_lock_path is not None
             else None
         )
-        if self.snapshot_store is not None and hasattr(self.snapshot_store, "initialize"):
-            self.snapshot_store.initialize()
         self.clock = clock
         self._last_snapshot: LiveSnapshot | None = None
         self._last_observed_block_height: int | None = None

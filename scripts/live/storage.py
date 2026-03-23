@@ -3,6 +3,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -10,14 +11,16 @@ import duckdb
 
 from scripts.live.models import LiveHistoryQuery, LiveSnapshot, utc_now
 
+DEFAULT_DUCKDB_CONNECT_RETRY_ATTEMPTS = int(
+    os.getenv("LIVE_DUCKDB_CONNECT_RETRY_ATTEMPTS", "5")
+)
+DEFAULT_DUCKDB_CONNECT_RETRY_BACKOFF_SECONDS = float(
+    os.getenv("LIVE_DUCKDB_CONNECT_RETRY_BACKOFF_SECONDS", "0.05")
+)
+
 
 class LiveSnapshotStore:
-    """DuckDB-backed storage for short-horizon live snapshots.
-
-    The intended runtime model is:
-    - worker process: single writer with short-lived write connections
-    - API process: read-only readers with short-lived read connections
-    """
+    """DuckDB-backed storage for short-horizon live snapshots."""
 
     def __init__(
         self,
@@ -25,25 +28,29 @@ class LiveSnapshotStore:
         *,
         retention_hours: int = 24,
         lock_path: str | Path | None = None,
+        connect_retry_attempts: int = DEFAULT_DUCKDB_CONNECT_RETRY_ATTEMPTS,
+        connect_retry_backoff_seconds: float = DEFAULT_DUCKDB_CONNECT_RETRY_BACKOFF_SECONDS,
     ) -> None:
         self.db_path = Path(db_path)
         self.retention_hours = retention_hours
         self.lock_path = Path(lock_path) if lock_path else self.db_path.with_suffix(".lock")
+        self.connect_retry_attempts = max(int(connect_retry_attempts), 1)
+        self.connect_retry_backoff_seconds = max(float(connect_retry_backoff_seconds), 0.0)
         self._initialized = False
         self._lock_fd: int | None = None
 
     def initialize(self, *, for_write: bool = False) -> None:
-        if self._initialized:
-            return
-        
         self._ensure_parent_dir()
 
-        if for_write:
+        if for_write and self._lock_fd is None:
             self._acquire_lock()
+
+        if not self._initialized:
+            self._initialized = True
+
+        if for_write:
             with self._connect(read_only=False) as conn:
                 self._ensure_schema(conn)
-        
-        self._initialized = True
 
     def _acquire_lock(self) -> None:
         """Acquire an exclusive lock on the lockfile."""
@@ -76,51 +83,57 @@ class LiveSnapshotStore:
         payload = snapshot.model_dump(mode="json")
 
         with self._connect(read_only=False) as conn:
-            conn.execute(
-                "DELETE FROM live_snapshots WHERE snapshot_ts = ?",
-                [snapshot.timestamp],
-            )
-            conn.execute(
-                """
-                INSERT INTO live_snapshots (
-                    snapshot_ts,
-                    schema_version,
-                    block_height,
-                    utxoracle_price,
-                    utxoracle_confidence,
-                    mempool_exchange_price,
-                    hyperliquid_oracle_price,
-                    hyperliquid_mark_price,
-                    comparison_json,
-                    features_json,
-                    source_health_json,
-                    source_timestamps_json,
-                    snapshot_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    snapshot.timestamp,
-                    snapshot.schema_version,
-                    snapshot.block_height,
-                    snapshot.utxoracle_price,
-                    snapshot.utxoracle_confidence,
-                    snapshot.mempool_exchange_price,
-                    snapshot.hyperliquid_oracle_price,
-                    snapshot.hyperliquid_mark_price,
-                    json.dumps(payload["comparison"], sort_keys=True),
-                    json.dumps(payload["features"], sort_keys=True),
-                    json.dumps(payload["source_health"], sort_keys=True),
-                    json.dumps(payload["source_timestamps"], sort_keys=True),
-                    json.dumps(payload, sort_keys=True),
-                ],
-            )
-
-            if self.retention_hours > 0:
-                cutoff = snapshot.timestamp - timedelta(hours=self.retention_hours)
+            conn.execute("BEGIN TRANSACTION")
+            try:
                 conn.execute(
-                    "DELETE FROM live_snapshots WHERE snapshot_ts < ?",
-                    [cutoff],
+                    "DELETE FROM live_snapshots WHERE snapshot_ts = ?",
+                    [snapshot.timestamp],
                 )
+                conn.execute(
+                    """
+                    INSERT INTO live_snapshots (
+                        snapshot_ts,
+                        schema_version,
+                        block_height,
+                        utxoracle_price,
+                        utxoracle_confidence,
+                        mempool_exchange_price,
+                        hyperliquid_oracle_price,
+                        hyperliquid_mark_price,
+                        comparison_json,
+                        features_json,
+                        source_health_json,
+                        source_timestamps_json,
+                        snapshot_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        snapshot.timestamp,
+                        snapshot.schema_version,
+                        snapshot.block_height,
+                        snapshot.utxoracle_price,
+                        snapshot.utxoracle_confidence,
+                        snapshot.mempool_exchange_price,
+                        snapshot.hyperliquid_oracle_price,
+                        snapshot.hyperliquid_mark_price,
+                        json.dumps(payload["comparison"], sort_keys=True),
+                        json.dumps(payload["features"], sort_keys=True),
+                        json.dumps(payload["source_health"], sort_keys=True),
+                        json.dumps(payload["source_timestamps"], sort_keys=True),
+                        json.dumps(payload, sort_keys=True),
+                    ],
+                )
+
+                if self.retention_hours > 0:
+                    cutoff = snapshot.timestamp - timedelta(hours=self.retention_hours)
+                    conn.execute(
+                        "DELETE FROM live_snapshots WHERE snapshot_ts < ?",
+                        [cutoff],
+                    )
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
 
     def get_latest(self) -> LiveSnapshot | None:
         if not self.db_path.exists():
@@ -192,7 +205,24 @@ class LiveSnapshotStore:
         return int(deleted[0]) if deleted else 0
 
     def _connect(self, *, read_only: bool) -> duckdb.DuckDBPyConnection:
-        return duckdb.connect(str(self.db_path), read_only=read_only)
+        for attempt in range(1, self.connect_retry_attempts + 1):
+            try:
+                return duckdb.connect(str(self.db_path), read_only=read_only)
+            except duckdb.IOException as exc:
+                if not self._is_retryable_connect_error(exc) or attempt >= self.connect_retry_attempts:
+                    raise
+                delay = self.connect_retry_backoff_seconds * attempt
+                if delay > 0:
+                    time.sleep(delay)
+        raise RuntimeError("duckdb connection retries exhausted")
+
+    @staticmethod
+    def _is_retryable_connect_error(exc: duckdb.IOException) -> bool:
+        message = str(exc)
+        return (
+            "Could not set lock on file" in message
+            or "Conflicting lock is held" in message
+        )
 
     def _ensure_parent_dir(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)

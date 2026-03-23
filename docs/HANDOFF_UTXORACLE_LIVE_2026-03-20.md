@@ -39,7 +39,7 @@ utxoracle-utxoracle-live-api-1      Up on 0.0.0.0:8011
 
 | Risk | Updated Status |
 |------|----------------|
-| Hyperliquid freshness via filtered dataset | Mitigated: ZST early-stop prevents I/O spikes; fallback active |
+| Hyperliquid freshness via filtered dataset | Accepted operational cost: filtered ZST fallback remains active, but current reads are linear scans from the start of the file. |
 | Direct `POST /info` oracle/mark extraction | Resolved: `l4Book` request type confirmed and wired |
 | BRK feature scope leakage into public API | Contained: only `realized_price`, `liveliness`, `reserve_risk` exposed |
 | Port collision with systemd API on `8001` | Resolved: live API on `8011` |
@@ -64,7 +64,7 @@ Move the repository from dormant batch-oriented state toward one Dockerized `UTX
 | `BRK` | `http://127.0.0.1:7070` | reachable and healthy | use curated features only in MVP |
 | `Hyperliquid Node API` | `http://127.0.0.1:3001/info` (POST) | reachable | uses `l4Book` for high-granularity data |
 | `Hyperliquid Metrics` | `http://127.0.0.1:9101/metrics` | reachable | exposes `hl_core_block_height` |
-| `Hyperliquid filtered oracle updates` | `/media/sam/4TB-NVMe/hyperliquid/filtered/hip3_oracle_updates_by_block` | available | hardened with ZST early-stop (10s threshold) |
+| `Hyperliquid filtered oracle updates` | `/media/sam/4TB-NVMe/hyperliquid/filtered/hip3_oracle_updates_by_block` | available | available; current fallback performs a linear scan and stops only after reaching a fresh enough record |
 | `Hyperliquid realtime` | `/media/sam/4TB-NVMe/hyperliquid/realtime` | empty/off | not currently usable as persisted realtime source |
 | `127.0.0.1:12345` | `http://127.0.0.1:12345` | unrelated | serves HTML and is not part of the Hyperliquid comparison path |
 
@@ -145,7 +145,7 @@ Implements the upstream client layer:
 `HyperliquidSnapshotClient` behavior is intentionally defensive and optimized:
 1. try `HYPERLIQUID_NODE_API_URL` with `l4Book` request type
 2. require JSON content type and extract oracle and mark fields only when payload is valid
-3. fall back to filesystem snapshots under `HYPERLIQUID_DATA_ROOT` with **ZST early-stop optimization** (stops scanning once a record < 10s old is found)
+3. fall back to filesystem snapshots under `HYPERLIQUID_DATA_ROOT` with a linear scan that stops only after a fresh enough record is reached; this reduces downstream processing but does not avoid full historical decompression cost
 
 ### `scripts/live/worker.py`
 
@@ -193,7 +193,7 @@ The public live contract should be owned by `UTXOracle Live`, not by `BRK`.
 
 ### Hyperliquid usage in MVP
 
-The verified Hyperliquid comparison source on this host is the filtered oracle-update dataset under `/media/sam/4TB-NVMe/hyperliquid/filtered/hip3_oracle_updates_by_block`. Direct oracle and mark extraction uses `POST /info` with `l4Book`. Hardened filesystem fallback uses early-stop ZST decompression to avoid I/O spikes.
+The verified Hyperliquid comparison source on this host is the filtered oracle-update dataset under `/media/sam/4TB-NVMe/hyperliquid/filtered/hip3_oracle_updates_by_block`. Direct oracle and mark extraction uses `POST /info` with `l4Book`. Filesystem fallback currently scans filtered ZST data linearly from the start of the file and can become an operational cost as files grow.
 
 ## Test And Validation Status
 

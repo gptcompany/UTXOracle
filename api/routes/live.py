@@ -17,7 +17,16 @@ def get_live_snapshot_store() -> LiveSnapshotStore:
         "/media/sam/1TB/UTXOracle/data/utxoracle_live.duckdb",
     )
     retention_hours = int(os.getenv("LIVE_RETENTION_HOURS", "24"))
-    return LiveSnapshotStore(db_path, retention_hours=retention_hours)
+    connect_retry_attempts = int(os.getenv("LIVE_DUCKDB_CONNECT_RETRY_ATTEMPTS", "5"))
+    connect_retry_backoff_seconds = float(
+        os.getenv("LIVE_DUCKDB_CONNECT_RETRY_BACKOFF_SECONDS", "0.05")
+    )
+    return LiveSnapshotStore(
+        db_path,
+        retention_hours=retention_hours,
+        connect_retry_attempts=connect_retry_attempts,
+        connect_retry_backoff_seconds=connect_retry_backoff_seconds,
+    )
 
 
 def _require_snapshot(store: LiveSnapshotStore) -> LiveSnapshot:

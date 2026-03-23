@@ -637,15 +637,33 @@ def test_worker_process_lock_is_exclusive(tmp_path):
     second = _WorkerProcessLock(lock_path)
 
     first.acquire()
+    assert lock_path.exists()
     try:
         with pytest.raises(ProcessLockError, match="already held"):
             second.acquire()
     finally:
         first.release()
 
+    assert lock_path.exists()
     second.acquire()
     second.release()
-    assert not lock_path.exists()
+    assert lock_path.exists()
+
+
+def test_worker_process_lock_recovers_after_abrupt_handle_close(tmp_path):
+    lock_path = tmp_path / "live.worker.lock"
+    first = _WorkerProcessLock(lock_path)
+    second = _WorkerProcessLock(lock_path)
+
+    first.acquire()
+    assert lock_path.exists()
+
+    first._handle.close()
+    first._handle = None
+
+    second.acquire()
+    second.release()
+    assert lock_path.exists()
 
 
 @pytest.mark.asyncio
@@ -716,4 +734,9 @@ async def test_worker_run_releases_process_lock_after_completion(tmp_path):
     )
 
     assert len(snapshots) == 1
-    assert not lock_path.exists()
+    assert lock_path.exists()
+
+    reacquired = _WorkerProcessLock(lock_path)
+    reacquired.acquire()
+    reacquired.release()
+    assert lock_path.exists()
