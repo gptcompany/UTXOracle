@@ -1,241 +1,102 @@
 from __future__ import annotations
 
-import fcntl
 import json
-import os
-import sqlite3
+import logging
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Optional
 
 from scripts.live.models import LiveHistoryQuery, LiveSnapshot, utc_now
+from api.questdb_repository import QuestDBRepository
 
+logger = logging.getLogger(__name__)
 
 class LiveSnapshotStore:
-    """SQLite-backed storage for short-horizon live snapshots in WAL mode."""
+    """QuestDB-backed storage for short-horizon live snapshots using ILP."""
 
     def __init__(
         self,
-        db_path: str | Path,
         *,
         retention_hours: int = 24,
-        lock_path: str | Path | None = None,
     ) -> None:
-        self.db_path = Path(db_path)
         self.retention_hours = retention_hours
-        self.lock_path = Path(lock_path) if lock_path else self.db_path.with_suffix(".lock")
+        self.repo = QuestDBRepository()
         self._initialized = False
-        self._lock_fd: int | None = None
 
-    def initialize(self, *, for_write: bool = False) -> None:
-        self._ensure_parent_dir()
+    async def initialize(self) -> None:
+        await self.repo.initialize()
+        self._initialized = True
 
-        if for_write and self._lock_fd is None:
-            self._acquire_lock()
+    async def close(self) -> None:
+        await self.repo.close()
 
+    async def write_snapshot(self, snapshot: LiveSnapshot) -> None:
         if not self._initialized:
-            self._initialized = True
-
-        if for_write:
-            with self._connect(for_write=True) as conn:
-                self._ensure_schema(conn)
-
-    def _acquire_lock(self) -> None:
-        """Acquire an exclusive lock on the lockfile."""
-        try:
-            self._lock_fd = os.open(self.lock_path, os.O_RDWR | os.O_CREAT, 0o600)
-            fcntl.flock(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except (OSError, IOError):
-            if self._lock_fd is not None:
-                os.close(self._lock_fd)
-                self._lock_fd = None
-            raise RuntimeError(
-                f"Could not acquire lock on {self.lock_path}. "
-                "Another worker process might be running."
-            )
-
-    def close(self) -> None:
-        """Release the lock and clean up."""
-        if self._lock_fd is not None:
-            try:
-                fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
-                os.close(self._lock_fd)
-            except OSError:
-                pass
-            self._lock_fd = None
-
-    def write_snapshot(self, snapshot: LiveSnapshot) -> None:
-        if not self._initialized:
-            raise RuntimeError("LiveSnapshotStore.initialize() must be called before write_snapshot()")
+            await self.initialize()
 
         payload = snapshot.model_dump(mode="json")
-        snapshot_ts_iso = snapshot.timestamp.isoformat()
+        
+        # Use ILP for lock-free ingestion
+        success = self.repo._send_row(
+            "live_snapshots",
+            symbols={
+                "schema_version": snapshot.schema_version,
+            },
+            columns={
+                "snapshot_ts": snapshot.timestamp,
+                "block_height": snapshot.block_height,
+                "utxoracle_price": snapshot.utxoracle_price,
+                "utxoracle_confidence": snapshot.utxoracle_confidence,
+                "mempool_exchange_price": snapshot.mempool_exchange_price,
+                "hyperliquid_oracle_price": snapshot.hyperliquid_oracle_price,
+                "hyperliquid_mark_price": snapshot.hyperliquid_mark_price,
+                "comparison_json": json.dumps(payload["comparison"], sort_keys=True),
+                "features_json": json.dumps(payload["features"], sort_keys=True),
+                "source_health_json": json.dumps(payload["source_health"], sort_keys=True),
+                "source_timestamps_json": json.dumps(payload["source_timestamps"], sort_keys=True),
+                "snapshot_json": json.dumps(payload, sort_keys=True),
+            },
+            at=snapshot.timestamp
+        )
+        
+        if not success:
+            logger.error(f"Failed to write live snapshot to QuestDB at {snapshot.timestamp}")
 
-        with self._connect(for_write=True) as conn:
-            conn.execute("BEGIN TRANSACTION")
-            try:
-                conn.execute(
-                    "DELETE FROM live_snapshots WHERE snapshot_ts = ?",
-                    [snapshot_ts_iso],
-                )
-                conn.execute(
-                    """
-                    INSERT INTO live_snapshots (
-                        snapshot_ts,
-                        schema_version,
-                        block_height,
-                        utxoracle_price,
-                        utxoracle_confidence,
-                        mempool_exchange_price,
-                        hyperliquid_oracle_price,
-                        hyperliquid_mark_price,
-                        comparison_json,
-                        features_json,
-                        source_health_json,
-                        source_timestamps_json,
-                        snapshot_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    [
-                        snapshot_ts_iso,
-                        snapshot.schema_version,
-                        snapshot.block_height,
-                        snapshot.utxoracle_price,
-                        snapshot.utxoracle_confidence,
-                        snapshot.mempool_exchange_price,
-                        snapshot.hyperliquid_oracle_price,
-                        snapshot.hyperliquid_mark_price,
-                        json.dumps(payload["comparison"], sort_keys=True),
-                        json.dumps(payload["features"], sort_keys=True),
-                        json.dumps(payload["source_health"], sort_keys=True),
-                        json.dumps(payload["source_timestamps"], sort_keys=True),
-                        json.dumps(payload, sort_keys=True),
-                    ],
-                )
+    async def get_latest(self) -> LiveSnapshot | None:
+        if not self._initialized:
+            await self.initialize()
 
-                if self.retention_hours > 0:
-                    cutoff = (snapshot.timestamp - timedelta(hours=self.retention_hours)).isoformat()
-                    conn.execute(
-                        "DELETE FROM live_snapshots WHERE snapshot_ts < ?",
-                        [cutoff],
-                    )
-                conn.execute("COMMIT")
-            except Exception:
-                conn.execute("ROLLBACK")
-                raise
+        query = "SELECT snapshot_json FROM live_snapshots ORDER BY ts DESC LIMIT 1"
+        row = await self.repo.fetchrow(query)
+        
+        return self._deserialize_snapshot(row["snapshot_json"]) if row else None
 
-    def get_latest(self) -> LiveSnapshot | None:
-        if not self.db_path.exists():
-            return None
-
-        try:
-            with self._connect(for_write=False) as conn:
-                row = conn.execute(
-                    """
-                    SELECT snapshot_json
-                    FROM live_snapshots
-                    ORDER BY snapshot_ts DESC
-                    LIMIT 1
-                    """
-                ).fetchone()
-        except sqlite3.OperationalError:
-            return None
-
-        return self._deserialize_snapshot(row[0]) if row else None
-
-    def get_history(
+    async def get_history(
         self,
         query: LiveHistoryQuery | int | None = None,
         *,
         now: datetime | None = None,
     ) -> list[LiveSnapshot]:
-        if not self.db_path.exists():
-            return []
+        if not self._initialized:
+            await self.initialize()
 
         if query is None:
             query = LiveHistoryQuery()
         elif isinstance(query, int):
             query = LiveHistoryQuery(minutes=query)
 
-        start_time_iso = ((now or utc_now()) - timedelta(minutes=query.minutes)).isoformat()
+        minutes = query.minutes
+        sql = f"SELECT snapshot_json FROM live_snapshots WHERE ts > now() - interval '{minutes}m' ORDER BY ts ASC"
+        
+        rows = await self.repo.fetch(sql)
+        return [self._deserialize_snapshot(row["snapshot_json"]) for row in rows]
 
-        try:
-            with self._connect(for_write=False) as conn:
-                rows = conn.execute(
-                    """
-                    SELECT snapshot_json
-                    FROM live_snapshots
-                    WHERE snapshot_ts >= ?
-                    ORDER BY snapshot_ts ASC
-                    """,
-                    [start_time_iso],
-                ).fetchall()
-        except sqlite3.OperationalError:
-            return []
-
-        return [self._deserialize_snapshot(row[0]) for row in rows]
-
-    def prune(self, *, now: datetime | None = None) -> int:
-        if self.retention_hours <= 0 or not self.db_path.exists():
-            return 0
-
-        cutoff = ((now or utc_now()) - timedelta(hours=self.retention_hours)).isoformat()
-
-        with self._connect(for_write=True) as conn:
-            deleted = conn.execute(
-                "SELECT COUNT(*) FROM live_snapshots WHERE snapshot_ts < ?",
-                [cutoff],
-            ).fetchone()
-            conn.execute(
-                "DELETE FROM live_snapshots WHERE snapshot_ts < ?",
-                [cutoff],
-            )
-
-        return int(deleted[0]) if deleted else 0
-
-    def _connect(self, *, for_write: bool) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path, timeout=15.0, isolation_level=None)
-        if for_write:
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA synchronous=NORMAL")
-        return conn
-
-    def _ensure_parent_dir(self) -> None:
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-
-    @staticmethod
-    def _ensure_schema(conn: sqlite3.Connection) -> None:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS live_snapshots (
-                snapshot_ts TEXT PRIMARY KEY,
-                schema_version TEXT NOT NULL,
-                block_height INTEGER,
-                utxoracle_price REAL,
-                utxoracle_confidence REAL,
-                mempool_exchange_price REAL,
-                hyperliquid_oracle_price REAL,
-                hyperliquid_mark_price REAL,
-                comparison_json TEXT NOT NULL,
-                features_json TEXT NOT NULL,
-                source_health_json TEXT NOT NULL,
-                source_timestamps_json TEXT NOT NULL,
-                snapshot_json TEXT NOT NULL,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_live_snapshots_ts
-            ON live_snapshots(snapshot_ts)
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_live_snapshots_height
-            ON live_snapshots(block_height)
-            """
-        )
+    async def prune(self, *, now: datetime | None = None) -> int:
+        # QuestDB doesn't need manual pruning if PARTITION BY DAY is used and we drop partitions.
+        # But we can simulate it with a DELETE if needed.
+        # However, ILP is append-only, so DELETE might be slow.
+        # In a real QuestDB setup, we would use a retention policy.
+        return 0
 
     @staticmethod
     def _deserialize_snapshot(raw_payload: str) -> LiveSnapshot:

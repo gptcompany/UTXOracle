@@ -7,21 +7,14 @@ Provides REST API endpoints for querying whale transaction history
 from the DuckDB database with filtering and pagination.
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from typing import List, Optional
 from datetime import datetime, timedelta
 from pydantic import BaseModel
-import duckdb
-import os
+import logging
+from api.questdb_repository import QuestDBRepository
 
 router = APIRouter(prefix="/api/whale", tags=["whale-detection"])
-
-# Database path - configurable via environment variable
-# Default: production database path used by whale orchestrator
-DB_PATH = os.getenv(
-    "WHALE_DB_PATH", "/media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxoracle_cache.db"
-)
-
 
 class WhaleTransactionResponse(BaseModel):
     """Whale transaction response model"""
@@ -51,6 +44,7 @@ class WhaleSummaryResponse(BaseModel):
 
 @router.get("/transactions", response_model=List[WhaleTransactionResponse])
 async def get_whale_transactions(
+    request: Request,
     hours: int = Query(24, ge=1, le=168, description="Hours to look back (max 7 days)"),
     flow_type: Optional[str] = Query(None, description="Filter by flow type"),
     min_btc: Optional[float] = Query(
@@ -63,19 +57,11 @@ async def get_whale_transactions(
     limit: int = Query(100, ge=1, le=1000, description="Max results to return"),
 ):
     """
-    Get historical whale transactions with optional filtering
-
-    - **hours**: Time window to query (1-168 hours)
-    - **flow_type**: Filter by flow type (inflow/outflow/internal/unknown)
-    - **min_btc**: Minimum BTC value threshold
-    - **min_urgency**: Minimum urgency score threshold
-    - **rbf_only**: Only show RBF-enabled transactions
-    - **limit**: Maximum number of results
+    Get historical whale transactions from QuestDB with optional filtering
     """
+    repo: QuestDBRepository = request.app.state.questdb_repo
     try:
-        conn = duckdb.connect(str(DB_PATH), read_only=True)
-
-        # Build query with filters
+        # Build query with filters (QuestDB compatible)
         query = """
             SELECT
                 prediction_id,
@@ -85,69 +71,62 @@ async def get_whale_transactions(
                 fee_rate,
                 urgency_score,
                 rbf_enabled,
-                detection_timestamp,
+                ts as detection_timestamp,
                 predicted_confirmation_block,
                 confidence_score
             FROM mempool_predictions
-            WHERE detection_timestamp >= ?
+            WHERE ts >= now() - interval '$1 hours'
         """
-        params = [datetime.utcnow() - timedelta(hours=hours)]
+        params = [hours]
 
         if flow_type:
-            query += " AND flow_type = ?"
-            params.append(flow_type)
+            query += f" AND flow_type = '{flow_type}'" # simplified for QuestDB
 
         if min_btc:
-            query += " AND btc_value >= ?"
-            params.append(min_btc)
+            query += f" AND btc_value >= {min_btc}"
 
         if min_urgency is not None:
-            query += " AND urgency_score >= ?"
-            params.append(min_urgency)
+            query += f" AND urgency_score >= {min_urgency}"
 
         if rbf_only:
             query += " AND rbf_enabled = TRUE"
 
-        query += " ORDER BY detection_timestamp DESC LIMIT ?"
+        query += " ORDER BY ts DESC LIMIT $2"
         params.append(limit)
 
-        result = conn.execute(query, params).fetchall()
-        conn.close()
+        result = await repo.fetch(query, *params)
 
-        # Convert to response models
-        transactions = []
-        for row in result:
-            transactions.append(
-                WhaleTransactionResponse(
-                    prediction_id=row[0],
-                    transaction_id=row[1],
-                    flow_type=row[2],
-                    btc_value=row[3],
-                    fee_rate=row[4],
-                    urgency_score=row[5],
-                    rbf_enabled=row[6],
-                    detection_timestamp=row[7].isoformat(),
-                    predicted_confirmation_block=row[8],
-                    confidence_score=row[9],
-                )
+        return [
+            WhaleTransactionResponse(
+                prediction_id=row["prediction_id"],
+                transaction_id=row["transaction_id"],
+                flow_type=row["flow_type"],
+                btc_value=row["btc_value"],
+                fee_rate=row["fee_rate"],
+                urgency_score=row["urgency_score"],
+                rbf_enabled=row["rbf_enabled"],
+                detection_timestamp=row["detection_timestamp"].isoformat(),
+                predicted_confirmation_block=row["predicted_confirmation_block"],
+                confidence_score=row["confidence_score"],
             )
-
-        return transactions
+            for row in result
+        ]
 
     except Exception as e:
+        logging.error(f"Whale transactions query failed: {e}")
         raise HTTPException(status_code=500, detail=f"Database query failed: {str(e)}")
 
 
 @router.get("/summary", response_model=WhaleSummaryResponse)
 async def get_whale_summary(
+    request: Request,
     hours: int = Query(24, ge=1, le=168, description="Hours to look back (max 7 days)"),
 ):
     """
-    Get summary statistics for whale transactions in the specified time period
+    Get summary statistics from QuestDB
     """
+    repo: QuestDBRepository = request.app.state.questdb_repo
     try:
-        conn = duckdb.connect(str(DB_PATH), read_only=True)
-
         query = """
             SELECT
                 COUNT(*) as total_transactions,
@@ -156,34 +135,32 @@ async def get_whale_summary(
                 SUM(CASE WHEN urgency_score >= 0.7 THEN 1 ELSE 0 END) as high_urgency_count,
                 SUM(CASE WHEN rbf_enabled = TRUE THEN 1 ELSE 0 END) as rbf_enabled_count
             FROM mempool_predictions
-            WHERE detection_timestamp >= ?
+            WHERE ts >= now() - interval '$1 hours'
         """
 
-        cutoff_time = datetime.utcnow() - timedelta(hours=hours)
-        result = conn.execute(query, [cutoff_time]).fetchone()
-        conn.close()
+        result = await repo.fetchrow(query, hours)
 
         return WhaleSummaryResponse(
-            total_transactions=result[0] or 0,
-            total_btc_volume=round(result[1] or 0.0, 2),
-            avg_urgency_score=round(result[2] or 0.0, 3),
-            high_urgency_count=result[3] or 0,
-            rbf_enabled_count=result[4] or 0,
+            total_transactions=result["total_transactions"] or 0,
+            total_btc_volume=round(result["total_btc_volume"] or 0.0, 2),
+            avg_urgency_score=round(result["avg_urgency_score"] or 0.0, 3),
+            high_urgency_count=result["high_urgency_count"] or 0,
+            rbf_enabled_count=result["rbf_enabled_count"] or 0,
             time_period=f"Last {hours} hours",
         )
 
     except Exception as e:
+        logging.error(f"Whale summary query failed: {e}")
         raise HTTPException(status_code=500, detail=f"Database query failed: {str(e)}")
 
 
 @router.get("/transaction/{txid}", response_model=WhaleTransactionResponse)
-async def get_whale_transaction(txid: str):
+async def get_whale_transaction(request: Request, txid: str):
     """
-    Get details for a specific whale transaction by transaction ID
+    Get specific whale transaction from QuestDB
     """
+    repo: QuestDBRepository = request.app.state.questdb_repo
     try:
-        conn = duckdb.connect(str(DB_PATH), read_only=True)
-
         query = """
             SELECT
                 prediction_id,
@@ -193,35 +170,35 @@ async def get_whale_transaction(txid: str):
                 fee_rate,
                 urgency_score,
                 rbf_enabled,
-                detection_timestamp,
+                ts as detection_timestamp,
                 predicted_confirmation_block,
                 confidence_score
             FROM mempool_predictions
-            WHERE transaction_id = ?
-            ORDER BY detection_timestamp DESC
+            WHERE transaction_id = $1
+            ORDER BY ts DESC
             LIMIT 1
         """
 
-        result = conn.execute(query, [txid]).fetchone()
-        conn.close()
+        result = await repo.fetchrow(query, txid)
 
         if not result:
             raise HTTPException(status_code=404, detail=f"Transaction {txid} not found")
 
         return WhaleTransactionResponse(
-            prediction_id=result[0],
-            transaction_id=result[1],
-            flow_type=result[2],
-            btc_value=result[3],
-            fee_rate=result[4],
-            urgency_score=result[5],
-            rbf_enabled=result[6],
-            detection_timestamp=result[7].isoformat(),
-            predicted_confirmation_block=result[8],
-            confidence_score=result[9],
+            prediction_id=result["prediction_id"],
+            transaction_id=result["transaction_id"],
+            flow_type=result["flow_type"],
+            btc_value=result["btc_value"],
+            fee_rate=result["fee_rate"],
+            urgency_score=result["urgency_score"],
+            rbf_enabled=result["rbf_enabled"],
+            detection_timestamp=result["detection_timestamp"].isoformat(),
+            predicted_confirmation_block=result["predicted_confirmation_block"],
+            confidence_score=result["confidence_score"],
         )
 
     except HTTPException:
         raise
     except Exception as e:
+        logging.error(f"Whale transaction lookup failed: {e}")
         raise HTTPException(status_code=500, detail=f"Database query failed: {str(e)}")

@@ -47,11 +47,16 @@ if not _jwt_secret:
         "Generate with: openssl rand -base64 64"
     )
 JWT_SECRET = _jwt_secret
-DUCKDB_PATH = os.getenv("DUCKDB_PATH", "/media/sam/1TB/UTXOracle/data/utxoracle.duckdb")
-UTXO_DB_PATH = os.getenv("UTXO_DB_PATH", DUCKDB_PATH)
-LIVE_DB_PATH = os.getenv(
-    "LIVE_DB_PATH", "/media/sam/1TB/UTXOracle/data/utxoracle_live.sqlite3"
-)
+# QuestDB Configuration
+QUESTDB_ILP_HOST = os.getenv("QUESTDB_ILP_HOST", "localhost")
+QUESTDB_ILP_PORT = int(os.getenv("QUESTDB_ILP_PORT", 9009))
+QUESTDB_PG_HOST = os.getenv("QUESTDB_PG_HOST", "localhost")
+QUESTDB_PG_PORT = int(os.getenv("QUESTDB_PG_PORT", 8812))
+QUESTDB_HTTP_HOST = os.getenv("QUESTDB_HTTP_HOST", "localhost")
+QUESTDB_HTTP_PORT = int(os.getenv("QUESTDB_HTTP_PORT", 9000))
+QUESTDB_PG_USER = os.getenv("QUESTDB_PG_USER", "admin")
+QUESTDB_PG_PASSWORD = os.getenv("QUESTDB_PG_PASSWORD", "quest")
+QUESTDB_PG_DATABASE = os.getenv("QUESTDB_PG_DATABASE", "main")
 MEMPOOL_API_URL = os.getenv("MEMPOOL_API_URL", "http://127.0.0.1:8999")
 WHALE_MIN_BTC = float(os.getenv("WHALE_MIN_BTC", "100"))
 WHALE_WS_PORT = int(os.getenv("WHALE_WS_PORT", "8001"))
@@ -74,7 +79,7 @@ LIVE_MARKET_INTERVAL_SECONDS = float(os.getenv("LIVE_MARKET_INTERVAL_SECONDS", "
 LIVE_BLOCK_POLL_INTERVAL_SECONDS = float(os.getenv("LIVE_BLOCK_POLL_INTERVAL_SECONDS", "2.0"))
 LIVE_RETENTION_HOURS = int(os.getenv("LIVE_RETENTION_HOURS", "24"))
 LIVE_WORKER_LOCK_PATH = os.getenv(
-    "LIVE_WORKER_LOCK_PATH", str(Path(LIVE_DB_PATH).parent / f"{Path(LIVE_DB_PATH).name}.worker.lock")
+    "LIVE_WORKER_LOCK_PATH", "/tmp/utxoracle_live.worker.lock"
 )
 LIVE_ORACLE_TX_CONCURRENCY = int(os.getenv("LIVE_ORACLE_TX_CONCURRENCY", "32"))
 LIVE_ORACLE_MIN_TX_COUNT = int(os.getenv("LIVE_ORACLE_MIN_TX_COUNT", "1000"))

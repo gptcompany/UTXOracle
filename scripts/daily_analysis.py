@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 # Third-party imports
 import requests
-import duckdb
+
 # Use SOPS-encrypted secrets
 sys.path.insert(0, "/media/sam/1TB/claude-hooks-shared/scripts")
 from secrets_loader import load_secrets
@@ -760,33 +760,7 @@ def validate_price_data(data: Dict, config: Dict) -> bool:
 # =============================================================================
 
 
-def init_database(db_path: str) -> None:
-    """
-    T042: Initialize DuckDB schema if not exists.
 
-    Args:
-        db_path: Path to DuckDB file
-    """
-    schema = """
-    CREATE TABLE IF NOT EXISTS price_analysis (
-        date DATE PRIMARY KEY,
-        exchange_price DECIMAL(12, 2),
-        utxoracle_price DECIMAL(12, 2),
-        price_difference DECIMAL(12, 2),
-        avg_pct_diff DECIMAL(6, 2),
-        confidence DECIMAL(5, 4),
-        tx_count INTEGER,
-        is_valid BOOLEAN DEFAULT TRUE
-    )
-    """
-
-    try:
-        with duckdb.connect(db_path) as conn:
-            conn.execute(schema)
-            logging.info(f"Database initialized: {db_path}")
-    except Exception as e:
-        logging.error(f"Failed to initialize database: {e}")
-        raise
 
 
 def detect_gaps(conn, max_days_back: int = None) -> List[str]:
@@ -1122,152 +1096,43 @@ def backfill_gap(date_str: str, config: Dict) -> bool:
         return False
 
 
-def save_to_duckdb(data: Dict, db_path: str, backup_path: str) -> None:
+from api.questdb_repository import QuestDBRepository
+
+def save_to_questdb(data: Dict) -> None:
     """
-    T043: Save price comparison data to DuckDB with fallback.
+    Save price comparison data to QuestDB.
 
     Args:
         data: Price data dictionary
-        db_path: Primary DuckDB path
-        backup_path: Fallback path if primary fails
-
-    Raises:
-        Exception: If both primary and fallback fail
     """
-    insert_sql = """
-    INSERT OR REPLACE INTO price_analysis (
-        date, exchange_price, utxoracle_price, price_difference,
-        avg_pct_diff, confidence, tx_count, is_valid,
-        whale_net_flow, whale_direction, action, combined_signal
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """
-
-    values = (
-        data["timestamp"].date()
-        if hasattr(data["timestamp"], "date")
-        else data["timestamp"],
-        data["mempool_price"],
-        data["utxoracle_price"],
-        data["diff_amount"],
-        data["diff_percent"],
-        data["confidence"],
-        data["tx_count"],
-        data["is_valid"],
-        data.get("whale_net_flow"),
-        data.get("whale_direction"),
-        data.get("action"),
-        data.get("combined_signal"),
-    )
-
     try:
-        # Attempt primary write
-        with duckdb.connect(db_path) as conn:
-            # Check existing data to prevent overwriting better quality data
-            date_to_check = values[0]
-            existing = conn.execute(
-                "SELECT confidence, is_valid FROM price_analysis WHERE date = ?",
-                [date_to_check],
-            ).fetchone()
-
-            # Only insert if: (1) no existing data OR (2) new data has better/equal confidence
-            if existing:
-                existing_confidence = existing[0]
-                existing_is_valid = existing[1]
-                new_confidence = values[5]  # confidence is 6th value (index 5)
-                new_is_valid = values[7]  # is_valid is 8th value (index 7)
-
-                # Skip if existing data is valid and new data is invalid
-                if existing_is_valid and not new_is_valid:
-                    logging.warning(
-                        f"Skipping update for {date_to_check}: "
-                        f"Existing valid data (confidence={existing_confidence:.2f}) "
-                        f"not replaced with invalid data (confidence={new_confidence:.2f})"
-                    )
-                    return
-
-                # Skip if existing has better confidence
-                if existing_confidence > new_confidence:
-                    logging.info(
-                        f"Skipping update for {date_to_check}: "
-                        f"Existing confidence {existing_confidence:.2f} > "
-                        f"new confidence {new_confidence:.2f}"
-                    )
-                    return
-
-            # Proceed with insert/update
-            conn.execute(insert_sql, values)
-        logging.info(f"Data saved to {db_path}")
-
-    except Exception as primary_error:
-        logging.error(f"Primary DB write failed: {primary_error}")
-
-        # Attempt fallback write
-        try:
-            with duckdb.connect(backup_path) as conn:
-                # Ensure table exists in backup
-                conn.execute("""
-                CREATE TABLE IF NOT EXISTS price_analysis (
-                    date DATE PRIMARY KEY,
-                    exchange_price DECIMAL(12, 2),
-                    utxoracle_price DECIMAL(12, 2),
-                    price_difference DECIMAL(12, 2),
-                    avg_pct_diff DECIMAL(6, 2),
-                    confidence DECIMAL(5, 4),
-                    tx_count INTEGER,
-                    is_valid BOOLEAN DEFAULT TRUE,
-                    whale_net_flow REAL,
-                    whale_direction TEXT,
-                    action TEXT,
-                    combined_signal REAL
-                )
-                """)
-
-                # Apply same "keep best" logic to backup
-                date_to_check = values[0]
-                existing = conn.execute(
-                    "SELECT confidence, is_valid FROM price_analysis WHERE date = ?",
-                    [date_to_check],
-                ).fetchone()
-
-                if existing:
-                    existing_confidence = existing[0]
-                    existing_is_valid = existing[1]
-                    new_confidence = values[5]
-                    new_is_valid = values[7]
-
-                    if existing_is_valid and not new_is_valid:
-                        logging.warning(
-                            f"[BACKUP] Skipping update for {date_to_check}: "
-                            f"Existing valid data not replaced with invalid data"
-                        )
-                        return
-
-                    if existing_confidence > new_confidence:
-                        logging.info(
-                            f"[BACKUP] Skipping update for {date_to_check}: "
-                            f"Existing confidence {existing_confidence:.2f} > new {new_confidence:.2f}"
-                        )
-                        return
-
-                conn.execute(insert_sql, values)
-
-            logging.critical(
-                f"FALLBACK: Data saved to {backup_path}",
-                extra={"backup_path": backup_path},
-            )
-
-            # Send notification about fallback
-            send_alert_webhook(
-                "ERROR",
-                f"DuckDB primary write failed, using fallback: {backup_path}",
-                {"error": str(primary_error)},
-            )
-
-        except Exception as backup_error:
-            logging.critical("FATAL: Both primary and backup DB writes failed")
-            logging.critical(f"Primary error: {primary_error}")
-            logging.critical(f"Backup error: {backup_error}")
-            raise Exception("Database write failed completely") from backup_error
+        repo = QuestDBRepository()
+        repo.sender.row(
+            "price_analysis",
+            columns={
+                "exchange_price": data["mempool_price"],
+                "utxoracle_price": data["utxoracle_price"],
+                "price_difference": data["diff_amount"],
+                "avg_pct_diff": data["diff_percent"],
+                "confidence": data["confidence"],
+                "tx_count": data["tx_count"],
+                "is_valid": data["is_valid"],
+                "created_at": datetime.now(),
+            },
+            at=datetime.fromisoformat(data["timestamp"]),
+        )
+        repo.sender.flush()
+        logging.info("Data saved to QuestDB")
+    except Exception as e:
+        logging.error(f"Failed to save data to QuestDB: {e}")
+        # In a real application, you'd want more robust error handling,
+        # maybe a retry mechanism or a dead-letter queue.
+        send_alert_webhook(
+            "ERROR",
+            "Failed to save data to QuestDB",
+            {"error": str(e)},
+        )
+        raise
 
 
 # =============================================================================
@@ -1455,24 +1320,12 @@ def main():
     T046: Support CLI flags --init-db, --dry-run, --verbose
     """
     parser = argparse.ArgumentParser(description="UTXOracle Daily Analysis")
-    parser.add_argument(
-        "--init-db", action="store_true", help="Initialize database only"
-    )
+    
     parser.add_argument(
         "--dry-run", action="store_true", help="Run without saving to DB"
     )
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
-    parser.add_argument(
-        "--auto-backfill",
-        action="store_true",
-        help="Automatically backfill detected gaps (max 10 per run)",
-    )
-    parser.add_argument(
-        "--backfill-limit",
-        type=int,
-        default=10,
-        help="Maximum gaps to backfill per run (default: 10)",
-    )
+    
     args = parser.parse_args()
 
     # Load and validate configuration
@@ -1485,67 +1338,7 @@ def main():
         logging.error(f"Configuration error: {e}")
         sys.exit(1)
 
-    # Handle --init-db flag
-    if args.init_db:
-        init_database(config["DUCKDB_PATH"])
-        logging.info("Database initialized successfully")
-        sys.exit(0)
-
-    # Ensure database exists and has correct schema
-    init_database(config["DUCKDB_PATH"])
-
-    # Check for gaps in entire historical series before running analysis
-    try:
-        # Detect gaps (close connection after detection)
-        gaps = None
-        with duckdb.connect(config["DUCKDB_PATH"]) as conn:
-            gaps = detect_gaps(conn)  # Scans entire history
-
-        if gaps:
-            logging.warning(
-                f"⚠️  {len(gaps)} total gaps in historical series. Recent: {gaps[:5]}"
-            )
-
-            # Auto-backfill if flag enabled
-            if args.auto_backfill:
-                logging.info(
-                    f"🔄 Auto-backfill enabled - processing up to {args.backfill_limit} gaps..."
-                )
-                gaps_to_fill = gaps[
-                    : args.backfill_limit
-                ]  # Limit to prevent overwhelming system
-
-                success_count = 0
-                fail_count = 0
-
-                # Connection is now CLOSED - safe to run backfill (uses library directly, no subprocess)
-                for gap_date in gaps_to_fill:
-                    if backfill_gap(gap_date, config):
-                        success_count += 1
-                    else:
-                        fail_count += 1
-
-                logging.info(
-                    f"✅ Backfill complete: {success_count} successful, {fail_count} failed"
-                )
-
-                # Re-check gaps after backfill
-                with duckdb.connect(config["DUCKDB_PATH"]) as conn:
-                    remaining_gaps = detect_gaps(conn)
-                    if remaining_gaps:
-                        logging.warning(
-                            f"⚠️  {len(remaining_gaps)} gaps remaining after backfill"
-                        )
-                    else:
-                        logging.info(
-                            "✅ All gaps filled - historical series now complete!"
-                        )
-            else:
-                logging.info(
-                    "💡 Tip: Run with --auto-backfill to automatically fill gaps"
-                )
-    except Exception as e:
-        logging.warning(f"Gap detection failed: {e}")
+    
 
     # Initialize Whale Flow Detector (T042 - spec-004)
     whale_detector = None
@@ -1921,203 +1714,9 @@ def main():
             "combined_signal": combined_signal,
         }
 
-        # Step 5: Save to database (T042, T043)
+        # Step 5: Save to database
         if not args.dry_run:
-            save_to_duckdb(data, config["DUCKDB_PATH"], config["DUCKDB_BACKUP_PATH"])
-
-            # Step 5.5: Save spec-007 + spec-010 metrics to metrics table
-            if METRICS_ENABLED:
-                try:
-                    mc_dict = mc_result.to_dict() if mc_result else None
-                    aa_dict = (
-                        active_addr_result.to_dict() if active_addr_result else None
-                    )
-                    tv_dict = tx_vol_result.to_dict() if tx_vol_result else None
-
-                    # Wasserstein data (spec-010)
-                    ws_dict = None
-                    if wasserstein_result and wasserstein_result.is_valid:
-                        ws_dict = {
-                            "mean_distance": wasserstein_result.mean_distance,
-                            "mean_normalized_distance": wasserstein_result.mean_normalized_distance,
-                            "dominant_shift_direction": wasserstein_result.dominant_shift_direction,
-                            "regime_status": wasserstein_result.regime_status,
-                            "wasserstein_vote": w_vote,
-                            "is_valid": wasserstein_result.is_valid,
-                        }
-
-                    if save_metrics_to_db(
-                        timestamp=current_time,
-                        monte_carlo=mc_dict,
-                        active_addresses=aa_dict,
-                        tx_volume=tv_dict,
-                        wasserstein=ws_dict,
-                        db_path=config["DUCKDB_PATH"],
-                    ):
-                        logging.info("✅ Spec-007/010 metrics saved to metrics table")
-                    else:
-                        logging.warning("⚠️ Failed to save spec-007/010 metrics")
-                except Exception as e:
-                    logging.warning(f"Spec-007/010 metrics save failed: {e}")
-
-            # Step 5.5b: UTXO Lifecycle Metrics (spec-017)
-            if UTXO_LIFECYCLE_ENABLED:
-                try:
-                    utxo_db_path = os.getenv(
-                        "UTXO_LIFECYCLE_DB_PATH", str(UTXORACLE_DB_PATH)
-                    )
-
-                    # Initialize database if needed
-                    Path(utxo_db_path).parent.mkdir(parents=True, exist_ok=True)
-                    utxo_conn = duckdb.connect(utxo_db_path)
-                    init_utxo_schema(utxo_conn)
-                    init_utxo_indexes(utxo_conn)
-
-                    # Get current price from UTXOracle result
-                    utxoracle_price = utx_result.get("price_usd", 50000.0)
-
-                    # Check sync state - use last_processed_block for calculations
-                    sync_state = get_utxo_sync_state(utxo_conn)
-                    block_height = sync_state.last_processed_block if sync_state else 0
-
-                    # Calculate realized metrics
-                    total_supply = get_total_unspent_supply(utxo_conn)
-                    realized_cap = calculate_realized_cap(utxo_conn)
-
-                    if total_supply > 0 and realized_cap > 0:
-                        market_cap = calculate_market_cap(total_supply, utxoracle_price)
-                        mvrv = calculate_mvrv(market_cap, realized_cap)
-                        nupl = calculate_nupl(market_cap, realized_cap)
-
-                        # Get STH/LTH supply
-                        age_config = AgeCohortsConfig()
-                        sth_supply, lth_supply = get_sth_lth_supply(
-                            utxo_conn, block_height
-                        )
-
-                        # Calculate HODL waves
-                        hodl_waves = calculate_hodl_waves(
-                            utxo_conn, block_height, age_config
-                        )
-                        top_cohort = (
-                            max(hodl_waves.items(), key=lambda x: x[1])[0]
-                            if hodl_waves
-                            else "N/A"
-                        )
-
-                        # Create and save snapshot if interval reached
-                        snapshot_interval = int(
-                            os.getenv("UTXO_SNAPSHOT_INTERVAL", "144")
-                        )
-                        # Get last snapshot block height (not sync_state.last_processed_block)
-                        last_snapshot_result = utxo_conn.execute(
-                            "SELECT MAX(block_height) FROM utxo_snapshots"
-                        ).fetchone()
-                        last_snapshot_block = (
-                            last_snapshot_result[0]
-                            if last_snapshot_result and last_snapshot_result[0]
-                            else 0
-                        )
-                        if (
-                            last_snapshot_block == 0
-                            or (block_height - last_snapshot_block) >= snapshot_interval
-                        ):
-                            create_snapshot(
-                                utxo_conn,
-                                block_height,
-                                current_time,
-                                utxoracle_price,
-                            )
-                            logging.info(
-                                f"📸 UTXO snapshot saved at block {block_height}"
-                            )
-
-                        logging.info(
-                            f"📊 UTXO Lifecycle (spec-017): "
-                            f"MVRV={mvrv:.3f}, NUPL={nupl:.3f}, "
-                            f"STH={sth_supply:.2f} BTC, LTH={lth_supply:.2f} BTC, "
-                            f"Top Cohort={top_cohort}"
-                        )
-                    else:
-                        logging.info(
-                            "📊 UTXO Lifecycle: No data yet - run sync_utxo_lifecycle.py"
-                        )
-
-                    utxo_conn.close()
-
-                except Exception as e:
-                    logging.warning(f"Spec-017 UTXO lifecycle failed: {e}")
-
-            # Step 5.6: Emit webhook alerts (spec-011)
-            if ALERTS_ENABLED:
-                try:
-                    alert_config = get_alert_config()
-
-                    # Signal alert (if action is BUY/SELL with sufficient confidence)
-                    if alert_config.signal_enabled and action in ("BUY", "SELL"):
-                        confidence = (
-                            enhanced_fusion_result.action_confidence
-                            if enhanced_fusion_result
-                            else 0.5
-                        )
-                        if confidence >= alert_config.signal_min_confidence:
-                            signal_event = create_signal_event(
-                                action=action,
-                                confidence=confidence,
-                                signal_mean=combined_signal,
-                                top_contributors=[
-                                    {
-                                        "name": "whale",
-                                        "value": whale_vote if whale_vote else 0,
-                                    },
-                                    {
-                                        "name": "utxo",
-                                        "value": utxo_vote if utxo_vote else 0,
-                                    },
-                                ],
-                            )
-                            if signal_event:
-                                emit_alert_sync(signal_event)
-                                logging.info(
-                                    f"📢 Signal alert emitted: {action} (conf: {confidence:.1%})"
-                                )
-
-                    # Price divergence alert
-                    if alert_config.price_enabled:
-                        divergence = abs(comparison["diff_percent"])
-                        if divergence >= alert_config.price_min_divergence:
-                            price_event = create_price_event(
-                                utxoracle_price=utx_result["price_usd"],
-                                exchange_price=mempool_price,
-                                divergence_pct=comparison["diff_percent"],
-                            )
-                            emit_alert_sync(price_event)
-                            logging.info(
-                                f"📢 Price divergence alert emitted: {divergence:.2f}%"
-                            )
-
-                    # Whale alert (if whale signal available)
-                    if (
-                        alert_config.whale_enabled
-                        and whale_signal
-                        and whale_signal.net_flow_btc
-                    ):
-                        net_flow = abs(whale_signal.net_flow_btc)
-                        if net_flow >= alert_config.whale_min_btc:
-                            whale_event = create_whale_event(
-                                amount_btc=net_flow,
-                                direction="INFLOW"
-                                if whale_signal.net_flow_btc > 0
-                                else "OUTFLOW",
-                                signal_vote=whale_vote if whale_vote else 0,
-                            )
-                            emit_alert_sync(whale_event)
-                            logging.info(
-                                f"📢 Whale alert emitted: {net_flow:.2f} BTC {whale_signal.direction}"
-                            )
-
-                except Exception as e:
-                    logging.warning(f"Spec-011 alert emission failed: {e}")
+            save_to_questdb(data)
         else:
             logging.info("[DRY-RUN] Would save data:")
             logging.info(json.dumps(data, indent=2))
