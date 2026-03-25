@@ -9,7 +9,7 @@ import asyncpg
 from api.models.data import WhaleTransaction, NetFlowMetrics, Alert
 from decimal import Decimal
 from typing import Optional, List, Dict, Any, Union
-from datetime import datetime
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +23,10 @@ QUESTDB_HTTP_PORT = int(os.getenv("QUESTDB_HTTP_PORT", 9000))
 QUESTDB_PG_USER = os.getenv("QUESTDB_PG_USER", "admin")
 QUESTDB_PG_PASSWORD = os.getenv("QUESTDB_PG_PASSWORD", "quest")
 QUESTDB_PG_DATABASE = os.getenv("QUESTDB_PG_DATABASE", "main")
+
+
+QUESTDB_POOL_MIN_SIZE = int(os.getenv("QUESTDB_POOL_MIN_SIZE", "5"))
+QUESTDB_POOL_MAX_SIZE = int(os.getenv("QUESTDB_POOL_MAX_SIZE", "20"))
 
 
 async def create_tables_if_not_exist():
@@ -394,10 +398,15 @@ class QuestDBRepository:
         """
         Initializes the QuestDB repository.
         """
+        import time
         self.ilp_host = QUESTDB_ILP_HOST
         self.ilp_port = QUESTDB_ILP_PORT
         # The Sender is thread-safe and intended to be long-lived.
         self.sender = Sender(self.ilp_host, self.ilp_port)
+        self._unflushed_rows = 0
+        self._last_flush_time = time.time()
+        self._flush_batch_size = 100
+        self._flush_interval_seconds = 5.0
 
     async def initialize(self):
         """
@@ -413,30 +422,63 @@ class QuestDBRepository:
                     user=QUESTDB_PG_USER,
                     password=QUESTDB_PG_PASSWORD,
                     database=QUESTDB_PG_DATABASE,
-                    min_size=5,
-                    max_size=20,
+                    min_size=QUESTDB_POOL_MIN_SIZE,
+                    max_size=QUESTDB_POOL_MAX_SIZE,
                 )
-                logger.info("QuestDB PG connection pool initialized.")
+                logger.info(f"QuestDB PG pool initialized (min={QUESTDB_POOL_MIN_SIZE}, max={QUESTDB_POOL_MAX_SIZE})")
             except Exception as e:
                 logger.critical(f"Failed to create QuestDB PG connection pool: {e}")
                 raise
 
     async def close(self):
-        """Closes the connection pool."""
+        """Closes the connection pool and flushes pending data."""
+        # Flush ILP sender before closing
+        try:
+            self.flush_ingestion()
+        except Exception as e:
+            logger.error(f"Error flushing ILP sender on shutdown: {e}")
+
         if QuestDBRepository._pool:
-            await QuestDBRepository._pool.close()
-            QuestDBRepository._pool = None
+            try:
+                await QuestDBRepository._pool.close()
+            except Exception as e:
+                logger.error(f"Error closing QuestDB connection pool: {e}")
+            finally:
+                QuestDBRepository._pool = None
 
     # --- Write Path (ILP Ingestion) ---
 
-    def _send_row(self, table: str, symbols: Dict[str, Any], columns: Dict[str, Any], at: Optional[Union[datetime, int]] = None):
-        """Helper to send a row via ILP."""
+    def _send_row(self, table: str, symbols: Dict[str, Any], columns: Dict[str, Any], at: Optional[Union[datetime, int]] = None, flush: bool = False):
+        """
+        Helper to send a row via ILP.
+        Performance optimization: flush is False by default to allow buffering, but an automatic flush is triggered if batch size or time interval is exceeded.
+        """
+        import time
         try:
             self.sender.row(table, symbols=symbols, columns=columns, at=at)
-            self.sender.flush()
+            self._unflushed_rows += 1
+            now = time.time()
+            
+            if flush or self._unflushed_rows >= self._flush_batch_size or (now - self._last_flush_time) >= self._flush_interval_seconds:
+                self.sender.flush()
+                self._unflushed_rows = 0
+                self._last_flush_time = now
             return True
         except Exception as e:
             logger.error(f"ILP Ingestion error on table {table}: {e}")
+            return False
+
+    def flush_ingestion(self):
+        """Explicitly flush buffered ILP data."""
+        import time
+        try:
+            if self._unflushed_rows > 0:
+                self.sender.flush()
+                self._unflushed_rows = 0
+                self._last_flush_time = time.time()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to flush QuestDB sender: {e}")
             return False
 
     def save_whale_transaction(self, transaction: WhaleTransaction) -> bool:
@@ -558,9 +600,10 @@ class QuestDBRepository:
 
     async def get_historical_price_analysis(self, days: int = 7) -> List[asyncpg.Record]:
         """Get historical price analysis entries."""
+        cutoff = datetime.utcnow() - timedelta(days=days)
         return await self.fetch(
-            "SELECT * FROM price_analysis WHERE ts > now() - interval '$1 days' ORDER BY ts ASC",
-            days
+            "SELECT * FROM price_analysis WHERE ts > $1 ORDER BY ts ASC",
+            cutoff
         )
 
     async def update_utxo_spent(self, outpoint: str, spend_data: Dict[str, Any]) -> bool:
@@ -622,10 +665,11 @@ class QuestDBRepository:
         Performance tuning: Use QuestDB's time-series functions.
         """
         # simplified version for migration
+        cutoff = datetime.utcnow() - timedelta(hours=window_hours)
         query = """
         SELECT sum(btc_value) as inflow
         FROM utxo_lifecycle u
-        WHERE u.ts > now() - interval '$1 hours'
+        WHERE u.ts > $1
         """
         # This would be expanded with actual exchange address filtering
         return None

@@ -62,6 +62,7 @@ async def get_whale_transactions(
     repo: QuestDBRepository = request.app.state.questdb_repo
     try:
         # Build query with filters (QuestDB compatible)
+        cutoff_time = datetime.utcnow() - timedelta(hours=hours)
         query = """
             SELECT
                 prediction_id,
@@ -75,23 +76,30 @@ async def get_whale_transactions(
                 predicted_confirmation_block,
                 confidence_score
             FROM mempool_predictions
-            WHERE ts >= now() - interval '$1 hours'
+            WHERE ts >= $1
         """
-        params = [hours]
+        params = [cutoff_time]
+        arg_idx = 2
 
         if flow_type:
-            query += f" AND flow_type = '{flow_type}'" # simplified for QuestDB
+            query += f" AND flow_type = ${arg_idx}"
+            params.append(flow_type)
+            arg_idx += 1
 
         if min_btc:
-            query += f" AND btc_value >= {min_btc}"
+            query += f" AND btc_value >= ${arg_idx}"
+            params.append(min_btc)
+            arg_idx += 1
 
         if min_urgency is not None:
-            query += f" AND urgency_score >= {min_urgency}"
+            query += f" AND urgency_score >= ${arg_idx}"
+            params.append(min_urgency)
+            arg_idx += 1
 
         if rbf_only:
             query += " AND rbf_enabled = TRUE"
 
-        query += " ORDER BY ts DESC LIMIT $2"
+        query += f" ORDER BY ts DESC LIMIT ${arg_idx}"
         params.append(limit)
 
         result = await repo.fetch(query, *params)
@@ -127,6 +135,7 @@ async def get_whale_summary(
     """
     repo: QuestDBRepository = request.app.state.questdb_repo
     try:
+        cutoff_time = datetime.utcnow() - timedelta(hours=hours)
         query = """
             SELECT
                 COUNT(*) as total_transactions,
@@ -135,10 +144,10 @@ async def get_whale_summary(
                 SUM(CASE WHEN urgency_score >= 0.7 THEN 1 ELSE 0 END) as high_urgency_count,
                 SUM(CASE WHEN rbf_enabled = TRUE THEN 1 ELSE 0 END) as rbf_enabled_count
             FROM mempool_predictions
-            WHERE ts >= now() - interval '$1 hours'
+            WHERE ts >= $1
         """
 
-        result = await repo.fetchrow(query, hours)
+        result = await repo.fetchrow(query, cutoff_time)
 
         return WhaleSummaryResponse(
             total_transactions=result["total_transactions"] or 0,

@@ -455,9 +455,10 @@ async def get_comparison_stats(
                 count(*) as total_entries,
                 count(CASE WHEN is_valid = true THEN 1 END) as valid_entries
             FROM price_analysis
-            WHERE ts > now() - interval '$1 days'
+            WHERE ts > $1
         """
-        row = await repo.fetchrow(query, days)
+        cutoff_time = datetime.utcnow() - timedelta(days=days)
+        row = await repo.fetchrow(query, cutoff_time)
         if not row:
             return ComparisonStats(total_entries=0, valid_entries=0, timeframe_days=days)
 
