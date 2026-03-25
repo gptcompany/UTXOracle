@@ -14,7 +14,7 @@ class WhaleTransaction(BaseModel):
     Whale transaction data model.
     Task T031: Whale transaction data model.
 
-    Maps to: whale_transactions table in DuckDB
+    Maps to: whale_transactions table in QuestDB
     """
 
     transaction_id: str = Field(..., description="Unique transaction hash")
@@ -87,7 +87,7 @@ class NetFlowMetrics(BaseModel):
     Net flow aggregation metrics model.
     Task T032: Net flow aggregation model.
 
-    Maps to: net_flow_metrics table in DuckDB
+    Maps to: net_flow_metrics table in QuestDB
     """
 
     period_start: datetime = Field(..., description="Aggregation period start")
@@ -166,7 +166,7 @@ class Alert(BaseModel):
     Alert notification model.
     Task T033: Alert notification model.
 
-    Maps to: alerts table in DuckDB
+    Maps to: alerts table in QuestDB
     """
 
     alert_id: str = Field(..., description="Unique alert identifier")
@@ -240,7 +240,7 @@ class UrgencyScore(BaseModel):
     """
     Urgency score calculation record.
 
-    Maps to: urgency_scores table in DuckDB
+    Maps to: urgency_scores table in QuestDB
     """
 
     transaction_id: str = Field(..., description="Transaction hash")

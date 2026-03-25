@@ -2649,7 +2649,7 @@ async def health_check():
     Comprehensive health check with service connectivity.
 
     Checks:
-    - Database (DuckDB) connectivity and gap detection
+    - Database (QuestDB) connectivity and gap detection
     - electrs HTTP API availability
     - mempool.space backend API availability
 

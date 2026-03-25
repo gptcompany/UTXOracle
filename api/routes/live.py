@@ -12,13 +12,8 @@ router = APIRouter(prefix="/live", tags=["live"])
 
 
 def get_live_snapshot_store() -> LiveSnapshotStore:
-    db_path = os.getenv(
-        "LIVE_DB_PATH",
-        "/media/sam/1TB/UTXOracle/data/utxoracle_live.sqlite3",
-    )
     retention_hours = int(os.getenv("LIVE_RETENTION_HOURS", "24"))
     return LiveSnapshotStore(
-        db_path,
         retention_hours=retention_hours,
     )
 

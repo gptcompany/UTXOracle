@@ -434,7 +434,7 @@ class QuestDBRepository:
         """Closes the connection pool and flushes pending data."""
         # Flush ILP sender before closing
         try:
-            self.flush_ingestion()
+            await self.async_flush_ingestion()
         except Exception as e:
             logger.error(f"Error flushing ILP sender on shutdown: {e}")
 
@@ -480,6 +480,21 @@ class QuestDBRepository:
         except Exception as e:
             logger.error(f"Failed to flush QuestDB sender: {e}")
             return False
+
+    async def async_send_row(self, table: str, symbols: Dict[str, Any], columns: Dict[str, Any], at: Optional[Union[datetime, int]] = None, flush: bool = False):
+        """Async wrapper for _send_row using run_in_executor to prevent event loop blocking."""
+        import asyncio
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None, 
+            lambda: self._send_row(table, symbols, columns, at, flush)
+        )
+
+    async def async_flush_ingestion(self):
+        """Async wrapper for flush_ingestion."""
+        import asyncio
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.flush_ingestion)
 
     def save_whale_transaction(self, transaction: WhaleTransaction) -> bool:
         """Save whale transaction via ILP."""

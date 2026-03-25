@@ -174,7 +174,7 @@ def setup_logging(name: str, log_file: Optional[Path] = None) -> logging.Logger:
 # Create default logger for this module
 logger = setup_logging(__name__)
 logger.info("Whale Dashboard configuration loaded")
-logger.info(f"Database path: {DUCKDB_PATH}")
+logger.info(f"QuestDB PG URL: postgresql://{QUESTDB_PG_USER}:***@{QUESTDB_PG_HOST}:{QUESTDB_PG_PORT}/{QUESTDB_PG_DATABASE}")
 logger.info(f"Mempool API: {MEMPOOL_API_URL}")
 logger.info(f"WebSocket port: {WHALE_WS_PORT}")
 logger.info(f"Whale threshold: {WHALE_MIN_BTC} BTC")

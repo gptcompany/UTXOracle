@@ -36,8 +36,8 @@ class LiveSnapshotStore:
 
         payload = snapshot.model_dump(mode="json")
         
-        # Use ILP for lock-free ingestion
-        success = self.repo._send_row(
+        # Use ILP for lock-free ingestion (asynchronously to avoid blocking the event loop)
+        success = await self.repo.async_send_row(
             "live_snapshots",
             symbols={
                 "schema_version": snapshot.schema_version,
