@@ -8,7 +8,7 @@
 
 ### Prerequisites
 - [ ] UTXOracle API server running (`uvicorn api.main:app --host 0.0.0.0 --port 8001`)
-- [ ] DuckDB database exists with whale flow data
+- [ ] QuestDB database exists with whale flow data
 - [ ] Modern browser installed (Chrome 90+, Firefox 88+, or Safari 14+)
 
 ### Access Dashboard

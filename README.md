@@ -2,19 +2,22 @@
 
 UTXOracle is a Bitcoin-native, exchange-free price oracle that calculates the market price of Bitcoin directly from the blockchain.
 
-Unlike traditional oracles that rely on exchange APIs, UTXOracle estimates a BTC/USD price directly from confirmed on-chain activity. The repository now also contains a large DuckDB-backed analytics surface and is being repositioned as a live production service that integrates `BRK`, `mempool-api`, `electrs`, and `Hyperliquid`.
+Unlike traditional oracles that rely on exchange APIs, UTXOracle estimates a BTC/USD price directly from confirmed on-chain activity. The repository now also contains a large QuestDB-backed analytics surface and is being repositioned as a live production service that integrates `BRK`, `mempool-api`, `electrs`, and `Hyperliquid`.
 
 ## Current 2026 Status
 
 The current live-first direction is:
 - `UTXOracle` remains the canonical oracle and the future consumer-facing live API
+- `QuestDB` is the primary time-series database for all on-chain analytics
 - `BRK` is the main upstream feature provider for broad on-chain metrics and query ergonomics
 - `mempool-api` remains the live mempool and exchange-price context source
 - `electrs` remains low-level confirmed-chain infrastructure
 - `Hyperliquid` remains the external oracle and derivatives comparison source, surfaced locally through `hyperliquid-node` and its filtered oracle-update dataset
 
-Current host runtime verified on 2026-03-20:
+Current host runtime verified on 2026-03-25:
 - `UTXOracle API`: `127.0.0.1:8001`
+- `UTXOracle Live API`: `127.0.0.1:8011`
+- `QuestDB Web Console`: `127.0.0.1:9000`
 - `BRK`: `127.0.0.1:7070`
 - `electrs`: `127.0.0.1:3002`
 - `mempool-api`: `127.0.0.1:8999`
@@ -36,7 +39,7 @@ The result is a reproducible on-chain oracle that remains the conceptual center 
 
 This repository now serves three distinct purposes:
 - canonical oracle engine via `UTXOracle.py` and `UTXOracle_library.py`
-- DuckDB-backed analytics and research workspace with many custom metrics
+- QuestDB-backed analytics and research workspace with many custom metrics
 - foundation for a live production service with a normalized downstream API
 
 ## Core Components

@@ -1355,91 +1355,63 @@ conn.execute("""
 
 ---
 
-## Database Architecture (spec-037 - RESOLVED 2025-12-27)
+## Database Architecture (spec-037 - REVISED 2026-03-25)
 
-> **Status**: ✅ RESOLVED - Consolidated database architecture implemented
+> **Status**: ✅ RESOLVED - Consolidated QuestDB architecture implemented
 
-### Solution: Single Consolidated Database
+### Solution: Single Consolidated Time-Series Database
 
-All data now resides in a single DuckDB database: `data/utxoracle.duckdb`
+All analytical data now resides in a single QuestDB instance: `questdb-global` (Docker)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                     CONSOLIDATED DATABASE ARCHITECTURE                       │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  data/utxoracle.duckdb (57+ GB)                                             │
-│  ├── utxo_lifecycle       (164M rows) ← Raw UTXO data                       │
-│  ├── utxo_lifecycle_full  (164M rows) ← UTXO with realized values           │
-│  ├── block_heights        (928K rows) ← Block timestamp mapping             │
-│  ├── daily_prices         (5.4K rows) ← Historical BTC prices               │
-│  ├── price_analysis       (744 rows)  ← UTXOracle price outputs             │
-│  ├── alert_events         (332 rows)  ← Webhook alert history               │
-│  ├── intraday_prices      (21M rows)  ← High-frequency price data           │
+│  QuestDB (Time-Series Optimized)                                             │
+│  ├── utxo_lifecycle       (164M rows) ← Raw UTXO data (PostgreSQL Protocol)  │
+│  ├── mempool_predictions  (Real-time)  ← Whale movements (ILP Ingestion)     │
+│  ├── metrics              (Daily/Live) ← MC Fusion, Volumes (ILP Ingestion)  │
+│  ├── price_analysis       (Historical) ← UTXOracle price outputs (ILP)       │
+│  ├── daily_prices         (Historical) ← External price context              │
+│  ├── block_heights        (Canonical)  ← Blockchain temporal mapping         │
 │  │                                                                           │
-│  │  === Daily Metric Tables (spec-037) ===                                  │
-│  ├── sopr_daily           (30+ rows)  ← SOPR time series                    │
-│  ├── nupl_daily           (30+ rows)  ← NUPL + market/realized cap          │
-│  ├── mvrv_daily           (30+ rows)  ← MVRV + MVRV-Z ratios                │
-│  ├── realized_cap_daily   (30+ rows)  ← Daily realized cap                  │
-│  └── cointime_daily       (30+ rows)  ← Liveliness, vaultedness             │
+│  │  === High Performance Ingestion Layer ===                                 │
+│  ├── ILP (InfluxDB Line Protocol)      ← Lock-free, async buffering          │
+│  └── PostgreSQL Wire Protocol          ← ACID-safe relational queries        │
 │                                                                              │
-│  /media/sam/2TB-NVMe/prod/apps/utxoracle/data/                              │
-│  └── utxoracle.duckdb → SYMLINK to data/utxoracle.duckdb                    │
+│  /media/sam/1TB/questdb-data/                                                │
+│  └── Persistent storage for all time-series data                             │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Centralized Configuration
 
-All scripts use the `scripts.config` module:
+All scripts and the API use the `api.config` and `QuestDBRepository` modules:
 
 ```python
-from scripts.config import UTXORACLE_DB_PATH, get_connection
+from api.questdb_repository import QuestDBRepository
 
-# Environment variable override:
-export UTXORACLE_DB_PATH="/custom/path/utxoracle.duckdb"
-
-# Default: data/utxoracle.duckdb
+# Repository handles both asyncpg (Postgres) and Sender (ILP)
+repo = QuestDBRepository()
+await repo.initialize()
 ```
 
-### Metric Pipeline
+### Ingestion Pipeline
 
-Daily metrics are calculated from `utxo_lifecycle_full` and persisted to daily tables:
+Data flows through two optimized paths:
+1. **Write Path (ILP)**: Used for high-frequency data (mempool, metrics). Zero-locking ingestion.
+2. **Read Path (PostgreSQL)**: Used by FastAPI for complex queries and historical analytics via `asyncpg`.
 
-```bash
-# Calculate metrics for a specific date
-python -m scripts.metrics.calculate_daily_metrics --date 2025-12-14
+### Key Changes (spec-037 revised)
 
-# Backfill last 30 days
-python -m scripts.metrics.calculate_daily_metrics --backfill 30 --end-date 2025-12-14
-
-# Dry run (calculate but don't persist)
-python -m scripts.metrics.calculate_daily_metrics --date 2025-12-14 --dry-run
-```
-
-### Validation Pipeline
-
-MetricLoader now loads from daily tables and compares against RBN reference data:
-
-```bash
-# Run validation
-python -m scripts.integrations.validation_batch --days 30
-
-# Generate HTML report
-python -m scripts.integrations.validation_batch --html --days 30
-```
-
-### Key Changes (spec-037)
-
-1. ✅ Renamed `utxo_lifecycle.duckdb` → `utxoracle.duckdb`
-2. ✅ Created `scripts.config` module with `UTXORACLE_DB_PATH`
-3. ✅ Updated 20+ scripts to use centralized config
-4. ✅ Migrated cache tables from NVMe to consolidated DB
-5. ✅ Created 5 daily metric tables (sopr, nupl, mvrv, realized_cap, cointime)
-6. ✅ Implemented `calculate_daily_metrics.py` batch pipeline
-7. ✅ Updated MetricLoader to use new table names
-8. ✅ Validation now shows real correlation values (not 1.0)
+1. ✅ Migrated from DuckDB (embedded) to QuestDB (dedicated service)
+2. ✅ Implemented `QuestDBRepository` with connection pooling
+3. ✅ Unified all metrics under a single partitioned QuestDB schema
+4. ✅ Integrated ILP for lock-free real-time whale monitoring
+5. ✅ Optimized API response times via QuestDB's time-series extensions (LATEST BY)
+6. ✅ Automated table creation and schema validation on startup
 
 ---
 

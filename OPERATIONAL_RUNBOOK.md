@@ -11,13 +11,17 @@
 1. mempool.space Docker stack (infrastructure)
 2. FastAPI backend (`utxoracle-api.service`)
 3. Daily analysis cron job (`scripts/daily_analysis.py`)
-4. DuckDB database (price history)
+4. QuestDB database (time-series price history and analytics)
 5. Frontend dashboard (Plotly.js)
 
 **Ports**:
-- 8000: FastAPI API
-- 8080: mempool.space frontend (when deployed)
-- 8999: mempool.space backend (when deployed)
+- 8001: FastAPI API (baseline)
+- 8011: FastAPI Live API (docker)
+- 9000: QuestDB Web Console
+- 9009: QuestDB ILP Ingestion
+- 8812: QuestDB PostgreSQL Wire Protocol (asyncpg)
+- 8080: mempool.space frontend
+- 8999: mempool.space backend
 
 ---
 
@@ -38,21 +42,20 @@ Expected output: All components showing ✅
 journalctl -u utxoracle-api -f
 
 # Daily analysis (cron)
-tail -f /media/sam/2TB-NVMe/prod/apps/utxoracle/logs/daily_analysis.log
+tail -f /media/sam/1TB/UTXOracle/logs/daily_analysis.log
 
-# Docker stack (if running)
-cd /media/sam/2TB-NVMe/prod/apps/mempool-stack
-docker-compose logs -f
+# QuestDB (docker)
+docker logs -f questdb-global
 ```
 
 ### Manual Data Update
 
 ```bash
-# Run analysis manually
+# Run analysis manually (now saves to QuestDB via ILP)
 python3 scripts/daily_analysis.py --verbose
 
-# Dry run (no database write)
-python3 scripts/daily_analysis.py --dry-run
+# Run whale monitor manually
+python3 scripts/mempool_whale_monitor.py
 ```
 
 ---
@@ -62,14 +65,16 @@ python3 scripts/daily_analysis.py --dry-run
 ### Start All Services
 
 ```bash
-# 1. Docker stack (if Bitcoin Core synced)
-cd /media/sam/2TB-NVMe/prod/apps/mempool-stack
-docker-compose up -d
+# 1. QuestDB (if not running)
+docker start questdb-global
 
-# 2. API server
+# 2. Docker stack (Infrastructure)
+docker-compose -f docker-compose.live.yml up -d
+
+# 3. Baseline API server
 sudo systemctl start utxoracle-api
 
-# 3. Verify
+# 4. Verify
 ./scripts/health_check.sh
 ```
 
@@ -80,8 +85,10 @@ sudo systemctl start utxoracle-api
 sudo systemctl stop utxoracle-api
 
 # 2. Docker stack
-cd /media/sam/2TB-NVMe/prod/apps/mempool-stack
-docker-compose down
+docker-compose -f docker-compose.live.yml down
+
+# 3. QuestDB
+docker stop questdb-global
 ```
 
 ### Restart API Server
@@ -97,7 +104,7 @@ sudo systemctl status utxoracle-api
 
 ### Issue: API not responding
 
-**Symptoms**: `curl http://localhost:8000/health` fails
+**Symptoms**: `curl http://localhost:8001/health` fails
 
 **Solution**:
 ```bash
@@ -111,35 +118,32 @@ journalctl -u utxoracle-api -n 50
 sudo systemctl restart utxoracle-api
 ```
 
-### Issue: No new data in database
+### Issue: QuestDB Ingestion Lag
 
-**Symptoms**: DuckDB shows no recent entries
+**Symptoms**: New data doesn't appear in dashboard for >10 seconds
 
 **Solution**:
 ```bash
-# Check cron logs
-grep "daily_analysis" /var/log/syslog
+# 1. Check if ILP Sender is flushing (look for errors in worker logs)
+# 2. Verify QuestDB logs for ingestion errors
+docker logs questdb-global | grep -i error
 
-# Run manually to see errors
-python3 scripts/daily_analysis.py --verbose
-
-# Check if cron job installed
-ls -la /etc/cron.d/utxoracle-analysis
+# 3. Check QuestDB table row counts
+# Visit http://localhost:9000 and run:
+# SELECT count(*) FROM mempool_predictions;
 ```
 
-### Issue: Frontend shows "No data"
+### Issue: Database Connection Errors
 
-**Symptoms**: Dashboard loads but chart is empty
+**Symptoms**: Logs show `asyncpg.ConnectionError`
 
 **Solution**:
 ```bash
-# 1. Check database has data
-duckdb /media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxoracle_cache.db "SELECT COUNT(*) FROM prices"
+# Check if QuestDB is listening on port 8812
+sudo netstat -tulpn | grep 8812
 
-# 2. Test API endpoint
-curl http://localhost:8000/api/prices/historical?days=7 | jq
-
-# 3. Check browser console for errors (F12)
+# Restart QuestDB container
+docker restart questdb-global
 ```
 
 ### Issue: Docker containers not starting
@@ -161,34 +165,26 @@ docker-compose logs
 
 ## Backup & Recovery
 
-### Manual Backup
+### QuestDB Backup
+
+QuestDB supports hot backups. For the MVP, we use the simple file-system snapshot or export.
 
 ```bash
-./scripts/backup_duckdb.sh
+# Snapshot the data directory (ensure container is paused or use QuestDB backup API)
+docker exec questdb-global questdb-backup.sh
 ```
 
-### Restore from Backup
+### Restore from Snapshot
 
 ```bash
-# List backups
-ls -lh /media/sam/2TB-NVMe/prod/apps/utxoracle/data/backups/
+# Stop QuestDB
+docker stop questdb-global
 
-# Restore (replace with your backup date)
-cp /media/sam/2TB-NVMe/prod/apps/utxoracle/data/backups/utxoracle_cache_2025-10-27.db \
-   /media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxoracle_cache.db
+# Restore data directory
+cp -r /media/sam/1TB/questdb-data-backup/* /media/sam/1TB/questdb-data/
 
-# Restart API
-sudo systemctl restart utxoracle-api
-```
-
-### Setup Automated Backups
-
-```bash
-# Add to crontab
-sudo crontab -e
-
-# Add this line (daily at 3 AM):
-0 3 * * * /media/sam/1TB/UTXOracle/scripts/backup_duckdb.sh >> /var/log/utxoracle-backup.log 2>&1
+# Start QuestDB
+docker start questdb-global
 ```
 
 ---
@@ -199,10 +195,10 @@ sudo crontab -e
 
 | Metric | Command | Healthy Range |
 |--------|---------|---------------|
-| API response time | `curl -w "%{time_total}\n" http://localhost:8000/health` | <0.1s |
-| Database size | `du -h /media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxoracle_cache.db` | <100MB |
-| Disk usage | `df -h /media/sam/2TB-NVMe/` | <80% full |
-| Memory usage | `free -h` | >2GB available |
+| API response time | `curl -w "%{time_total}\n" http://localhost:8001/health` | <0.1s |
+| QuestDB memory | `docker stats questdb-global --no-stream` | <4GB |
+| QuestDB storage | `du -sh /media/sam/1TB/questdb-data/` | <100GB |
+| ILP row rate | Check QuestDB metrics endpoint | >0 rows/sec |
 
 ### Alerts to Configure
 
@@ -220,13 +216,12 @@ sudo crontab -e
 - [ ] Bitcoin Core installed and synced
 - [ ] Docker and docker-compose installed
 - [ ] Python 3.10+ and UV installed
+- [ ] QuestDB container deployed (`docker run ... questdb/questdb`)
 - [ ] Repository cloned
-- [ ] Dependencies installed (`uv pip install -e ".[dev]"`)
+- [ ] Dependencies installed (`uv add questdb asyncpg`)
 - [ ] `.env` file configured
-- [ ] DuckDB initialized (`python3 scripts/daily_analysis.py --init-db`)
-- [ ] mempool-stack deployed (if Bitcoin Core ready)
+- [ ] QuestDB tables initialized (automatic on repository startup)
 - [ ] Systemd service installed
-- [ ] Cron job installed
 - [ ] Health check passes
 
 ### Post-Deployment Verification
@@ -236,15 +231,14 @@ sudo crontab -e
 ./scripts/health_check.sh
 
 # 2. API endpoints
-curl http://localhost:8000/health | jq
-curl http://localhost:8000/api/prices/latest | jq
+curl http://localhost:8001/health | jq
+curl http://localhost:8001/api/prices/latest | jq
 
 # 3. Frontend
-xdg-open http://localhost:8000/static/comparison.html
+xdg-open http://localhost:8001/static/comparison.html
 
-# 4. Wait 10 minutes, verify new data
-duckdb /media/sam/2TB-NVMe/prod/apps/utxoracle/data/utxoracle_cache.db \
-  "SELECT * FROM prices ORDER BY timestamp DESC LIMIT 1"
+# 4. Wait 10 minutes, verify new data in QuestDB
+# Check via Web Console at http://localhost:9000
 ```
 
 ---
