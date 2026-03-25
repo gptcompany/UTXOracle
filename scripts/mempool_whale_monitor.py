@@ -40,7 +40,7 @@ from scripts.utils.db_retry import with_db_retry
 from scripts.utils.rbf_detector import is_rbf_enabled
 from scripts.whale_urgency_scorer import WhaleUrgencyScorer
 
-import duckdb
+from api.questdb_repository import QuestDBRepository
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -68,14 +68,16 @@ class MempoolWhaleMonitor:
         Args:
             mempool_ws_url: WebSocket URL for mempool.space transaction stream
             whale_threshold_btc: Minimum BTC value to classify as whale (default: 100.0)
-            db_path: Path to DuckDB database (default: from config)
+            db_path: Path to database (obsolete, using QuestDB now)
         """
         self.mempool_ws_url = mempool_ws_url
         self.whale_threshold_btc = whale_threshold_btc
 
         # Load configuration
         config = get_config()
-        self.db_path = db_path or config.database.db_path
+        
+        # Initialize QuestDB repository
+        self.repo = QuestDBRepository()
 
         # Transaction cache (prevents duplicate processing)
         self.tx_cache = TransactionCache(maxlen=10000)
@@ -110,11 +112,14 @@ class MempoolWhaleMonitor:
 
         logger.info("Mempool whale monitor initialized")
         logger.info(f"Whale threshold: {whale_threshold_btc} BTC")
-        logger.info(f"Database: {self.db_path}")
+        logger.info("Using QuestDB for persistence")
 
     async def _on_connect(self, websocket):
         """Handle WebSocket connection established"""
         logger.info("🔗 Connected to mempool.space transaction stream")
+
+        # Initialize repository on first connect if needed
+        await self.repo.initialize()
 
         # Listen for incoming messages
         async for message in websocket:
@@ -317,56 +322,42 @@ class MempoolWhaleMonitor:
     @with_db_retry(max_attempts=3)
     async def _persist_to_db(self, signal: MempoolWhaleSignal):
         """
-        Persist whale signal to DuckDB
+        Persist whale signal to QuestDB via ILP
 
         Args:
             signal: MempoolWhaleSignal to persist
         """
         try:
-            conn = duckdb.connect(self.db_path)
-
-            # Insert into mempool_predictions table
-            insert_query = """
-                INSERT INTO mempool_predictions (
-                    prediction_id,
-                    transaction_id,
-                    flow_type,
-                    btc_value,
-                    fee_rate,
-                    urgency_score,
-                    rbf_enabled,
-                    detection_timestamp,
-                    predicted_confirmation_block,
-                    exchange_addresses,
-                    confidence_score
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """
-
-            conn.execute(
-                insert_query,
-                [
-                    signal.prediction_id,
-                    signal.transaction_id,
-                    signal.flow_type
-                    if isinstance(signal.flow_type, str)
-                    else signal.flow_type.value,
-                    signal.btc_value,
-                    signal.fee_rate,
-                    signal.urgency_score,
-                    signal.rbf_enabled,
-                    signal.detection_timestamp,
-                    signal.predicted_confirmation_block,
-                    json.dumps(signal.exchange_addresses),
-                    signal.confidence_score,
-                ],
+            # Use QuestDBRepository with async worker for non-blocking ILP ingestion
+            success = await self.repo.async_send_row(
+                "mempool_predictions",
+                symbols={
+                    "prediction_id": signal.prediction_id,
+                    "transaction_id": signal.transaction_id,
+                    "flow_type": signal.flow_type.value if hasattr(signal.flow_type, "value") else str(signal.flow_type),
+                },
+                columns={
+                    "btc_value": float(signal.btc_value),
+                    "fee_rate": float(signal.fee_rate),
+                    "urgency_score": float(signal.urgency_score),
+                    "rbf_enabled": bool(signal.rbf_enabled),
+                    "ts": signal.detection_timestamp,
+                    "predicted_confirmation_block": signal.predicted_confirmation_block,
+                    "exchange_addresses": ",".join(signal.exchange_addresses) if signal.exchange_addresses else "",
+                    "confidence_score": float(signal.confidence_score) if signal.confidence_score is not None else None,
+                    "was_modified": bool(signal.was_modified),
+                    "created_at": signal.created_at,
+                },
+                at=signal.detection_timestamp
             )
 
-            conn.close()
-
-            self.stats["db_writes"] += 1
-            logger.debug(
-                f"Persisted prediction {signal.prediction_id[:8]}... to database"
-            )
+            if success:
+                self.stats["db_writes"] += 1
+                logger.debug(
+                    f"Persisted prediction {signal.prediction_id[:8]}... to QuestDB"
+                )
+            else:
+                logger.error(f"Failed to persist prediction {signal.prediction_id[:8]}... to QuestDB")
 
         except Exception as e:
             logger.error(f"Failed to persist to database: {e}", exc_info=True)

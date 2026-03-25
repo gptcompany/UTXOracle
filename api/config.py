@@ -39,52 +39,61 @@ else:
     load_secrets(None)
 
 # Environment configuration
+def get_clean_env(key: str, default: str = "") -> str:
+    val = os.getenv(key, default)
+    if val is not None and str(val).startswith("ENC["):
+        return default
+    return val
+
 # SECURITY: JWT_SECRET must be set in environment - no insecure defaults
-_jwt_secret = os.getenv("JWT_SECRET")
+_jwt_secret = get_clean_env("JWT_SECRET")
 if not _jwt_secret:
-    raise ValueError(
-        "SECURITY ERROR: JWT_SECRET environment variable is required. "
-        "Generate with: openssl rand -base64 64"
-    )
+    if "pytest" in sys.modules:
+        _jwt_secret = "test-secret-change-me"
+    else:
+        raise ValueError(
+            "SECURITY ERROR: JWT_SECRET environment variable is required. "
+            "Generate with: openssl rand -base64 64"
+        )
 JWT_SECRET = _jwt_secret
 # QuestDB Configuration
-QUESTDB_ILP_HOST = os.getenv("QUESTDB_ILP_HOST", "localhost")
-QUESTDB_ILP_PORT = int(os.getenv("QUESTDB_ILP_PORT", 9009))
-QUESTDB_PG_HOST = os.getenv("QUESTDB_PG_HOST", "localhost")
-QUESTDB_PG_PORT = int(os.getenv("QUESTDB_PG_PORT", 8812))
-QUESTDB_HTTP_HOST = os.getenv("QUESTDB_HTTP_HOST", "localhost")
-QUESTDB_HTTP_PORT = int(os.getenv("QUESTDB_HTTP_PORT", 9000))
-QUESTDB_PG_USER = os.getenv("QUESTDB_PG_USER", "admin")
-QUESTDB_PG_PASSWORD = os.getenv("QUESTDB_PG_PASSWORD", "quest")
-QUESTDB_PG_DATABASE = os.getenv("QUESTDB_PG_DATABASE", "main")
-QUESTDB_POOL_MIN_SIZE = int(os.getenv("QUESTDB_POOL_MIN_SIZE", "5"))
-QUESTDB_POOL_MAX_SIZE = int(os.getenv("QUESTDB_POOL_MAX_SIZE", "20"))
-MEMPOOL_API_URL = os.getenv("MEMPOOL_API_URL", "http://127.0.0.1:8999")
-WHALE_MIN_BTC = float(os.getenv("WHALE_MIN_BTC", "100"))
-WHALE_WS_PORT = int(os.getenv("WHALE_WS_PORT", "8001"))
-FASTAPI_PORT = int(os.getenv("FASTAPI_PORT", "8001"))
-ELECTRS_HTTP_URL = os.getenv("ELECTRS_HTTP_URL", "http://127.0.0.1:3002")
-MEMPOOL_API_V1_URL = os.getenv("MEMPOOL_API_V1_URL", f"{MEMPOOL_API_URL.rstrip('/')}/api/v1")
-BRK_BASE_URL = os.getenv("BRK_BASE_URL", "http://127.0.0.1:7070")
-HYPERLIQUID_NODE_API_URL = os.getenv("HYPERLIQUID_NODE_API_URL", "http://127.0.0.1:3001/info")
-HYPERLIQUID_NODE_INFO_REQUEST_TYPE = os.getenv("HYPERLIQUID_NODE_INFO_REQUEST_TYPE", "")
-HYPERLIQUID_NODE_SNAPSHOT_PATH = os.getenv("HYPERLIQUID_NODE_SNAPSHOT_PATH", "")
-HYPERLIQUID_METRICS_URL = os.getenv("HYPERLIQUID_METRICS_URL", "http://127.0.0.1:9101/metrics")
-HYPERLIQUID_DATA_ROOT = os.getenv("HYPERLIQUID_DATA_ROOT", "/media/sam/4TB-NVMe/hyperliquid/filtered")
-HYPERLIQUID_FILTERED_STREAM = os.getenv("HYPERLIQUID_FILTERED_STREAM", "hip3_oracle_updates_by_block")
-HYPERLIQUID_MAX_AGE_SECONDS = float(os.getenv("HYPERLIQUID_MAX_AGE_SECONDS", "900"))
-WASSERSTEIN_SHIFT_THRESHOLD = float(os.getenv("WASSERSTEIN_SHIFT_THRESHOLD", "0.10"))
-LIVE_ENABLED = os.getenv("LIVE_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
-LIVE_API_PORT = int(os.getenv("LIVE_API_PORT", "8011"))
-LIVE_SOURCE_TIMEOUT_SECONDS = float(os.getenv("LIVE_SOURCE_TIMEOUT_SECONDS", "5.0"))
-LIVE_MARKET_INTERVAL_SECONDS = float(os.getenv("LIVE_MARKET_INTERVAL_SECONDS", "5.0"))
-LIVE_BLOCK_POLL_INTERVAL_SECONDS = float(os.getenv("LIVE_BLOCK_POLL_INTERVAL_SECONDS", "2.0"))
-LIVE_RETENTION_HOURS = int(os.getenv("LIVE_RETENTION_HOURS", "24"))
-LIVE_WORKER_LOCK_PATH = os.getenv(
+QUESTDB_ILP_HOST = get_clean_env("QUESTDB_ILP_HOST", "localhost")
+QUESTDB_ILP_PORT = int(get_clean_env("QUESTDB_ILP_PORT", "9009"))
+QUESTDB_PG_HOST = get_clean_env("QUESTDB_PG_HOST", "localhost")
+QUESTDB_PG_PORT = int(get_clean_env("QUESTDB_PG_PORT", "8812"))
+QUESTDB_HTTP_HOST = get_clean_env("QUESTDB_HTTP_HOST", "localhost")
+QUESTDB_HTTP_PORT = int(get_clean_env("QUESTDB_HTTP_PORT", "9000"))
+QUESTDB_PG_USER = get_clean_env("QUESTDB_PG_USER", "admin")
+QUESTDB_PG_PASSWORD = get_clean_env("QUESTDB_PG_PASSWORD", "quest")
+QUESTDB_PG_DATABASE = get_clean_env("QUESTDB_PG_DATABASE", "main")
+QUESTDB_POOL_MIN_SIZE = int(get_clean_env("QUESTDB_POOL_MIN_SIZE", "5"))
+QUESTDB_POOL_MAX_SIZE = int(get_clean_env("QUESTDB_POOL_MAX_SIZE", "20"))
+MEMPOOL_API_URL = get_clean_env("MEMPOOL_API_URL", "http://127.0.0.1:8999")
+WHALE_MIN_BTC = float(get_clean_env("WHALE_MIN_BTC", "100"))
+WHALE_WS_PORT = int(get_clean_env("WHALE_WS_PORT", "8001"))
+FASTAPI_PORT = int(get_clean_env("FASTAPI_PORT", "8001"))
+ELECTRS_HTTP_URL = get_clean_env("ELECTRS_HTTP_URL", "http://127.0.0.1:3002")
+MEMPOOL_API_V1_URL = get_clean_env("MEMPOOL_API_V1_URL", f"{MEMPOOL_API_URL.rstrip('/')}/api/v1")
+BRK_BASE_URL = get_clean_env("BRK_BASE_URL", "http://127.0.0.1:7070")
+HYPERLIQUID_NODE_API_URL = get_clean_env("HYPERLIQUID_NODE_API_URL", "http://127.0.0.1:3001/info")
+HYPERLIQUID_NODE_INFO_REQUEST_TYPE = get_clean_env("HYPERLIQUID_NODE_INFO_REQUEST_TYPE", "")
+HYPERLIQUID_NODE_SNAPSHOT_PATH = get_clean_env("HYPERLIQUID_NODE_SNAPSHOT_PATH", "")
+HYPERLIQUID_METRICS_URL = get_clean_env("HYPERLIQUID_METRICS_URL", "http://127.0.0.1:9101/metrics")
+HYPERLIQUID_DATA_ROOT = get_clean_env("HYPERLIQUID_DATA_ROOT", "/media/sam/4TB-NVMe/hyperliquid/filtered")
+HYPERLIQUID_FILTERED_STREAM = get_clean_env("HYPERLIQUID_FILTERED_STREAM", "hip3_oracle_updates_by_block")
+HYPERLIQUID_MAX_AGE_SECONDS = float(get_clean_env("HYPERLIQUID_MAX_AGE_SECONDS", "900"))
+WASSERSTEIN_SHIFT_THRESHOLD = float(get_clean_env("WASSERSTEIN_SHIFT_THRESHOLD", "0.10"))
+LIVE_ENABLED = get_clean_env("LIVE_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
+LIVE_API_PORT = int(get_clean_env("LIVE_API_PORT", "8011"))
+LIVE_SOURCE_TIMEOUT_SECONDS = float(get_clean_env("LIVE_SOURCE_TIMEOUT_SECONDS", "5.0"))
+LIVE_MARKET_INTERVAL_SECONDS = float(get_clean_env("LIVE_MARKET_INTERVAL_SECONDS", "5.0"))
+LIVE_BLOCK_POLL_INTERVAL_SECONDS = float(get_clean_env("LIVE_BLOCK_POLL_INTERVAL_SECONDS", "2.0"))
+LIVE_RETENTION_HOURS = int(get_clean_env("LIVE_RETENTION_HOURS", "24"))
+LIVE_WORKER_LOCK_PATH = get_clean_env(
     "LIVE_WORKER_LOCK_PATH", "/tmp/utxoracle_live.worker.lock"
 )
-LIVE_ORACLE_TX_CONCURRENCY = int(os.getenv("LIVE_ORACLE_TX_CONCURRENCY", "32"))
-LIVE_ORACLE_MIN_TX_COUNT = int(os.getenv("LIVE_ORACLE_MIN_TX_COUNT", "1000"))
+LIVE_ORACLE_TX_CONCURRENCY = int(get_clean_env("LIVE_ORACLE_TX_CONCURRENCY", "32"))
+LIVE_ORACLE_MIN_TX_COUNT = int(get_clean_env("LIVE_ORACLE_MIN_TX_COUNT", "1000"))
 
 # WebSocket configuration
 WS_HEARTBEAT_INTERVAL = 30  # seconds
@@ -121,7 +130,7 @@ LOG_DIR.mkdir(exist_ok=True)
 LOG_FILE = LOG_DIR / "whale_dashboard.log"
 LOG_MAX_BYTES = 10 * 1024 * 1024  # 10MB per file
 LOG_BACKUP_COUNT = 5  # Keep 5 old log files
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+LOG_LEVEL = get_clean_env("LOG_LEVEL", "INFO")
 
 
 # Create logger function

@@ -49,7 +49,7 @@ class MempoolWhaleSignal(BaseModel):
     btc_value: float = Field(
         ...,
         description="Total BTC value of transaction",
-        gt=100.0,  # Must be >100 BTC
+        ge=100.0,  # Must be >= 100 BTC
     )
 
     # Fee analysis

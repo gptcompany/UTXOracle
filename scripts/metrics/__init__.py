@@ -29,13 +29,16 @@ Usage:
 """
 
 from datetime import datetime
-from typing import Optional
-import duckdb
+from typing import Optional, Any, Dict
+import json
+import logging
 
-from scripts.config import UTXORACLE_DB_PATH
+from api.questdb_repository import QuestDBRepository
 
-# Database path - now uses centralized config
-DEFAULT_DB_PATH = str(UTXORACLE_DB_PATH)
+logger = logging.getLogger(__name__)
+
+# Initialize global repository instance for sync metrics operations
+_repo = QuestDBRepository()
 
 
 def save_metrics_to_db(
@@ -44,10 +47,10 @@ def save_metrics_to_db(
     active_addresses: Optional[dict] = None,
     tx_volume: Optional[dict] = None,
     wasserstein: Optional[dict] = None,
-    db_path: str = DEFAULT_DB_PATH,
+    db_path: Optional[str] = None,  # Obsolete, using QuestDB
 ) -> bool:
     """
-    Save metrics bundle to DuckDB.
+    Save metrics bundle to QuestDB via ILP.
 
     Args:
         timestamp: Timestamp for the metrics
@@ -55,17 +58,16 @@ def save_metrics_to_db(
         active_addresses: Active addresses metric dict (optional)
         tx_volume: TX volume metric dict (optional)
         wasserstein: Wasserstein distance result dict (optional) - spec-010
-        db_path: Path to DuckDB database
+        db_path: Path to database (Obsolete)
 
     Returns:
         True if successful, False otherwise
     """
     try:
-        conn = duckdb.connect(db_path)
-
-        # Build INSERT statement with all columns
-        columns = ["timestamp"]
-        values = [timestamp]
+        symbols = {}
+        columns = {
+            "created_at": datetime.utcnow()
+        }
 
         if monte_carlo:
             mc_cols = [
@@ -80,8 +82,11 @@ def save_metrics_to_db(
             ]
             for col in mc_cols:
                 if col in monte_carlo:
-                    columns.append(col)
-                    values.append(monte_carlo[col])
+                    val = monte_carlo[col]
+                    if col in ["action", "distribution_type"]:
+                        symbols[col] = str(val)
+                    else:
+                        columns[col] = val
 
         if active_addresses:
             aa_cols = [
@@ -94,8 +99,7 @@ def save_metrics_to_db(
             ]
             for col in aa_cols:
                 if col in active_addresses:
-                    columns.append(col)
-                    values.append(active_addresses[col])
+                    columns[col] = active_addresses[col]
 
         if tx_volume:
             tv_cols = [
@@ -107,8 +111,7 @@ def save_metrics_to_db(
             ]
             for col in tv_cols:
                 if col in tx_volume:
-                    columns.append(col)
-                    values.append(tx_volume[col])
+                    columns[col] = tx_volume[col]
 
         # Wasserstein Distance columns (spec-010)
         if wasserstein:
@@ -122,32 +125,26 @@ def save_metrics_to_db(
             ]
             for src_col, db_col in ws_cols:
                 if src_col in wasserstein:
-                    columns.append(db_col)
-                    values.append(wasserstein[src_col])
+                    val = wasserstein[src_col]
+                    if db_col in ["wasserstein_shift_direction", "wasserstein_regime_status"]:
+                        symbols[db_col] = str(val)
+                    else:
+                        columns[db_col] = val
 
-        placeholders = ", ".join(["?" for _ in values])
-        col_str = ", ".join(columns)
-
-        # R5-1 fix: Check if there are any non-timestamp columns to update
-        update_columns = [c for c in columns if c != "timestamp"]
-        if not update_columns:
-            # Nothing to save besides timestamp - skip silently
-            conn.close()
-            return True
-
-        # Use INSERT with ON CONFLICT for upsert behavior
-        # Specify timestamp as the conflict target since id is auto-generated
-        update_clause = ", ".join([f"{c} = EXCLUDED.{c}" for c in update_columns])
-        conn.execute(
-            f"""INSERT INTO metrics ({col_str}) VALUES ({placeholders})
-                ON CONFLICT (timestamp) DO UPDATE SET {update_clause}""",
-            values,
+        # Ingest via ILP
+        # NOTE: ILP is append-only, no 'ON CONFLICT' equivalent.
+        # Data points with same timestamp will be stored as separate rows.
+        # QuestDB typically handles this with 'LATEST BY' queries.
+        return _repo._send_row(
+            "metrics",
+            symbols=symbols,
+            columns=columns,
+            at=timestamp,
+            flush=True # Flush metrics immediately for low-latency dashboards
         )
-        conn.close()
-        return True
 
     except Exception as e:
-        print(f"Error saving metrics to DB: {e}")
+        logger.error(f"Error saving metrics to QuestDB: {e}")
         return False
 
 
@@ -155,57 +152,63 @@ def load_metrics_from_db(
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
     limit: int = 100,
-    db_path: str = DEFAULT_DB_PATH,
+    db_path: Optional[str] = None,
 ) -> list[dict]:
     """
-    Load metrics from DuckDB.
-
-    Args:
-        start_date: Optional start timestamp filter
-        end_date: Optional end timestamp filter
-        limit: Maximum number of records to return
-        db_path: Path to DuckDB database
-
-    Returns:
-        List of metric dictionaries ordered by timestamp DESC
+    Load metrics from QuestDB.
+    Note: This is a synchronous wrapper around an async call. 
+    In production environments, it is better to use the async repo methods directly.
     """
-    try:
-        conn = duckdb.connect(db_path, read_only=True)
-
+    import asyncio
+    
+    async def _async_load():
+        if not _repo._pool:
+            await _repo.initialize()
+        
         query = "SELECT * FROM metrics"
         conditions = []
         params = []
-
+        
         if start_date:
-            conditions.append("timestamp >= ?")
+            conditions.append("ts >= $1")
             params.append(start_date)
-
+            idx = 2
+        else:
+            idx = 1
+            
         if end_date:
-            conditions.append("timestamp <= ?")
+            conditions.append(f"ts <= ${idx}")
             params.append(end_date)
-
+        
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
+        
+        query += f" ORDER BY ts DESC LIMIT {limit}"
+        
+        records = await _repo.fetch(query, *params)
+        return [dict(r) for r in records]
 
-        query += f" ORDER BY timestamp DESC LIMIT {limit}"
-
-        result = conn.execute(query, params).fetchall()
-        columns = [desc[0] for desc in conn.description]
-        conn.close()
-
-        return [dict(zip(columns, row)) for row in result]
-
+    try:
+        # Check if we are already in an event loop
+        try:
+            loop = asyncio.get_running_loop()
+            # If in a loop, we can't block. This is a design conflict for sync metrics loading.
+            # Fallback to a warning and empty list if called from within async.
+            logger.warning("load_metrics_from_db called from async context, use repo.fetch directly.")
+            return []
+        except RuntimeError:
+            return asyncio.run(_async_load())
     except Exception as e:
-        print(f"Error loading metrics from DB: {e}")
+        logger.error(f"Error loading metrics from QuestDB: {e}")
         return []
 
 
-def get_latest_metrics(db_path: str = DEFAULT_DB_PATH) -> Optional[dict]:
+def get_latest_metrics(db_path: Optional[str] = None) -> Optional[dict]:
     """
     Get the most recent metrics record.
 
     Args:
-        db_path: Path to DuckDB database
+        db_path: Path to database (Obsolete)
 
     Returns:
         Latest metrics dict or None if not found

@@ -82,13 +82,12 @@ class TestMempoolWhaleMonitorIntegration:
             }
         )
 
-        # Mock database connection
-        with patch("duckdb.connect") as mock_db:
-            mock_conn = MagicMock()
-            mock_db.return_value = mock_conn
+        # Mock database repository
+        monitor.repo = AsyncMock()
+        monitor.repo.async_send_row = AsyncMock(return_value=True)
 
-            # Process transaction
-            await monitor._handle_transaction(tx_message)
+        # Process transaction
+        await monitor._handle_transaction(tx_message)
 
         # Assertions
         assert monitor.stats["total_transactions"] == 1
@@ -96,10 +95,11 @@ class TestMempoolWhaleMonitorIntegration:
         assert monitor.stats["db_writes"] == 1
         assert monitor.stats["alerts_broadcasted"] == 1
 
-        # Verify database insert was called
-        mock_conn.execute.assert_called_once()
-        insert_query = mock_conn.execute.call_args[0][0]
-        assert "INSERT INTO mempool_predictions" in insert_query
+        # Verify database insert was called (async_send_row)
+        monitor.repo.async_send_row.assert_called_once()
+        args, kwargs = monitor.repo.async_send_row.call_args
+        assert args[0] == "mempool_predictions"
+        assert kwargs["symbols"]["transaction_id"] == "abc123def456" + "0" * 52
 
         # Verify broadcast was called
         mock_broadcaster.broadcast_whale_alert.assert_called_once()
@@ -145,15 +145,15 @@ class TestMempoolWhaleMonitorIntegration:
             }
         )
 
-        with patch("duckdb.connect") as mock_db:
-            mock_conn = MagicMock()
-            mock_db.return_value = mock_conn
+        # Mock database repository
+        monitor.repo = AsyncMock()
+        monitor.repo.async_send_row = AsyncMock(return_value=True)
 
-            # Process first time
-            await monitor._handle_transaction(tx_message)
+        # Process first time
+        await monitor._handle_transaction(tx_message)
 
-            # Process second time (duplicate)
-            await monitor._handle_transaction(tx_message)
+        # Process second time (duplicate)
+        await monitor._handle_transaction(tx_message)
 
         # Should only process once
         assert monitor.stats["total_transactions"] == 2  # Both counted
@@ -163,6 +163,7 @@ class TestMempoolWhaleMonitorIntegration:
 
         # Broadcast should only be called once
         assert mock_broadcaster.broadcast_whale_alert.call_count == 1
+        assert monitor.repo.async_send_row.call_count == 1
 
     @pytest.mark.asyncio
     async def test_urgency_score_calculation_low_fee(self, monitor):
@@ -252,23 +253,22 @@ class TestMempoolWhaleMonitorIntegration:
             }
         )
 
-        with patch("duckdb.connect") as mock_db:
-            mock_conn = MagicMock()
+        # Mock database repository
+        monitor.repo = AsyncMock()
 
-            # First call fails, second succeeds
-            mock_conn.execute.side_effect = [
-                IOError("Transient database error"),
-                None,  # Success on retry
-            ]
+        # First call fails, second succeeds
+        monitor.repo.async_send_row.side_effect = [
+            IOError("Transient database error"),
+            True,  # Success on retry
+        ]
 
-            mock_db.return_value = mock_conn
-
-            # Should succeed after retry
-            await monitor._handle_transaction(tx_message)
+        # Should succeed after retry
+        await monitor._handle_transaction(tx_message)
 
         # Should have succeeded despite transient error
         assert monitor.stats["whale_transactions"] == 1
         assert monitor.stats["db_writes"] == 1
+        assert monitor.repo.async_send_row.call_count == 2
 
     @pytest.mark.asyncio
     async def test_broadcast_when_no_broadcaster_configured(self, monitor):
@@ -287,17 +287,18 @@ class TestMempoolWhaleMonitorIntegration:
             }
         )
 
-        with patch("duckdb.connect") as mock_db:
-            mock_conn = MagicMock()
-            mock_db.return_value = mock_conn
+        # Mock database repository
+        monitor.repo = AsyncMock()
+        monitor.repo.async_send_row = AsyncMock(return_value=True)
 
-            # Should not raise exception
-            await monitor._handle_transaction(tx_message)
+        # Should not raise exception
+        await monitor._handle_transaction(tx_message)
 
         # DB write should succeed, broadcast should be 0
         assert monitor.stats["whale_transactions"] == 1
         assert monitor.stats["db_writes"] == 1
         assert monitor.stats["alerts_broadcasted"] == 0
+        monitor.repo.async_send_row.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_signal_creation_with_all_fields(self, monitor):
@@ -377,12 +378,12 @@ class TestMempoolWhaleMonitorIntegration:
             ),
         ]
 
-        with patch("duckdb.connect") as mock_db:
-            mock_conn = MagicMock()
-            mock_db.return_value = mock_conn
+        # Mock database repository
+        monitor.repo = AsyncMock()
+        monitor.repo.async_send_row = AsyncMock(return_value=True)
 
-            for tx_msg in transactions:
-                await monitor._handle_transaction(tx_msg)
+        for tx_msg in transactions:
+            await monitor._handle_transaction(tx_msg)
 
         # Verify statistics
         assert monitor.stats["total_transactions"] == 4  # All counted
@@ -390,6 +391,7 @@ class TestMempoolWhaleMonitorIntegration:
         assert monitor.stats["db_writes"] == 2  # Only unique writes
         assert monitor.stats["alerts_broadcasted"] == 2  # Only unique broadcasts
         assert monitor.stats["parse_errors"] == 0
+        assert monitor.repo.async_send_row.call_count == 2
 
     @pytest.mark.asyncio
     async def test_get_stats_includes_all_components(self, monitor):
@@ -534,16 +536,16 @@ class TestMempoolWhaleMonitorEdgeCases:
             }
         )
 
-        with patch("duckdb.connect") as mock_db:
-            mock_conn = MagicMock()
-            mock_db.return_value = mock_conn
+        # Mock database repository
+        monitor.repo = AsyncMock()
+        monitor.repo.async_send_row = AsyncMock(return_value=True)
 
-            await monitor._handle_transaction(tx_message)
+        await monitor._handle_transaction(tx_message)
 
-        # Should be processed (threshold is inclusive)
-        assert (
-            monitor.stats["whale_transactions"] == 0
-        )  # Actually excluded (>=100 means >100)
+        # Should be processed (threshold is inclusive >= 100.0)
+        assert monitor.stats["whale_transactions"] == 1
+        assert monitor.stats["parse_errors"] == 0
+        monitor.repo.async_send_row.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_very_large_whale_transaction(self, monitor, mock_broadcaster):
@@ -559,14 +561,15 @@ class TestMempoolWhaleMonitorEdgeCases:
             }
         )
 
-        with patch("duckdb.connect") as mock_db:
-            mock_conn = MagicMock()
-            mock_db.return_value = mock_conn
+        # Mock database repository
+        monitor.repo = AsyncMock()
+        monitor.repo.async_send_row = AsyncMock(return_value=True)
 
-            await monitor._handle_transaction(tx_message)
+        await monitor._handle_transaction(tx_message)
 
         # Should process normally
         assert monitor.stats["whale_transactions"] == 1
+        monitor.repo.async_send_row.assert_called_once()
 
         # Verify broadcast data
         broadcast_call = mock_broadcaster.broadcast_whale_alert.call_args[0][0]

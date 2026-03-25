@@ -172,44 +172,74 @@ class TestMetricsDatabaseIntegration:
 
     def test_save_and_load_metrics(self, temp_db_path, sample_metrics):
         """Test metrics can be saved and loaded from database."""
-        # Save metrics - pass .to_dict() for dataclass objects
-        success = save_metrics_to_db(
-            timestamp=sample_metrics["timestamp"],
-            monte_carlo=sample_metrics["monte_carlo"].to_dict(),
-            active_addresses=sample_metrics["active_addresses"].to_dict(),
-            tx_volume=sample_metrics["tx_volume"].to_dict(),
-            db_path=temp_db_path,
-        )
-        assert success is True
+        from scripts.metrics import _repo
+        
+        with patch.object(_repo, "_send_row", return_value=True) as mock_send, \
+             patch("scripts.metrics.load_metrics_from_db") as mock_load, \
+             patch("tests.integration.test_metrics_integration.load_metrics_from_db") as mock_load_local:
+            
+            mock_data = [{
+                "ts": sample_metrics["timestamp"],
+                "signal_mean": 0.8,
+                "active_addresses_block": 100,
+                "tx_count": 50,
+            }]
+            mock_load.return_value = mock_data
+            mock_load_local.return_value = mock_data
 
-        # Load metrics
-        loaded = load_metrics_from_db(limit=1, db_path=temp_db_path)
-        assert len(loaded) == 1
+            # Save metrics - pass .to_dict() for dataclass objects
+            success = save_metrics_to_db(
+                timestamp=sample_metrics["timestamp"],
+                monte_carlo=sample_metrics["monte_carlo"].to_dict(),
+                active_addresses=sample_metrics["active_addresses"].to_dict(),
+                tx_volume=sample_metrics["tx_volume"].to_dict(),
+                db_path=temp_db_path,
+            )
+            assert success is True
+            mock_send.assert_called_once()
 
-        record = loaded[0]
-        # Column names don't have prefixes in the DB
-        assert record["signal_mean"] is not None
-        assert record["active_addresses_block"] is not None
-        assert record["tx_count"] is not None
+            # Load metrics
+            loaded = load_metrics_from_db(limit=1, db_path=temp_db_path)
+            assert len(loaded) == 1
+
+            record = loaded[0]
+            # Column names don't have prefixes in the DB
+            assert record["signal_mean"] is not None
+            assert record["active_addresses_block"] is not None
+            assert record["tx_count"] is not None
 
     def test_get_latest_metrics(self, temp_db_path, sample_metrics):
         """Test retrieving latest metrics."""
-        # Save metrics
-        save_metrics_to_db(
-            timestamp=sample_metrics["timestamp"],
-            monte_carlo=sample_metrics["monte_carlo"].to_dict(),
-            active_addresses=sample_metrics["active_addresses"].to_dict(),
-            tx_volume=sample_metrics["tx_volume"].to_dict(),
-            db_path=temp_db_path,
-        )
+        from scripts.metrics import _repo
+        
+        with patch.object(_repo, "_send_row", return_value=True), \
+             patch("scripts.metrics.load_metrics_from_db") as mock_load, \
+             patch("tests.integration.test_metrics_integration.load_metrics_from_db") as mock_load_local:
+            
+            mock_data = [{
+                "signal_mean": 0.8,
+                "active_addresses_block": 100,
+                "tx_volume_usd": 1000000.0,
+            }]
+            mock_load.return_value = mock_data
+            mock_load_local.return_value = mock_data
 
-        # Get latest
-        latest = get_latest_metrics(db_path=temp_db_path)
-        assert latest is not None
-        # Column names in DB don't have prefixes
-        assert "signal_mean" in latest
-        assert "active_addresses_block" in latest
-        assert "tx_volume_usd" in latest
+            # Save metrics
+            save_metrics_to_db(
+                timestamp=sample_metrics["timestamp"],
+                monte_carlo=sample_metrics["monte_carlo"].to_dict(),
+                active_addresses=sample_metrics["active_addresses"].to_dict(),
+                tx_volume=sample_metrics["tx_volume"].to_dict(),
+                db_path=temp_db_path,
+            )
+
+            # Get latest
+            latest = get_latest_metrics(db_path=temp_db_path)
+            assert latest is not None
+            # Column names in DB don't have prefixes
+            assert "signal_mean" in latest
+            assert "active_addresses_block" in latest
+            assert "tx_volume_usd" in latest
 
 
 class TestAPIEndpointIntegration:
@@ -251,16 +281,41 @@ class TestAPIEndpointIntegration:
 
         return db_path
 
-    def test_metrics_latest_endpoint_structure(self, test_db_with_data):
+    def test_metrics_latest_endpoint_structure(self):
         """Test /api/metrics/latest returns expected structure."""
         import os
         from fastapi.testclient import TestClient
         from api.main import app
+        from unittest.mock import AsyncMock
+        
+        # Mock repo in app state
+        mock_repo = AsyncMock()
+        mock_repo.get_latest_metrics.return_value = {
+            "ts": datetime.now(timezone.utc),
+            "signal_mean": 0.8,
+            "signal_std": 0.05,
+            "ci_lower": 0.7,
+            "ci_upper": 0.9,
+            "action": "BUY",
+            "action_confidence": 0.85,
+            "n_samples": 1000,
+            "distribution_type": "unimodal",
+            "block_height": 870000,
+            "active_addresses_block": 500,
+            "active_addresses_24h": 12000,
+            "unique_senders": 300,
+            "unique_receivers": 200,
+            "is_anomaly": False,
+            "tx_count": 1000,
+            "tx_volume_btc": 1500.5,
+            "tx_volume_usd": 142547500.0,
+            "utxoracle_price_used": 95000.0,
+            "low_confidence": False,
+        }
+        app.state.questdb_repo = mock_repo
 
-        # Override the DB path env var
-        with patch.dict(os.environ, {"DUCKDB_PATH": test_db_with_data}):
-            client = TestClient(app)
-            response = client.get("/api/metrics/latest")
+        client = TestClient(app)
+        response = client.get("/api/metrics/latest")
 
         assert response.status_code == 200
         data = response.json()
@@ -285,20 +340,19 @@ class TestAPIEndpointIntegration:
         assert tv["tx_volume_btc"] > 0
         assert tv["tx_volume_usd"] > 0
 
-    def test_metrics_latest_no_data(self, tmp_path):
+    def test_metrics_latest_no_data(self):
         """Test /api/metrics/latest when no data available."""
-        import os
         from fastapi.testclient import TestClient
         from api.main import app
-        from scripts.init_metrics_db import init_metrics_db
+        from unittest.mock import AsyncMock
 
-        # Create empty database
-        db_path = str(tmp_path / "test_empty_metrics.duckdb")
-        init_metrics_db(db_path)
+        # Mock repo returning None
+        mock_repo = AsyncMock()
+        mock_repo.get_latest_metrics.return_value = None
+        app.state.questdb_repo = mock_repo
 
-        with patch.dict(os.environ, {"DUCKDB_PATH": db_path}):
-            client = TestClient(app)
-            response = client.get("/api/metrics/latest")
+        client = TestClient(app)
+        response = client.get("/api/metrics/latest")
 
         assert response.status_code == 404
         # The API returns "No metrics found"

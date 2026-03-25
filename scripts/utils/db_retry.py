@@ -179,35 +179,54 @@ def with_db_retry(
     )
 
     def decorator(func: Callable) -> Callable:
-        @wraps(func)
-        @retry(
-            stop=stop_after_attempt(config.max_attempts),
-            wait=wait_exponential(
-                multiplier=config.multiplier,
-                min=config.initial_delay,
-                max=config.max_delay,
-            ),
-            retry=retry_if_exception_type(tuple(config.retry_on_errors)),
-            before_sleep=before_sleep_log(logger, logging.WARNING),
-            reraise=True,
-        )
-        def wrapper(*args, **kwargs):
-            try:
-                result = func(*args, **kwargs)
-                return result
-            except Exception as e:
-                # Check if should retry
-                if not config.should_retry(e):
-                    logger.error(
-                        f"Permanent error in {func.__name__} - not retrying: {e}"
-                    )
+        import asyncio
+        
+        if asyncio.iscoroutinefunction(func):
+            @wraps(func)
+            @retry(
+                stop=stop_after_attempt(config.max_attempts),
+                wait=wait_exponential(
+                    multiplier=config.multiplier,
+                    min=config.initial_delay,
+                    max=config.max_delay,
+                ),
+                retry=retry_if_exception_type(tuple(config.retry_on_errors)),
+                before_sleep=before_sleep_log(logger, logging.WARNING),
+                reraise=True,
+            )
+            async def async_wrapper(*args, **kwargs):
+                try:
+                    return await func(*args, **kwargs)
+                except Exception as e:
+                    if not config.should_retry(e):
+                        logger.error(f"Permanent error in {func.__name__} - not retrying: {e}")
+                        raise
+                    logger.warning(f"Transient error in {func.__name__} - will retry: {e}")
                     raise
-
-                # Log retry attempt
-                logger.warning(f"Transient error in {func.__name__} - will retry: {e}")
-                raise  # Let tenacity handle the retry
-
-        return wrapper
+            return async_wrapper
+        else:
+            @wraps(func)
+            @retry(
+                stop=stop_after_attempt(config.max_attempts),
+                wait=wait_exponential(
+                    multiplier=config.multiplier,
+                    min=config.initial_delay,
+                    max=config.max_delay,
+                ),
+                retry=retry_if_exception_type(tuple(config.retry_on_errors)),
+                before_sleep=before_sleep_log(logger, logging.WARNING),
+                reraise=True,
+            )
+            def wrapper(*args, **kwargs):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    if not config.should_retry(e):
+                        logger.error(f"Permanent error in {func.__name__} - not retrying: {e}")
+                        raise
+                    logger.warning(f"Transient error in {func.__name__} - will retry: {e}")
+                    raise
+            return wrapper
 
     return decorator
 

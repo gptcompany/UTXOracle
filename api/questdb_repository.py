@@ -402,7 +402,7 @@ class QuestDBRepository:
         self.ilp_host = QUESTDB_ILP_HOST
         self.ilp_port = QUESTDB_ILP_PORT
         # The Sender is thread-safe and intended to be long-lived.
-        self.sender = Sender(self.ilp_host, self.ilp_port)
+        self.sender = Sender('tcp', self.ilp_host, self.ilp_port)
         self._unflushed_rows = 0
         self._last_flush_time = time.time()
         self._flush_batch_size = 100
@@ -517,6 +517,40 @@ class QuestDBRepository:
             at=transaction.timestamp,
         )
 
+    def save_mempool_prediction(self, prediction: Any) -> bool:
+        """
+        Save mempool whale prediction via ILP.
+        Takes a MempoolWhaleSignal or a dict with compatible fields.
+        """
+        if hasattr(prediction, "model_dump"):
+            data = prediction.model_dump()
+        elif hasattr(prediction, "to_db_dict"):
+            data = prediction.to_db_dict()
+        else:
+            data = prediction
+
+        return self._send_row(
+            "mempool_predictions",
+            symbols={
+                "prediction_id": data.get("prediction_id"),
+                "transaction_id": data.get("transaction_id"),
+                "flow_type": str(data.get("flow_type", "unknown")),
+            },
+            columns={
+                "btc_value": float(data.get("btc_value", 0.0)),
+                "fee_rate": float(data.get("fee_rate", 0.0)),
+                "urgency_score": float(data.get("urgency_score", 0.0)),
+                "rbf_enabled": bool(data.get("rbf_enabled", False)),
+                "ts": data.get("detection_timestamp") or data.get("ts"),
+                "predicted_confirmation_block": data.get("predicted_confirmation_block"),
+                "exchange_addresses": str(data.get("exchange_addresses", "")),
+                "confidence_score": float(data.get("confidence_score", 0.0)) if data.get("confidence_score") is not None else None,
+                "was_modified": bool(data.get("was_modified", False)),
+                "created_at": data.get("created_at") or datetime.utcnow(),
+            },
+            at=data.get("detection_timestamp") or data.get("ts") or datetime.utcnow(),
+        )
+
     def save_net_flow(self, metrics: NetFlowMetrics) -> bool:
         """Save net flow metrics via ILP."""
         return self._send_row(
@@ -612,6 +646,10 @@ class QuestDBRepository:
     async def get_latest_price_analysis(self) -> Optional[asyncpg.Record]:
         """Get latest price analysis entry."""
         return await self.fetchrow("SELECT * FROM price_analysis ORDER BY ts DESC LIMIT 1")
+
+    async def get_latest_metrics(self) -> Optional[asyncpg.Record]:
+        """Get the most recent metrics entry."""
+        return await self.fetchrow("SELECT * FROM metrics ORDER BY ts DESC LIMIT 1")
 
     async def get_historical_price_analysis(self, days: int = 7) -> List[asyncpg.Record]:
         """Get historical price analysis entries."""

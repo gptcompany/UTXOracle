@@ -1,67 +1,62 @@
 {
   "testModules": [
     {
-      "moduleId": "tests/integration/test_orchestrator_startup.py",
+      "moduleId": "tests/test_live_api.py",
       "tests": [
         {
-          "name": "test_orchestrator_initialization",
-          "fullName": "tests/integration/test_orchestrator_startup.py::TestOrchestratorStartup::test_orchestrator_initialization",
-          "state": "passed"
-        },
+          "name": "collection_error_tests/test_live_api.py",
+          "fullName": "tests/test_live_api.py",
+          "state": "failed",
+          "errors": [
+            {
+              "message": "ImportError while importing test module '/media/sam/1TB/UTXOracle/tests/test_live_api.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\n/usr/lib/python3.10/importlib/__init__.py:126: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\ntests/test_live_api.py:8: in <module>\n    from api.routes.live import build_live_health_summary, get_live_snapshot_store, router\napi/routes/live.py:8: in <module>\n    from scripts.live.models import LiveComparisonSnapshot, LiveHistoryQuery, LiveSnapshot, utc_now\nscripts/live/__init__.py:20: in <module>\n    from scripts.live.storage import LiveSnapshotStore\nscripts/live/storage.py:10: in <module>\n    from api.questdb_repository import QuestDBRepository\napi/questdb_repository.py:7: in <module>\n    from questdb.ingress import Sender\nE   ModuleNotFoundError: No module named 'questdb'"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "moduleId": "tests/test_live_runtime.py",
+      "tests": [
         {
-          "name": "test_database_initialization",
-          "fullName": "tests/integration/test_orchestrator_startup.py::TestOrchestratorStartup::test_database_initialization",
-          "state": "passed"
-        },
+          "name": "collection_error_tests/test_live_runtime.py",
+          "fullName": "tests/test_live_runtime.py",
+          "state": "failed",
+          "errors": [
+            {
+              "message": "ImportError while importing test module '/media/sam/1TB/UTXOracle/tests/test_live_runtime.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\n/usr/lib/python3.10/importlib/__init__.py:126: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\ntests/test_live_runtime.py:9: in <module>\n    from scripts.live.runtime import (\nscripts/live/__init__.py:20: in <module>\n    from scripts.live.storage import LiveSnapshotStore\nscripts/live/storage.py:10: in <module>\n    from api.questdb_repository import QuestDBRepository\napi/questdb_repository.py:7: in <module>\n    from questdb.ingress import Sender\nE   ModuleNotFoundError: No module named 'questdb'"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "moduleId": "tests/test_live_storage.py",
+      "tests": [
         {
-          "name": "test_database_initialization_failure",
-          "fullName": "tests/integration/test_orchestrator_startup.py::TestOrchestratorStartup::test_database_initialization_failure",
-          "state": "passed"
-        },
+          "name": "collection_error_tests/test_live_storage.py",
+          "fullName": "tests/test_live_storage.py",
+          "state": "failed",
+          "errors": [
+            {
+              "message": "ImportError while importing test module '/media/sam/1TB/UTXOracle/tests/test_live_storage.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\n/usr/lib/python3.10/importlib/__init__.py:126: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\ntests/test_live_storage.py:15: in <module>\n    from scripts.live.storage import LiveSnapshotStore\nscripts/live/__init__.py:20: in <module>\n    from scripts.live.storage import LiveSnapshotStore\nscripts/live/storage.py:10: in <module>\n    from api.questdb_repository import QuestDBRepository\napi/questdb_repository.py:7: in <module>\n    from questdb.ingress import Sender\nE   ModuleNotFoundError: No module named 'questdb'"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "moduleId": "tests/test_live_worker.py",
+      "tests": [
         {
-          "name": "test_orchestrator_start_creates_components",
-          "fullName": "tests/integration/test_orchestrator_startup.py::TestOrchestratorStartup::test_orchestrator_start_creates_components",
-          "state": "passed"
-        },
-        {
-          "name": "test_orchestrator_stop_gracefully_shuts_down",
-          "fullName": "tests/integration/test_orchestrator_startup.py::TestOrchestratorStartup::test_orchestrator_stop_gracefully_shuts_down",
-          "state": "passed"
-        },
-        {
-          "name": "test_orchestrator_stop_timeout_handling",
-          "fullName": "tests/integration/test_orchestrator_startup.py::TestOrchestratorStartup::test_orchestrator_stop_timeout_handling",
-          "state": "passed"
-        },
-        {
-          "name": "test_orchestrator_double_stop_ignored",
-          "fullName": "tests/integration/test_orchestrator_startup.py::TestOrchestratorStartup::test_orchestrator_double_stop_ignored",
-          "state": "passed"
-        },
-        {
-          "name": "test_orchestrator_start_aborts_on_db_failure",
-          "fullName": "tests/integration/test_orchestrator_startup.py::TestOrchestratorStartup::test_orchestrator_start_aborts_on_db_failure",
-          "state": "passed"
-        },
-        {
-          "name": "test_statistics_reporting",
-          "fullName": "tests/integration/test_orchestrator_startup.py::TestOrchestratorStartup::test_statistics_reporting",
-          "state": "passed"
-        },
-        {
-          "name": "test_orchestrator_config_from_defaults",
-          "fullName": "tests/integration/test_orchestrator_startup.py::TestOrchestratorStartup::test_orchestrator_config_from_defaults",
-          "state": "passed"
-        },
-        {
-          "name": "test_orchestrator_config_override",
-          "fullName": "tests/integration/test_orchestrator_startup.py::TestOrchestratorStartup::test_orchestrator_config_override",
-          "state": "passed"
-        },
-        {
-          "name": "test_main_creates_orchestrator_with_args",
-          "fullName": "tests/integration/test_orchestrator_startup.py::TestOrchestratorCLI::test_main_creates_orchestrator_with_args",
-          "state": "passed"
+          "name": "collection_error_tests/test_live_worker.py",
+          "fullName": "tests/test_live_worker.py",
+          "state": "failed",
+          "errors": [
+            {
+              "message": "ImportError while importing test module '/media/sam/1TB/UTXOracle/tests/test_live_worker.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\n/usr/lib/python3.10/importlib/__init__.py:126: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\ntests/test_live_worker.py:15: in <module>\n    from scripts.live.storage import LiveSnapshotStore\nscripts/live/__init__.py:20: in <module>\n    from scripts.live.storage import LiveSnapshotStore\nscripts/live/storage.py:10: in <module>\n    from api.questdb_repository import QuestDBRepository\napi/questdb_repository.py:7: in <module>\n    from questdb.ingress import Sender\nE   ModuleNotFoundError: No module named 'questdb'"
+            }
+          ]
         }
       ]
     }

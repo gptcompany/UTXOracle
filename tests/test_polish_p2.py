@@ -23,8 +23,6 @@ if "secrets_loader" not in sys.modules:
 
 import api.config as _api_config
 
-if not hasattr(_api_config, "UTXO_DB_PATH"):
-    _api_config.UTXO_DB_PATH = _api_config.DUCKDB_PATH
 if not hasattr(_api_config, "WASSERSTEIN_SHIFT_THRESHOLD"):
     _api_config.WASSERSTEIN_SHIFT_THRESHOLD = 0.10
 

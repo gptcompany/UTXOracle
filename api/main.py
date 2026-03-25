@@ -24,7 +24,7 @@ from datetime import datetime, timedelta, date
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -744,7 +744,38 @@ async def get_latest_metrics(request: Request):
     Returns Monte Carlo fusion, Active Addresses, and TX Volume.
     """
     repo: QuestDBRepository = request.app.state.questdb_repo
-    raise HTTPException(status_code=501, detail="Not Implemented")
+    row = await repo.get_latest_metrics()
+    if not row:
+        raise HTTPException(status_code=404, detail="No metrics found")
+
+    return MetricsLatestResponse(
+        timestamp=row["ts"],
+        monte_carlo=MonteCarloFusionResponse(
+            signal_mean=row["signal_mean"],
+            signal_std=row["signal_std"],
+            ci_lower=row["ci_lower"],
+            ci_upper=row["ci_upper"],
+            action=row["action"],
+            action_confidence=row["action_confidence"],
+            n_samples=row["n_samples"],
+            distribution_type=row["distribution_type"],
+        ),
+        active_addresses=ActiveAddressesResponse(
+            block_height=row["block_height"],
+            active_addresses_block=row["active_addresses_block"],
+            active_addresses_24h=row["active_addresses_24h"],
+            unique_senders=row["unique_senders"],
+            unique_receivers=row["unique_receivers"],
+            is_anomaly=row["is_anomaly"],
+        ),
+        tx_volume=TxVolumeResponse(
+            tx_count=row["tx_count"],
+            tx_volume_btc=row["tx_volume_btc"],
+            tx_volume_usd=row["tx_volume_usd"],
+            utxoracle_price_used=row["utxoracle_price_used"],
+            low_confidence=row["low_confidence"],
+        ),
+    )
 
 
 @app.get("/api/metrics/advanced", response_model=AdvancedMetricsResponse)
