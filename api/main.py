@@ -24,7 +24,7 @@ from datetime import datetime, timedelta, date
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -332,6 +332,61 @@ class WhaleFlowData(BaseModel):
 # =============================================================================
 
 
+def _prices_historical_dual_read_enabled() -> bool:
+    return os.getenv("PRICES_HISTORICAL_DUAL_READ_ENABLED", "false").lower() == "true"
+
+
+def _serialize_price_entries_for_dual_read(
+    payload: list[PriceEntry] | list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    serialized: list[dict[str, Any]] = []
+    for item in payload:
+        if isinstance(item, PriceEntry):
+            serialized.append(item.model_dump(mode="json"))
+        else:
+            serialized.append(dict(item))
+    return serialized
+
+
+def _log_prices_historical_dual_read(
+    payload: list[PriceEntry] | list[dict[str, Any]],
+    *,
+    days: int,
+) -> dict[str, Any]:
+    from scripts.config import UTXORACLE_DB_PATH
+    from scripts.validation.route_parity import run_prices_historical_dual_read
+
+    report = run_prices_historical_dual_read(
+        questdb_payload=_serialize_price_entries_for_dual_read(payload),
+        duckdb_path=os.getenv(
+            "PRICES_HISTORICAL_DUAL_READ_DUCKDB_PATH",
+            str(UTXORACLE_DB_PATH),
+        ),
+        lookback_days=days,
+        dataset_id=f"prices-historical:{days}d",
+        divergence_log=os.getenv("PRICES_HISTORICAL_DUAL_READ_LOG_PATH"),
+    )
+    logging.info(
+        "prices-historical dual-read completed: status=%s sample_count=%s failing_fields=%s notes=%s",
+        report.get("status"),
+        report.get("sample_count"),
+        report.get("failing_fields"),
+        report.get("notes"),
+    )
+    return report
+
+
+def _safe_log_prices_historical_dual_read(
+    payload: list[PriceEntry] | list[dict[str, Any]],
+    *,
+    days: int,
+) -> None:
+    try:
+        _log_prices_historical_dual_read(payload, days=days)
+    except Exception as exc:
+        logging.warning("prices-historical dual-read logging failed: %s", exc)
+
+
 
 
 
@@ -381,6 +436,7 @@ async def get_latest_price(request: Request):
 
 @app.get("/api/prices/historical", response_model=List[PriceEntry])
 async def get_historical_prices(
+    background_tasks: BackgroundTasks,
     request: Request,
     days: int = Query(
         default=7,
@@ -403,7 +459,7 @@ async def get_historical_prices(
     repo: QuestDBRepository = request.app.state.questdb_repo
     try:
         rows = await repo.get_historical_price_analysis(days)
-        return [
+        response_items = [
             PriceEntry(
                 timestamp=row["ts"].isoformat(),
                 utxoracle_price=row["utxoracle_price"],
@@ -416,6 +472,15 @@ async def get_historical_prices(
             )
             for row in rows
         ]
+
+        if _prices_historical_dual_read_enabled():
+            background_tasks.add_task(
+                _safe_log_prices_historical_dual_read,
+                response_items,
+                days=days,
+            )
+
+        return response_items
     except Exception as e:
         logging.error(f"Error getting historical prices: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -2756,9 +2821,12 @@ async def health_check():
     live_summary = None
     if LIVE_ENABLED:
         try:
-            from api.routes.live import build_live_health_summary, get_live_snapshot_store
+            from api.routes.live import (
+                build_live_health_summary_async,
+                get_live_snapshot_store,
+            )
 
-            live_summary = build_live_health_summary(get_live_snapshot_store())
+            live_summary = await build_live_health_summary_async(get_live_snapshot_store())
             live_status = str(live_summary.get("status", "unavailable"))
             if live_status == "unavailable":
                 checks["utxoracle_live"] = ServiceCheck(

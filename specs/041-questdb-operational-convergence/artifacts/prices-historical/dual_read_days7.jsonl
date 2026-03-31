@@ -1,0 +1,1 @@
+{"dataset_id": "prices-historical:8011:days7", "failing_fields": [], "notes": ["key_mismatch", "no_overlapping_samples"], "route_id": "prices-historical", "sample_count": 0, "severity": "error", "status": "fail", "timestamp": "2026-03-31T14:40:13.803316+00:00"}

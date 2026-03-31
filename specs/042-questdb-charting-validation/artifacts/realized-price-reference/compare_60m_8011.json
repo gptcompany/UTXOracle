@@ -1,0 +1,19 @@
+{
+  "chart_id": "realized-price-reference",
+  "window": "60m",
+  "base_series_id": "brk_realized_price",
+  "summary": {
+    "comparison_count": 1,
+    "status": "match"
+  },
+  "comparisons": [
+    {
+      "reference_series_id": "brk_api_realized_price",
+      "overlap_points": 1,
+      "mean_abs_diff": 0,
+      "max_abs_diff": 0,
+      "mean_relative_diff_pct": 0,
+      "status": "match"
+    }
+  ]
+}

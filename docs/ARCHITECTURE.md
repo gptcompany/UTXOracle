@@ -11,14 +11,16 @@
 
 The live deployment runs via the dedicated compose stack in `docker-compose.live.yml`. It is intentionally separate from the existing systemd API on `8001`.
 
-## 2026-03-31 Production Boundary Split (spec-041) — IN PROGRESS
+## 2026-03-31 Production Boundary Split (spec-041) — COMPLETE
 
 The production boundary is now explicit:
 
 - `api.apps.live:app` is the canonical production entrypoint for `8011`
 - `api.apps.legacy:app` is the explicit legacy alias for the mixed historical surface on `8001`
-- the production app only exposes `/health` and `/api/v1/live/*`
+- the production app exposes `/health`, `/api/v1/live/*`, and the admitted chart family on `/api/v1/charts/*`
 - legacy route families such as `/api/prices/*`, `/api/metrics/*`, `/api/whale/*`, `/api/v1/models/*`, and `/api/v1/validation/*` are not admitted to the production app
+- host runtime re-verified on 2026-03-31: `/api/prices/*` is no longer exposed on `8011`
+- host runtime re-verified on 2026-03-31: the retained live family now reads directly from QuestDB `live_snapshots`
 
 **Completion fixes applied on 2026-03-23:**
 - `UTXO_DB_PATH` and `WASSERSTEIN_SHIFT_THRESHOLD` added to `api/config.py` (were incorrectly imported from there before being defined)
@@ -28,7 +30,7 @@ The production boundary is now explicit:
 ### Live Services
 
 - `utxoracle-live-worker`: runs `python -m scripts.live.runtime` and writes the canonical live snapshot through the QuestDB-backed live snapshot store
-- `utxoracle-live-api`: runs `uvicorn api.apps.live:app` with `LIVE_ENABLED=true` and exposes only `/api/v1/live/*` plus `/health`
+- `utxoracle-live-api`: runs `uvicorn api.apps.live:app` with `LIVE_ENABLED=true` and exposes `/health`, `/api/v1/live/*`, `/api/v1/charts/*`, and the canonical page route `/charts/live-price-comparison`
 
 ### Required Volume Mounts
 
@@ -60,6 +62,68 @@ Containers reach host-level infra through `host.docker.internal`:
 - `hyperliquid-node` on `3001` and `9101`
 
 The live API remains on `8011` specifically to avoid collision with the existing legacy API on `8001`.
+
+## 2026-03-31 Chart Contract & Validation (spec-042) — COMPLETE
+
+The live production app on `8011` is now also the canonical chart host.
+
+Legacy chart-like pages under `8001` remain research-only. In particular, `frontend/comparison.html`
+and `/static/comparison.html` are explicitly demoted and must not be treated as the canonical chart surface.
+
+### Admitted Chart Surface
+
+Current production routes:
+
+- `GET /charts/live-price-comparison`
+- `GET /api/v1/charts/catalog`
+- `GET /api/v1/charts/live-price-comparison/latest`
+- `GET /api/v1/charts/live-price-comparison/history`
+- `GET /api/v1/charts/live-price-comparison/compare`
+- `GET /api/v1/charts/realized-price-reference/latest`
+- `GET /api/v1/charts/realized-price-reference/history`
+- `GET /api/v1/charts/realized-price-reference/compare`
+
+Current chart family roles:
+
+- `live-price-comparison`
+  * canonical market-reference chart
+  * local compare only against mempool and Hyperliquid series already present in `live_snapshots`
+- `realized-price-reference`
+  * first admitted BRK-linked validation chart
+  * local latest/history served from `live_snapshots.features.brk_realized_price`
+  * compare path fetches one live BRK curated metric snapshot for `realized_price_usd`
+
+Long-window chart history reads may be downsampled server-side with `downsampling_strategy=uniform_stride`.
+Use `downsample=false` only for explicit raw operator/debug reads.
+
+### Validation Workflow
+
+The first frozen external validation workflow is numerical-first:
+
+1. fetch `realized-price-reference/latest`
+2. fetch `realized-price-reference/history?minutes=60`
+3. fetch `realized-price-reference/compare?minutes=60`
+4. inspect `compare.summary.status` and the single `brk_api_realized_price` comparison entry
+
+Validation semantics:
+
+- local chart payloads remain QuestDB-backed
+- BRK compare fetches are bounded by a hard timeout of `2s`
+- BRK failure must degrade the compare payload to `no_overlap`, not fail the route
+- the current external compare is point-in-time only with `overlap_points=1`
+- this is a production validation gate, not yet a claim of historical BRK overlay parity
+
+Recorded live run on 2026-03-31:
+
+- chart family: `realized-price-reference`
+- compare status: `match`
+- `mean_abs_diff=0.0`
+- `mean_relative_diff_pct=0.0`
+
+Artifacts and operator procedure:
+
+- [`specs/042-questdb-charting-validation/artifacts/realized-price-reference/README.md`](../specs/042-questdb-charting-validation/artifacts/realized-price-reference/README.md)
+- [`specs/042-questdb-charting-validation/operator-notes.md`](../specs/042-questdb-charting-validation/operator-notes.md)
 
 ## Current Implementation (spec-003: Hybrid Architecture)
 

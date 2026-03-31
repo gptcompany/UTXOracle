@@ -40,6 +40,19 @@ def _build_snapshot(*, timestamp: datetime, block_height: int, price: float) -> 
     )
 
 
+def test_get_live_snapshot_store_uses_live_db_path_from_env(monkeypatch, tmp_path):
+    db_path = tmp_path / "live.sqlite3"
+    monkeypatch.setenv("LIVE_DB_PATH", str(db_path))
+    monkeypatch.setenv("LIVE_RETENTION_HOURS", "12")
+    get_live_snapshot_store.cache_clear()
+
+    store = get_live_snapshot_store()
+
+    assert store.db_path == db_path
+    assert store.retention_hours == 12
+    get_live_snapshot_store.cache_clear()
+
+
 def _build_test_client(store: LiveSnapshotStore) -> TestClient:
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")

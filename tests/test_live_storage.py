@@ -177,3 +177,34 @@ def test_store_write_snapshot_skips_schema_check_after_initialize(tmp_path, monk
     )
 
     assert schema_calls == []
+
+
+@pytest.mark.asyncio
+async def test_store_questdb_history_uses_python_cutoff_timestamp(monkeypatch):
+    now = datetime(2026, 3, 31, 16, 30, tzinfo=timezone.utc)
+    snapshot = _build_snapshot(
+        timestamp=now - timedelta(minutes=3),
+        block_height=941460,
+        price=84321.11,
+    )
+    calls: list[tuple[str, object]] = []
+
+    class FakeRepo:
+        async def fetch(self, sql, *args):
+            calls.append((sql, args[0]))
+            return [{"snapshot_json": snapshot.model_dump_json()}]
+
+    store = LiveSnapshotStore(None)
+    store.repo = FakeRepo()
+    store._initialized = True
+
+    history = await store.aget_history(LiveHistoryQuery(minutes=15), now=now)
+
+    assert len(history) == 1
+    assert history[0].block_height == 941460
+    assert calls == [
+        (
+            "SELECT snapshot_json FROM live_snapshots WHERE ts >= $1 ORDER BY ts ASC",
+            (now - timedelta(minutes=15)).replace(tzinfo=None),
+        )
+    ]

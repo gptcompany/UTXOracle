@@ -4,14 +4,19 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+import inspect
+from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from api.routes.charts import router as charts_router
 from api.routes.live import (
     build_live_health_summary,
+    build_live_health_summary_async,
     get_live_snapshot_store,
     router as live_router,
 )
@@ -21,6 +26,12 @@ APP_VERSION = os.getenv("UTXORACLE_VERSION", "unknown")
 APP_COMMIT_SHA = os.getenv("UTXORACLE_COMMIT_SHA", "unknown")
 APP_BUILD_AT = os.getenv("UTXORACLE_BUILD_AT", "unknown")
 STARTUP_TIME = datetime.now(timezone.utc)
+FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
+LIVE_PRICE_COMPARISON_PAGE = FRONTEND_DIR / "live_price_comparison.html"
+SUPPORTED_CHART_PAGES = {
+    "live-price-comparison",
+    "realized-price-reference",
+}
 
 
 class LiveServiceCheck(BaseModel):
@@ -48,8 +59,18 @@ async def lifespan(app: FastAPI):
     logging.info("UTXOracle live production API shutting down...")
     try:
         store = _resolve_snapshot_store(app)
-        await store.close()
-        get_live_snapshot_store.cache_clear()
+        close = getattr(store, "aclose", None)
+        if close is not None:
+            await close()
+        else:
+            maybe_close = getattr(store, "close", None)
+            if maybe_close is not None:
+                result = maybe_close()
+                if inspect.isawaitable(result):
+                    await result
+        cache_clear = getattr(get_live_snapshot_store, "cache_clear", None)
+        if cache_clear is not None:
+            cache_clear()
     except Exception as exc:
         logging.warning("Failed to close live snapshot store cleanly: %s", exc)
 
@@ -80,6 +101,13 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(live_router, prefix="/api/v1")
+    app.include_router(charts_router, prefix="/api/v1")
+
+    @app.get("/charts/{chart_id}", include_in_schema=False)
+    async def chart_page(chart_id: str) -> FileResponse:
+        if chart_id not in SUPPORTED_CHART_PAGES:
+            raise HTTPException(status_code=404, detail="chart_id not supported")
+        return FileResponse(LIVE_PRICE_COMPARISON_PAGE)
 
     @app.get("/health", response_model=LiveHealthStatus)
     async def health_check(
@@ -89,7 +117,7 @@ def create_app() -> FastAPI:
         uptime = (now - STARTUP_TIME).total_seconds()
 
         try:
-            live_summary = await build_live_health_summary(store)
+            live_summary = await build_live_health_summary_async(store)
             live_status = str(live_summary.get("status", "unavailable"))
             if live_status == "healthy":
                 status = "healthy"

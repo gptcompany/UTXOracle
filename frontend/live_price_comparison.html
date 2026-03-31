@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UTXOracle Charts</title>
+    <style>
+        :root {
+            --bg: #f4efe5;
+            --panel: rgba(255, 251, 245, 0.94);
+            --panel-strong: #fffaf2;
+            --ink: #1f1b16;
+            --muted: #6b6358;
+            --accent: #b44b28;
+            --accent-soft: #dd8d57;
+            --line: rgba(84, 60, 34, 0.14);
+            --healthy: #1d7a55;
+            --degraded: #b06714;
+            --stale: #a33838;
+            --shadow: 0 18px 48px rgba(91, 58, 27, 0.12);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
+            color: var(--ink);
+            background:
+                radial-gradient(circle at top left, rgba(221, 141, 87, 0.22), transparent 32%),
+                radial-gradient(circle at bottom right, rgba(180, 75, 40, 0.18), transparent 28%),
+                linear-gradient(180deg, #f8f2e7 0%, #efe6d7 100%);
+            min-height: 100vh;
+        }
+
+        main {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 32px 18px 48px;
+        }
+
+        .hero {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 28px;
+            box-shadow: var(--shadow);
+            padding: 28px;
+            margin-bottom: 22px;
+        }
+
+        .eyebrow {
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            font-size: 0.78rem;
+            color: var(--accent);
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: clamp(2rem, 5vw, 4rem);
+            line-height: 0.95;
+            max-width: 10ch;
+            font-family: "IBM Plex Serif", Georgia, serif;
+        }
+
+        .hero p {
+            margin: 14px 0 0;
+            max-width: 62ch;
+            color: var(--muted);
+            font-size: 1rem;
+        }
+
+        .topline {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            align-items: flex-start;
+            flex-wrap: wrap;
+        }
+
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            border-radius: 999px;
+            padding: 10px 14px;
+            font-weight: 700;
+            background: #fff6eb;
+            border: 1px solid rgba(180, 75, 40, 0.18);
+            color: var(--accent);
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        .status-pill.healthy { color: var(--healthy); }
+        .status-pill.degraded { color: var(--degraded); }
+        .status-pill.stale { color: var(--stale); }
+
+        .controls,
+        .stats,
+        .chart-shell {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 24px;
+            box-shadow: var(--shadow);
+        }
+
+        .controls {
+            padding: 16px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 18px;
+        }
+
+        .window-btn {
+            border: 1px solid rgba(180, 75, 40, 0.18);
+            background: var(--panel-strong);
+            color: var(--ink);
+            border-radius: 999px;
+            padding: 10px 14px;
+            cursor: pointer;
+            font: inherit;
+            font-weight: 600;
+        }
+
+        .window-btn.active {
+            background: var(--accent);
+            color: #fffaf6;
+            border-color: var(--accent);
+        }
+
+        .chart-selector {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px;
+            border-radius: 999px;
+            background: var(--panel-strong);
+            border: 1px solid rgba(180, 75, 40, 0.18);
+        }
+
+        .chart-selector button {
+            border: 0;
+            background: transparent;
+            color: var(--ink);
+            border-radius: 999px;
+            padding: 10px 14px;
+            cursor: pointer;
+            font: inherit;
+            font-weight: 700;
+        }
+
+        .chart-selector button.active {
+            background: var(--accent);
+            color: #fffaf6;
+        }
+
+        .compare-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            margin-left: auto;
+            font-weight: 600;
+            color: var(--muted);
+        }
+
+        .compare-toggle input {
+            width: 18px;
+            height: 18px;
+            accent-color: var(--accent);
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 0;
+            overflow: hidden;
+            margin-bottom: 18px;
+        }
+
+        .stat {
+            padding: 18px;
+            border-right: 1px solid var(--line);
+        }
+
+        .stat:last-child {
+            border-right: 0;
+        }
+
+        .stat-label {
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            font-size: 0.72rem;
+            margin-bottom: 8px;
+            font-weight: 700;
+        }
+
+        .stat-value {
+            font-size: 1.45rem;
+            font-weight: 700;
+        }
+
+        .chart-shell {
+            padding: 18px;
+        }
+
+        .compare-shell {
+            margin-top: 18px;
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 24px;
+            box-shadow: var(--shadow);
+            padding: 18px;
+        }
+
+        .compare-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 14px;
+        }
+
+        .compare-card {
+            border: 1px solid rgba(84, 60, 34, 0.1);
+            border-radius: 18px;
+            background: var(--panel-strong);
+            padding: 16px;
+        }
+
+        .compare-card h3 {
+            margin: 0 0 10px;
+            font-size: 1rem;
+        }
+
+        .compare-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            border-radius: 999px;
+            padding: 6px 10px;
+            font-size: 0.82rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+            background: #fff6eb;
+        }
+
+        .compare-status.match { color: var(--healthy); }
+        .compare-status.minor_diff { color: var(--degraded); }
+        .compare-status.major_diff,
+        .compare-status.no_overlap { color: var(--stale); }
+
+        .compare-metric {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            font-size: 0.92rem;
+            color: var(--muted);
+            padding: 4px 0;
+        }
+
+        .compare-metric strong {
+            color: var(--ink);
+        }
+
+        .chart-meta {
+            display: flex;
+            justify-content: space-between;
+            gap: 14px;
+            flex-wrap: wrap;
+            margin-bottom: 18px;
+        }
+
+        .chart-meta h2 {
+            margin: 0;
+            font-size: 1.15rem;
+        }
+
+        .chart-meta p {
+            margin: 6px 0 0;
+            color: var(--muted);
+        }
+
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 14px;
+            font-size: 0.9rem;
+            color: var(--muted);
+        }
+
+        .legend-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .legend-swatch {
+            width: 12px;
+            height: 12px;
+            border-radius: 999px;
+        }
+
+        .chart-frame {
+            width: 100%;
+            overflow: hidden;
+            border-radius: 20px;
+            background: linear-gradient(180deg, rgba(255,255,255,0.7), rgba(249, 241, 228, 0.95));
+            border: 1px solid rgba(84, 60, 34, 0.08);
+            padding: 12px;
+        }
+
+        svg {
+            display: block;
+            width: 100%;
+            height: auto;
+        }
+
+        .axis-text {
+            fill: #8a7a67;
+            font-size: 12px;
+            font-family: "IBM Plex Sans", sans-serif;
+        }
+
+        .empty-state {
+            padding: 36px 12px;
+            text-align: center;
+            color: var(--muted);
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        @media (max-width: 760px) {
+            main {
+                padding: 18px 14px 36px;
+            }
+
+            .hero,
+            .controls,
+            .chart-shell {
+                border-radius: 20px;
+            }
+
+            .stats {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .stat {
+                border-right: 0;
+                border-bottom: 1px solid var(--line);
+            }
+
+            .stat:nth-last-child(-n + 2) {
+                border-bottom: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+<main>
+    <section class="hero">
+        <div class="topline">
+            <div>
+                <div class="eyebrow">Canonical Chart Slice</div>
+                <h1 id="page-title">Chart Loading</h1>
+                <p id="page-description">Thin client over the QuestDB-backed chart API.</p>
+            </div>
+            <div id="status-pill" class="status-pill">
+                <span class="status-dot"></span>
+                <span>Loading</span>
+            </div>
+        </div>
+    </section>
+
+    <section class="controls" id="window-controls">
+        <div class="chart-selector" id="chart-selector">
+            <button type="button" data-chart-id="live-price-comparison">live-price-comparison</button>
+            <button type="button" data-chart-id="realized-price-reference">realized-price-reference</button>
+        </div>
+        <button class="window-btn active" data-minutes="15">15m</button>
+        <button class="window-btn" data-minutes="60">1h</button>
+        <button class="window-btn" data-minutes="240">4h</button>
+        <button class="window-btn" data-minutes="1440">24h</button>
+        <label class="compare-toggle">
+            <input id="compare-toggle" type="checkbox" checked />
+            <span>Show comparison</span>
+        </label>
+    </section>
+
+    <section class="stats" id="stats">
+        <div class="stat"><div class="stat-label">UTXOracle</div><div class="stat-value">...</div></div>
+        <div class="stat"><div class="stat-label">Mempool</div><div class="stat-value">...</div></div>
+        <div class="stat"><div class="stat-label">Hyperliquid Oracle</div><div class="stat-value">...</div></div>
+        <div class="stat"><div class="stat-label">Hyperliquid Mark</div><div class="stat-value">...</div></div>
+    </section>
+
+    <section class="chart-shell">
+        <div class="chart-meta">
+            <div>
+                <h2>QuestDB-backed history</h2>
+                <p id="chart-caption">Loading latest history window...</p>
+            </div>
+            <div class="legend" id="legend"></div>
+        </div>
+        <div class="chart-frame" id="chart-frame">
+            <div class="empty-state">Loading chart...</div>
+        </div>
+    </section>
+
+    <section class="compare-shell" id="compare-shell">
+        <div class="chart-meta">
+            <div>
+                <h2>Reference Comparison</h2>
+                <p id="compare-caption">Computing pairwise diffs against the current reference series...</p>
+            </div>
+        </div>
+        <div class="compare-grid" id="compare-grid">
+            <div class="empty-state">Loading comparison metrics...</div>
+        </div>
+    </section>
+</main>
+
+<script>
+    const chartConfigs = {
+        "live-price-comparison": {
+            title: "Live Price Comparison",
+            description: "QuestDB-backed market-reference chart for UTXOracle, mempool, and Hyperliquid live series.",
+            ariaLabel: "Live price comparison chart",
+            compareEnabled: true,
+        },
+        "realized-price-reference": {
+            title: "Realized Price Reference",
+            description: "QuestDB-backed BRK realized price chart with a narrow current-point compare against the live BRK curated metric.",
+            ariaLabel: "Realized price reference chart",
+            compareEnabled: true,
+        },
+    };
+
+    const seriesPalette = {
+        utxoracle_price: "#b44b28",
+        mempool_exchange_price: "#2a7f62",
+        hyperliquid_oracle_price: "#4e5ac7",
+        hyperliquid_mark_price: "#c57a19",
+        brk_realized_price: "#6b4fa3",
+        brk_api_realized_price: "#1d7a55",
+    };
+
+    const labelMap = {
+        utxoracle_price: "UTXOracle",
+        mempool_exchange_price: "Mempool",
+        hyperliquid_oracle_price: "Hyperliquid Oracle",
+        hyperliquid_mark_price: "Hyperliquid Mark",
+        brk_realized_price: "BRK Realized Price",
+        brk_api_realized_price: "BRK API Realized Price",
+    };
+
+    let activeChartId = window.location.pathname.split("/").filter(Boolean).pop() || "live-price-comparison";
+    if (!chartConfigs[activeChartId]) {
+        activeChartId = "live-price-comparison";
+    }
+
+    function formatUsd(value) {
+        if (value === null || value === undefined) return "n/a";
+        return new Intl.NumberFormat("en-US", {
+            style: "currency",
+            currency: "USD",
+            maximumFractionDigits: 2,
+        }).format(value);
+    }
+
+    function setStatus(status, freshnessSeconds) {
+        const pill = document.getElementById("status-pill");
+        pill.className = `status-pill ${status}`;
+        pill.innerHTML = `<span class="status-dot"></span><span>${status} · ${freshnessSeconds.toFixed(1)}s</span>`;
+    }
+
+    function setChartIdentity(chartId) {
+        const config = chartConfigs[chartId];
+        document.title = `UTXOracle ${config.title}`;
+        document.getElementById("page-title").textContent = config.title;
+        document.getElementById("page-description").textContent = config.description;
+        document.querySelectorAll("#chart-selector button").forEach(button => {
+            button.classList.toggle("active", button.dataset.chartId === chartId);
+        });
+        document.getElementById("compare-toggle").checked = config.compareEnabled;
+        toggleCompare(config.compareEnabled);
+    }
+
+    function toggleCompare(enabled) {
+        document.getElementById("compare-shell").classList.toggle("hidden", !enabled);
+    }
+
+    function renderLegend(series) {
+        const legend = document.getElementById("legend");
+        legend.innerHTML = series.map(item => `
+            <div class="legend-item">
+                <span class="legend-swatch" style="background:${seriesPalette[item.id] || '#666'}"></span>
+                <span>${item.label}</span>
+            </div>
+        `).join("");
+    }
+
+    function renderStats(series) {
+        const stats = document.getElementById("stats");
+        stats.innerHTML = series.map(item => {
+            const latest = item.data[item.data.length - 1];
+            return `
+                <div class="stat">
+                    <div class="stat-label">${item.label}</div>
+                    <div class="stat-value">${formatUsd(latest)}</div>
+                </div>
+            `;
+        }).join("");
+    }
+
+    function buildPolyline(values, min, max, width, height, padding) {
+        const safeValues = values.map(value => value ?? min);
+        const span = Math.max(max - min, 1);
+        return safeValues.map((value, index) => {
+            const x = padding + (index * (width - padding * 2)) / Math.max(values.length - 1, 1);
+            const y = height - padding - ((value - min) / span) * (height - padding * 2);
+            return `${x},${y}`;
+        }).join(" ");
+    }
+
+    function renderChart(payload) {
+        const frame = document.getElementById("chart-frame");
+        const caption = document.getElementById("chart-caption");
+        const series = payload.series || [];
+
+        if (!payload.ts.length || !series.length) {
+            frame.innerHTML = `<div class="empty-state">No live chart data available for this window.</div>`;
+            caption.textContent = "No chart data returned.";
+            return;
+        }
+
+        const values = series.flatMap(item => item.data).filter(value => value !== null);
+        const min = Math.min(...values);
+        const max = Math.max(...values);
+        const width = 1000;
+        const height = 360;
+        const padding = 36;
+
+        const grid = [0, 0.25, 0.5, 0.75, 1].map(ratio => {
+            const y = padding + ratio * (height - padding * 2);
+            return `<line x1="${padding}" y1="${y}" x2="${width - padding}" y2="${y}" stroke="rgba(84,60,34,0.08)" stroke-width="1" />`;
+        }).join("");
+
+        const paths = series.map(item => `
+            <polyline
+                fill="none"
+                stroke="${seriesPalette[item.id] || '#666'}"
+                stroke-width="3"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                points="${buildPolyline(item.data, min, max, width, height, padding)}"
+            />
+        `).join("");
+
+        const leftLabels = [max, (max + min) / 2, min].map((value, index) => {
+            const y = [padding, height / 2, height - padding][index];
+            return `<text x="0" y="${y + 4}" class="axis-text">${formatUsd(value)}</text>`;
+        }).join("");
+
+        const firstTs = new Date(payload.ts[0]).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        const lastTs = new Date(payload.ts[payload.ts.length - 1]).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+        frame.innerHTML = `
+            <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${chartConfigs[activeChartId].ariaLabel}">
+                ${grid}
+                ${paths}
+                ${leftLabels}
+                <text x="${padding}" y="${height - 8}" class="axis-text">${firstTs}</text>
+                <text x="${width - padding - 44}" y="${height - 8}" class="axis-text">${lastTs}</text>
+            </svg>
+        `;
+
+        caption.textContent = `${payload.window} window · ${payload.source_health_summary}`;
+        renderLegend(series);
+        renderStats(series);
+    }
+
+    function renderCompare(payload) {
+        const grid = document.getElementById("compare-grid");
+        const caption = document.getElementById("compare-caption");
+
+        if (!payload.comparisons || !payload.comparisons.length) {
+            grid.innerHTML = `<div class="empty-state">No comparison metrics available.</div>`;
+            caption.textContent = "No comparison metrics returned.";
+            return;
+        }
+
+        caption.textContent = `Base series: ${payload.base_series_id} · overall ${payload.summary.status}`;
+        grid.innerHTML = payload.comparisons.map(item => `
+            <article class="compare-card">
+                <h3>${labelMap[item.reference_series_id] || item.reference_series_id}</h3>
+                <div class="compare-status ${item.status}">${item.status.replace('_', ' ')}</div>
+                <div class="compare-metric"><span>Overlap points</span><strong>${item.overlap_points}</strong></div>
+                <div class="compare-metric"><span>Mean abs diff</span><strong>${item.mean_abs_diff === null ? 'n/a' : formatUsd(item.mean_abs_diff)}</strong></div>
+                <div class="compare-metric"><span>Max abs diff</span><strong>${item.max_abs_diff === null ? 'n/a' : formatUsd(item.max_abs_diff)}</strong></div>
+                <div class="compare-metric"><span>Mean rel diff</span><strong>${item.mean_relative_diff_pct === null ? 'n/a' : item.mean_relative_diff_pct.toFixed(3) + '%'}</strong></div>
+            </article>
+        `).join("");
+    }
+
+    async function loadWindow(minutes) {
+        const chartId = activeChartId;
+        const showCompare = document.getElementById("compare-toggle").checked;
+        const historyResp = await fetch(`/api/v1/charts/${chartId}/history?minutes=${minutes}`);
+        if (!historyResp.ok) {
+            throw new Error(`history request failed: ${historyResp.status}`);
+        }
+        const latestResp = await fetch(`/api/v1/charts/${chartId}/latest`);
+        if (!latestResp.ok) {
+            throw new Error(`latest request failed: ${latestResp.status}`);
+        }
+
+        const historyPayload = await historyResp.json();
+        const latestPayload = await latestResp.json();
+        setStatus(latestPayload.metadata.status, latestPayload.metadata.freshness_seconds);
+        renderChart(historyPayload);
+        if (!showCompare) {
+            return;
+        }
+
+        const compareResp = await fetch(`/api/v1/charts/${chartId}/compare?minutes=${minutes}`);
+        if (compareResp.status === 404) {
+            renderCompare({ base_series_id: chartId, summary: { status: "no_compare" }, comparisons: [] });
+            return;
+        }
+        if (!compareResp.ok) {
+            throw new Error(`compare request failed: ${compareResp.status}`);
+        }
+        const comparePayload = await compareResp.json();
+        renderCompare(comparePayload);
+    }
+
+    async function boot() {
+        const controls = document.getElementById("window-controls");
+        const chartSelector = document.getElementById("chart-selector");
+        const compareToggle = document.getElementById("compare-toggle");
+        setChartIdentity(activeChartId);
+
+        controls.addEventListener("click", async (event) => {
+            const button = event.target.closest(".window-btn");
+            if (!button) return;
+
+            controls.querySelectorAll(".window-btn").forEach(item => item.classList.remove("active"));
+            button.classList.add("active");
+
+            try {
+                await loadWindow(button.dataset.minutes);
+            } catch (error) {
+                document.getElementById("chart-frame").innerHTML =
+                    `<div class="empty-state">Failed to load chart data: ${error.message}</div>`;
+            }
+        });
+
+        chartSelector.addEventListener("click", async (event) => {
+            const button = event.target.closest("button[data-chart-id]");
+            if (!button) return;
+
+            activeChartId = button.dataset.chartId;
+            history.replaceState(null, "", `/charts/${activeChartId}`);
+            setChartIdentity(activeChartId);
+
+            try {
+                const activeWindow = controls.querySelector(".window-btn.active");
+                await loadWindow(activeWindow.dataset.minutes);
+            } catch (error) {
+                document.getElementById("chart-frame").innerHTML =
+                    `<div class="empty-state">Failed to load chart data: ${error.message}</div>`;
+            }
+        });
+
+        compareToggle.addEventListener("change", async () => {
+            const enabled = compareToggle.checked;
+            toggleCompare(enabled);
+            if (!enabled) {
+                return;
+            }
+            try {
+                const activeWindow = controls.querySelector(".window-btn.active");
+                await loadWindow(activeWindow.dataset.minutes);
+            } catch (error) {
+                document.getElementById("compare-grid").innerHTML =
+                    `<div class="empty-state">Failed to load comparison metrics: ${error.message}</div>`;
+            }
+        });
+
+        try {
+            await loadWindow(15);
+        } catch (error) {
+            document.getElementById("chart-frame").innerHTML =
+                `<div class="empty-state">Failed to load chart data: ${error.message}</div>`;
+            document.getElementById("chart-caption").textContent = "Chart endpoint unavailable.";
+        }
+    }
+
+    boot();
+</script>
+</body>
+</html>

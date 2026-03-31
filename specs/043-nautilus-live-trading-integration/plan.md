@@ -4,10 +4,11 @@
 
 ```
 Phase 1: Contract Definition
+├── freeze polling-only first slice on GET /api/v1/live/snapshot
 ├── choose the minimal tradable field set
 ├── define field ownership: live API-produced vs adapter-derived
 ├── decide whether missing admitted fields require live contract changes
-├── define freshness, monotonicity, and anomaly gates
+├── define freshness, monotonicity, confidence, and anomaly gates
 ├── define accepted source health combinations
 └── define state machine: OK, LIQUIDATE_ONLY, HALT
 
@@ -41,13 +42,14 @@ The adapter must fail closed.
 
 If freshness, health, or anomaly rules are not satisfied, no tradable snapshot is emitted to Nautilus.
 
+The first slice remains contract-first. Do not build a Nautilus-specific transport or direct QuestDB/Parquet consumer until the tradable field whitelist and gate semantics are frozen.
+
 Execution MUST follow RED -> GREEN -> REFACTOR for contract normalization and all trading-safety gates.
 
 ## Recommended Minimal Field Set
 
 Start with:
 
-- `sequence_id`
 - `timestamp`
 - `block_height`
 - `utxoracle_price`
@@ -57,7 +59,12 @@ Start with:
 - `utxoracle_confidence`
 - required source health fields
 
-If `sequence_id` or `source_spread_bps` are not produced by the live API at implementation time, the implementation MUST either add them to the live contract or document deterministic adapter-side derivation before the adapter is admitted for paper trading.
+First-slice freeze:
+
+- `sequence_id` is deferred as an upstream prerequisite before paper/live rollout
+- `source_spread_bps` is adapter-derived as `abs(comparison.utxo_vs_mempool_bps)`
+- required healthy sources are `electrs`, `utxoracle`, and `mempool_api`
+- Hyperliquid and BRK fields are not in the first tradable whitelist
 
 Everything else should be added only after validation.
 

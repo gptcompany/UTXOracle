@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>UTXOracle - Price Comparison Dashboard</title>
+    <title>UTXOracle - Legacy Price Comparison Dashboard</title>
 
     <!-- T073: Plotly.js CDN -->
     <script src="https://cdn.plot.ly/plotly-2.26.0.min.js"></script>
@@ -44,6 +44,33 @@
         .subtitle {
             color: #999;
             font-size: 1.1em;
+        }
+
+        .legacy-banner {
+            margin: 0 0 30px;
+            padding: 18px 20px;
+            background: linear-gradient(135deg, rgba(80, 30, 10, 0.95), rgba(35, 18, 8, 0.98));
+            border: 2px solid #ff8c00;
+            border-radius: 10px;
+            color: #f7d7b0;
+        }
+
+        .legacy-banner strong {
+            display: block;
+            color: #ffb347;
+            margin-bottom: 8px;
+            font-size: 1rem;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        .legacy-banner a {
+            color: #ffd27a;
+            font-weight: 600;
+        }
+
+        .legacy-banner a:hover {
+            color: #fff0c2;
         }
 
         /* T076: Stats Cards */
@@ -610,12 +637,19 @@
     <header>
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <div>
-                <h1>UTXOracle Price Comparison</h1>
-                <div class="subtitle">On-Chain vs Exchange Price Analysis</div>
+                <h1>UTXOracle Legacy Price Comparison</h1>
+                <div class="subtitle">Legacy research dashboard on 8001, not the canonical chart surface</div>
             </div>
             <!-- Logout button removed - Dashboard is public (no authentication) -->
         </div>
     </header>
+
+    <section class="legacy-banner">
+        <strong>Legacy Dashboard</strong>
+        The canonical chart surface moved to the live production app on port 8011.
+        Use <a id="canonicalChartLink" href="/charts/live-price-comparison">/charts/live-price-comparison</a>
+        for the admitted chart workflow and /api/v1/charts/* for the canonical chart API.
+    </section>
 
     <!-- Whale Flow Indicator (spec-004: T058-T062) -->
     <div class="whale-indicator-container">
@@ -765,6 +799,7 @@
 
         // API Configuration
         const API_BASE_URL = 'http://localhost:8001';
+        const CANONICAL_CHART_URL = `${window.location.protocol}//${window.location.hostname}:8011/charts/live-price-comparison`;
         let currentDays = 7;
 
         // T074: Fetch data from API (T030b: Using authenticated fetch)
@@ -1573,6 +1608,11 @@
 
         // Initialize on page load
         window.addEventListener('DOMContentLoaded', () => {
+            const canonicalLink = document.getElementById('canonicalChartLink');
+            if (canonicalLink) {
+                canonicalLink.href = CANONICAL_CHART_URL;
+                canonicalLink.textContent = CANONICAL_CHART_URL;
+            }
             loadData(7);
             loadWhaleFlowData();  // spec-004: Load whale flow indicator
             loadMemoryUsage();    // T035: Load memory usage indicator

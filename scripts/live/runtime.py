@@ -159,7 +159,11 @@ class LiveWorkerRuntime:
     async def run(self) -> list:
         # Initialize storage with for_write=True to acquire the exclusive lock
         if self.worker.snapshot_store is not None:
-            self.worker.snapshot_store.initialize(for_write=True)
+            ainitialize = getattr(self.worker.snapshot_store, "ainitialize", None)
+            if ainitialize is not None:
+                await ainitialize(for_write=True)
+            else:
+                self.worker.snapshot_store.initialize(for_write=True)
 
         return await self.worker.run(
             market_interval_seconds=float(os.getenv("LIVE_MARKET_INTERVAL_SECONDS", "5.0")),
@@ -174,14 +178,17 @@ class LiveWorkerRuntime:
 
         # Ensure storage is closed and locks released
         if self.worker.snapshot_store is not None:
-            if hasattr(self.worker.snapshot_store, "close"):
+            aclose = getattr(self.worker.snapshot_store, "aclose", None)
+            if aclose is not None:
+                await aclose()
+            elif hasattr(self.worker.snapshot_store, "close"):
                 self.worker.snapshot_store.close()
 
 
 def build_live_runtime() -> LiveWorkerRuntime:
     timeout_seconds = float(os.getenv("LIVE_SOURCE_TIMEOUT_SECONDS", str(DEFAULT_SOURCE_TIMEOUT_SECONDS)))
     retention_hours = int(os.getenv("LIVE_RETENTION_HOURS", "24"))
-    live_db_path = os.getenv("LIVE_DB_PATH", "data/utxoracle_live.sqlite3")
+    live_db_path = os.getenv("LIVE_DB_PATH") or None
     process_lock_path = os.getenv("LIVE_WORKER_LOCK_PATH") or None
 
     electrs_client = ElectrsClient(timeout_seconds=timeout_seconds)

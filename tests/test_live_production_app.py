@@ -68,6 +68,7 @@ def test_live_production_app_exposes_health_and_live_routes_only():
         assert client.get("/health").status_code == 200
         assert client.get("/api/v1/live/snapshot").status_code == 200
         assert client.get("/api/v1/live/history", params={"minutes": 60}).status_code == 200
+        assert client.get("/charts/live-price-comparison").status_code == 200
 
         assert client.get("/api/prices/latest").status_code == 404
         assert client.get("/api/metrics/latest").status_code == 404
@@ -112,3 +113,32 @@ def test_live_production_app_closes_snapshot_store_on_shutdown():
         pass
 
     assert store.closed is True
+
+
+def test_live_production_chart_page_is_html():
+    store = InMemorySnapshotStore(
+        [_build_snapshot(timestamp=datetime.now(timezone.utc), block_height=941456, price=84211.52)]
+    )
+
+    with _build_client(store) as client:
+        response = client.get("/charts/live-price-comparison")
+        realized_response = client.get("/charts/realized-price-reference")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "live-price-comparison" in response.text
+    assert "realized-price-reference" in response.text
+    assert "compare-toggle" in response.text
+    assert realized_response.status_code == 200
+    assert realized_response.headers["content-type"].startswith("text/html")
+
+
+def test_live_production_chart_page_rejects_unknown_chart_id():
+    store = InMemorySnapshotStore(
+        [_build_snapshot(timestamp=datetime.now(timezone.utc), block_height=941456, price=84211.52)]
+    )
+
+    with _build_client(store) as client:
+        response = client.get("/charts/unknown")
+
+    assert response.status_code == 404

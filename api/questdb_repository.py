@@ -401,18 +401,28 @@ class QuestDBRepository:
         import time
         self.ilp_host = QUESTDB_ILP_HOST
         self.ilp_port = QUESTDB_ILP_PORT
-        # The Sender is thread-safe and intended to be long-lived.
-        self.sender = Sender('tcp', self.ilp_host, self.ilp_port)
+        self.sender: Sender | None = None
         self._unflushed_rows = 0
         self._last_flush_time = time.time()
         self._flush_batch_size = 100
         self._flush_interval_seconds = 5.0
+
+    def _build_sender(self):
+        sender = Sender("tcp", self.ilp_host, self.ilp_port)
+        sender.establish()
+        return sender
+
+    def _ensure_sender(self) -> Sender:
+        if self.sender is None:
+            self.sender = self._build_sender()
+        return self.sender
 
     async def initialize(self):
         """
         Initializes the database by creating tables and establishing a connection pool.
         """
         await create_tables_if_not_exist()
+        self._ensure_sender()
         
         if QuestDBRepository._pool is None:
             try:
@@ -438,6 +448,14 @@ class QuestDBRepository:
         except Exception as e:
             logger.error(f"Error flushing ILP sender on shutdown: {e}")
 
+        if self.sender is not None:
+            try:
+                self.sender.close()
+            except Exception as e:
+                logger.error(f"Error closing QuestDB sender: {e}")
+            finally:
+                self.sender = None
+
         if QuestDBRepository._pool:
             try:
                 await QuestDBRepository._pool.close()
@@ -455,11 +473,25 @@ class QuestDBRepository:
         """
         import time
         try:
-            self.sender.row(table, symbols=symbols, columns=columns, at=at)
+            try:
+                sender = self._ensure_sender()
+                sender.row(table, symbols=symbols, columns=columns, at=at)
+            except Exception as exc:
+                if "Sender is closed" not in str(exc):
+                    raise
+                logger.warning("QuestDB sender was closed; recreating sender and retrying once")
+                self.sender = None
+                sender = self._ensure_sender()
+                sender.row(table, symbols=symbols, columns=columns, at=at)
+
             self._unflushed_rows += 1
             now = time.time()
-            
-            if flush or self._unflushed_rows >= self._flush_batch_size or (now - self._last_flush_time) >= self._flush_interval_seconds:
+
+            if (
+                flush
+                or self._unflushed_rows >= self._flush_batch_size
+                or (now - self._last_flush_time) >= self._flush_interval_seconds
+            ):
                 self.sender.flush()
                 self._unflushed_rows = 0
                 self._last_flush_time = now
@@ -473,7 +505,8 @@ class QuestDBRepository:
         import time
         try:
             if self._unflushed_rows > 0:
-                self.sender.flush()
+                sender = self._ensure_sender()
+                sender.flush()
                 self._unflushed_rows = 0
                 self._last_flush_time = time.time()
             return True
@@ -482,19 +515,16 @@ class QuestDBRepository:
             return False
 
     async def async_send_row(self, table: str, symbols: Dict[str, Any], columns: Dict[str, Any], at: Optional[Union[datetime, int]] = None, flush: bool = False):
-        """Async wrapper for _send_row using run_in_executor to prevent event loop blocking."""
-        import asyncio
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            None, 
-            lambda: self._send_row(table, symbols, columns, at, flush)
-        )
+        """Async wrapper for _send_row.
+
+        QuestDB's ILP sender is stateful and connection-oriented; keep row writes on the
+        same thread that created the sender.
+        """
+        return self._send_row(table, symbols, columns, at, flush)
 
     async def async_flush_ingestion(self):
         """Async wrapper for flush_ingestion."""
-        import asyncio
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, self.flush_ingestion)
+        return self.flush_ingestion()
 
     def save_whale_transaction(self, transaction: WhaleTransaction) -> bool:
         """Save whale transaction via ILP."""

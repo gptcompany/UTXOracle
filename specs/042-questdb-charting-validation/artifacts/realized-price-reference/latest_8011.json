@@ -1,0 +1,25 @@
+{
+  "schema_version": "v1",
+  "chart_id": "realized-price-reference",
+  "window": "latest",
+  "is_downsampled": false,
+  "source_health_summary": "brk:healthy | electrs:healthy | hyperliquid:stale | mempool_api:healthy | utxoracle:healthy",
+  "metadata": {
+    "freshness_seconds": 0.6,
+    "status": "degraded"
+  },
+  "ts": [
+    "2026-03-31T16:49:25.618594+00:00"
+  ],
+  "series": [
+    {
+      "id": "brk_realized_price",
+      "label": "BRK Realized Price",
+      "unit": "usd",
+      "data": [
+        54133.13
+      ]
+    }
+  ],
+  "overlays": []
+}

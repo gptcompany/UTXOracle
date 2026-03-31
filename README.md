@@ -84,6 +84,49 @@ The intended production topology is:
 Current production boundary:
 - `8011` exposes only `/health` and `/api/v1/live/*`
 - `8001` is legacy/research-only and must not be treated as the canonical consumer contract
+- the retained live family on `8011` is now served directly from QuestDB `live_snapshots`
+
+## Canonical Chart Surface
+
+The current chart entry point is on the live production app at `8011`.
+
+Canonical routes:
+- `GET /charts/live-price-comparison`
+- `GET /api/v1/charts/catalog`
+- `GET /api/v1/charts/live-price-comparison/latest`
+- `GET /api/v1/charts/live-price-comparison/history`
+- `GET /api/v1/charts/live-price-comparison/compare`
+- `GET /api/v1/charts/realized-price-reference/latest`
+- `GET /api/v1/charts/realized-price-reference/history`
+- `GET /api/v1/charts/realized-price-reference/compare`
+
+Current semantics:
+- `live-price-comparison` is the canonical market-reference chart family
+- `realized-price-reference` is the first admitted BRK-linked external validation family
+- chart history and latest payloads are served from QuestDB-backed `live_snapshots`
+- long-window `history` reads may be downsampled server-side with `downsampling_strategy=uniform_stride`; use `downsample=false` for raw operator/debug reads
+- the compare path for `realized-price-reference` uses the latest local `brk_realized_price` and one live BRK curated fetch with a hard timeout of `2s`
+- older scattered chart pages and legacy API families are not the canonical validation surface
+- `frontend/comparison.html` and `/static/comparison.html` remain legacy/research-only on `8001` and should not be used as the canonical chart entry point
+
+## Current Validation Workflow
+
+The first frozen validation workflow for `spec-042` is:
+
+1. fetch `realized-price-reference/latest`
+2. fetch `realized-price-reference/history`
+3. fetch `realized-price-reference/compare`
+4. treat `compare.summary.status` as the first parity gate
+
+Operational notes:
+- a good run returns HTTP `200` on all three endpoints
+- `compare.summary.status` may be `match`, `minor_diff`, `major_diff`, or `no_overlap`
+- BRK unavailability must degrade the compare payload to `no_overlap`, not fail the chart API
+- the current external compare is point-in-time only; it is not yet a historical BRK overlay parity claim
+
+Recorded example run:
+- [realized-price-reference validation run](specs/042-questdb-charting-validation/artifacts/realized-price-reference/README.md)
+- [spec-042 operator notes](specs/042-questdb-charting-validation/operator-notes.md)
 
 ## Getting Started
 

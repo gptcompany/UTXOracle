@@ -3,9 +3,16 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Sequence
+
+PRICES_HISTORICAL_ROUTE_ID = "prices-historical"
+DEFAULT_PRICES_HISTORICAL_TOLERANCES_PCT = {
+    "utxoracle_price": 0.1,
+    "mempool_price": 0.1,
+    "diff_percent": 0.1,
+}
 
 
 def _utc_now_iso() -> str:
@@ -14,6 +21,32 @@ def _utc_now_iso() -> str:
 
 def _load_json(path: str | Path) -> Any:
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def _coerce_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    return float(value)
+
+
+def _normalize_date_key(value: Any) -> str:
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, str):
+        if "T" in value:
+            return value.split("T", 1)[0]
+        if len(value) >= 10:
+            return value[:10]
+    raise ValueError(f"Cannot normalize date key from value: {value!r}")
+
+
+def _first_present(payload: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in payload and payload[key] is not None:
+            return payload[key]
+    return None
 
 
 def _normalize_payload(payload: Any, *, timestamp_field: str) -> list[dict[str, Any]]:
@@ -68,6 +101,143 @@ def _align_series(
     missing_keys = sorted((set(questdb_index) ^ set(baseline_index)))
     aligned = [(key, questdb_index[key], baseline_index[key]) for key in shared_keys]
     return aligned, missing_keys
+
+
+def normalize_prices_historical_payload(payload: Any) -> list[dict[str, Any]]:
+    normalized_items: list[dict[str, Any]] = []
+    for item in _normalize_payload(payload, timestamp_field="timestamp"):
+        timestamp = _first_present(item, "date", "timestamp")
+        if timestamp is None:
+            raise ValueError("prices-historical payload requires a timestamp or date field")
+        normalized_items.append(
+            {
+                "date": _normalize_date_key(timestamp),
+                "utxoracle_price": _coerce_float(_first_present(item, "utxoracle_price")),
+                "mempool_price": _coerce_float(
+                    _first_present(item, "mempool_price", "exchange_price", "mempool_exchange_price")
+                ),
+                "confidence": _coerce_float(_first_present(item, "confidence", "utxoracle_confidence")),
+                "diff_amount": _coerce_float(
+                    _first_present(item, "diff_amount", "price_difference")
+                ),
+                "diff_percent": _coerce_float(
+                    _first_present(item, "diff_percent", "avg_pct_diff")
+                ),
+                "tx_count": item.get("tx_count"),
+                "is_valid": item.get("is_valid"),
+            }
+        )
+    return normalized_items
+
+
+def load_prices_historical_baseline_from_duckdb(
+    path: str | Path,
+    *,
+    days: int,
+    as_of: date | str | None = None,
+) -> list[dict[str, Any]]:
+    import duckdb
+
+    if days <= 0:
+        raise ValueError("days must be > 0")
+
+    conn = duckdb.connect(str(path), read_only=True)
+    try:
+        anchor_date = as_of
+        if isinstance(anchor_date, str):
+            anchor_date = date.fromisoformat(anchor_date)
+        if anchor_date is None:
+            result = conn.execute("SELECT max(date) FROM price_analysis").fetchone()
+            anchor_date = result[0] if result else None
+        if anchor_date is None:
+            return []
+
+        start_date = anchor_date - timedelta(days=days - 1)
+        rows = conn.execute(
+            """
+            SELECT
+                date,
+                exchange_price,
+                utxoracle_price,
+                price_difference,
+                avg_pct_diff,
+                confidence,
+                tx_count,
+                is_valid
+            FROM price_analysis
+            WHERE date >= ? AND date <= ?
+            ORDER BY date ASC
+            """,
+            [start_date, anchor_date],
+        ).fetchall()
+    finally:
+        conn.close()
+
+    return [
+        {
+            "date": _normalize_date_key(row[0]),
+            "mempool_price": _coerce_float(row[1]),
+            "utxoracle_price": _coerce_float(row[2]),
+            "diff_amount": _coerce_float(row[3]),
+            "diff_percent": _coerce_float(row[4]),
+            "confidence": _coerce_float(row[5]),
+            "tx_count": row[6],
+            "is_valid": row[7],
+        }
+        for row in rows
+    ]
+
+
+def compare_prices_historical_payloads(
+    *,
+    questdb_payload: Any,
+    duckdb_path: str | Path,
+    lookback_days: int,
+    dataset_id: str | None = None,
+    allow_missing_baseline: bool = False,
+    field_tolerances_pct: dict[str, float] | None = None,
+    baseline_as_of: date | str | None = None,
+) -> dict[str, Any]:
+    normalized_payload = normalize_prices_historical_payload(questdb_payload)
+    baseline_payload = load_prices_historical_baseline_from_duckdb(
+        duckdb_path,
+        days=lookback_days,
+        as_of=baseline_as_of,
+    )
+    return compare_payloads(
+        route_id=PRICES_HISTORICAL_ROUTE_ID,
+        questdb_payload=normalized_payload,
+        baseline_payload=baseline_payload,
+        field_tolerances_pct=field_tolerances_pct or DEFAULT_PRICES_HISTORICAL_TOLERANCES_PCT,
+        dataset_id=dataset_id,
+        allow_missing_baseline=allow_missing_baseline,
+        timestamp_field="date",
+    )
+
+
+def run_prices_historical_dual_read(
+    *,
+    questdb_payload: Any,
+    duckdb_path: str | Path,
+    lookback_days: int,
+    dataset_id: str | None = None,
+    divergence_log: str | Path | None = None,
+    allow_missing_baseline: bool = False,
+    field_tolerances_pct: dict[str, float] | None = None,
+    baseline_as_of: date | str | None = None,
+) -> dict[str, Any]:
+    report = compare_prices_historical_payloads(
+        questdb_payload=questdb_payload,
+        duckdb_path=duckdb_path,
+        lookback_days=lookback_days,
+        dataset_id=dataset_id,
+        allow_missing_baseline=allow_missing_baseline,
+        field_tolerances_pct=field_tolerances_pct,
+        baseline_as_of=baseline_as_of,
+    )
+    if divergence_log:
+        append_dual_read_event(divergence_log, report)
+    return report
 
 
 def compare_payloads(
@@ -195,9 +365,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Compare QuestDB-backed route payloads against research baselines",
     )
-    parser.add_argument("--route-id", required=True, help="Stable route family id")
+    parser.add_argument(
+        "--route-family",
+        choices=[PRICES_HISTORICAL_ROUTE_ID],
+        help="Use a retained route family with built-in dataset loaders and default tolerances",
+    )
+    parser.add_argument("--route-id", help="Stable route family id")
     parser.add_argument("--questdb", required=True, help="Path to QuestDB JSON payload")
     parser.add_argument("--baseline", help="Path to baseline JSON payload")
+    parser.add_argument(
+        "--baseline-duckdb",
+        help="Path to DuckDB baseline database for route-family helpers",
+    )
     parser.add_argument(
         "--field",
         action="append",
@@ -205,6 +384,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Field tolerance in the form field=tolerance_pct. May be repeated.",
     )
     parser.add_argument("--dataset-id", help="Optional dataset identifier")
+    parser.add_argument(
+        "--lookback-days",
+        type=int,
+        default=7,
+        help="Bounded lookback window for route-family helpers",
+    )
+    parser.add_argument(
+        "--baseline-as-of",
+        help="Optional baseline anchor date (YYYY-MM-DD). Defaults to the latest available day",
+    )
     parser.add_argument("--output", help="Optional path to write the full report JSON")
     parser.add_argument(
         "--divergence-log",
@@ -227,19 +416,40 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
 
-    field_tolerances_pct = _parse_field_tolerances(args.field)
-    questdb_payload = _load_json(args.questdb)
-    baseline_payload = _load_json(args.baseline) if args.baseline else None
+    if args.route_family == PRICES_HISTORICAL_ROUTE_ID:
+        if not args.baseline_duckdb:
+            raise ValueError("--baseline-duckdb is required for --route-family prices-historical")
+        field_tolerances_pct = (
+            _parse_field_tolerances(args.field)
+            if args.field
+            else DEFAULT_PRICES_HISTORICAL_TOLERANCES_PCT
+        )
+        report = run_prices_historical_dual_read(
+            questdb_payload=_load_json(args.questdb),
+            duckdb_path=args.baseline_duckdb,
+            lookback_days=args.lookback_days,
+            dataset_id=args.dataset_id,
+            divergence_log=args.divergence_log,
+            allow_missing_baseline=args.allow_missing_baseline,
+            field_tolerances_pct=field_tolerances_pct,
+            baseline_as_of=args.baseline_as_of,
+        )
+    else:
+        if not args.route_id:
+            raise ValueError("--route-id is required when --route-family is not provided")
+        field_tolerances_pct = _parse_field_tolerances(args.field)
+        questdb_payload = _load_json(args.questdb)
+        baseline_payload = _load_json(args.baseline) if args.baseline else None
 
-    report = compare_payloads(
-        route_id=args.route_id,
-        questdb_payload=questdb_payload,
-        baseline_payload=baseline_payload,
-        field_tolerances_pct=field_tolerances_pct,
-        dataset_id=args.dataset_id,
-        allow_missing_baseline=args.allow_missing_baseline,
-        timestamp_field=args.timestamp_field,
-    )
+        report = compare_payloads(
+            route_id=args.route_id,
+            questdb_payload=questdb_payload,
+            baseline_payload=baseline_payload,
+            field_tolerances_pct=field_tolerances_pct,
+            dataset_id=args.dataset_id,
+            allow_missing_baseline=args.allow_missing_baseline,
+            timestamp_field=args.timestamp_field,
+        )
 
     serialized = json.dumps(report, indent=2, sort_keys=True)
     if args.output:
@@ -249,7 +459,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
         print(serialized)
 
-    if args.divergence_log:
+    if args.divergence_log and args.route_family != PRICES_HISTORICAL_ROUTE_ID:
         append_dual_read_event(args.divergence_log, report)
 
     return 0 if report["status"] in {"pass", "skipped"} else 1

@@ -145,6 +145,44 @@ async def test_hyperliquid_client_reads_filtered_oracle_updates_from_zst(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_hyperliquid_client_prefers_live_btc_namespace_over_cash_placeholder(tmp_path):
+    stream_dir = tmp_path / "filtered" / "hip3_oracle_updates_by_block" / "hourly" / "20260331"
+    stream_dir.mkdir(parents=True)
+    zst_path = stream_dir / "13.zst"
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    payload = {
+        "local_time": now.isoformat().replace("+00:00", "Z"),
+        "block_time": now.isoformat().replace("+00:00", "Z"),
+        "block_number": 941261781,
+        "events": [
+            {
+                "oracle_pxs": {
+                    "coin_to_mark_px": [
+                        ["cash:BTC", {"px": "70000.0", "last_update_time": now.isoformat().replace("+00:00", "Z")}],
+                        ["hyna:BTC", {"px": "67271.0", "last_update_time": now.isoformat().replace("+00:00", "Z")}],
+                    ],
+                    "coin_to_oracle_px": [
+                        ["cash:BTC", {"px": "70000.0", "last_update_time": now.isoformat().replace("+00:00", "Z")}],
+                        ["hyna:BTC", {"px": "67253.0", "last_update_time": now.isoformat().replace("+00:00", "Z")}],
+                    ],
+                }
+            }
+        ],
+    }
+    compressor = zstd.ZstdCompressor()
+    zst_path.write_bytes(compressor.compress((json.dumps(payload) + "\n").encode("utf-8")))
+
+    client = HyperliquidSnapshotClient(base_url="http://hl.local/info", data_root=tmp_path)
+    result = await client.fetch_snapshot()
+    await client.aclose()
+
+    assert result.health.status == "healthy"
+    assert result.value is not None
+    assert result.value.oracle_price == pytest.approx(67253.0)
+    assert result.value.mark_price == pytest.approx(67271.0)
+
+
+@pytest.mark.asyncio
 async def test_hyperliquid_client_parses_meta_and_asset_ctxs_when_filesystem_absent(tmp_path):
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "POST"

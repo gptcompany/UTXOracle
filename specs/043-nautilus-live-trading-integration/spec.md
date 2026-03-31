@@ -1,6 +1,6 @@
 # spec-043: Nautilus Trader Live Integration
 
-> **Status**: DRAFT
+> **Status**: IN PROGRESS
 > **Priority**: HIGH
 > **Effort**: Medium
 > **Created**: 2026-03-31
@@ -37,6 +37,25 @@ This spec defines a controlled integration layer for Nautilus Trader on top of t
 - requires spec-041 for clean production boundary and QuestDB-backed API
 - should consume validation outputs from spec-042 where useful
 
+## Frozen First Slice
+
+The first implementation slice is intentionally narrow.
+
+It admits exactly one integration mode:
+
+- polling-only
+- `GET /api/v1/live/snapshot` on `8011`
+- shadow-read and offline validation first
+
+It does **not** admit yet:
+
+- streaming transports
+- direct QuestDB or Parquet consumption by Nautilus
+- paper trading without upstream `sequence_id`
+- live order routing
+
+The detailed first-slice contract freeze lives in `tradable-contract.md`.
+
 ## Design
 
 ### 1. Tradable Contract
@@ -61,7 +80,14 @@ Every admitted field MUST have an explicit ownership model:
 
 Fields with no declared producer MUST NOT be part of the tradable contract.
 
-Current repo reality: the live snapshot contract currently exposes timestamp, block height, prices, comparison fields, feature fields, source health, and source timestamps, but it does not yet expose `sequence_id` or `source_spread_bps`. One of the first deliverables of this spec is to decide whether those fields are added upstream or derived in-adapter.
+Current repo reality: the live snapshot contract currently exposes timestamp, block height, prices, comparison fields, feature fields, source health, and source timestamps, but it does not yet expose `sequence_id` or `source_spread_bps`.
+
+First-slice decisions:
+
+- `sequence_id` is not adapter-derived and remains an upstream prerequisite before paper/live rollout
+- `source_spread_bps` is admitted as an adapter-derived field with formula `abs(comparison.utxo_vs_mempool_bps)`
+- `mempool` is the only required external reference in the first tradable slice
+- `features.*` and Hyperliquid-derived fields remain research-only for now
 
 Anything not explicitly admitted as tradable remains research-only.
 
@@ -86,6 +112,19 @@ The Nautilus integration MUST enforce:
 - minimum confidence requirements
 - circuit breaker behavior when data becomes stale, unavailable, or anomalous
 
+First-slice gate freeze:
+
+- `snapshot_age_seconds <= 15` -> candidate `STATUS_OK`
+- `15 < age <= 30` -> `STATUS_LIQUIDATE_ONLY`
+- `age > 30` -> `STATUS_HALT`
+- required healthy sources: `electrs`, `utxoracle`, `mempool_api`
+- `utxoracle_confidence >= 0.75` -> candidate `STATUS_OK`
+- `0.60 <= utxoracle_confidence < 0.75` -> `STATUS_LIQUIDATE_ONLY`
+- confidence below `0.60` or missing -> `STATUS_HALT`
+- `source_spread_bps <= 100` -> candidate `STATUS_OK`
+- `100 < source_spread_bps <= 250` -> `STATUS_LIQUIDATE_ONLY`
+- `source_spread_bps > 250` or missing -> `STATUS_HALT`
+
 ### 4. Replay and Paper Trading
 
 The integration should support:
@@ -104,17 +143,18 @@ and MUST reject any snapshot that moves backward on hard monotonicity signals. B
 
 Monotonicity policy:
 
-- `sequence_id` and `timestamp` are hard monotonicity gates
+- `timestamp` is the first admitted hard monotonicity gate
 - `block_height` is a soft monotonicity gate so the adapter can support explicit re-org handling policies without silently accepting inconsistent data
 - if block height moves backward, the default behavior MUST be fail-closed unless an operator-approved re-org handling mode is active
+- upstream `sequence_id` remains required before paper/live enablement
 
 ### 5. Rollout Policy
 
 Rollout order:
 
 1. offline adapter tests
-2. paper trading in Nautilus
-3. shadow/live-read mode without order submission
+2. shadow/live-read mode without order submission
+3. paper trading in Nautilus
 4. controlled live trading enablement
 
 ### 6. Kill-Switch and Recovery
@@ -132,6 +172,11 @@ Required behavior:
 - stale or operator-disabled data emits `STATUS_HALT`
 - low-confidence or borderline anomaly conditions emit `STATUS_LIQUIDATE_ONLY`
 - recovery behavior MUST be explicit: either manual reset or automatic resume after a configured number of consecutive healthy snapshots
+
+First-slice recovery freeze:
+
+- `STATUS_HALT` requires manual reset
+- `STATUS_LIQUIDATE_ONLY` may auto-recover only after `3` consecutive healthy snapshots
 
 ## Functional Requirements
 
@@ -161,7 +206,9 @@ The adapter MUST reject snapshots when deviation or price behavior breaches conf
 
 The adapter MUST track timestamp, block height, and sequence progression.
 
-`sequence_id` and timestamp MUST be treated as hard monotonicity gates.
+In the first admitted slice, timestamp MUST be treated as the hard monotonicity gate.
+
+`sequence_id` becomes a second hard monotonicity gate once it is added upstream and the adapter is admitted beyond shadow-read mode.
 
 `block_height` MUST be treated as a soft monotonicity gate to allow explicit re-org handling policies, but backward block movement MUST still fail closed by default unless operator-approved handling is enabled.
 

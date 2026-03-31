@@ -54,6 +54,27 @@ Build in this order:
 4. curated BRK feature overlays from live snapshots
 5. whale/netflow charts once QuestDB ingestion is confirmed
 
+## Frozen First Slice
+
+Do the first pass in this order only:
+
+1. freeze `live-price-comparison` as the only admitted `chart_id`
+2. implement `catalog`, `latest`, and `history`
+3. read only from QuestDB `live_snapshots`
+4. expose freshness and degraded-state metadata
+5. defer BRK compare mode, overlays, and downsampling until the base contract is stable
+
+## Frozen External Validation Direction
+
+Do not force `live-price-comparison` against CheckOnChain-style structural metrics.
+
+Use this order for the first external validation slice:
+
+1. keep `live-price-comparison` on internal market-reference compare only
+2. map `brk_realized_price` as the first credible BRK / CheckOnChain-style external validation candidate
+3. add numeric compare first
+4. add visual review only after the numeric contract is stable
+
 ## Estimated Effort
 
 | Area | Effort | Notes |

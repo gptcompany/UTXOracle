@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import os
+from functools import lru_cache
+import asyncio
+import inspect
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -11,11 +14,25 @@ from scripts.live.storage import LiveSnapshotStore
 router = APIRouter(prefix="/live", tags=["live"])
 
 
+@lru_cache(maxsize=1)
 def get_live_snapshot_store() -> LiveSnapshotStore:
     retention_hours = int(os.getenv("LIVE_RETENTION_HOURS", "24"))
+    live_db_path = os.getenv("LIVE_DB_PATH")
     return LiveSnapshotStore(
+        live_db_path,
         retention_hours=retention_hours,
     )
+
+
+async def _call_store(store: LiveSnapshotStore, method_name: str, *args, **kwargs):
+    async_method = getattr(store, f"a{method_name}", None)
+    if async_method is not None:
+        return await async_method(*args, **kwargs)
+
+    method = getattr(store, method_name)
+    if inspect.iscoroutinefunction(method):
+        return await method(*args, **kwargs)
+    return await asyncio.to_thread(method, *args, **kwargs)
 
 
 def _require_snapshot(store: LiveSnapshotStore) -> LiveSnapshot:
@@ -25,8 +42,7 @@ def _require_snapshot(store: LiveSnapshotStore) -> LiveSnapshot:
     return snapshot
 
 
-def build_live_health_summary(store: LiveSnapshotStore) -> dict[str, object]:
-    snapshot = store.get_latest()
+def _build_live_health_summary_from_snapshot(snapshot: LiveSnapshot | None) -> dict[str, object]:
     if snapshot is None:
         return {
             "status": "unavailable",
@@ -59,11 +75,23 @@ def build_live_health_summary(store: LiveSnapshotStore) -> dict[str, object]:
     }
 
 
+def build_live_health_summary(store: LiveSnapshotStore) -> dict[str, object]:
+    return _build_live_health_summary_from_snapshot(store.get_latest())
+
+
+async def build_live_health_summary_async(store: LiveSnapshotStore) -> dict[str, object]:
+    snapshot = await _call_store(store, "get_latest")
+    return _build_live_health_summary_from_snapshot(snapshot)
+
+
 @router.get("/snapshot", response_model=LiveSnapshot)
 async def get_live_snapshot(
     store: Annotated[LiveSnapshotStore, Depends(get_live_snapshot_store)],
 ) -> LiveSnapshot:
-    return _require_snapshot(store)
+    snapshot = await _call_store(store, "get_latest")
+    if snapshot is None:
+        raise HTTPException(status_code=503, detail="live snapshot unavailable")
+    return snapshot
 
 
 @router.get("/history", response_model=list[LiveSnapshot])
@@ -71,14 +99,16 @@ async def get_live_history(
     store: Annotated[LiveSnapshotStore, Depends(get_live_snapshot_store)],
     minutes: Annotated[int, Query(ge=1, le=24 * 60)] = 60,
 ) -> list[LiveSnapshot]:
-    return store.get_history(LiveHistoryQuery(minutes=minutes))
+    return await _call_store(store, "get_history", LiveHistoryQuery(minutes=minutes))
 
 
 @router.get("/comparison/latest", response_model=LiveComparisonSnapshot)
 async def get_live_comparison_latest(
     store: Annotated[LiveSnapshotStore, Depends(get_live_snapshot_store)],
 ) -> LiveComparisonSnapshot:
-    snapshot = _require_snapshot(store)
+    snapshot = await _call_store(store, "get_latest")
+    if snapshot is None:
+        raise HTTPException(status_code=503, detail="live snapshot unavailable")
     return LiveComparisonSnapshot(
         timestamp=snapshot.timestamp,
         block_height=snapshot.block_height,
@@ -94,7 +124,9 @@ async def get_live_comparison_latest(
 async def get_live_ready(
     store: Annotated[LiveSnapshotStore, Depends(get_live_snapshot_store)],
 ) -> dict[str, object]:
-    snapshot = _require_snapshot(store)
+    snapshot = await _call_store(store, "get_latest")
+    if snapshot is None:
+        raise HTTPException(status_code=503, detail="live snapshot unavailable")
     now = utc_now()
     age_seconds = (now - snapshot.timestamp).total_seconds()
     

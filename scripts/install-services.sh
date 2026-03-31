@@ -59,10 +59,11 @@ chown -R sam:sam "$PROJECT_ROOT/data" "$PROJECT_ROOT/logs"
 echo -e "${YELLOW}==> Reloading systemd daemon...${NC}"
 systemctl daemon-reload
 
-# Enable services
-echo -e "${YELLOW}==> Enabling services...${NC}"
+# Enable only the whale detector by default.
+# The legacy API on 8001 stays manual-only after spec-041.
+echo -e "${YELLOW}==> Enabling default services...${NC}"
 systemctl enable utxoracle-whale-detection.service
-systemctl enable utxoracle-api.service
+systemctl disable utxoracle-api.service 2>/dev/null || true
 
 # Display status
 echo ""
@@ -70,10 +71,10 @@ echo -e "${GREEN}==> Installation complete!${NC}"
 echo ""
 echo "Available commands:"
 echo "  sudo systemctl start utxoracle-whale-detection"
-echo "  sudo systemctl start utxoracle-api"
+echo "  sudo systemctl start utxoracle-api   # manual legacy API only"
 echo "  sudo systemctl status utxoracle-whale-detection"
 echo "  sudo systemctl status utxoracle-api"
 echo "  sudo journalctl -u utxoracle-whale-detection -f"
 echo "  sudo journalctl -u utxoracle-api -f"
 echo ""
-echo -e "${YELLOW}NOTE: Services are enabled but not started. Start them manually when ready.${NC}"
+echo -e "${YELLOW}NOTE: Whale detection is enabled but not started. The legacy API on 8001 is installed but left disabled by default.${NC}"

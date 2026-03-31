@@ -1,7 +1,7 @@
 # Live Stack Role Matrix
 
 **Status**: Active reference for the live production direction
-**Updated**: 2026-03-31 (spec-041 boundary split started)
+**Updated**: 2026-03-31 (spec-041 boundary split verified and QuestDB cutover complete)
 
 This document defines the correct role of `UTXOracle`, `BRK`, `electrs`, `mempool`, and `Hyperliquid` in the current live-first architecture.
 
@@ -9,7 +9,7 @@ This document defines the correct role of `UTXOracle`, `BRK`, `electrs`, `mempoo
 
 | Component | Runtime endpoint or path | Role |
 |-----------|--------------------------|------|
-| `UTXOracle Live API` | `http://127.0.0.1:8011` | **Primary live consumer API** — `api.apps.live:app`, production-scoped `GET /api/v1/live/*` + `/health` (Docker, `LIVE_ENABLED=true`) |
+| `UTXOracle Live API` | `http://127.0.0.1:8011` | **Primary live consumer API** — `api.apps.live:app`, production-scoped `GET /api/v1/live/*` + `/health` (Docker, `LIVE_ENABLED=true`; served snapshot source is QuestDB `live_snapshots`) |
 | `UTXOracle Live Worker` | Docker container (no port) | Polling worker — writes live snapshots to `utxoracle_live.sqlite3` |
 | `UTXOracle API` | `http://127.0.0.1:8001` | Explicit legacy FastAPI surface via `api.apps.legacy:app` (systemd, batch-oriented, non-canonical) |
 | `BRK` | `http://127.0.0.1:7070` | Query surface + computed on-chain metrics |

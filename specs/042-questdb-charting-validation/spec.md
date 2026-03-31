@@ -1,6 +1,6 @@
 # spec-042: QuestDB Charting & Visual Validation
 
-> **Status**: DRAFT
+> **Status**: COMPLETE
 > **Priority**: HIGH
 > **Effort**: Medium
 > **Created**: 2026-03-31
@@ -36,6 +36,49 @@ After spec-041, the repository will have one operational storage boundary. This 
 
 - requires spec-041 to be completed first
 - assumes `8011` exposes only production-backed routes
+
+## Frozen First Slice
+
+The first implementation slice is intentionally narrow.
+
+It admits exactly one chart family:
+
+- `live-price-comparison`
+
+The first slice exposes exactly these endpoints:
+
+- `GET /api/v1/charts/catalog`
+- `GET /api/v1/charts/live-price-comparison/latest`
+- `GET /api/v1/charts/live-price-comparison/history`
+
+The first slice is API-first. A canonical dashboard page is allowed only after the chart API contract and QuestDB query behavior are stable.
+
+The first slice reads only from `live_snapshots` in QuestDB and MUST NOT require:
+
+- BRK overlay fetches
+- compare-mode parity rendering
+- generic chart engines
+- whale or legacy metric datasets
+
+The initial series set for `live-price-comparison` is:
+
+- `utxoracle_price`
+- `mempool_exchange_price`
+- `hyperliquid_oracle_price`
+- `hyperliquid_mark_price`
+
+The first slice MAY include derived freshness metadata, but it MUST NOT add a separate deviation chart family yet. Deviation and BRK overlay work are follow-on scope within this spec after the base chart contract is stable.
+
+`live-price-comparison` compare mode is internal-reference only. It is valid against mempool and Hyperliquid market references already carried in `live_snapshots`, but it is not a valid direct parity target for BRK or CheckOnChain-style structural metrics. External reference mapping is frozen separately in `reference-series-mapping.md`.
+
+The first admitted follow-on slice extends the chart family set with:
+
+- `realized-price-reference`
+- `GET /api/v1/charts/realized-price-reference/latest`
+- `GET /api/v1/charts/realized-price-reference/history`
+- `GET /api/v1/charts/realized-price-reference/compare`
+
+`realized-price-reference` stays QuestDB-backed for local history and latest reads, while its compare mode is allowed to fetch the current BRK curated feature snapshot with a hard timeout of `2s`. If BRK is unavailable, the compare payload MUST degrade to `no_overlap` instead of failing the whole chart surface.
 
 ## Design
 
@@ -112,9 +155,13 @@ Validation is both:
 - **numeric**: tolerance checks, MAE/relative error/parity score on sampled series
 - **visual**: side-by-side chart parity workflow that renders the numeric outcome instead of replacing it
 
+The first admitted external validation path is `realized-price-reference`, where local `features.brk_realized_price` from `live_snapshots` is compared against the live BRK curated metric `realized_price_usd`. The initial scope is current-point parity first, with historical overlays deferred.
+
 ### 4. Frontend Scope
 
 Provide one intentional dashboard surface rather than many partial HTML pages.
+
+For the first slice, frontend work is optional and MUST stay minimal. If a page is added in the first slice, it should be a thin client over the new chart endpoints rather than a new bespoke dashboard contract.
 
 The dashboard should:
 
@@ -203,3 +250,14 @@ For synchronous overlay fetches, the production chart API MUST enforce a hard ti
 | BRK normalization mismatch | keep overlay metadata and tolerance notes explicit |
 | Frontend sprawl continues | define one canonical chart dashboard and route |
 | Query cost grows too quickly | add window classes and downsampling policies |
+
+## First Slice Exit Criteria
+
+The first slice is complete when:
+
+1. `GET /api/v1/charts/catalog` returns a catalog containing only `live-price-comparison`
+2. `GET /api/v1/charts/live-price-comparison/latest` returns the normalized chart payload from QuestDB-backed `live_snapshots`
+3. `GET /api/v1/charts/live-price-comparison/history` returns a normalized multi-series payload from QuestDB-backed `live_snapshots`
+4. chart payloads include freshness and degraded-state metadata
+5. unsupported chart ids return a clear `404`
+6. no BRK/external overlay fetch is required for the first slice

@@ -1,6 +1,6 @@
 # spec-041: QuestDB Operational Convergence & API Boundary
 
-> **Status**: DRAFT
+> **Status**: COMPLETE
 > **Priority**: CRITICAL
 > **Effort**: High
 > **Created**: 2026-03-31
@@ -47,13 +47,12 @@ After this spec:
 
 ## Current Facts Verified On 2026-03-31
 
-- `127.0.0.1:8011/health` is healthy and returns a live summary.
-- `127.0.0.1:8001` is currently not serving.
-- the live Docker service boots `api.main:app` on `8011`.
-- the legacy systemd service also boots `api.main:app` on `8001`.
-- `live_snapshots` in QuestDB is populated.
-- several legacy tables such as `metrics`, `price_analysis`, `whale_transactions`, `net_flow_metrics`, `utxo_snapshots`, and `cointime_metrics` exist in QuestDB but are currently empty.
-- some routes still read DuckDB directly.
+- `127.0.0.1:8011` now boots `api.apps.live:app`, not the mixed `api.main:app`.
+- `127.0.0.1:8011` now exposes only `/health` and `/api/v1/live/*`; legacy families such as `/api/prices/*` return `404`.
+- `127.0.0.1:8001` remains the explicit legacy systemd surface via `api.apps.legacy:app`.
+- the retained live family on `8011` now reads and serves directly from QuestDB `live_snapshots`.
+- `/api/prices/historical` has a first real parity slice and dual-read logging path, but the parity gate is not complete for all retained route families.
+- some legacy routes still read DuckDB directly, but they are not admitted to `8011`.
 
 ## Design
 
@@ -242,6 +241,12 @@ The production app MUST define QuestDB connection-pool sizing, concurrency expec
 | Migration safety | dual-read monitoring shows no unresolved high-severity divergences before cutover |
 | Runtime reliability | no DuckDB lock contention in served API path |
 | Follow-up readiness | chart and trading specs can depend on one storage model |
+
+## Closure Notes
+
+1. `8011` is now a narrow QuestDB-backed production surface: `/health` plus `/api/v1/live/*`
+2. legacy families such as `/api/prices/*`, `/api/metrics/*`, `/api/whale/*`, `/api/v1/models/*`, and `/api/v1/validation/*` remain outside `8011` by design
+3. `/api/prices/historical` parity and dual-read work remains available for future legacy-family migration work, but it is no longer a blocker for the `8011` boundary closure
 
 ## Risks
 

@@ -41,6 +41,7 @@ DEFAULT_HYPERLIQUID_MAX_AGE_SECONDS = float(
     os.getenv("HYPERLIQUID_MAX_AGE_SECONDS", "900")
 )
 DEFAULT_HYPERLIQUID_COIN_PREFIX = os.getenv("HYPERLIQUID_COIN_PREFIX", "cash:")
+COMMON_HYPERLIQUID_COIN_PREFIXES = ("hyna:", "km:", "cash:", "")
 BRK_CURATED_METRICS = (
     ("brk_realized_price", "realized_price_usd"),
     ("brk_liveliness", "liveliness"),
@@ -712,7 +713,10 @@ def _read_hyperliquid_filtered_snapshot(
     filtered_stream: str,
     coin_key_prefix: str,
 ) -> tuple[HyperliquidPriceSnapshot | None, Path | None]:
-    coin_keys = (f"{coin_key_prefix}{symbol}", symbol)
+    coin_keys = _build_hyperliquid_coin_keys(
+        symbol=symbol,
+        preferred_prefix=coin_key_prefix,
+    )
     for stream_root in _candidate_filtered_roots(data_root, filtered_stream):
         hourly_root = stream_root / "hourly"
         if not hourly_root.exists():
@@ -917,15 +921,37 @@ def _lookup_hyperliquid_coin_entry(
                 return candidate
         return None
     if isinstance(branch, list):
-        for item in branch:
+        entries = {
+            item[0]: item[1]
+            for item in branch
             if (
                 isinstance(item, (list, tuple))
                 and len(item) == 2
-                and item[0] in coin_keys
+                and isinstance(item[0], str)
                 and isinstance(item[1], dict)
-            ):
-                return item[1]
+            )
+        }
+        for coin_key in coin_keys:
+            candidate = entries.get(coin_key)
+            if isinstance(candidate, dict):
+                return candidate
     return None
+
+
+def _build_hyperliquid_coin_keys(
+    *,
+    symbol: str,
+    preferred_prefix: str,
+) -> tuple[str, ...]:
+    keys: list[str] = []
+    prefixes = list(COMMON_HYPERLIQUID_COIN_PREFIXES)
+    if preferred_prefix and preferred_prefix not in prefixes:
+        prefixes.insert(0, preferred_prefix)
+    for prefix in prefixes:
+        coin_key = f"{prefix}{symbol}" if prefix else symbol
+        if coin_key not in keys:
+            keys.append(coin_key)
+    return tuple(keys)
 
 
 def _read_hyperliquid_sqlite_snapshot(db_path: Path) -> HyperliquidPriceSnapshot | None:
