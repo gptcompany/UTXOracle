@@ -1,7 +1,7 @@
 # Live Stack Role Matrix
 
 **Status**: Active reference for the live production direction
-**Updated**: 2026-03-23 (spec-040 COMPLETE)
+**Updated**: 2026-03-31 (spec-041 boundary split started)
 
 This document defines the correct role of `UTXOracle`, `BRK`, `electrs`, `mempool`, and `Hyperliquid` in the current live-first architecture.
 
@@ -9,9 +9,9 @@ This document defines the correct role of `UTXOracle`, `BRK`, `electrs`, `mempoo
 
 | Component | Runtime endpoint or path | Role |
 |-----------|--------------------------|------|
-| `UTXOracle Live API` | `http://127.0.0.1:8011` | **Primary live consumer API** — `GET /api/v1/live/*` + `/health` (Docker, `LIVE_ENABLED=true`) |
+| `UTXOracle Live API` | `http://127.0.0.1:8011` | **Primary live consumer API** — `api.apps.live:app`, production-scoped `GET /api/v1/live/*` + `/health` (Docker, `LIVE_ENABLED=true`) |
 | `UTXOracle Live Worker` | Docker container (no port) | Polling worker — writes live snapshots to `utxoracle_live.sqlite3` |
-| `UTXOracle API` | `http://127.0.0.1:8001` | Legacy FastAPI + historical metrics (systemd, batch-oriented) |
+| `UTXOracle API` | `http://127.0.0.1:8001` | Explicit legacy FastAPI surface via `api.apps.legacy:app` (systemd, batch-oriented, non-canonical) |
 | `BRK` | `http://127.0.0.1:7070` | Query surface + computed on-chain metrics |
 | `electrs` | `http://127.0.0.1:3002` | Confirmed chain index and raw lookup |
 | `mempool-api` | `http://127.0.0.1:8999/api/v1` | Live mempool, fees, mining stats, exchange price |
@@ -36,6 +36,7 @@ Primary responsibilities:
 Important distinction:
 - `UTXOracle` is the final product surface for downstream consumers
 - it should not expose raw upstream complexity to trading engines
+- on the current host, only `8011` is admitted as the production consumer contract
 
 ### BRK
 
@@ -164,7 +165,8 @@ Current host reality is:
 - `hyperliquid-node /info` on `3001` via `POST`
 - `hyperliquid-node metrics` on `9101`
 - filtered oracle updates on `/media/sam/4TB-NVMe/hyperliquid/filtered/hip3_oracle_updates_by_block`
-- current systemd FastAPI on `8001`
+- current systemd FastAPI on `8001` is explicit legacy
+- production-scoped FastAPI on `8011` boots through `api.apps.live:app`
 - `127.0.0.1:12345` is not the canonical Hyperliquid source for this stack
 
 ## Immediate Live Direction (spec-040 COMPLETE — 2026-03-23)

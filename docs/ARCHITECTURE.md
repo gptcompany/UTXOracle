@@ -1,8 +1,8 @@
 # UTXOracle Architecture
 
-> **2026-03-23 Update**: spec-040 (UTXOracle Live Service) is **COMPLETE**. Both Docker containers are operational.
+> **2026-03-31 Update**: spec-041 has begun. The production live boundary now boots through `api.apps.live:app` on `8011`, while the mixed historical surface is explicit legacy via `api.apps.legacy:app` on `8001`.
 > Read [`docs/LIVE_STACK_ROLE_MATRIX.md`](docs/LIVE_STACK_ROLE_MATRIX.md) first for current role assignment and runtime endpoints.
-> Current host runtime verified on 2026-03-23: `UTXOracle API` on `8001` (legacy systemd) | `UTXOracle Live API` on `8011` | `BRK` on `7070` | `electrs` on `3002` | `mempool-api` on `8999`.
+> Current host runtime verified on 2026-03-31: `UTXOracle Live API` on `8011` (production Docker app) | `UTXOracle API` on `8001` (legacy systemd app) | `BRK` on `7070` | `electrs` on `3002` | `mempool-api` on `8999`.
 
 > **Note**: This file is the canonical source for architecture documentation.
 > When implementing new specs, update THIS file (not CLAUDE.md).
@@ -11,6 +11,15 @@
 
 The live deployment runs via the dedicated compose stack in `docker-compose.live.yml`. It is intentionally separate from the existing systemd API on `8001`.
 
+## 2026-03-31 Production Boundary Split (spec-041) — IN PROGRESS
+
+The production boundary is now explicit:
+
+- `api.apps.live:app` is the canonical production entrypoint for `8011`
+- `api.apps.legacy:app` is the explicit legacy alias for the mixed historical surface on `8001`
+- the production app only exposes `/health` and `/api/v1/live/*`
+- legacy route families such as `/api/prices/*`, `/api/metrics/*`, `/api/whale/*`, `/api/v1/models/*`, and `/api/v1/validation/*` are not admitted to the production app
+
 **Completion fixes applied on 2026-03-23:**
 - `UTXO_DB_PATH` and `WASSERSTEIN_SHIFT_THRESHOLD` added to `api/config.py` (were incorrectly imported from there before being defined)
 - `JWT_SECRET` default added to `docker-compose.live.yml` (the API requires it at startup)
@@ -18,8 +27,8 @@ The live deployment runs via the dedicated compose stack in `docker-compose.live
 
 ### Live Services
 
-- `utxoracle-live-worker`: runs `python -m scripts.live.runtime` and writes the canonical live snapshot to SQLite WAL
-- `utxoracle-live-api`: runs `uvicorn api.main:app` with `LIVE_ENABLED=true` and exposes `/api/v1/live/*` plus `/health`
+- `utxoracle-live-worker`: runs `python -m scripts.live.runtime` and writes the canonical live snapshot through the QuestDB-backed live snapshot store
+- `utxoracle-live-api`: runs `uvicorn api.apps.live:app` with `LIVE_ENABLED=true` and exposes only `/api/v1/live/*` plus `/health`
 
 ### Required Volume Mounts
 
@@ -31,7 +40,7 @@ The live deployment runs via the dedicated compose stack in `docker-compose.live
 
 | Variable | Purpose | Default in live compose |
 |----------|---------|-------------------------|
-| `LIVE_DB_PATH` | persisted live snapshot store (SQLite WAL) | `/app/data/utxoracle_live.sqlite3` |
+| `LIVE_DB_PATH` | compatibility path name retained for the live snapshot store config | `/app/data/utxoracle_live.sqlite3` |
 | `LIVE_WORKER_LOCK_PATH` | single-writer guard for worker runtime | `/app/data/utxoracle_live.sqlite3.worker.lock` |
 | `LIVE_API_PORT` | host-facing live API port | `8011` |
 | `ELECTRS_HTTP_URL` | upstream chain context | `http://host.docker.internal:3002` |
@@ -50,7 +59,7 @@ Containers reach host-level infra through `host.docker.internal`:
 - `BRK` on `7070`
 - `hyperliquid-node` on `3001` and `9101`
 
-The live API remains on `8011` specifically to avoid collision with the existing baseline API on `8001`.
+The live API remains on `8011` specifically to avoid collision with the existing legacy API on `8001`.
 
 ## Current Implementation (spec-003: Hybrid Architecture)
 

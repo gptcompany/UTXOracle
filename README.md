@@ -14,9 +14,9 @@ The current live-first direction is:
 - `electrs` remains low-level confirmed-chain infrastructure
 - `Hyperliquid` remains the external oracle and derivatives comparison source, surfaced locally through `hyperliquid-node` and its filtered oracle-update dataset
 
-Current host runtime verified on 2026-03-25:
-- `UTXOracle API`: `127.0.0.1:8001`
-- `UTXOracle Live API`: `127.0.0.1:8011`
+Current host runtime verified on 2026-03-31:
+- `UTXOracle Live API`: `127.0.0.1:8011` — canonical production API via `api.apps.live:app`
+- `UTXOracle API`: `127.0.0.1:8001` — explicit legacy surface via `api.apps.legacy:app`
 - `QuestDB Web Console`: `127.0.0.1:9000`
 - `BRK`: `127.0.0.1:7070`
 - `electrs`: `127.0.0.1:3002`
@@ -80,6 +80,10 @@ The intended production topology is:
 4. `BRK` as the primary on-chain feature provider and validation surface
 5. `Hyperliquid` as external oracle and derivatives comparator
 6. `UTXOracle Live API` as the only downstream consumer contract
+
+Current production boundary:
+- `8011` exposes only `/health` and `/api/v1/live/*`
+- `8001` is legacy/research-only and must not be treated as the canonical consumer contract
 
 ## Getting Started
 

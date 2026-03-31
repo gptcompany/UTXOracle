@@ -60,7 +60,7 @@ services:
         BUILD_AT: ${UTXORACLE_BUILD_AT:-unknown}
     command:
       - /app/.venv/bin/uvicorn
-      - api.main:app
+      - api.apps.live:app
       - --host
       - 0.0.0.0
       - --port

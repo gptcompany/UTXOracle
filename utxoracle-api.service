@@ -1,5 +1,5 @@
 [Unit]
-Description=UTXOracle FastAPI Dashboard Service
+Description=UTXOracle Legacy FastAPI Dashboard Service
 Documentation=file:///media/sam/1TB/UTXOracle/docs/MEMPOOL_WHALE_OPERATIONS.md
 After=network.target utxoracle-whale-detection.service
 Wants=network-online.target
@@ -14,8 +14,8 @@ WorkingDirectory=/media/sam/1TB/UTXOracle
 Environment="PATH=/home/sam/.local/bin:/usr/local/bin:/usr/bin:/bin"
 EnvironmentFile=-/media/sam/1TB/UTXOracle/.env
 
-# Main process (using uv for proper venv activation)
-ExecStart=/home/sam/.local/bin/uv run uvicorn api.main:app \
+# Main process (legacy mixed surface; production uses api.apps.live:app on 8011)
+ExecStart=/home/sam/.local/bin/uv run uvicorn api.apps.legacy:app \
   --host 0.0.0.0 \
   --port 8001 \
   --workers 2 \
@@ -35,7 +35,7 @@ MemoryHigh=350M
 # Logging
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=utxoracle-api
+SyslogIdentifier=utxoracle-api-legacy
 
 # Security hardening
 PrivateTmp=true
