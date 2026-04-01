@@ -11,6 +11,7 @@ Tasks: T055-T057 (TDD Red - tests should FAIL initially)
 import pytest
 from fastapi.testclient import TestClient
 from datetime import datetime
+from types import SimpleNamespace
 
 
 class TestLatestPriceEndpoint:
@@ -207,6 +208,32 @@ class TestComparisonStatsEndpoint:
         # If no data, count should be 0
         if data["total_entries"] == 0:
             assert data["avg_diff"] is None or data["avg_diff"] == 0
+
+    @pytest.mark.asyncio
+    async def test_get_comparison_stats_uses_naive_utc_cutoff(self):
+        """QuestDB TIMESTAMP binds for comparison stats must stay offset-naive."""
+        from api.main import get_comparison_stats
+
+        class CapturingRepo:
+            def __init__(self):
+                self.cutoff = None
+
+            async def fetchrow(self, query, cutoff):
+                self.cutoff = cutoff
+                return None
+
+        repo = CapturingRepo()
+        request = SimpleNamespace(
+            app=SimpleNamespace(
+                state=SimpleNamespace(questdb_repo=repo),
+            )
+        )
+
+        result = await get_comparison_stats(request=request, days=7)
+
+        assert result.total_entries == 0
+        assert repo.cutoff is not None
+        assert repo.cutoff.tzinfo is None
 
 
 class TestHealthEndpoint:

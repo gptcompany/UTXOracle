@@ -556,7 +556,7 @@ async def get_comparison_stats(
             FROM price_analysis
             WHERE ts > $1
         """
-        cutoff_time = _utc_now() - timedelta(days=days)
+        cutoff_time = (_utc_now() - timedelta(days=days)).replace(tzinfo=None)
         row = await repo.fetchrow(query, cutoff_time)
         if not row:
             return ComparisonStats(total_entries=0, valid_entries=0, timeframe_days=days)
