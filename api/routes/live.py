@@ -17,11 +17,7 @@ router = APIRouter(prefix="/live", tags=["live"])
 @lru_cache(maxsize=1)
 def get_live_snapshot_store() -> LiveSnapshotStore:
     retention_hours = int(os.getenv("LIVE_RETENTION_HOURS", "24"))
-    live_db_path = os.getenv("LIVE_DB_PATH")
-    return LiveSnapshotStore(
-        live_db_path,
-        retention_hours=retention_hours,
-    )
+    return LiveSnapshotStore(retention_hours=retention_hours)
 
 
 async def _call_store(store: LiveSnapshotStore, method_name: str, *args, **kwargs):

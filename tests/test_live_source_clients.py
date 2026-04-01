@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -208,36 +207,5 @@ async def test_hyperliquid_client_parses_meta_and_asset_ctxs_when_filesystem_abs
     assert result.health.status == "healthy"
     assert result.value is not None
     assert result.value.source == "api"
-    assert result.value.oracle_price == pytest.approx(84295.4)
-    assert result.value.mark_price == pytest.approx(84310.8)
-
-
-@pytest.mark.asyncio
-async def test_hyperliquid_client_preserves_legacy_sqlite_fallback(tmp_path):
-    data_dir = tmp_path / "data" / "BTC"
-    data_dir.mkdir(parents=True)
-    db_path = data_dir / "BTC_main_market_data.db"
-
-    conn = sqlite3.connect(db_path)
-    conn.execute("CREATE TABLE asset_context (timestamp REAL, oracle_price REAL, funding_rate REAL, open_interest REAL)")
-    conn.execute("CREATE TABLE candles (timestamp REAL, mark_price REAL)")
-    conn.execute("INSERT INTO asset_context VALUES (1774026800, 84295.4, 0.0, 1.0)")
-    conn.execute("INSERT INTO candles VALUES (1774026801, 84310.8)")
-    conn.commit()
-    conn.close()
-
-    async def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(500, json={"error": "unsupported"})
-
-    client = HyperliquidSnapshotClient(
-        base_url="http://hl.local/info",
-        data_root=tmp_path,
-        transport=httpx.MockTransport(handler),
-    )
-    result = await client.fetch_snapshot()
-    await client.aclose()
-
-    assert result.value is not None
-    assert result.value.source == "filesystem"
     assert result.value.oracle_price == pytest.approx(84295.4)
     assert result.value.mark_price == pytest.approx(84310.8)

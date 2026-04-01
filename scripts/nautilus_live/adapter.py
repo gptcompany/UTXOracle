@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
-from enum import StrEnum
+try:
+    from enum import StrEnum
+except ImportError:  # pragma: no cover - Python < 3.11 compatibility
+    from enum import Enum
+
+    class StrEnum(str, Enum):
+        pass
 
 from scripts.nautilus_live.client import LiveSnapshotPollingClient
 from scripts.nautilus_live.contract import TradableSnapshot, normalize_live_snapshot
@@ -106,7 +112,7 @@ class NautilusLiveAdapter:
                 "mode": self.mode.value,
                 "timestamp": normalized.timestamp.isoformat(),
                 "block_height": normalized.block_height,
-                "state": str(decision.state),
+                "state": decision.state.value,
                 "accepted": decision.accepted,
                 "reason": decision.reason,
             }

@@ -4,12 +4,23 @@ Repository for interacting with QuestDB.
 
 import os
 import logging
-from questdb.ingress import Sender
-import asyncpg
 from api.models.data import WhaleTransaction, NetFlowMetrics, Alert
 from decimal import Decimal
 from typing import Optional, List, Dict, Any, Union
 from datetime import datetime, timedelta
+
+try:
+    import asyncpg
+except ModuleNotFoundError:  # pragma: no cover - exercised indirectly in test envs
+    asyncpg = None  # type: ignore[assignment]
+
+try:
+    from questdb.ingress import Sender
+except ModuleNotFoundError:  # pragma: no cover - exercised indirectly in test envs
+    Sender = None  # type: ignore[assignment]
+
+AsyncpgPool = Any
+AsyncpgRecord = Any
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +44,10 @@ async def create_tables_if_not_exist():
     """
     Creates the necessary tables in QuestDB if they do not already exist.
     """
+    if asyncpg is None:
+        raise ModuleNotFoundError(
+            "asyncpg package is required for QuestDB schema initialization; install project dependencies"
+        )
     conn = None
     try:
         conn = await asyncpg.connect(
@@ -392,7 +407,7 @@ class QuestDBRepository:
     Lock-Free: Use ILP for all ingestion.
     """
 
-    _pool: Optional[asyncpg.Pool] = None
+    _pool: Optional[AsyncpgPool] = None
 
     def __init__(self):
         """
@@ -408,6 +423,11 @@ class QuestDBRepository:
         self._flush_interval_seconds = 5.0
 
     def _build_sender(self):
+        if Sender is None:
+            raise ModuleNotFoundError(
+                "questdb package is required for ILP ingestion; install project dependencies "
+                "or monkeypatch QuestDBRepository._build_sender in tests"
+            )
         sender = Sender("tcp", self.ilp_host, self.ilp_port)
         sender.establish()
         return sender
@@ -423,7 +443,12 @@ class QuestDBRepository:
         """
         await create_tables_if_not_exist()
         self._ensure_sender()
-        
+
+        if asyncpg is None:
+            raise ModuleNotFoundError(
+                "asyncpg package is required for QuestDB PG access; install project dependencies"
+            )
+
         if QuestDBRepository._pool is None:
             try:
                 QuestDBRepository._pool = await asyncpg.create_pool(
@@ -652,14 +677,14 @@ class QuestDBRepository:
 
     # --- Read Path (PostgreSQL Wire Protocol) ---
 
-    async def fetch(self, query: str, *args) -> List[asyncpg.Record]:
+    async def fetch(self, query: str, *args) -> List[AsyncpgRecord]:
         """Fetch multiple rows via PG pool."""
         if not self._pool:
             await self.initialize()
         async with self._pool.acquire() as conn:
             return await conn.fetch(query, *args)
 
-    async def fetchrow(self, query: str, *args) -> Optional[asyncpg.Record]:
+    async def fetchrow(self, query: str, *args) -> Optional[AsyncpgRecord]:
         """Fetch a single row via PG pool."""
         if not self._pool:
             await self.initialize()
@@ -673,15 +698,15 @@ class QuestDBRepository:
         async with self._pool.acquire() as conn:
             return await conn.execute(query, *args)
 
-    async def get_latest_price_analysis(self) -> Optional[asyncpg.Record]:
+    async def get_latest_price_analysis(self) -> Optional[AsyncpgRecord]:
         """Get latest price analysis entry."""
         return await self.fetchrow("SELECT * FROM price_analysis ORDER BY ts DESC LIMIT 1")
 
-    async def get_latest_metrics(self) -> Optional[asyncpg.Record]:
+    async def get_latest_metrics(self) -> Optional[AsyncpgRecord]:
         """Get the most recent metrics entry."""
         return await self.fetchrow("SELECT * FROM metrics ORDER BY ts DESC LIMIT 1")
 
-    async def get_historical_price_analysis(self, days: int = 7) -> List[asyncpg.Record]:
+    async def get_historical_price_analysis(self, days: int = 7) -> List[AsyncpgRecord]:
         """Get historical price analysis entries."""
         cutoff = datetime.utcnow() - timedelta(days=days)
         return await self.fetch(
@@ -726,19 +751,19 @@ class QuestDBRepository:
             logger.error(f"Error updating UTXO {outpoint}: {e}")
             return False
 
-    async def get_utxo(self, outpoint: str) -> Optional[asyncpg.Record]:
+    async def get_utxo(self, outpoint: str) -> Optional[AsyncpgRecord]:
         """Get UTXO by outpoint."""
         return await self.fetchrow("SELECT * FROM utxo_lifecycle WHERE outpoint = $1", outpoint)
 
-    async def get_supply_metrics_latest(self) -> Optional[asyncpg.Record]:
+    async def get_supply_metrics_latest(self) -> Optional[AsyncpgRecord]:
         """Get latest supply metrics from snapshots."""
         return await self.fetchrow("SELECT * FROM utxo_snapshots ORDER BY ts DESC LIMIT 1")
 
-    async def get_metrics_latest(self) -> Optional[asyncpg.Record]:
+    async def get_metrics_latest(self) -> Optional[AsyncpgRecord]:
         """Get latest general metrics."""
         return await self.fetchrow("SELECT * FROM metrics ORDER BY ts DESC LIMIT 1")
 
-    async def get_cointime_latest(self) -> Optional[asyncpg.Record]:
+    async def get_cointime_latest(self) -> Optional[AsyncpgRecord]:
         """Get latest cointime metrics."""
         return await self.fetchrow("SELECT * FROM cointime_metrics ORDER BY ts DESC LIMIT 1")
 

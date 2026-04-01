@@ -1,6 +1,6 @@
 # spec-043: Nautilus Trader Live Integration
 
-> **Status**: IN PROGRESS
+> **Status**: COMPLETE
 > **Priority**: HIGH
 > **Effort**: Medium
 > **Created**: 2026-03-31

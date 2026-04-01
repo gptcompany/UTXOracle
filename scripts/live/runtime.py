@@ -188,7 +188,6 @@ class LiveWorkerRuntime:
 def build_live_runtime() -> LiveWorkerRuntime:
     timeout_seconds = float(os.getenv("LIVE_SOURCE_TIMEOUT_SECONDS", str(DEFAULT_SOURCE_TIMEOUT_SECONDS)))
     retention_hours = int(os.getenv("LIVE_RETENTION_HOURS", "24"))
-    live_db_path = os.getenv("LIVE_DB_PATH") or None
     process_lock_path = os.getenv("LIVE_WORKER_LOCK_PATH") or None
 
     electrs_client = ElectrsClient(timeout_seconds=timeout_seconds)
@@ -200,10 +199,7 @@ def build_live_runtime() -> LiveWorkerRuntime:
         tx_fetch_concurrency=int(os.getenv("LIVE_ORACLE_TX_CONCURRENCY", str(DEFAULT_LIVE_ORACLE_TX_CONCURRENCY))),
         min_tx_count=int(os.getenv("LIVE_ORACLE_MIN_TX_COUNT", str(DEFAULT_LIVE_ORACLE_MIN_TX_COUNT))),
     )
-    snapshot_store = LiveSnapshotStore(
-        live_db_path,
-        retention_hours=retention_hours,
-    )
+    snapshot_store = LiveSnapshotStore(retention_hours=retention_hours)
     worker = LiveWorker(
         electrs_client=electrs_client,
         mempool_client=mempool_client,

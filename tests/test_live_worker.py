@@ -12,7 +12,6 @@ from scripts.live.models import (
     SourceHealth,
 )
 from scripts.live.source_clients import SourceRead
-from scripts.live.storage import LiveSnapshotStore
 from scripts.live.worker import LiveWorker, ProcessLockError, _WorkerProcessLock
 
 
@@ -486,8 +485,7 @@ async def test_worker_persists_comparison_and_curated_features_to_store(tmp_path
     resolver = RecordingResolver(
         [OracleObservation(timestamp="2026-03-20T17:14:00Z", price=84211.52, confidence=0.82)]
     )
-    store = LiveSnapshotStore(tmp_path / "live.sqlite3")
-    store.initialize(for_write=True)
+    store = RecordingSnapshotStore()
 
     worker = LiveWorker(
         electrs_client=electrs,
@@ -500,7 +498,7 @@ async def test_worker_persists_comparison_and_curated_features_to_store(tmp_path
     )
 
     snapshot = await worker.collect_once()
-    persisted = store.get_latest()
+    persisted = store.snapshots[-1] if store.snapshots else None
 
     assert snapshot is not None
     assert persisted is not None

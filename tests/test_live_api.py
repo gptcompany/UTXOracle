@@ -40,35 +40,47 @@ def _build_snapshot(*, timestamp: datetime, block_height: int, price: float) -> 
     )
 
 
-def test_get_live_snapshot_store_uses_live_db_path_from_env(monkeypatch, tmp_path):
-    db_path = tmp_path / "live.sqlite3"
-    monkeypatch.setenv("LIVE_DB_PATH", str(db_path))
+class FakeSnapshotStore:
+    def __init__(self, snapshots: list[LiveSnapshot] | None = None, *, retention_hours: int = 24) -> None:
+        self.snapshots = list(snapshots or [])
+        self.retention_hours = retention_hours
+
+    async def aget_latest(self) -> LiveSnapshot | None:
+        return self.snapshots[-1] if self.snapshots else None
+
+    async def aget_history(self, query=None, *, now=None) -> list[LiveSnapshot]:
+        if query is None:
+            return list(self.snapshots)
+        minutes = getattr(query, "minutes", query)
+        cutoff = (now or utc_now()) - timedelta(minutes=minutes)
+        return [snapshot for snapshot in self.snapshots if snapshot.timestamp >= cutoff]
+
+    def get_latest(self) -> LiveSnapshot | None:
+        return self.snapshots[-1] if self.snapshots else None
+
+
+def test_get_live_snapshot_store_uses_questdb_only_retention_from_env(monkeypatch):
+    monkeypatch.delenv("LIVE_DB_PATH", raising=False)
     monkeypatch.setenv("LIVE_RETENTION_HOURS", "12")
     get_live_snapshot_store.cache_clear()
 
     store = get_live_snapshot_store()
 
-    assert store.db_path == db_path
+    assert isinstance(store, LiveSnapshotStore)
     assert store.retention_hours == 12
     get_live_snapshot_store.cache_clear()
 
 
-def _build_test_client(store: LiveSnapshotStore) -> TestClient:
+def _build_test_client(store) -> TestClient:
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
     app.dependency_overrides[get_live_snapshot_store] = lambda: store
     return TestClient(app)
 
 
-def test_live_snapshot_endpoint_returns_latest_snapshot(tmp_path):
-    store = LiveSnapshotStore(tmp_path / "live.sqlite3")
-    store.initialize(for_write=True)
-    store.write_snapshot(
-        _build_snapshot(
-            timestamp=datetime(2026, 3, 20, 18, 0, tzinfo=timezone.utc),
-            block_height=941456,
-            price=84211.52,
-        )
+def test_live_snapshot_endpoint_returns_latest_snapshot():
+    store = FakeSnapshotStore(
+        [_build_snapshot(timestamp=datetime(2026, 3, 20, 18, 0, tzinfo=timezone.utc), block_height=941456, price=84211.52)]
     )
     client = _build_test_client(store)
 
@@ -80,13 +92,15 @@ def test_live_snapshot_endpoint_returns_latest_snapshot(tmp_path):
     assert body["utxoracle_price"] == 84211.52
 
 
-def test_live_history_endpoint_returns_recent_snapshots(tmp_path):
+def test_live_history_endpoint_returns_recent_snapshots():
     now = datetime.now(timezone.utc)
-    store = LiveSnapshotStore(tmp_path / "live.sqlite3")
-    store.initialize(for_write=True)
-    store.write_snapshot(_build_snapshot(timestamp=now - timedelta(minutes=10), block_height=941450, price=84100.0))
-    store.write_snapshot(_build_snapshot(timestamp=now - timedelta(minutes=4), block_height=941451, price=84200.0))
-    store.write_snapshot(_build_snapshot(timestamp=now - timedelta(minutes=1), block_height=941452, price=84300.0))
+    store = FakeSnapshotStore(
+        [
+            _build_snapshot(timestamp=now - timedelta(minutes=10), block_height=941450, price=84100.0),
+            _build_snapshot(timestamp=now - timedelta(minutes=4), block_height=941451, price=84200.0),
+            _build_snapshot(timestamp=now - timedelta(minutes=1), block_height=941452, price=84300.0),
+        ]
+    )
     client = _build_test_client(store)
 
     response = client.get("/api/v1/live/history", params={"minutes": 1440})
@@ -96,15 +110,9 @@ def test_live_history_endpoint_returns_recent_snapshots(tmp_path):
     assert [item["block_height"] for item in body] == [941450, 941451, 941452]
 
 
-def test_live_comparison_latest_endpoint_returns_compact_payload(tmp_path):
-    store = LiveSnapshotStore(tmp_path / "live.sqlite3")
-    store.initialize(for_write=True)
-    store.write_snapshot(
-        _build_snapshot(
-            timestamp=datetime(2026, 3, 20, 18, 0, tzinfo=timezone.utc),
-            block_height=941456,
-            price=84211.52,
-        )
+def test_live_comparison_latest_endpoint_returns_compact_payload():
+    store = FakeSnapshotStore(
+        [_build_snapshot(timestamp=datetime(2026, 3, 20, 18, 0, tzinfo=timezone.utc), block_height=941456, price=84211.52)]
     )
     client = _build_test_client(store)
 
@@ -116,9 +124,8 @@ def test_live_comparison_latest_endpoint_returns_compact_payload(tmp_path):
     assert body["hyperliquid_mark_price"] == 84226.52
 
 
-def test_live_ready_returns_503_when_snapshot_missing(tmp_path):
-    store = LiveSnapshotStore(tmp_path / "live.sqlite3")
-    client = _build_test_client(store)
+def test_live_ready_returns_503_when_snapshot_missing():
+    client = _build_test_client(FakeSnapshotStore())
 
     response = client.get("/api/v1/live/ready")
 
@@ -126,12 +133,11 @@ def test_live_ready_returns_503_when_snapshot_missing(tmp_path):
     assert response.json()["detail"] == "live snapshot unavailable"
 
 
-def test_live_ready_returns_503_when_snapshot_is_stale(tmp_path):
-    store = LiveSnapshotStore(tmp_path / "live.sqlite3")
-    store.initialize(for_write=True)
+def test_live_ready_returns_503_when_snapshot_is_stale():
     stale_timestamp = utc_now() - timedelta(seconds=61)
-    store.write_snapshot(_build_snapshot(timestamp=stale_timestamp, block_height=941456, price=84211.52))
-    client = _build_test_client(store)
+    client = _build_test_client(
+        FakeSnapshotStore([_build_snapshot(timestamp=stale_timestamp, block_height=941456, price=84211.52)])
+    )
 
     response = client.get("/api/v1/live/ready")
 
@@ -139,37 +145,30 @@ def test_live_ready_returns_503_when_snapshot_is_stale(tmp_path):
     assert "live data is stale" in response.json()["detail"]
 
 
-def test_build_live_health_summary_reports_unavailable_when_store_empty(tmp_path):
-    store = LiveSnapshotStore(tmp_path / "live.sqlite3")
-
-    summary = build_live_health_summary(store)
+def test_build_live_health_summary_reports_unavailable_when_store_empty():
+    summary = build_live_health_summary(FakeSnapshotStore())
 
     assert summary["status"] == "unavailable"
     assert summary["sources"] == {}
 
 
-def test_build_live_health_summary_reports_degraded_sources(tmp_path):
+def test_build_live_health_summary_reports_degraded_sources():
     timestamp = utc_now()
-    store = LiveSnapshotStore(tmp_path / "live.sqlite3")
-    store.initialize(for_write=True)
     snapshot = _build_snapshot(timestamp=timestamp, block_height=941456, price=84211.52)
     snapshot.source_health["hyperliquid"] = SourceHealth(status="stale", last_success=timestamp)
-    store.write_snapshot(snapshot)
 
-    summary = build_live_health_summary(store)
+    summary = build_live_health_summary(FakeSnapshotStore([snapshot]))
 
     assert summary["status"] == "degraded"
     assert summary["block_height"] == 941456
     assert summary["sources"] == {"electrs": "healthy", "hyperliquid": "stale"}
 
 
-def test_build_live_health_summary_reports_stale_snapshot_age(tmp_path):
-    store = LiveSnapshotStore(tmp_path / "live.sqlite3")
-    store.initialize(for_write=True)
+def test_build_live_health_summary_reports_stale_snapshot_age():
     stale_timestamp = utc_now() - timedelta(seconds=61)
-    store.write_snapshot(_build_snapshot(timestamp=stale_timestamp, block_height=941456, price=84211.52))
-
-    summary = build_live_health_summary(store)
+    summary = build_live_health_summary(
+        FakeSnapshotStore([_build_snapshot(timestamp=stale_timestamp, block_height=941456, price=84211.52)])
+    )
 
     assert summary["status"] == "stale"
     assert summary["block_height"] == 941456

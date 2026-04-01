@@ -6,7 +6,6 @@ import io
 import json
 import logging
 import os
-import sqlite3
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -575,25 +574,6 @@ class HyperliquidSnapshotClient(AsyncHttpSource):
                 source_timestamp=filtered_snapshot.timestamp,
             )
 
-        db_files = sorted(
-            self.data_root.rglob(f"{self.symbol}_main_market_data.db"),
-            key=lambda item: item.stat().st_mtime,
-            reverse=True,
-        )
-        if db_files:
-            snapshot = _read_hyperliquid_sqlite_snapshot(db_files[0])
-            if snapshot is not None:
-                return SourceRead(
-                    value=snapshot,
-                    health=_build_hyperliquid_snapshot_health(
-                        snapshot,
-                        backend="sqlite",
-                        path=db_files[0],
-                        max_age_seconds=self.max_age_seconds,
-                    ),
-                    source_timestamp=snapshot.timestamp,
-                )
-
         candidate_dirs = [self.data_root / "data" / self.symbol, self.data_root / self.symbol]
         for candidate_dir in candidate_dirs:
             if not candidate_dir.exists():
@@ -952,52 +932,6 @@ def _build_hyperliquid_coin_keys(
         if coin_key not in keys:
             keys.append(coin_key)
     return tuple(keys)
-
-
-def _read_hyperliquid_sqlite_snapshot(db_path: Path) -> HyperliquidPriceSnapshot | None:
-    try:
-        conn = sqlite3.connect(str(db_path))
-        try:
-            oracle_row = conn.execute(
-                """
-                SELECT timestamp, oracle_price
-                FROM asset_context
-                WHERE oracle_price IS NOT NULL
-                ORDER BY timestamp DESC
-                LIMIT 1
-                """
-            ).fetchone()
-            mark_row = conn.execute(
-                """
-                SELECT timestamp, mark_price
-                FROM candles
-                WHERE mark_price IS NOT NULL
-                ORDER BY timestamp DESC
-                LIMIT 1
-                """
-            ).fetchone()
-        finally:
-            conn.close()
-    except sqlite3.Error as exc:
-        logger.warning("Failed to read Hyperliquid sqlite fallback %s: %s", db_path, exc)
-        return None
-
-    oracle_timestamp = coerce_utc_datetime(oracle_row[0]) if oracle_row else None
-    mark_timestamp = coerce_utc_datetime(mark_row[0]) if mark_row else None
-    timestamp = max(
-        [value for value in (oracle_timestamp, mark_timestamp) if value is not None],
-        default=None,
-    )
-    oracle_price = _coerce_float(oracle_row[1]) if oracle_row else None
-    mark_price = _coerce_float(mark_row[1]) if mark_row else None
-    if timestamp is None or (oracle_price is None and mark_price is None):
-        return None
-    return HyperliquidPriceSnapshot(
-        source="filesystem",
-        timestamp=timestamp,
-        oracle_price=oracle_price,
-        mark_price=mark_price,
-    )
 
 
 def _read_hyperliquid_csv_snapshot(base_dir: Path, symbol: str) -> HyperliquidPriceSnapshot | None:

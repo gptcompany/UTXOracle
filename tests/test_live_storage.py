@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import sqlite3
+import json
 from datetime import datetime, timedelta, timezone
-
-import pytest
 
 from scripts.live.models import (
     LiveComparison,
@@ -49,8 +47,61 @@ def _build_snapshot(*, timestamp: datetime, block_height: int, price: float) -> 
     )
 
 
-def test_store_round_trips_latest_snapshot(tmp_path):
-    store = LiveSnapshotStore(tmp_path / "live.sqlite3")
+class FakeQuestDBRepo:
+    def __init__(self) -> None:
+        self.rows: list[dict[str, object]] = []
+        self.initialized = 0
+        self.closed = 0
+        self.fetch_calls: list[tuple[str, tuple[object, ...]]] = []
+        self.execute_calls: list[tuple[str, tuple[object, ...]]] = []
+
+    async def initialize(self) -> None:
+        self.initialized += 1
+
+    async def close(self) -> None:
+        self.closed += 1
+
+    async def async_send_row(self, _table, symbols, columns, at=None):
+        self.rows.append(
+            {
+                "ts": at,
+                "schema_version": symbols["schema_version"],
+                "snapshot_json": columns["snapshot_json"],
+            }
+        )
+        self.rows.sort(key=lambda item: item["ts"])
+        return True
+
+    async def fetchrow(self, sql, *args):
+        self.fetch_calls.append((sql, args))
+        if "COUNT(*) AS count" in sql:
+            cutoff = args[0]
+            return {"count": sum(1 for row in self.rows if row["ts"].replace(tzinfo=None) < cutoff)}
+        if "ORDER BY ts DESC LIMIT 1" in sql:
+            if not self.rows:
+                return None
+            return {"snapshot_json": self.rows[-1]["snapshot_json"]}
+        raise AssertionError(f"unexpected fetchrow SQL: {sql}")
+
+    async def fetch(self, sql, *args):
+        self.fetch_calls.append((sql, args))
+        cutoff = args[0]
+        return [
+            {"snapshot_json": row["snapshot_json"]}
+            for row in self.rows
+            if row["ts"].replace(tzinfo=None) >= cutoff
+        ]
+
+    async def execute(self, sql, *args):
+        self.execute_calls.append((sql, args))
+        cutoff = args[0]
+        self.rows = [row for row in self.rows if row["ts"].replace(tzinfo=None) >= cutoff]
+        return "DELETE"
+
+
+def test_store_round_trips_latest_snapshot():
+    repo = FakeQuestDBRepo()
+    store = LiveSnapshotStore(repo=repo)
     snapshot = _build_snapshot(
         timestamp=datetime(2026, 3, 20, 18, 0, tzinfo=timezone.utc),
         block_height=941456,
@@ -67,28 +118,18 @@ def test_store_round_trips_latest_snapshot(tmp_path):
     assert latest.utxoracle_price == 84211.52
     assert latest.features.brk_liveliness == snapshot.features.brk_liveliness
     assert latest.source_health["electrs"].observed_height == 941456
+    assert repo.initialized == 1
 
 
-def test_store_returns_recent_history_in_ascending_order(tmp_path):
+def test_store_returns_recent_history_in_ascending_order():
     now = datetime(2026, 3, 20, 18, 15, tzinfo=timezone.utc)
-    store = LiveSnapshotStore(tmp_path / "live.sqlite3")
+    repo = FakeQuestDBRepo()
+    store = LiveSnapshotStore(repo=repo)
     store.initialize(for_write=True)
 
-    older = _build_snapshot(
-        timestamp=now - timedelta(minutes=12),
-        block_height=941450,
-        price=84100.0,
-    )
-    middle = _build_snapshot(
-        timestamp=now - timedelta(minutes=5),
-        block_height=941451,
-        price=84200.0,
-    )
-    latest = _build_snapshot(
-        timestamp=now - timedelta(minutes=1),
-        block_height=941452,
-        price=84300.0,
-    )
+    older = _build_snapshot(timestamp=now - timedelta(minutes=12), block_height=941450, price=84100.0)
+    middle = _build_snapshot(timestamp=now - timedelta(minutes=5), block_height=941451, price=84200.0)
+    latest = _build_snapshot(timestamp=now - timedelta(minutes=1), block_height=941452, price=84300.0)
 
     store.write_snapshot(older)
     store.write_snapshot(middle)
@@ -100,73 +141,54 @@ def test_store_returns_recent_history_in_ascending_order(tmp_path):
     assert [item.utxoracle_price for item in history] == [84200.0, 84300.0]
 
 
-def test_store_prunes_rows_older_than_retention_window(tmp_path):
+def test_store_prunes_rows_older_than_retention_window():
     now = datetime(2026, 3, 20, 18, 0, tzinfo=timezone.utc)
-    store = LiveSnapshotStore(tmp_path / "live.sqlite3", retention_hours=1)
+    repo = FakeQuestDBRepo()
+    store = LiveSnapshotStore(repo=repo, retention_hours=1)
     store.initialize(for_write=True)
 
-    stale_snapshot = _build_snapshot(
-        timestamp=now - timedelta(hours=2),
-        block_height=941430,
-        price=83000.0,
-    )
-    fresh_snapshot = _build_snapshot(
-        timestamp=now,
+    stale_snapshot = _build_snapshot(timestamp=now - timedelta(hours=2), block_height=941430, price=83000.0)
+    fresh_snapshot = _build_snapshot(timestamp=now, block_height=941456, price=84211.52)
+
+    store.write_snapshot(stale_snapshot)
+    store.write_snapshot(fresh_snapshot)
+    deleted = store.prune(now=now)
+    history = store.get_history(180, now=now)
+
+    assert deleted == 1
+    assert [item.block_height for item in history] == [941456]
+
+
+def test_store_close_closes_repo():
+    repo = FakeQuestDBRepo()
+    store = LiveSnapshotStore(repo=repo)
+    store.initialize(for_write=True)
+
+    store.close()
+
+    assert repo.closed == 1
+
+
+def test_store_serialize_payload_is_valid_json():
+    repo = FakeQuestDBRepo()
+    store = LiveSnapshotStore(repo=repo)
+    store.initialize(for_write=True)
+    snapshot = _build_snapshot(
+        timestamp=datetime(2026, 3, 20, 18, 0, tzinfo=timezone.utc),
         block_height=941456,
         price=84211.52,
     )
 
-    store.write_snapshot(stale_snapshot)
-    store.write_snapshot(fresh_snapshot)
+    store.write_snapshot(snapshot)
 
-    history = store.get_history(180, now=now)
-
-    assert [item.block_height for item in history] == [941456]
-
-
-def test_store_enables_wal_mode_for_writes(tmp_path):
-    db_path = tmp_path / "live.sqlite3"
-    store = LiveSnapshotStore(db_path)
-    store.initialize(for_write=True)
-    store.write_snapshot(
-        _build_snapshot(
-            timestamp=datetime(2026, 3, 20, 18, 0, tzinfo=timezone.utc),
-            block_height=941456,
-            price=84211.52,
-        )
-    )
-
-    # Validate WAL mode was enabled
-    conn = sqlite3.connect(str(db_path))
-    journal_mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
-    conn.close()
-    
-    # Depending on sqlite versions and platform, it may say 'wal' or 'WAL'
-    assert journal_mode.lower() == "wal"
+    payload = json.loads(repo.rows[0]["snapshot_json"])
+    assert payload["block_height"] == 941456
+    assert payload["comparison"]["utxo_vs_mempool_bps"] == -2.97
 
 
-def test_store_write_snapshot_requires_initialize(tmp_path):
-    store = LiveSnapshotStore(tmp_path / "live.sqlite3")
-
-    with pytest.raises(RuntimeError, match="initialize"):
-        store.write_snapshot(
-            _build_snapshot(
-                timestamp=datetime(2026, 3, 20, 18, 0, tzinfo=timezone.utc),
-                block_height=941456,
-                price=84211.52,
-            )
-        )
-
-
-def test_store_write_snapshot_skips_schema_check_after_initialize(tmp_path, monkeypatch):
-    store = LiveSnapshotStore(tmp_path / "live.sqlite3")
-    store.initialize(for_write=True)
-    schema_calls = []
-
-    def tracking_schema(_conn):
-        schema_calls.append(True)
-
-    monkeypatch.setattr(store, "_ensure_schema", tracking_schema)
+def test_store_write_snapshot_initializes_repo_on_demand():
+    repo = FakeQuestDBRepo()
+    store = LiveSnapshotStore(repo=repo)
 
     store.write_snapshot(
         _build_snapshot(
@@ -176,26 +198,20 @@ def test_store_write_snapshot_skips_schema_check_after_initialize(tmp_path, monk
         )
     )
 
-    assert schema_calls == []
+    assert repo.initialized == 1
 
 
-@pytest.mark.asyncio
-async def test_store_questdb_history_uses_python_cutoff_timestamp(monkeypatch):
+async def test_store_questdb_history_uses_python_cutoff_timestamp():
     now = datetime(2026, 3, 31, 16, 30, tzinfo=timezone.utc)
-    snapshot = _build_snapshot(
-        timestamp=now - timedelta(minutes=3),
-        block_height=941460,
-        price=84321.11,
-    )
+    snapshot = _build_snapshot(timestamp=now - timedelta(minutes=3), block_height=941460, price=84321.11)
     calls: list[tuple[str, object]] = []
 
-    class FakeRepo:
+    class RecordingRepo(FakeQuestDBRepo):
         async def fetch(self, sql, *args):
             calls.append((sql, args[0]))
             return [{"snapshot_json": snapshot.model_dump_json()}]
 
-    store = LiveSnapshotStore(None)
-    store.repo = FakeRepo()
+    store = LiveSnapshotStore(repo=RecordingRepo())
     store._initialized = True
 
     history = await store.aget_history(LiveHistoryQuery(minutes=15), now=now)

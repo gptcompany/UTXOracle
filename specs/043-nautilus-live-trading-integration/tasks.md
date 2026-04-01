@@ -63,7 +63,7 @@
 
 ## Phase 5: Rollout
 
-- [ ] T023 Add tests for end-to-end adapter behavior across replay, paper, and shadow modes
+- [x] T023 Add tests for end-to-end adapter behavior across replay, paper, and shadow modes
 - [x] T024 Document live rollout order and operational kill-switch behavior
 - [x] T025 Add operator runbook for enabling Nautilus integration safely
 

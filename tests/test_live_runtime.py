@@ -2,15 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import sqlite3
 import httpx
 import pytest
 
-from api.questdb_repository import QuestDBRepository
-from scripts.live.runtime import (
-    ElectrsBlockOracleResolver,
-    build_live_runtime,
-)
+from scripts.live.runtime import ElectrsBlockOracleResolver, build_live_runtime
 
 
 class DummyCalculator:
@@ -27,12 +22,24 @@ class DummyCalculator:
         }
 
 
-class _FakeQuestDBSender:
-    def establish(self):
+class FakeQuestDBRepo:
+    async def initialize(self) -> None:
         return None
 
-    def flush(self):
+    async def close(self) -> None:
         return None
+
+    async def async_send_row(self, *args, **kwargs):
+        return True
+
+    async def fetchrow(self, *args, **kwargs):
+        return None
+
+    async def fetch(self, *args, **kwargs):
+        return []
+
+    async def execute(self, *args, **kwargs):
+        return "DELETE"
 
 
 @pytest.mark.asyncio
@@ -74,8 +81,8 @@ async def test_electrs_block_oracle_resolver_fetches_and_caches_current_block():
 
 
 @pytest.mark.asyncio
-async def test_build_live_runtime_uses_env_driven_paths(monkeypatch, tmp_path):
-    monkeypatch.setenv("LIVE_DB_PATH", str(tmp_path / "live.sqlite3"))
+async def test_build_live_runtime_uses_questdb_snapshot_store(monkeypatch, tmp_path):
+    monkeypatch.delenv("LIVE_DB_PATH", raising=False)
     monkeypatch.setenv("LIVE_WORKER_LOCK_PATH", str(tmp_path / "worker.lock"))
     monkeypatch.setenv("ELECTRS_HTTP_URL", "http://electrs.local")
     monkeypatch.setenv("MEMPOOL_API_V1_URL", "http://mempool.local/api/v1")
@@ -83,10 +90,12 @@ async def test_build_live_runtime_uses_env_driven_paths(monkeypatch, tmp_path):
     monkeypatch.setenv("HYPERLIQUID_NODE_API_URL", "http://hl.local/info")
     monkeypatch.setenv("HYPERLIQUID_DATA_ROOT", str(tmp_path / "hl"))
     monkeypatch.setenv("HYPERLIQUID_NODE_INFO_REQUEST_TYPE", "l2Book")
+    monkeypatch.setattr("scripts.live.storage.QuestDBRepository", FakeQuestDBRepo)
 
     runtime = build_live_runtime()
     try:
-        assert runtime.worker.snapshot_store.db_path == Path(tmp_path / "live.sqlite3")
+        assert runtime.worker.snapshot_store.repo.__class__ is FakeQuestDBRepo
+        assert runtime.worker.snapshot_store.retention_hours == 24
         assert runtime.worker.process_lock_path == Path(tmp_path / "worker.lock")
         assert runtime.worker.electrs_client.base_url == "http://electrs.local"
         assert runtime.worker.mempool_client.base_url == "http://mempool.local/api/v1"
@@ -97,7 +106,7 @@ async def test_build_live_runtime_uses_env_driven_paths(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_build_live_runtime_defaults_to_questdb_when_live_db_path_missing(monkeypatch, tmp_path):
+async def test_runtime_run_initializes_store_before_worker_run(monkeypatch, tmp_path):
     monkeypatch.delenv("LIVE_DB_PATH", raising=False)
     monkeypatch.setenv("LIVE_WORKER_LOCK_PATH", str(tmp_path / "worker.lock"))
     monkeypatch.setenv("ELECTRS_HTTP_URL", "http://electrs.local")
@@ -105,56 +114,7 @@ async def test_build_live_runtime_defaults_to_questdb_when_live_db_path_missing(
     monkeypatch.setenv("BRK_BASE_URL", "http://brk.local")
     monkeypatch.setenv("HYPERLIQUID_NODE_API_URL", "http://hl.local/info")
     monkeypatch.setenv("HYPERLIQUID_DATA_ROOT", str(tmp_path / "hl"))
-    monkeypatch.setattr(QuestDBRepository, "_build_sender", lambda self: _FakeQuestDBSender())
-
-    runtime = build_live_runtime()
-    try:
-        assert runtime.worker.snapshot_store.db_path is None
-        assert runtime.worker.process_lock_path == Path(tmp_path / "worker.lock")
-    finally:
-        await runtime.aclose()
-
-
-@pytest.mark.asyncio
-async def test_runtime_run_initializes_schema_before_worker_run(monkeypatch, tmp_path):
-    monkeypatch.setenv("LIVE_DB_PATH", str(tmp_path / "live.sqlite3"))
-    monkeypatch.setenv("LIVE_WORKER_LOCK_PATH", str(tmp_path / "worker.lock"))
-    monkeypatch.setenv("ELECTRS_HTTP_URL", "http://electrs.local")
-    monkeypatch.setenv("MEMPOOL_API_V1_URL", "http://mempool.local/api/v1")
-    monkeypatch.setenv("BRK_BASE_URL", "http://brk.local")
-    monkeypatch.setenv("HYPERLIQUID_NODE_API_URL", "http://hl.local/info")
-    monkeypatch.setenv("HYPERLIQUID_DATA_ROOT", str(tmp_path / "hl"))
-
-    runtime = build_live_runtime()
-
-    async def fake_run(*, market_interval_seconds: float, block_poll_interval_seconds: float):
-        assert market_interval_seconds == 5.0
-        assert block_poll_interval_seconds == 2.0
-        conn = sqlite3.connect(str(runtime.worker.snapshot_store.db_path))
-        try:
-            assert conn.execute("SELECT COUNT(*) FROM live_snapshots").fetchone() == (0,)
-        finally:
-            conn.close()
-        return []
-
-    monkeypatch.setattr(runtime.worker, "run", fake_run)
-
-    try:
-        assert await runtime.run() == []
-    finally:
-        await runtime.aclose()
-
-
-@pytest.mark.asyncio
-async def test_runtime_run_uses_async_store_init_for_questdb_mode(monkeypatch, tmp_path):
-    monkeypatch.delenv("LIVE_DB_PATH", raising=False)
-    monkeypatch.setenv("LIVE_WORKER_LOCK_PATH", str(tmp_path / "worker.lock"))
-    monkeypatch.setenv("ELECTRS_HTTP_URL", "http://electrs.local")
-    monkeypatch.setenv("MEMPOOL_API_V1_URL", "http://mempool.local/api/v1")
-    monkeypatch.setenv("BRK_BASE_URL", "http://brk.local")
-    monkeypatch.setenv("HYPERLIQUID_NODE_API_URL", "http://hl.local/info")
-    monkeypatch.setenv("HYPERLIQUID_DATA_ROOT", str(tmp_path / "hl"))
-    monkeypatch.setattr(QuestDBRepository, "_build_sender", lambda self: _FakeQuestDBSender())
+    monkeypatch.setattr("scripts.live.storage.QuestDBRepository", FakeQuestDBRepo)
 
     runtime = build_live_runtime()
     calls: list[tuple[str, bool]] = []
@@ -162,16 +122,12 @@ async def test_runtime_run_uses_async_store_init_for_questdb_mode(monkeypatch, t
     async def fake_ainitialize(*, for_write: bool = False):
         calls.append(("ainitialize", for_write))
 
-    def fail_initialize(*, for_write: bool = False):
-        raise AssertionError("sync initialize should not be used for questdb mode")
-
     async def fake_run(*, market_interval_seconds: float, block_poll_interval_seconds: float):
         assert market_interval_seconds == 5.0
         assert block_poll_interval_seconds == 2.0
         return []
 
     monkeypatch.setattr(runtime.worker.snapshot_store, "ainitialize", fake_ainitialize)
-    monkeypatch.setattr(runtime.worker.snapshot_store, "initialize", fail_initialize)
     monkeypatch.setattr(runtime.worker, "run", fake_run)
 
     try:

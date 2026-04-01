@@ -455,3 +455,80 @@ async def test_adapter_operator_kill_switch_fails_closed_before_gate_evaluation(
             "reason": "operator_kill_switch",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_adapter_end_to_end_modes_cover_shadow_poll_paper_poll_and_replay_paths():
+    now = datetime.now(timezone.utc)
+    shadow_snapshot = _build_snapshot(timestamp=now)
+    paper_snapshot = _build_snapshot(
+        timestamp=now - timedelta(seconds=20),
+        block_height=941457,
+        confidence=0.70,
+    )
+    replay_first = _build_snapshot(
+        timestamp=now - timedelta(seconds=10),
+        block_height=941458,
+        confidence=0.82,
+    )
+    replay_second = _build_snapshot(
+        timestamp=now - timedelta(seconds=5),
+        block_height=941459,
+        confidence=0.83,
+    )
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v1/live/snapshot":
+            if request.url.host == "shadow.local":
+                return httpx.Response(200, json=shadow_snapshot.model_dump(mode="json"))
+            if request.url.host == "paper.local":
+                return httpx.Response(200, json=paper_snapshot.model_dump(mode="json"))
+        if request.url.path == "/api/v1/live/history" and request.url.host == "paper.local":
+            return httpx.Response(
+                200,
+                json=[
+                    replay_first.model_dump(mode="json"),
+                    replay_second.model_dump(mode="json"),
+                ],
+            )
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    transport = httpx.MockTransport(handler)
+    shadow_events: list[dict[str, object]] = []
+    paper_events: list[dict[str, object]] = []
+
+    shadow_adapter = NautilusLiveAdapter(
+        client=LiveSnapshotPollingClient(base_url="http://shadow.local", transport=transport),
+        gate=NautilusSafetyGate(config=_default_config()),
+        mode=AdapterMode.SHADOW_READ,
+        decision_logger=shadow_events.append,
+    )
+    paper_adapter = NautilusLiveAdapter(
+        client=LiveSnapshotPollingClient(base_url="http://paper.local", transport=transport),
+        gate=NautilusSafetyGate(config=_default_config()),
+        mode=AdapterMode.PAPER_TRADE,
+        decision_logger=paper_events.append,
+    )
+
+    shadow_result = await shadow_adapter.poll_once(now=now)
+    paper_result = await paper_adapter.poll_once(now=now)
+    replay_results = await paper_adapter.replay_recent_history(minutes=5, now=now)
+    await shadow_adapter.aclose()
+    await paper_adapter.aclose()
+
+    assert shadow_result is not None
+    assert shadow_result[1].state == GateState.STATUS_OK
+    assert shadow_events[-1]["mode"] == "shadow_read"
+    assert shadow_events[-1]["reason"] == "ok"
+
+    assert paper_result is not None
+    assert paper_result[1].state == GateState.STATUS_LIQUIDATE_ONLY
+    assert paper_events[0]["mode"] == "paper_trade"
+    assert paper_events[0]["reason"] == "snapshot_stale_borderline"
+
+    assert [item[0].block_height for item in replay_results] == [941458, 941459]
+    assert [item[1].state for item in replay_results] == [
+        GateState.STATUS_LIQUIDATE_ONLY,
+        GateState.STATUS_LIQUIDATE_ONLY,
+    ]
+    assert paper_events[-1]["reason"] == "recovery_in_progress:2_of_3"
