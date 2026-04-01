@@ -234,28 +234,10 @@ except ImportError as e:
     logging.warning("   Install mempool_whale_endpoints.py to enable whale API")
 
 # =============================================================================
-# T029: Include Custom Price Models API Router (spec-036)
+# spec-040: Dedicated live API host policy
 # =============================================================================
 
-try:
-    from api.routes.models import router as models_router
-
-    app.include_router(models_router, prefix="/api/v1")
-    logging.info("✅ Price models API endpoints registered at /api/v1/models/*")
-except ImportError as e:
-    logging.warning(f"⚠️ Price models endpoints not available: {e}")
-
-# =============================================================================
-# spec-040: Include Live Service API Router
-# =============================================================================
-
-try:
-    from api.routes.live import router as live_router
-
-    app.include_router(live_router, prefix="/api/v1")
-    logging.info("✅ Live service API endpoints registered at /api/v1/live/*")
-except ImportError as e:
-    logging.warning(f"⚠️ Live service endpoints not available: {e}")
+logging.info("ℹ️ Live service API endpoints are served only by the dedicated live app on :8011")
 
 # =============================================================================
 # Pydantic Models
@@ -1925,7 +1907,6 @@ class NetRealizedPnLResponse(BaseModel):
     signal: str = Field(..., description="PROFIT_DOMINANT, LOSS_DOMINANT, or NEUTRAL")
     window_hours: int = Field(..., gt=0, description="Time window in hours")
     timestamp: str = Field(..., description="Calculation timestamp (ISO format)")
-
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -1944,6 +1925,14 @@ class NetRealizedPnLResponse(BaseModel):
             }
         }
     }
+
+
+PRO_RISK_DEMOTED_DETAIL = (
+    "PRO Risk API is runtime-demoted pending real component metric wiring and history support."
+)
+PUELL_MULTIPLE_DEMOTED_DETAIL = (
+    "Puell Multiple API is runtime-demoted pending real 365-day miner revenue history wiring."
+)
 
 
 class NetRealizedPnLHistoryPointResponse(BaseModel):
@@ -3757,58 +3746,7 @@ async def get_puell_multiple(
 
     Spec: 021-advanced-onchain-metrics
     """
-    try:
-        BLOCK_SUBSIDY_BTC = 3.125  # Post April 2024 halving
-        BLOCKS_PER_DAY = 144
-
-        daily_issuance_btc = BLOCK_SUBSIDY_BTC * BLOCKS_PER_DAY
-        daily_issuance_usd = daily_issuance_btc * current_price
-
-        # Historical average (simplified - production would use actual history)
-        HISTORICAL_AVG_PRICE = 50000.0
-        ma_365d = daily_issuance_btc * HISTORICAL_AVG_PRICE
-
-        puell_multiple = daily_issuance_usd / ma_365d if ma_365d > 0 else 1.0
-
-        block_height = 0
-        try:
-            import duckdb
-
-            conn = duckdb.connect(UTXO_DB_PATH, read_only=True)
-            result = conn.execute(
-                "SELECT MAX(creation_block) FROM utxo_lifecycle"
-            ).fetchone()
-            block_height = result[0] if result and result[0] else 0
-            conn.close()
-        except Exception:
-            pass
-
-        if puell_multiple < 0.5:
-            signal_zone = "UNDERVALUED"
-        elif puell_multiple <= 1.5:
-            signal_zone = "FAIR_VALUE"
-        elif puell_multiple <= 3.0:
-            signal_zone = "OVERVALUED"
-        else:
-            signal_zone = "EXTREME"
-
-        return PuellMultipleResponse(
-            puell_multiple=puell_multiple,
-            daily_issuance_usd=daily_issuance_usd,
-            ma_365d=ma_365d,
-            signal_zone=signal_zone,
-            current_price=current_price,
-            block_height=block_height,
-            timestamp=_utc_now().isoformat(),
-        )
-
-    except Exception as e:
-        _raise_http_exception(
-            status_code=500,
-            public_detail="Failed to calculate Puell Multiple",
-            log_message="Error calculating Puell Multiple",
-            exc=e,
-        )
+    raise HTTPException(status_code=501, detail=PUELL_MULTIPLE_DEMOTED_DETAIL)
 
 
 # =============================================================================
@@ -3817,16 +3755,12 @@ async def get_puell_multiple(
 
 from api.models.risk_models import (
     ProRiskResponseAPI,
-    ProRiskComponentAPI,
     ProRiskHistoryResponseAPI,
-    ProRiskHistoryPointAPI,
     ZoneDefinitionsResponseAPI,
     ZoneDefinitionAPI,
-    HistoricalContextAPI,
 )
 from scripts.metrics.pro_risk import (
     calculate_pro_risk,
-    COMPONENT_WEIGHTS,
     ZONE_THRESHOLDS,
     ProRiskResult,
 )
@@ -3905,48 +3839,7 @@ async def get_pro_risk(
 
     Spec: 033-pro-risk-metric
     """
-
-    if target_date is None:
-        target_date = date.today()
-
-    result = get_pro_risk_for_date(target_date)
-
-    if result is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No data available for date {target_date}",
-        )
-
-    # Build component list for API response
-    components = []
-    for metric_name, score in result.components.items():
-        weight = COMPONENT_WEIGHTS.get(metric_name, 0.0)
-        components.append(
-            ProRiskComponentAPI(
-                metric=metric_name,
-                raw_value=0.0,  # Placeholder - would come from actual metric
-                normalized=score,
-                weight=weight,
-                weighted=score * weight,
-            )
-        )
-
-    # Build response
-    response = ProRiskResponseAPI(
-        date=target_date,
-        value=result.value,
-        zone=result.zone,
-        components=components,
-        confidence=result.confidence,
-        historical_context=HistoricalContextAPI(
-            percentile_30d=0.65,  # Placeholder
-            percentile_1y=0.58,  # Placeholder
-        )
-        if include_history
-        else None,
-    )
-
-    return response
+    raise HTTPException(status_code=501, detail=PRO_RISK_DEMOTED_DETAIL)
 
 
 @app.get("/api/risk/pro/zones", response_model=ZoneDefinitionsResponseAPI)
@@ -4003,24 +3896,7 @@ async def get_pro_risk_history_endpoint(
             status_code=400,
             detail="start_date must be <= end_date",
         )
-
-    history_data = get_pro_risk_history(start_date, end_date, granularity)
-
-    # Convert to API response format
-    data_points = [
-        ProRiskHistoryPointAPI(
-            date=point["date"],
-            value=point["value"],
-            zone=point["zone"],
-        )
-        for point in history_data
-    ]
-
-    return ProRiskHistoryResponseAPI(
-        start_date=start_date,
-        end_date=end_date,
-        data=data_points,
-    )
+    raise HTTPException(status_code=501, detail=PRO_RISK_DEMOTED_DETAIL)
 
 
 # =============================================================================
@@ -4206,6 +4082,21 @@ async def recalibrate_power_law_model():
         )
 
     return PowerLawResponse(model=_power_law_model_cache)
+
+
+# =============================================================================
+# T029: Include Custom Price Models API Router (spec-036)
+# =============================================================================
+
+try:
+    from api.routes.models import router as models_router
+
+    # Include generic models routes only after the explicit power-law endpoints
+    # so /api/v1/models/power-law/predict resolves to the dedicated handler above.
+    app.include_router(models_router, prefix="/api/v1")
+    logging.info("✅ Price models API endpoints registered at /api/v1/models/*")
+except ImportError as e:
+    logging.warning(f"⚠️ Price models endpoints not available: {e}")
 
 
 @app.get("/power_law")

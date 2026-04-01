@@ -1,0 +1,475 @@
+schema_version: "1"
+published_at: "2026-04-01"
+source_documents:
+  - "docs/FEATURE_SERVICE_ROADMAP_PREP_2026-04-01.md"
+  - "docs/FEATURE_DEPENDENCY_MATRIX.md"
+backend_classes:
+  questdb: "QuestDB tables queried via QuestDBRepository."
+  duckdb_utxo_lifecycle: "DuckDB tables or views centered on utxo_lifecycle / utxo_lifecycle_full."
+  duckdb_daily_prices: "DuckDB daily_prices table."
+  bitcoin_core_rpc: "Direct dependency on Bitcoin Core RPC."
+  external_api: "Direct dependency on upstream HTTP APIs outside the repo."
+  computed_inline: "Core value is computed inline without a persistent backend."
+  hybrid: "Route family combines more than one backend class or combines live storage with upstream sources."
+failure_mode_vocabulary:
+  empty: "Route has no data to return yet while infrastructure is otherwise healthy."
+  stale: "Route exposes or depends on data older than its intended freshness target."
+  degraded: "Route still responds but only partially, or with reduced guarantees."
+  misconfigured: "Required env vars, credentials, DB files, or services are missing."
+  placeholder: "Route is exposed but semantics are mocked, hardcoded, or intentionally incomplete."
+entries:
+  - surface_id: "live_snapshot_surface"
+    route_family: "/api/v1/live/*"
+    backend_class: "hybrid"
+    primary_tables:
+      - "live_snapshot_store"
+    upstreams:
+      - "electrs"
+      - "mempool_api"
+      - "BRK"
+      - "Hyperliquid"
+      - "UTXOracle block oracle"
+    required_env:
+      - "ELECTRS_HTTP_URL"
+      - "MEMPOOL_API_URL"
+      - "MEMPOOL_API_V1_URL"
+      - "BRK_BASE_URL"
+      - "HYPERLIQUID_NODE_API_URL"
+      - "LIVE_SOURCE_TIMEOUT_SECONDS"
+      - "LIVE_RETENTION_HOURS"
+      - "LIVE_WORKER_LOCK_PATH"
+      - "LIVE_ORACLE_TX_CONCURRENCY"
+      - "LIVE_ORACLE_MIN_TX_COUNT"
+    writer_owner: "scripts.live.worker.LiveWorker"
+    read_path_owner: "api.routes.live"
+    freshness_source: "Latest snapshot timestamp stored in LiveSnapshotStore"
+    failure_mode:
+      empty: "HTTP 503 when no snapshot is available."
+      stale: "Snapshot age >60s is stale; /api/v1/live/ready returns HTTP 503."
+      degraded: "Source-specific health can degrade while snapshots still exist."
+      misconfigured: "Any missing live upstream or worker bootstrap issue can prevent fresh snapshots."
+      placeholder: "none"
+    provenance_notes:
+      - "Canonical and served host is :8011."
+  - surface_id: "live_chart_surface"
+    route_family: "/api/v1/charts/*"
+    backend_class: "hybrid"
+    primary_tables:
+      - "live_snapshot_store"
+    upstreams:
+      - "electrs"
+      - "mempool_api"
+      - "BRK"
+      - "Hyperliquid"
+      - "UTXOracle block oracle"
+    required_env:
+      - "ELECTRS_HTTP_URL"
+      - "MEMPOOL_API_URL"
+      - "MEMPOOL_API_V1_URL"
+      - "BRK_BASE_URL"
+      - "HYPERLIQUID_NODE_API_URL"
+      - "LIVE_SOURCE_TIMEOUT_SECONDS"
+      - "LIVE_RETENTION_HOURS"
+    writer_owner: "scripts.live.worker.LiveWorker"
+    read_path_owner: "api.routes.charts"
+    freshness_source: "Latest snapshot timestamp used in chart payload metadata"
+    failure_mode:
+      empty: "HTTP 503 when no snapshots are available for chart generation."
+      stale: "Chart payload metadata reports stale state when snapshot age exceeds threshold."
+      degraded: "Chart payload metadata reports degraded state when relevant sources are unhealthy."
+      misconfigured: "Same live-worker and upstream requirements as the live snapshot surface."
+      placeholder: "none"
+    provenance_notes:
+      - "Charts are not an independent data plane; they derive from live snapshot storage."
+  - surface_id: "prices_surface"
+    route_family: "/api/prices/*"
+    backend_class: "questdb"
+    primary_tables:
+      - "price_analysis"
+    upstreams:
+      - "UTXOracle calculator"
+      - "mempool price feed"
+    required_env:
+      - "QUESTDB_PG_HOST"
+      - "QUESTDB_PG_PORT"
+      - "QUESTDB_PG_USER"
+      - "QUESTDB_PG_PASSWORD"
+      - "QUESTDB_PG_DATABASE"
+    writer_owner: "scripts.daily_analysis.py via QuestDBRepository"
+    read_path_owner: "api.main"
+    freshness_source: "Newest row in price_analysis.ts"
+    failure_mode:
+      empty: "HTTP 404 when price_analysis has no rows."
+      stale: "No explicit stale marker; operators must monitor table recency."
+      degraded: "none"
+      misconfigured: "QuestDB connectivity or credentials missing."
+      placeholder: "none"
+    provenance_notes:
+      - "The route family is backed by QuestDB, not the live worker."
+  - surface_id: "metrics_latest_surface"
+    route_family: "/api/metrics/latest"
+    backend_class: "questdb"
+    primary_tables:
+      - "metrics"
+    upstreams:
+      - "scripts.metrics bundle"
+      - "daily analysis writer"
+    required_env:
+      - "QUESTDB_PG_HOST"
+      - "QUESTDB_PG_PORT"
+      - "QUESTDB_PG_USER"
+      - "QUESTDB_PG_PASSWORD"
+      - "QUESTDB_PG_DATABASE"
+    writer_owner: "scripts.daily_analysis.py + scripts.metrics.save_metrics_to_db"
+    read_path_owner: "api.main"
+    freshness_source: "Newest row in metrics.ts"
+    failure_mode:
+      empty: "HTTP 404 when metrics has no rows."
+      stale: "No explicit stale marker; operators must monitor table recency."
+      degraded: "none"
+      misconfigured: "QuestDB connectivity or credentials missing."
+      placeholder: "none"
+    provenance_notes:
+      - "Bundle currently includes Monte Carlo, active addresses, and tx volume only."
+  - surface_id: "whale_query_surface"
+    route_family: "/api/whale/{transactions,summary,transaction/{txid}}"
+    backend_class: "questdb"
+    primary_tables:
+      - "mempool_predictions"
+    upstreams:
+      - "mempool whale monitoring pipeline"
+    required_env:
+      - "QUESTDB_PG_HOST"
+      - "QUESTDB_PG_PORT"
+      - "QUESTDB_PG_USER"
+      - "QUESTDB_PG_PASSWORD"
+      - "QUESTDB_PG_DATABASE"
+    writer_owner: "mempool whale monitor / prediction writer"
+    read_path_owner: "api.mempool_whale_endpoints"
+    freshness_source: "Newest row in mempool_predictions.ts"
+    failure_mode:
+      empty: "Empty arrays for filtered queries or HTTP 404 for missing txid."
+      stale: "No explicit stale marker; operators must monitor table recency."
+      degraded: "none"
+      misconfigured: "QuestDB connectivity or writer bootstrap missing."
+      placeholder: "The prefix still contains legacy placeholder whale routes outside this canonical query family."
+    provenance_notes:
+      - "Canonical whale query routes are implemented separately from legacy placeholder whale handlers in api.main."
+  - surface_id: "exchange_netflow_surface"
+    route_family: "/api/metrics/exchange-netflow*"
+    backend_class: "duckdb_utxo_lifecycle"
+    primary_tables:
+      - "utxo_lifecycle_full"
+      - "exchange_addresses.csv"
+    upstreams: []
+    required_env:
+      - "UTXO_DB_PATH"
+      - "DUCKDB_PATH"
+    writer_owner: "UTXO lifecycle bootstrap/sync pipeline + exchange address scraper"
+    read_path_owner: "api.main"
+    freshness_source: "Latest available UTXO lifecycle state and exchange address CSV mtime"
+    failure_mode:
+      empty: "none"
+      stale: "No explicit stale marker; delayed DuckDB sync reduces confidence."
+      degraded: "none"
+      misconfigured: "HTTP 503 when DuckDB file is absent; HTTP 404 when expected tables/views are missing."
+      placeholder: "none"
+    provenance_notes:
+      - "Route family mixes DuckDB state with local CSV attribution coverage."
+  - surface_id: "exchange_addresses_stats_surface"
+    route_family: "/api/exchange-addresses/stats"
+    backend_class: "computed_inline"
+    primary_tables:
+      - "exchange_addresses.csv"
+    upstreams: []
+    required_env: []
+    writer_owner: "exchange address scraper process"
+    read_path_owner: "api.main"
+    freshness_source: "exchange_addresses.csv mtime"
+    failure_mode:
+      empty: "none"
+      stale: "CSV mtime is the only freshness signal."
+      degraded: "none"
+      misconfigured: "HTTP 404 when exchange_addresses.csv is absent."
+      placeholder: "none"
+    provenance_notes:
+      - "Operational metadata surface; not a direct market feature family."
+  - surface_id: "binary_cdd_surface"
+    route_family: "/api/metrics/binary-cdd"
+    backend_class: "duckdb_utxo_lifecycle"
+    primary_tables:
+      - "utxo_lifecycle_full"
+    upstreams: []
+    required_env:
+      - "UTXO_DB_PATH"
+      - "DUCKDB_PATH"
+    writer_owner: "UTXO lifecycle bootstrap/sync pipeline"
+    read_path_owner: "api.main"
+    freshness_source: "Latest available UTXO lifecycle state"
+    failure_mode:
+      empty: "none"
+      stale: "No explicit stale marker; delayed DuckDB sync reduces confidence."
+      degraded: "none"
+      misconfigured: "HTTP 503 when DB is absent; HTTP 404 when expected tables/views are missing."
+      placeholder: "none"
+    provenance_notes:
+      - "Analytical result is real, but depends entirely on local DuckDB state."
+  - surface_id: "net_realized_pnl_surface"
+    route_family: "/api/metrics/net-realized-pnl*"
+    backend_class: "duckdb_utxo_lifecycle"
+    primary_tables:
+      - "utxo_lifecycle_full"
+    upstreams: []
+    required_env:
+      - "UTXO_DB_PATH"
+      - "DUCKDB_PATH"
+    writer_owner: "UTXO lifecycle bootstrap/sync pipeline"
+    read_path_owner: "api.main"
+    freshness_source: "Latest available spent UTXO history"
+    failure_mode:
+      empty: "none"
+      stale: "No explicit stale marker; delayed DuckDB sync reduces confidence."
+      degraded: "none"
+      misconfigured: "HTTP 503 when DB is absent; HTTP 404 when expected tables/views are missing."
+      placeholder: "none"
+    provenance_notes:
+      - "History endpoint derives from the same DuckDB source and serving code path."
+  - surface_id: "pl_ratio_surface"
+    route_family: "/api/metrics/pl-ratio*"
+    backend_class: "duckdb_utxo_lifecycle"
+    primary_tables:
+      - "utxo_lifecycle_full"
+    upstreams: []
+    required_env:
+      - "UTXO_DB_PATH"
+      - "DUCKDB_PATH"
+    writer_owner: "UTXO lifecycle bootstrap/sync pipeline"
+    read_path_owner: "api.main"
+    freshness_source: "Latest available spent UTXO history"
+    failure_mode:
+      empty: "none"
+      stale: "No explicit stale marker; delayed DuckDB sync reduces confidence."
+      degraded: "none"
+      misconfigured: "HTTP 503 when DB is absent; HTTP 404 when expected tables/views are missing."
+      placeholder: "none"
+    provenance_notes:
+      - "History endpoint derives from the same DuckDB source and serving code path."
+  - surface_id: "sopr_surface"
+    route_family: "/api/metrics/sopr"
+    backend_class: "duckdb_utxo_lifecycle"
+    primary_tables:
+      - "utxo_lifecycle"
+      - "utxo_lifecycle_full"
+    upstreams: []
+    required_env:
+      - "UTXO_DB_PATH"
+      - "DUCKDB_PATH"
+    writer_owner: "UTXO lifecycle bootstrap/sync pipeline"
+    read_path_owner: "api.main"
+    freshness_source: "Latest available spent UTXO history"
+    failure_mode:
+      empty: "none"
+      stale: "No explicit stale marker; delayed DuckDB sync reduces confidence."
+      degraded: "none"
+      misconfigured: "HTTP 503 when DB is absent; HTTP 404 when expected tables/views are missing."
+      placeholder: "none"
+    provenance_notes:
+      - "Current route is independent of BRK and computed directly from UTXOracle data."
+  - surface_id: "nvt_surface"
+    route_family: "/api/metrics/nvt"
+    backend_class: "duckdb_utxo_lifecycle"
+    primary_tables:
+      - "utxo_lifecycle_full"
+      - "block_heights"
+    upstreams: []
+    required_env:
+      - "UTXO_DB_PATH"
+      - "DUCKDB_PATH"
+    writer_owner: "UTXO lifecycle bootstrap/sync pipeline + block_heights build"
+    read_path_owner: "api.main"
+    freshness_source: "Latest available UTXO lifecycle state and block_heights tip"
+    failure_mode:
+      empty: "HTTP 503 when circulating supply or recent tx volume is insufficient."
+      stale: "No explicit stale marker; delayed DuckDB or block_heights sync reduces confidence."
+      degraded: "none"
+      misconfigured: "HTTP 503 when DB or required schema is absent."
+      placeholder: "none"
+    provenance_notes:
+      - "Route output also depends on the caller-supplied or default current_price query parameter."
+  - surface_id: "volatility_surface"
+    route_family: "/api/metrics/volatility"
+    backend_class: "duckdb_daily_prices"
+    primary_tables:
+      - "daily_prices"
+    upstreams: []
+    required_env:
+      - "UTXO_DB_PATH"
+      - "DUCKDB_PATH"
+      - "UTXO_LIFECYCLE_DB"
+    writer_owner: "scripts.bootstrap.build_price_table"
+    read_path_owner: "api.main"
+    freshness_source: "Newest daily_prices.date"
+    failure_mode:
+      empty: "HTTP 503 when fewer than 3 prices are available."
+      stale: "No explicit stale marker; delayed price-table refresh reduces confidence."
+      degraded: "none"
+      misconfigured: "HTTP 503 when DB or daily_prices table is absent."
+      placeholder: "none"
+    provenance_notes:
+      - "Backed by daily_prices, not utxo_lifecycle_full."
+  - surface_id: "puell_multiple_surface"
+    route_family: "/api/metrics/puell-multiple"
+    backend_class: "computed_inline"
+    primary_tables: []
+    upstreams: []
+    required_env:
+      - "UTXO_DB_PATH"
+    writer_owner: "none"
+    read_path_owner: "api.main"
+    freshness_source: "Not applicable while runtime-demoted"
+    failure_mode:
+      empty: "none"
+      stale: "Not applicable while runtime-demoted."
+      degraded: "none"
+      misconfigured: "none"
+      placeholder: "Route returns HTTP 501 until the 365-day denominator is backed by real miner revenue history."
+    provenance_notes:
+      - "Runtime demotion prevents the previous hardcoded-baseline response from being treated as live analytics."
+  - surface_id: "mining_pulse_surface"
+    route_family: "/api/metrics/mining-pulse"
+    backend_class: "bitcoin_core_rpc"
+    primary_tables: []
+    upstreams:
+      - "Bitcoin Core RPC"
+    required_env:
+      - "BITCOIN_RPC_URL"
+      - "BITCOIN_RPC_USER"
+      - "BITCOIN_RPC_PASSWORD"
+    writer_owner: "Bitcoin Core node"
+    read_path_owner: "api.main"
+    freshness_source: "Live RPC tip and recent block interval window"
+    failure_mode:
+      empty: "none"
+      stale: "No explicit stale marker; RPC availability and returned timestamp are the freshness signals."
+      degraded: "none"
+      misconfigured: "HTTP 503 when RPC client cannot be initialized or queried."
+      placeholder: "none"
+    provenance_notes:
+      - "Realtime indicator with no persistent repo-local storage in the serving path."
+  - surface_id: "hash_ribbons_surface"
+    route_family: "/api/metrics/hash-ribbons"
+    backend_class: "external_api"
+    primary_tables: []
+    upstreams:
+      - "mempool hashrate API"
+    required_env: []
+    writer_owner: "external hashrate upstream"
+    read_path_owner: "api.main"
+    freshness_source: "Latest successful upstream hashrate fetch"
+    failure_mode:
+      empty: "none"
+      stale: "No explicit stale marker beyond returned timestamp."
+      degraded: "none"
+      misconfigured: "HTTP 503 when the upstream cannot be reached or parsed."
+      placeholder: "none"
+    provenance_notes:
+      - "No repo-local persistent copy is required for the current serving path."
+  - surface_id: "mining_economics_surface"
+    route_family: "/api/metrics/mining-economics*"
+    backend_class: "hybrid"
+    primary_tables: []
+    upstreams:
+      - "Bitcoin Core RPC"
+      - "mempool hashrate API"
+    required_env:
+      - "BITCOIN_RPC_URL"
+      - "BITCOIN_RPC_USER"
+      - "BITCOIN_RPC_PASSWORD"
+    writer_owner: "Bitcoin Core node + external hashrate upstream"
+    read_path_owner: "api.main"
+    freshness_source: "Realtime endpoint uses RPC tip; history endpoint uses latest successful hashrate history fetch"
+    failure_mode:
+      empty: "History endpoint may return an empty entries list when upstream history cannot be fetched."
+      stale: "No explicit stale marker today."
+      degraded: "Realtime endpoint can degrade by returning mining pulse without hash ribbons when combined calculator handles missing upstream."
+      misconfigured: "HTTP 503 when RPC is unavailable for the realtime endpoint."
+      placeholder: "History endpoint hardcodes pulse_zone=NORMAL."
+    provenance_notes:
+      - "One route family spans two materially different provenance profiles: realtime hybrid and historical partial-placeholder."
+  - surface_id: "pro_risk_surface"
+    route_family: "/api/risk/pro*"
+    backend_class: "computed_inline"
+    primary_tables: []
+    upstreams: []
+    required_env: []
+    writer_owner: "none"
+    read_path_owner: "api.main"
+    freshness_source: "Not applicable while runtime-demoted"
+    failure_mode:
+      empty: "Static /api/risk/pro/zones metadata remains available."
+      stale: "Not applicable while runtime-demoted."
+      degraded: "none"
+      misconfigured: "none"
+      placeholder: "/api/risk/pro and /api/risk/pro/history now return HTTP 501 until real metric inputs and history are wired."
+    provenance_notes:
+      - "/api/risk/pro/zones is static metadata and remains available."
+  - surface_id: "models_core_surface"
+    route_family: "/api/v1/models*"
+    backend_class: "computed_inline"
+    primary_tables: []
+    upstreams: []
+    required_env: []
+    writer_owner: "none"
+    read_path_owner: "api.routes.models + api.main"
+    freshness_source: "Request-time computation"
+    failure_mode:
+      empty: "HTTP 404 when the requested model name is not registered."
+      stale: "Not applicable."
+      degraded: "none"
+      misconfigured: "none"
+      placeholder: "none"
+    provenance_notes:
+      - "Research-oriented router; not admitted into the nautilus production slice."
+  - surface_id: "power_law_surface"
+    route_family: "/api/v1/models/power-law*"
+    backend_class: "duckdb_daily_prices"
+    primary_tables:
+      - "daily_prices"
+    upstreams: []
+    required_env:
+      - "UTXO_LIFECYCLE_DB"
+    writer_owner: "scripts.bootstrap.build_price_table"
+    read_path_owner: "api.main"
+    freshness_source: "Newest daily_prices.date"
+    failure_mode:
+      empty: "HTTP 503 when price history is absent or insufficient."
+      stale: "No explicit stale marker; daily_prices recency is the effective freshness signal."
+      degraded: "none"
+      misconfigured: "HTTP 503 when DuckDB path or schema is absent."
+      placeholder: "none"
+    provenance_notes:
+      - "Dedicated power-law routes now resolve deterministically before the generic models router."
+  - surface_id: "rbn_validation_surface"
+    route_family: "/api/v1/validation/rbn/*"
+    backend_class: "external_api"
+    primary_tables:
+      - "cache/rbn/*.parquet"
+      - "cache/rbn/quota_tracking.json"
+    upstreams:
+      - "ResearchBitcoin.net API"
+    required_env:
+      - "RBN_API_TOKEN"
+      - "RBN_TIER"
+      - "RBN_CACHE_TTL_HOURS"
+      - "RBN_TIMEOUT_SECONDS"
+    writer_owner: "scripts.integrations.rbn_fetcher"
+    read_path_owner: "api.main"
+    freshness_source: "Cache TTL or latest successful upstream fetch"
+    failure_mode:
+      empty: "HTTP 404 when no comparison data exists for the requested metric/date range."
+      stale: "Within cache TTL, data may be served without a fresh upstream fetch."
+      degraded: "Quota exhaustion can truncate multi-metric reporting."
+      misconfigured: "HTTP 503 when RBN_API_TOKEN is missing or invalid."
+      placeholder: "none"
+    provenance_notes:
+      - "This is a metadata and validation surface, not part of the first production feature bundle."

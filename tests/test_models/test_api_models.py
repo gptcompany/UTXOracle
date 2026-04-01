@@ -57,20 +57,20 @@ class TestListModels:
 class TestGetModelPrediction:
     """Tests for GET /api/v1/models/{name}/predict endpoint."""
 
-    def test_get_prediction_power_law(self, client):
-        """GET /models/power-law/predict returns prediction."""
-        response = client.get("/api/v1/models/power-law/predict")
+    def test_get_prediction_stock_to_flow(self, client):
+        """GET /models/stock-to-flow/predict returns prediction."""
+        response = client.get("/api/v1/models/stock-to-flow/predict")
 
         assert response.status_code == 200
         data = response.json()
-        assert data["model_name"] == "Power Law"
+        assert data["model_name"] == "Stock-to-Flow"
         assert data["predicted_price"] > 0
         assert "confidence_interval" in data
 
     def test_get_prediction_with_date(self, client):
-        """GET /models/power-law/predict?date= returns prediction for specific date."""
+        """GET /models/stock-to-flow/predict?date= returns prediction for specific date."""
         response = client.get(
-            "/api/v1/models/power-law/predict",
+            "/api/v1/models/stock-to-flow/predict",
             params={"date": "2025-12-27"},
         )
 
@@ -83,15 +83,6 @@ class TestGetModelPrediction:
         response = client.get("/api/v1/models/unknown-model/predict")
 
         assert response.status_code == 404
-
-    def test_get_prediction_stock_to_flow(self, client):
-        """GET /models/stock-to-flow/predict returns prediction."""
-        response = client.get("/api/v1/models/stock-to-flow/predict")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["model_name"] == "Stock-to-Flow"
-
 
 class TestCreateEnsemble:
     """Tests for POST /api/v1/models/ensemble endpoint."""

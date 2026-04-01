@@ -1,0 +1,125 @@
+# UTXOracle Feature Contract Registry
+
+Date: 2026-04-01
+
+Status: Initial `v1` registry draft, updated through `M2` hardening
+
+Machine-readable source of truth:
+
+- [docs/contracts/feature_contract_registry.yaml](/media/sam/1TB/UTXOracle/docs/contracts/feature_contract_registry.yaml)
+
+Primary inputs:
+
+- [docs/FEATURE_SERVICE_ROADMAP_PREP_2026-04-01.md](/media/sam/1TB/UTXOracle/docs/FEATURE_SERVICE_ROADMAP_PREP_2026-04-01.md)
+- [docs/FEATURE_SERVICE_ROADMAP_2026-04-01.md](/media/sam/1TB/UTXOracle/docs/FEATURE_SERVICE_ROADMAP_2026-04-01.md)
+- [specs/044-feature-service-contract-registry/spec.md](/media/sam/1TB/UTXOracle/specs/044-feature-service-contract-registry/spec.md)
+
+## 1. Purpose
+
+This registry is the contract layer on top of the audited route inventory.
+
+If a route family is not present in the registry, it is not part of the supported consumer surface.
+
+The registry separates:
+
+- audit reality: `runtime verified`, `code implemented`, `calculator only`, `placeholder`
+- consumer admission: `tier_1_production`, `tier_2_production_with_caveats`, `tier_3_research`, `tier_4_not_admitted`
+
+## 2. Required Entry Fields
+
+Every registry entry carries:
+
+- `surface_id`
+- `route_family`
+- `consumer`
+- `current_label`
+- `admission_tier`
+- `source_of_truth`
+- `backend_class`
+- `freshness_target`
+- `empty_state_policy`
+- `stale_state_policy`
+- `known_caveats`
+- `owner`
+- `version`
+- `deprecation_status`
+
+## 3. Tier Definitions
+
+### `tier_1_production`
+
+Stable for production consumption under the declared host policy, backend dependency, and freshness rules.
+
+### `tier_2_production_with_caveats`
+
+Admitted for production use only when the operator understands and accepts the declared caveats and dependency footprint.
+
+### `tier_3_research`
+
+Available for exploration, validation, or internal tooling, but not admitted as part of the production feature contract for `nautilus_dev`.
+
+### `tier_4_not_admitted`
+
+Explicitly excluded from the supported contract because they are placeholder, shadowed, mocked, or otherwise materially misleading today.
+
+## 4. Deprecation Status Vocabulary
+
+- `none`: no deprecation is currently declared
+- `duplicate_alias_present`: duplicate exposure exists outside the canonical host policy
+- `legacy_placeholder_candidate`: legacy surface should be removed, deprecated, or reimplemented
+- `candidate_for_demotion_or_reimplementation`: exposed route should not remain admitted in current form
+- `blocked_pending_route_fix`: route family is blocked by a routing or serving defect
+
+## 5. Contract Summary
+
+| Surface ID | Route family | Current label | Admission tier | Primary consumer | Canonical host | Backend class | Owner | Key caveats |
+|------|------|------|------|------|------|------|------|------|
+| `live_snapshot_surface` | `/api/v1/live/*` | `runtime verified` | `tier_1_production` | `nautilus_dev`, operators | `:8011` | `hybrid` | `scripts.live.worker` + `api.routes.live` | Dedicated live app is now the only served host for this surface |
+| `live_chart_surface` | `/api/v1/charts/*` | `runtime verified` | `tier_1_production` | `nautilus_dev`, research | `:8011` | `hybrid` | `scripts.live.worker` + `api.routes.charts` | Depends on live snapshot store and upstream source health |
+| `prices_surface` | `/api/prices/*` | `code implemented` | `tier_1_production` | `nautilus_dev`, research | `:8001` | `questdb` | `scripts.daily_analysis.py` + `api.main` | Main-app availability still depends on QuestDB connectivity |
+| `metrics_latest_surface` | `/api/metrics/latest` | `code implemented` | `tier_1_production` | `nautilus_dev`, research | `:8001` | `questdb` | `scripts.daily_analysis.py` + `scripts.metrics.save_metrics_to_db` | Depends on `metrics` table freshness |
+| `whale_query_surface` | `/api/whale/{transactions,summary,transaction/{txid}}` | `code implemented` | `tier_2_production_with_caveats` | research, `nautilus_dev` future forensics | `:8001` | `questdb` | `mempool whale monitor` + `api.mempool_whale_endpoints` | Shares prefix with legacy placeholder whale routes |
+| `exchange_netflow_surface` | `/api/metrics/exchange-netflow*` | `code implemented` | `tier_2_production_with_caveats` | `nautilus_dev`, research | `:8001` | `duckdb_utxo_lifecycle` | `scripts.metrics.exchange_netflow` + `api.main` | Requires populated DuckDB and exchange address CSV |
+| `binary_cdd_surface` | `/api/metrics/binary-cdd` | `code implemented` | `tier_2_production_with_caveats` | `nautilus_dev`, research | `:8001` | `duckdb_utxo_lifecycle` | `scripts.metrics.binary_cdd` + `api.main` | Returns `503`/`404` when DuckDB or tables are absent |
+| `net_realized_pnl_surface` | `/api/metrics/net-realized-pnl*` | `code implemented` | `tier_2_production_with_caveats` | `nautilus_dev`, research | `:8001` | `duckdb_utxo_lifecycle` | `scripts.metrics.net_realized_pnl` + `api.main` | Requires populated spent UTXO history |
+| `pl_ratio_surface` | `/api/metrics/pl-ratio*` | `code implemented` | `tier_2_production_with_caveats` | `nautilus_dev`, research | `:8001` | `duckdb_utxo_lifecycle` | `scripts.metrics.pl_ratio` + `api.main` | Requires populated spent UTXO history |
+| `sopr_surface` | `/api/metrics/sopr` | `code implemented` | `tier_2_production_with_caveats` | `nautilus_dev`, research | `:8001` | `duckdb_utxo_lifecycle` | `scripts.metrics.utxo_lifecycle` + `api.main` | Requires `utxo_lifecycle_full` and current spent data |
+| `nvt_surface` | `/api/metrics/nvt` | `code implemented` | `tier_2_production_with_caveats` | `nautilus_dev`, research | `:8001` | `duckdb_utxo_lifecycle` | `scripts.metrics.nvt` + `api.main` | Also depends on `block_heights`; default `current_price` query arg can alter outputs |
+| `volatility_surface` | `/api/metrics/volatility` | `code implemented` | `tier_2_production_with_caveats` | `nautilus_dev`, research | `:8001` | `duckdb_daily_prices` | `scripts.bootstrap.build_price_table` + `api.main` | Requires populated `daily_prices` history |
+| `mining_pulse_surface` | `/api/metrics/mining-pulse` | `code implemented` | `tier_2_production_with_caveats` | `nautilus_dev`, research | `:8001` | `bitcoin_core_rpc` | `scripts.metrics.mining_economics` + `api.main` | Hard dependency on Bitcoin Core RPC availability |
+| `hash_ribbons_surface` | `/api/metrics/hash-ribbons` | `code implemented` | `tier_2_production_with_caveats` | `nautilus_dev`, research | `:8001` | `external_api` | `scripts.data.hashrate_fetcher` + `api.main` | Hard dependency on hashrate upstream availability |
+| `mining_economics_surface` | `/api/metrics/mining-economics*` | `code implemented` | `tier_2_production_with_caveats` | `nautilus_dev`, research | `:8001` | `hybrid` | `scripts.metrics.mining_economics` + `api.main` | History path hardcodes `pulse_zone="NORMAL"` |
+| `exchange_addresses_stats_surface` | `/api/exchange-addresses/stats` | `code implemented` | `tier_3_research` | operators, research | `:8001` | `computed_inline` | `api.main` | Reads local CSV metadata only; not admitted to `nautilus_dev` |
+| `models_core_surface` | `/api/v1/models`, `/api/v1/models/{name}/predict`, `/api/v1/models/backtest/{name}`, `/api/v1/models/compare`, `/api/v1/models/ensemble` | `code implemented` | `tier_3_research` | research | `:8001` | `computed_inline` | `api.routes.models` | Not part of first consumer slice |
+| `rbn_validation_surface` | `/api/v1/validation/rbn/*` | `code implemented` | `tier_3_research` | operators, research | `:8001` | `external_api` | `scripts.integrations.rbn_fetcher` + `api.main` | Requires `RBN_API_TOKEN` and is quota-bound |
+| `advanced_research_surface` | `/api/metrics/{advanced,wasserstein*,cointime*,urpd,supply-profit-loss,reserve-risk,sell-side-risk,cdd-vdd,nupl,revived-supply,cost-basis}` | `calculator only` | `tier_3_research` | research | `:8001` | `hybrid` | `scripts.metrics.*` + `api.main` | Registered today as `501`; promotion requires API wiring and, in some cases, history materialization |
+| `wallet_and_cohort_surface` | `/api/metrics/{address-cohorts,wallet-waves,absorption-rates}` | `calculator only` | `tier_3_research` | research, future `nautilus_dev` features | `:8001` | `duckdb_utxo_lifecycle` | `scripts.metrics.*` + `scripts.clustering.*` | Registered today as `501`; Wave 1 promotion target |
+| `power_law_surface` | `/api/v1/models/power-law*` | `code implemented` | `tier_3_research` | research | `:8001` | `duckdb_daily_prices` | `api.main` + `scripts.metrics.power_law` | Dedicated handler now wins deterministically, but the surface remains outside the first `nautilus_dev` contract slice |
+| `pro_risk_surface` | `/api/risk/pro*` | `placeholder` | `tier_4_not_admitted` | research only today | `:8001` | `computed_inline` | `api.main` + `scripts.metrics.pro_risk` | `/api/risk/pro` and `/history` are now runtime-demoted; only `/zones` remains usable static metadata |
+| `puell_multiple_surface` | `/api/metrics/puell-multiple` | `placeholder` | `tier_4_not_admitted` | research only today | `:8001` | `computed_inline` | `api.main` | Runtime-demoted until real 365-day miner revenue history is wired |
+| `legacy_whale_placeholder_surface` | `/api/whale/{latest,historical,history}` | `placeholder` | `tier_4_not_admitted` | none | `:8001` | `computed_inline` | `api.main` | Legacy placeholder surface collides with canonical whale namespace |
+| `wallet_waves_history_placeholder_surface` | `/api/metrics/wallet-waves/history` | `placeholder` | `tier_4_not_admitted` | none | `:8001` | `computed_inline` | `api.main` | Historical serving path is not implemented |
+| `main_operational_pages_surface` | `/{,health,metrics,whale,dashboard,monitor,power-law,power_law}` | `code implemented` | `tier_4_not_admitted` | operators | `:8001` | `computed_inline` | `api.main` | Useful operationally, but not part of the admitted feature API contract |
+
+## 6. Governance Rules
+
+Any change to an admitted route family must be classified as one of:
+
+- additive, backward compatible
+- caveat change, non-breaking but operationally relevant
+- breaking contract change
+- deprecation
+
+Breaking changes require:
+
+1. registry version update
+2. migration note in the consumer-facing contract
+3. explicit naming of the affected consumer
+
+## 7. Workflow Rule
+
+Future specs that change route behavior must update:
+
+1. [docs/contracts/feature_contract_registry.yaml](/media/sam/1TB/UTXOracle/docs/contracts/feature_contract_registry.yaml)
+2. [docs/NAUTILUS_FEATURE_CONTRACT_V1.md](/media/sam/1TB/UTXOracle/docs/NAUTILUS_FEATURE_CONTRACT_V1.md), if `nautilus_dev` is affected
+3. [docs/contracts/feature_provenance_manifest.yaml](/media/sam/1TB/UTXOracle/docs/contracts/feature_provenance_manifest.yaml), if dependency or failure semantics changed
