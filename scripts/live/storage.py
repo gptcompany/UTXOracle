@@ -25,6 +25,7 @@ class LiveSnapshotStore:
         self.retention_hours = retention_hours
         self.lock_path = lock_path
         self._initialized = False
+        self._recovery_lock = asyncio.Lock()
 
     def initialize(self, *, for_write: bool = False) -> None:
         del for_write
@@ -84,8 +85,9 @@ class LiveSnapshotStore:
     async def aget_latest(self) -> LiveSnapshot | None:
         if not self._initialized:
             await self.ainitialize()
-        row = await self.repo.fetchrow(
-            "SELECT snapshot_json FROM live_snapshots ORDER BY ts DESC LIMIT 1"
+        row = await self._retry_on_missing_live_snapshots(
+            self.repo.fetchrow,
+            "SELECT snapshot_json FROM live_snapshots ORDER BY ts DESC LIMIT 1",
         )
         return self._deserialize_snapshot(row["snapshot_json"]) if row else None
 
@@ -112,7 +114,8 @@ class LiveSnapshotStore:
             query = LiveHistoryQuery(minutes=query)
 
         start_time = ((now or utc_now()) - timedelta(minutes=query.minutes)).replace(tzinfo=None)
-        rows = await self.repo.fetch(
+        rows = await self._retry_on_missing_live_snapshots(
+            self.repo.fetch,
             "SELECT snapshot_json FROM live_snapshots WHERE ts >= $1 ORDER BY ts ASC",
             start_time,
         )
@@ -128,14 +131,41 @@ class LiveSnapshotStore:
             await self.ainitialize()
 
         cutoff = ((now or utc_now()) - timedelta(hours=self.retention_hours)).replace(tzinfo=None)
-        count_row = await self.repo.fetchrow(
+        count_row = await self._retry_on_missing_live_snapshots(
+            self.repo.fetchrow,
             "SELECT COUNT(*) AS count FROM live_snapshots WHERE ts < $1",
             cutoff,
         )
         deleted = int(count_row["count"]) if count_row else 0
         if deleted:
-            await self.repo.execute("DELETE FROM live_snapshots WHERE ts < $1", cutoff)
+            await self._retry_on_missing_live_snapshots(
+                self.repo.execute,
+                "DELETE FROM live_snapshots WHERE ts < $1",
+                cutoff,
+            )
         return deleted
+
+    async def _retry_on_missing_live_snapshots(self, operation, *args):
+        try:
+            return await operation(*args)
+        except Exception as exc:
+            if not self._requires_live_snapshots_recovery(exc):
+                raise
+
+        async with self._recovery_lock:
+            try:
+                return await operation(*args)
+            except Exception as exc:
+                if not self._requires_live_snapshots_recovery(exc):
+                    raise
+
+                logger.warning(
+                    "QuestDB live store needs recovery; reinitializing store and retrying once"
+                )
+                await self.repo.close()
+                self._initialized = False
+                await self.ainitialize()
+                return await operation(*args)
 
     @staticmethod
     def _run_async(awaitable):
@@ -151,3 +181,12 @@ class LiveSnapshotStore:
     @staticmethod
     def _deserialize_snapshot(raw_payload: str) -> LiveSnapshot:
         return LiveSnapshot.model_validate(json.loads(raw_payload))
+
+    @staticmethod
+    def _is_missing_live_snapshots_error(exc: Exception) -> bool:
+        return "table does not exist [table=live_snapshots]" in str(exc)
+
+    @classmethod
+    def _requires_live_snapshots_recovery(cls, exc: Exception) -> bool:
+        message = str(exc)
+        return cls._is_missing_live_snapshots_error(exc) or "pool is closing" in message

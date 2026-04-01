@@ -13,9 +13,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from api.config import LIVE_API_CORS_ALLOWED_ORIGINS, get_cors_middleware_kwargs
 from api.routes.charts import router as charts_router
 from api.routes.live import (
-    build_live_health_summary,
     build_live_health_summary_async,
     get_live_snapshot_store,
     router as live_router,
@@ -94,10 +94,9 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        **get_cors_middleware_kwargs(LIVE_API_CORS_ALLOWED_ORIGINS),
     )
 
     app.include_router(live_router, prefix="/api/v1")
@@ -136,7 +135,7 @@ def create_app() -> FastAPI:
             logging.warning("Live production health check failed: %s", exc)
             status = "unavailable"
             live_summary = {"status": "unavailable", "sources": {}}
-            check = LiveServiceCheck(status="error", error=str(exc))
+            check = LiveServiceCheck(status="error", error="live health check failed")
 
         return LiveHealthStatus(
             status=status,

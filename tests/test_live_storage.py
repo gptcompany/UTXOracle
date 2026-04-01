@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from scripts.live.models import (
     LiveComparison,
     LiveFeatureSet,
@@ -238,10 +240,81 @@ async def test_store_questdb_history_uses_python_cutoff_timestamp():
     history = await store.aget_history(LiveHistoryQuery(minutes=15), now=now)
 
     assert len(history) == 1
-    assert history[0].block_height == 941460
     assert calls == [
         (
             "SELECT snapshot_json FROM live_snapshots WHERE ts >= $1 ORDER BY ts ASC",
             (now - timedelta(minutes=15)).replace(tzinfo=None),
         )
     ]
+
+
+@pytest.mark.asyncio
+async def test_store_reinitializes_when_live_table_is_temporarily_missing():
+    snapshot = _build_snapshot(
+        timestamp=datetime(2026, 3, 20, 18, 0, tzinfo=timezone.utc),
+        block_height=941456,
+        price=84211.52,
+    )
+
+    class FlakyRepo(FakeQuestDBRepo):
+        def __init__(self) -> None:
+            super().__init__()
+            self.reinitialized = 0
+
+        async def close(self) -> None:
+            self.reinitialized += 1
+            await super().close()
+
+        async def fetchrow(self, sql, *args):
+            if self.reinitialized == 0:
+                raise RuntimeError("table does not exist [table=live_snapshots]")
+            return {"snapshot_json": snapshot.model_dump_json()}
+
+    repo = FlakyRepo()
+    store = LiveSnapshotStore(repo=repo)
+    store._initialized = True
+
+    latest = await store.aget_latest()
+
+    assert latest is not None
+    assert latest.block_height == 941456
+    assert repo.reinitialized == 1
+    assert repo.initialized == 1
+
+
+@pytest.mark.asyncio
+async def test_store_retries_when_pool_is_closing_during_recovery():
+    snapshot = _build_snapshot(
+        timestamp=datetime(2026, 3, 20, 18, 0, tzinfo=timezone.utc),
+        block_height=941456,
+        price=84211.52,
+    )
+
+    class FlakyRepo(FakeQuestDBRepo):
+        def __init__(self) -> None:
+            super().__init__()
+            self.fetch_attempts = 0
+            self.reinitialized = 0
+
+        async def close(self) -> None:
+            self.reinitialized += 1
+            await super().close()
+
+        async def fetchrow(self, sql, *args):
+            self.fetch_attempts += 1
+            if self.fetch_attempts == 1:
+                raise RuntimeError("table does not exist [table=live_snapshots]")
+            if self.fetch_attempts == 2:
+                raise RuntimeError("pool is closing")
+            return {"snapshot_json": snapshot.model_dump_json()}
+
+    repo = FlakyRepo()
+    store = LiveSnapshotStore(repo=repo)
+    store._initialized = True
+
+    latest = await store.aget_latest()
+
+    assert latest is not None
+    assert latest.block_height == 941456
+    assert repo.reinitialized == 1
+    assert repo.initialized == 1

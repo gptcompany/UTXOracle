@@ -20,7 +20,7 @@ import logging
 import time
 import asyncio
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, date
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 
@@ -109,6 +109,33 @@ except ImportError as e:
 
 
 from api.questdb_repository import QuestDBRepository
+from api.config import (
+    API_CORS_ALLOWED_ORIGINS,
+    ELECTRS_HTTP_URL,
+    FASTAPI_HOST,
+    FASTAPI_PORT,
+    LIVE_ENABLED,
+    LOG_LEVEL,
+    MEMPOOL_API_V1_URL,
+    UTXO_DB_PATH,
+    get_cors_middleware_kwargs,
+)
+
+STARTUP_TIME = datetime.now(timezone.utc)
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _raise_http_exception(
+    status_code: int,
+    public_detail: str,
+    log_message: str,
+    exc: Exception,
+) -> None:
+    logging.exception("%s: %s", log_message, exc)
+    raise HTTPException(status_code=status_code, detail=public_detail) from exc
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -152,10 +179,9 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for development
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    **get_cors_middleware_kwargs(API_CORS_ALLOWED_ORIGINS),
 )
 
 # =============================================================================
@@ -425,8 +451,12 @@ async def get_latest_price(request: Request):
             is_valid=row["is_valid"],
         )
     except Exception as e:
-        logging.error(f"Error getting latest price: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_http_exception(
+            status_code=500,
+            public_detail="Failed to fetch latest price data",
+            log_message="Error getting latest price",
+            exc=e,
+        )
 
 
 # =============================================================================
@@ -482,8 +512,12 @@ async def get_historical_prices(
 
         return response_items
     except Exception as e:
-        logging.error(f"Error getting historical prices: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_http_exception(
+            status_code=500,
+            public_detail="Failed to fetch historical price data",
+            log_message="Error getting historical prices",
+            exc=e,
+        )
 
 
 # =============================================================================
@@ -522,7 +556,7 @@ async def get_comparison_stats(
             FROM price_analysis
             WHERE ts > $1
         """
-        cutoff_time = datetime.utcnow() - timedelta(days=days)
+        cutoff_time = _utc_now() - timedelta(days=days)
         row = await repo.fetchrow(query, cutoff_time)
         if not row:
             return ComparisonStats(total_entries=0, valid_entries=0, timeframe_days=days)
@@ -537,8 +571,12 @@ async def get_comparison_stats(
             timeframe_days=days,
         )
     except Exception as e:
-        logging.error(f"Error getting comparison stats: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_http_exception(
+            status_code=500,
+            public_detail="Failed to fetch comparison statistics",
+            log_message="Error getting comparison stats",
+            exc=e,
+        )
 
 
 # =============================================================================
@@ -2045,8 +2083,6 @@ async def get_exchange_netflow(
     - Some addresses may be misattributed
     """
     import duckdb
-    from datetime import datetime
-
     conn = None
     try:
         conn = duckdb.connect(UTXO_DB_PATH, read_only=True)
@@ -2081,7 +2117,7 @@ async def get_exchange_netflow(
             window_hours=window,
             current_price_usd=current_price,
             block_height=block_height,
-            timestamp=datetime.utcnow(),
+            timestamp=_utc_now(),
             exchange_addresses_path=EXCHANGE_ADDRESSES_PATH,
         )
 
@@ -2116,8 +2152,12 @@ async def get_exchange_netflow(
                 status_code=404,
                 detail="UTXO lifecycle table not found. Schema migration pending.",
             )
-        logging.error(f"Error calculating exchange netflow: {e}")
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        _raise_http_exception(
+            status_code=500,
+            public_detail="Failed to calculate exchange netflow",
+            log_message="Error calculating exchange netflow",
+            exc=e,
+        )
     finally:
         if conn:
             conn.close()
@@ -2190,8 +2230,12 @@ async def get_exchange_netflow_history(
                 status_code=404,
                 detail="UTXO lifecycle table not found. Schema migration pending.",
             )
-        logging.error(f"Error getting exchange netflow history: {e}")
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        _raise_http_exception(
+            status_code=500,
+            public_detail="Failed to fetch exchange netflow history",
+            log_message="Error getting exchange netflow history",
+            exc=e,
+        )
     finally:
         if conn:
             conn.close()
@@ -2251,8 +2295,12 @@ async def get_exchange_addresses_stats():
     except HTTPException:
         raise
     except Exception as e:
-        logging.error(f"Error getting exchange address stats: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_http_exception(
+            status_code=500,
+            public_detail="Failed to fetch exchange address statistics",
+            log_message="Error getting exchange address stats",
+            exc=e,
+        )
 
 
 # =============================================================================
@@ -2355,8 +2403,12 @@ async def get_binary_cdd(
                 status_code=404,
                 detail="UTXO lifecycle table not found. Schema migration pending.",
             )
-        logging.error(f"Error calculating binary CDD: {e}")
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        _raise_http_exception(
+            status_code=500,
+            public_detail="Failed to calculate binary CDD",
+            log_message="Error calculating binary CDD",
+            exc=e,
+        )
     finally:
         if conn:
             conn.close()
@@ -2435,8 +2487,12 @@ async def get_net_realized_pnl(
                 status_code=404,
                 detail="UTXO lifecycle table not found. Schema migration pending.",
             )
-        logging.error(f"Error calculating net realized P/L: {e}")
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        _raise_http_exception(
+            status_code=500,
+            public_detail="Failed to calculate net realized P/L",
+            log_message="Error calculating net realized P/L",
+            exc=e,
+        )
     finally:
         if conn:
             conn.close()
@@ -2518,8 +2574,12 @@ async def get_net_realized_pnl_history(
                 status_code=404,
                 detail="UTXO lifecycle table not found. Schema migration pending.",
             )
-        logging.error(f"Error getting net realized P/L history: {e}")
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        _raise_http_exception(
+            status_code=500,
+            public_detail="Failed to fetch net realized P/L history",
+            log_message="Error getting net realized P/L history",
+            exc=e,
+        )
     finally:
         if conn:
             conn.close()
@@ -2594,8 +2654,12 @@ async def get_pl_ratio(
                 status_code=404,
                 detail="UTXO lifecycle table not found. Schema migration pending.",
             )
-        logging.error(f"Error calculating P/L ratio: {e}")
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        _raise_http_exception(
+            status_code=500,
+            public_detail="Failed to calculate P/L ratio",
+            log_message="Error calculating P/L ratio",
+            exc=e,
+        )
     finally:
         if conn:
             conn.close()
@@ -2662,8 +2726,12 @@ async def get_pl_ratio_history(
                 status_code=404,
                 detail="UTXO lifecycle table not found. Schema migration pending.",
             )
-        logging.error(f"Error getting P/L ratio history: {e}")
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        _raise_http_exception(
+            status_code=500,
+            public_detail="Failed to fetch P/L ratio history",
+            log_message="Error getting P/L ratio history",
+            exc=e,
+        )
     finally:
         if conn:
             conn.close()
@@ -2694,14 +2762,14 @@ async def check_electrs_connectivity() -> ServiceCheck:
                     return ServiceCheck(
                         status="ok",
                         latency_ms=latency_ms,
-                        last_success=datetime.utcnow().isoformat(),
+                        last_success=_utc_now().isoformat(),
                     )
                 else:
                     return ServiceCheck(status="error", error=f"HTTP {response.status}")
     except asyncio.TimeoutError:
         return ServiceCheck(status="timeout", error="Request timeout (>2s)")
-    except Exception as e:
-        return ServiceCheck(status="error", error=str(e))
+    except Exception:
+        return ServiceCheck(status="error", error="electrs unavailable")
 
 
 async def check_mempool_backend() -> ServiceCheck:
@@ -2724,14 +2792,14 @@ async def check_mempool_backend() -> ServiceCheck:
                     return ServiceCheck(
                         status="ok",
                         latency_ms=latency_ms,
-                        last_success=datetime.utcnow().isoformat(),
+                        last_success=_utc_now().isoformat(),
                     )
                 else:
                     return ServiceCheck(status="error", error=f"HTTP {response.status}")
     except asyncio.TimeoutError:
         return ServiceCheck(status="timeout", error="Request timeout (>2s)")
-    except Exception as e:
-        return ServiceCheck(status="error", error=str(e))
+    except Exception:
+        return ServiceCheck(status="error", error="mempool backend unavailable")
 
 
 # =============================================================================
@@ -2753,7 +2821,7 @@ async def health_check():
         HealthStatus: Detailed health status with service checks
     """
     # Calculate uptime
-    uptime = (datetime.now() - STARTUP_TIME).total_seconds()
+    uptime = (_utc_now() - STARTUP_TIME).total_seconds()
 
     # Check database connectivity and detect gaps
     db_status = "disconnected"
@@ -2784,14 +2852,14 @@ async def health_check():
         db_check = ServiceCheck(
             status="ok",
             latency_ms=latency_ms,
-            last_success=datetime.utcnow().isoformat(),
+            last_success=_utc_now().isoformat(),
         )
         db_status = "connected"
 
     except Exception as e:
         logging.error(f"Health check database error: {e}")
-        db_check = ServiceCheck(status="error", error=str(e))
-        db_status = f"error: {str(e)}"
+        db_check = ServiceCheck(status="error", error="database unavailable")
+        db_status = "error"
 
     # Run connectivity checks in parallel
     electrs_check, mempool_check = await asyncio.gather(
@@ -2842,7 +2910,10 @@ async def health_check():
         except Exception as e:
             logging.warning(f"Failed to build live health summary: {e}")
             live_summary = {"status": "unavailable", "sources": {}}
-            checks["utxoracle_live"] = ServiceCheck(status="error", error=str(e))
+            checks["utxoracle_live"] = ServiceCheck(
+                status="error",
+                error="live health summary unavailable",
+            )
 
     # Determine overall status
     if all(c.status == "ok" for c in checks.values()):
@@ -2863,7 +2934,7 @@ async def health_check():
 
     return HealthStatus(
         status=overall_status,
-        timestamp=datetime.utcnow(),
+        timestamp=_utc_now(),
         uptime_seconds=uptime,
         started_at=STARTUP_TIME.isoformat(),
         checks=checks,
@@ -3355,7 +3426,7 @@ async def get_sopr(
     Spec: 016-sopr-analysis
     """
     import duckdb
-    from datetime import datetime, timedelta
+    from datetime import timedelta
     # spec-013: Independent SOPR calculation from UTXO lifecycle data
     # This removes CheckOnChain dependency and uses our own calculation
 
@@ -3370,7 +3441,7 @@ async def get_sopr(
         block_height = block_result[0] if block_result and block_result[0] else 0
 
         # Calculate window cutoff
-        window_cutoff = datetime.utcnow() - timedelta(days=window_days)
+        window_cutoff = _utc_now() - timedelta(days=window_days)
         window_cutoff_epoch = int(window_cutoff.timestamp())
 
         # Query SOPR from spent UTXOs
@@ -3444,7 +3515,7 @@ async def get_sopr(
             signal_zone=signal_zone,
             window_days=window_days,
             block_height=block_height,
-            timestamp=datetime.utcnow().isoformat(),
+            timestamp=_utc_now().isoformat(),
         )
 
     except FileNotFoundError:
@@ -3458,8 +3529,12 @@ async def get_sopr(
             raise HTTPException(
                 status_code=404, detail="UTXO lifecycle table not found."
             )
-        logging.error(f"Error calculating SOPR: {e}")
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        _raise_http_exception(
+            status_code=500,
+            public_detail="Failed to calculate SOPR",
+            log_message="Error calculating SOPR",
+            exc=e,
+        )
     finally:
         if conn:
             conn.close()
@@ -3553,8 +3628,12 @@ async def get_nvt(
                 status_code=503,
                 detail="Required tables not found. Run schema migration first.",
             )
-        logging.error(f"Error calculating NVT: {e}")
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        _raise_http_exception(
+            status_code=500,
+            public_detail="Failed to calculate NVT",
+            log_message="Error calculating NVT",
+            exc=e,
+        )
     finally:
         if conn:
             conn.close()
@@ -3643,8 +3722,12 @@ async def get_volatility(
                 status_code=503,
                 detail="Required tables not found. Run schema migration first.",
             )
-        logging.error(f"Error calculating volatility: {e}")
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        _raise_http_exception(
+            status_code=500,
+            public_detail="Failed to calculate volatility",
+            log_message="Error calculating volatility",
+            exc=e,
+        )
     finally:
         if conn:
             conn.close()
@@ -3674,8 +3757,6 @@ async def get_puell_multiple(
 
     Spec: 021-advanced-onchain-metrics
     """
-    from datetime import datetime
-
     try:
         BLOCK_SUBSIDY_BTC = 3.125  # Post April 2024 halving
         BLOCKS_PER_DAY = 144
@@ -3718,12 +3799,16 @@ async def get_puell_multiple(
             signal_zone=signal_zone,
             current_price=current_price,
             block_height=block_height,
-            timestamp=datetime.utcnow().isoformat(),
+            timestamp=_utc_now().isoformat(),
         )
 
     except Exception as e:
-        logging.error(f"Error calculating Puell Multiple: {e}")
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        _raise_http_exception(
+            status_code=500,
+            public_detail="Failed to calculate Puell Multiple",
+            log_message="Error calculating Puell Multiple",
+            exc=e,
+        )
 
 
 # =============================================================================
@@ -4113,7 +4198,12 @@ async def recalibrate_power_law_model():
         new_model = fit_power_law(dates, prices)
         _power_law_model_cache = new_model
     except ValueError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        _raise_http_exception(
+            status_code=503,
+            public_detail="Power law recalibration unavailable",
+            log_message="Power law recalibration failed",
+            exc=e,
+        )
 
     return PowerLawResponse(model=_power_law_model_cache)
 
@@ -4193,7 +4283,12 @@ async def get_rbn_quota():
     try:
         fetcher = RBNFetcher()
     except ValueError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        _raise_http_exception(
+            status_code=503,
+            public_detail="RBN service is not configured",
+            log_message="RBN fetcher initialization failed for quota endpoint",
+            exc=e,
+        )
 
     try:
         quota = await fetcher.get_quota_info()
@@ -4207,7 +4302,12 @@ async def get_rbn_quota():
             "usage_pct": quota.usage_pct,
         }
     except ValueError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        _raise_http_exception(
+            status_code=503,
+            public_detail="RBN quota information unavailable",
+            log_message="RBN quota lookup failed",
+            exc=e,
+        )
     except Exception as e:
         logging.error(f"RBN quota error: {e}")
         raise HTTPException(status_code=500, detail="Failed to get quota info")
@@ -4258,7 +4358,12 @@ async def validate_rbn_metric(
     try:
         fetcher = RBNFetcher()
     except ValueError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        _raise_http_exception(
+            status_code=503,
+            public_detail="RBN service is not configured",
+            log_message="RBN fetcher initialization failed for validation endpoint",
+            exc=e,
+        )
 
     try:
         validator = ValidationService(fetcher=fetcher)
@@ -4303,10 +4408,19 @@ async def validate_rbn_metric(
             },
         )
     except ValueError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        _raise_http_exception(
+            status_code=503,
+            public_detail="RBN validation unavailable",
+            log_message="RBN metric validation failed",
+            exc=e,
+        )
     except Exception as e:
-        logging.error(f"Validation error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_http_exception(
+            status_code=500,
+            public_detail="Failed to validate RBN metric",
+            log_message="Validation error",
+            exc=e,
+        )
     finally:
         await fetcher.close()
 
@@ -4361,7 +4475,12 @@ async def generate_rbn_report(
     try:
         fetcher = RBNFetcher()
     except ValueError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        _raise_http_exception(
+            status_code=503,
+            public_detail="RBN service is not configured",
+            log_message="RBN fetcher initialization failed for report endpoint",
+            exc=e,
+        )
 
     try:
         validator = ValidationService(fetcher=fetcher)
@@ -4395,16 +4514,25 @@ async def generate_rbn_report(
 
         return {
             "reports": reports,
-            "generated_at": datetime.now().isoformat(),
+            "generated_at": _utc_now().isoformat(),
             "total_metrics": len(reports),
             "overall_match_rate": overall_rate,
         }
 
     except ValueError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        _raise_http_exception(
+            status_code=503,
+            public_detail="RBN report generation unavailable",
+            log_message="RBN report generation failed",
+            exc=e,
+        )
     except Exception as e:
-        logging.error(f"Report error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_http_exception(
+            status_code=500,
+            public_detail="Failed to generate RBN report",
+            log_message="Report error",
+            exc=e,
+        )
     finally:
         await fetcher.close()
 
@@ -4424,7 +4552,12 @@ async def clear_rbn_cache(
     try:
         fetcher = RBNFetcher()
     except ValueError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        _raise_http_exception(
+            status_code=503,
+            public_detail="RBN service is not configured",
+            log_message="RBN fetcher initialization failed for cache clear endpoint",
+            exc=e,
+        )
 
     try:
         count = fetcher.clear_cache(metric_id=metric_id)
@@ -4436,8 +4569,12 @@ async def clear_rbn_cache(
         }
 
     except Exception as e:
-        logging.error(f"Cache clear error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_http_exception(
+            status_code=500,
+            public_detail="Failed to clear RBN cache",
+            log_message="Cache clear error",
+            exc=e,
+        )
     finally:
         await fetcher.close()
 

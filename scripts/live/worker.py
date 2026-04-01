@@ -72,6 +72,7 @@ class _WorkerProcessLock:
 
 class SnapshotStore(Protocol):
     def write_snapshot(self, snapshot: LiveSnapshot) -> None: ...
+    async def awrite_snapshot(self, snapshot: LiveSnapshot) -> None: ...
 
 
 class LiveWorker:
@@ -233,7 +234,11 @@ class LiveWorker:
 
         self._last_snapshot = snapshot
         if self.snapshot_store is not None:
-            await asyncio.to_thread(self.snapshot_store.write_snapshot, snapshot)
+            async_write = getattr(self.snapshot_store, "awrite_snapshot", None)
+            if async_write is not None:
+                await async_write(snapshot)
+            else:
+                await asyncio.to_thread(self.snapshot_store.write_snapshot, snapshot)
         return snapshot
 
     async def run(

@@ -31,12 +31,17 @@ except ImportError:
 _project_root = Path(__file__).resolve().parent.parent
 _env_enc_path = _project_root / ".env.enc"
 _env_path = _project_root / ".env"
+_preloaded_jwt_secret = os.getenv("JWT_SECRET")
 if _secrets_mode == "sops" and _env_enc_path.exists():
     load_secrets(str(_env_enc_path))
 elif _env_path.exists():
     load_secrets(str(_env_path))
 else:
     load_secrets(None)
+if _preloaded_jwt_secret and (
+    not os.getenv("JWT_SECRET") or str(os.getenv("JWT_SECRET")).startswith("ENC[")
+):
+    os.environ["JWT_SECRET"] = _preloaded_jwt_secret
 
 # Environment configuration
 def get_clean_env(key: str, default: str = "") -> str:
@@ -45,17 +50,34 @@ def get_clean_env(key: str, default: str = "") -> str:
         return default
     return val
 
+
+def get_clean_env_list(key: str) -> list[str]:
+    raw = get_clean_env(key)
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
 # SECURITY: JWT_SECRET must be set in environment - no insecure defaults
 _jwt_secret = get_clean_env("JWT_SECRET")
 if not _jwt_secret:
-    if "pytest" in sys.modules:
-        _jwt_secret = "test-secret-change-me"
-    else:
-        raise ValueError(
-            "SECURITY ERROR: JWT_SECRET environment variable is required. "
-            "Generate with: openssl rand -base64 64"
-        )
+    raise ValueError(
+        "SECURITY ERROR: JWT_SECRET environment variable is required. "
+        "Generate with: openssl rand -base64 64"
+    )
 JWT_SECRET = _jwt_secret
+
+
+def get_cors_middleware_kwargs(origins: list[str]) -> dict[str, object]:
+    normalized = [origin for origin in origins if origin]
+    if normalized and "*" not in normalized:
+        return {
+            "allow_origins": normalized,
+            "allow_credentials": True,
+        }
+    return {
+        "allow_origins": ["*"],
+        "allow_credentials": False,
+    }
+
+
 # QuestDB Configuration
 QUESTDB_ILP_HOST = get_clean_env("QUESTDB_ILP_HOST", "localhost")
 QUESTDB_ILP_PORT = int(get_clean_env("QUESTDB_ILP_PORT", "9009"))
@@ -71,7 +93,10 @@ QUESTDB_POOL_MAX_SIZE = int(get_clean_env("QUESTDB_POOL_MAX_SIZE", "20"))
 MEMPOOL_API_URL = get_clean_env("MEMPOOL_API_URL", "http://127.0.0.1:8999")
 WHALE_MIN_BTC = float(get_clean_env("WHALE_MIN_BTC", "100"))
 WHALE_WS_PORT = int(get_clean_env("WHALE_WS_PORT", "8001"))
+FASTAPI_HOST = get_clean_env("FASTAPI_HOST", "0.0.0.0")
 FASTAPI_PORT = int(get_clean_env("FASTAPI_PORT", "8001"))
+DUCKDB_PATH = get_clean_env("DUCKDB_PATH", "data/utxoracle.duckdb")
+UTXO_DB_PATH = get_clean_env("UTXO_DB_PATH", DUCKDB_PATH)
 ELECTRS_HTTP_URL = get_clean_env("ELECTRS_HTTP_URL", "http://127.0.0.1:3002")
 MEMPOOL_API_V1_URL = get_clean_env("MEMPOOL_API_V1_URL", f"{MEMPOOL_API_URL.rstrip('/')}/api/v1")
 BRK_BASE_URL = get_clean_env("BRK_BASE_URL", "http://127.0.0.1:7070")
@@ -94,6 +119,10 @@ LIVE_WORKER_LOCK_PATH = get_clean_env(
 )
 LIVE_ORACLE_TX_CONCURRENCY = int(get_clean_env("LIVE_ORACLE_TX_CONCURRENCY", "32"))
 LIVE_ORACLE_MIN_TX_COUNT = int(get_clean_env("LIVE_ORACLE_MIN_TX_COUNT", "1000"))
+API_CORS_ALLOWED_ORIGINS = get_clean_env_list("API_CORS_ALLOWED_ORIGINS")
+LIVE_API_CORS_ALLOWED_ORIGINS = (
+    get_clean_env_list("LIVE_API_CORS_ALLOWED_ORIGINS") or API_CORS_ALLOWED_ORIGINS
+)
 
 # WebSocket configuration
 WS_HEARTBEAT_INTERVAL = 30  # seconds
