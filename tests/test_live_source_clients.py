@@ -182,6 +182,49 @@ async def test_hyperliquid_client_prefers_live_btc_namespace_over_cash_placehold
 
 
 @pytest.mark.asyncio
+async def test_hyperliquid_client_reads_filtered_oracle_updates_from_extensionless_json(tmp_path):
+    stream_dir = tmp_path / "filtered" / "hip3_oracle_updates_by_block" / "hourly" / "20260401"
+    stream_dir.mkdir(parents=True)
+    json_path = stream_dir / "11"
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    payload = {
+        "local_time": now.isoformat().replace("+00:00", "Z"),
+        "block_time": now.isoformat().replace("+00:00", "Z"),
+        "block_number": 943207000,
+        "events": [
+            {
+                "oracle_pxs": {
+                    "coin_to_mark_px": [
+                        ["cash:BTC", {"px": "68643.6", "last_update_time": now.isoformat().replace("+00:00", "Z")}],
+                    ],
+                    "coin_to_oracle_px": [
+                        ["cash:BTC", {"px": "68667.0", "last_update_time": now.isoformat().replace("+00:00", "Z")}],
+                    ],
+                }
+            }
+        ],
+    }
+    json_path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        raise AssertionError("HTTP API should not be queried when extensionless filtered data is fresh")
+
+    client = HyperliquidSnapshotClient(
+        base_url="http://hl.local/info",
+        data_root=tmp_path,
+        transport=httpx.MockTransport(handler),
+    )
+    result = await client.fetch_snapshot()
+    await client.aclose()
+
+    assert result.health.status == "healthy"
+    assert result.value is not None
+    assert result.value.source == "filesystem"
+    assert result.value.oracle_price == pytest.approx(68667.0)
+    assert result.value.mark_price == pytest.approx(68643.6)
+
+
+@pytest.mark.asyncio
 async def test_hyperliquid_client_parses_meta_and_asset_ctxs_when_filesystem_absent(tmp_path):
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "POST"

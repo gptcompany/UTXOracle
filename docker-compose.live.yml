@@ -41,7 +41,7 @@ services:
       HYPERLIQUID_NODE_INFO_REQUEST_TYPE: ${HYPERLIQUID_NODE_INFO_REQUEST_TYPE:-l4Book}
       HYPERLIQUID_NODE_SNAPSHOT_PATH: ${HYPERLIQUID_NODE_SNAPSHOT_PATH:-}
       HYPERLIQUID_METRICS_URL: ${HYPERLIQUID_METRICS_URL:-http://host.docker.internal:9101/metrics}
-      HYPERLIQUID_DATA_ROOT: /app/external/hyperliquid/filtered
+      HYPERLIQUID_DATA_ROOT: /app/external/hyperliquid/node-data
       HYPERLIQUID_FILTERED_STREAM: ${HYPERLIQUID_FILTERED_STREAM:-hip3_oracle_updates_by_block}
       HYPERLIQUID_MAX_AGE_SECONDS: ${HYPERLIQUID_MAX_AGE_SECONDS:-900}
       QUESTDB_PG_HOST: utxoracle-live-questdb
@@ -50,7 +50,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
-      - /media/sam/4TB-NVMe/hyperliquid/filtered:/app/external/hyperliquid/filtered:ro
+      - /media/sam/4TB-NVMe/docker-volumes/hyperliquid/hl/data:/app/external/hyperliquid/node-data:ro
 
   utxoracle-live-api:
     image: utxoracle-live:local
@@ -104,7 +104,7 @@ services:
       HYPERLIQUID_NODE_INFO_REQUEST_TYPE: ${HYPERLIQUID_NODE_INFO_REQUEST_TYPE:-l4Book}
       HYPERLIQUID_NODE_SNAPSHOT_PATH: ${HYPERLIQUID_NODE_SNAPSHOT_PATH:-}
       HYPERLIQUID_METRICS_URL: ${HYPERLIQUID_METRICS_URL:-http://host.docker.internal:9101/metrics}
-      HYPERLIQUID_DATA_ROOT: /app/external/hyperliquid/filtered
+      HYPERLIQUID_DATA_ROOT: /app/external/hyperliquid/node-data
       HYPERLIQUID_FILTERED_STREAM: ${HYPERLIQUID_FILTERED_STREAM:-hip3_oracle_updates_by_block}
       HYPERLIQUID_MAX_AGE_SECONDS: ${HYPERLIQUID_MAX_AGE_SECONDS:-900}
       QUESTDB_PG_HOST: utxoracle-live-questdb
@@ -113,7 +113,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
-      - /media/sam/4TB-NVMe/hyperliquid/filtered:/app/external/hyperliquid/filtered:ro
+      - /media/sam/4TB-NVMe/docker-volumes/hyperliquid/hl/data:/app/external/hyperliquid/node-data:ro
     healthcheck:
       test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8011/health', timeout=2)"]
       interval: 30s

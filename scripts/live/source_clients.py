@@ -705,7 +705,7 @@ def _read_hyperliquid_filtered_snapshot(
             [
                 path
                 for path in hourly_root.rglob("*")
-                if path.is_file() and path.suffix in {".zst", ".jsonl"}
+                if path.is_file() and path.suffix in {".zst", ".jsonl", ""}
             ],
             key=_hourly_file_sort_key,
             reverse=True,
