@@ -13,10 +13,10 @@
 
 ## Phase 1: Surface Inventory
 
-- [ ] T001 Inventory all current `/api/whale/*` routes and payloads
-- [ ] T002 Mark canonical, placeholder, and legacy whale routes
-- [ ] T003 Choose the retained canonical route family
-- [ ] T004 Document route conflicts and deprecation candidates
+- [x] T001 Inventory all current `/api/whale/*` routes and payloads
+- [x] T002 Mark canonical, placeholder, and legacy whale routes
+- [x] T003 Choose the retained canonical route family
+- [x] T004 Document route conflicts and deprecation candidates
 
 **Checkpoint**: the namespace conflict is explicit before implementation.
 
@@ -36,10 +36,10 @@
 ## Phase 3: Route Unification
 
 - [ ] T009 [E] Rework existing whale query routes to conform to the canonical schema
-- [ ] T010 Remove or deprecate `/api/whale/latest`
-- [ ] T011 Remove or deprecate `/api/whale/historical`
-- [ ] T012 Remove or deprecate `/api/whale/history`
-- [ ] T013 Add explicit deprecation metadata where temporary compatibility is needed
+- [x] T010 Remove or deprecate `/api/whale/latest`
+- [x] T011 Remove or deprecate `/api/whale/historical`
+- [x] T012 Remove or deprecate `/api/whale/history`
+- [x] T013 Add explicit deprecation metadata where temporary compatibility is needed
 
 **Checkpoint**: `/api/whale` tells one product story.
 
@@ -58,9 +58,14 @@
 
 ## Phase 5: Contract and Provenance Update
 
-- [ ] T018 Update spec-044 contract registry for whale surfaces
-- [ ] T019 Update spec-045 provenance manifest for whale surfaces
-- [ ] T020 Publish consumer guidance for canonical whale routes and deprecated aliases
+- [x] T018 Update spec-044 contract registry for whale surfaces
+- [x] T019 Update spec-045 provenance manifest for whale surfaces
+- [x] T020 Publish consumer guidance for canonical whale routes and deprecated aliases
+
+Execution note:
+
+- `M4a` is complete: `/api/whale/{transactions,summary,transaction/{txid}}` is the frozen canonical family.
+- Legacy `/api/whale/{latest,historical,history}` routes remain only as explicit `410 Gone` migration stubs.
+- Canonical event/entity schema work remains open for `M4b`.
 
 **Checkpoint**: the unified whale surface is reflected in contract and ops docs.
-

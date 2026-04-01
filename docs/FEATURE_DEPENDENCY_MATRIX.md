@@ -2,7 +2,7 @@
 
 Date: 2026-04-01
 
-Status: Initial provenance and dependency matrix, updated through `M3` Wave 1 productization
+Status: Initial provenance and dependency matrix, updated through `M4a` whale canonicalization
 
 Machine-readable source of truth:
 
@@ -69,4 +69,7 @@ Scope note:
   - `address-cohorts` is current-state only
   - `wallet-waves` is current-state only
   - `absorption-rates` reconstructs its historical baseline on demand from `spent_block` semantics and may respond with `has_historical_data=false`
+- Whale canonicalization is now explicit:
+  - `/api/whale/{transactions,summary,transaction/{txid}}` is the only canonical whale query family
+  - `/api/whale/{latest,historical,history}` remains outside the canonical surface and now returns `410 Gone` deprecation metadata
 - `computed_inline` does not mean “safe.” It only means the core value is produced inline without a persistent backend. `PRO Risk` and `Puell Multiple` remain contract-caveated or excluded for exactly this reason.

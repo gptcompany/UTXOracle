@@ -2,7 +2,7 @@
 
 Date: 2026-04-01
 
-Status: Execution roadmap updated after `M1`, `M2`, and `M3` Wave 1 completion
+Status: Execution roadmap updated after `M1`, `M2`, `M3`, and `M4a` whale canonicalization
 
 Primary baseline:
 
@@ -80,7 +80,7 @@ Lower priority:
 | `/api/v1/live/*` | runtime verified on dedicated live host only | `nautilus_dev` | live app + live worker | resolved in `M2`; keep host policy frozen | tier-1 contract on one canonical host | P0 | spec-048 |
 | `/api/v1/charts/*` | runtime verified | `nautilus_dev`, research | live app + live worker | contract registration | admitted companion live surface | P1 | spec-044 |
 | `/api/prices/*` | code implemented and contract-registered | `nautilus_dev`, research | QuestDB | no structural blocker; freshness remains operational concern | tier-1 admitted price family | P0 | spec-044, spec-045 |
-| `/api/whale/transactions`, `/summary`, `/transaction/{txid}` | code implemented | research, future forensics | QuestDB `mempool_predictions` | namespace conflict with legacy whale routes | canonical whale surface | P1 | spec-047 |
+| `/api/whale/transactions`, `/summary`, `/transaction/{txid}` | code implemented; canonicalized in `M4a` | research, future forensics | QuestDB `mempool_predictions` | entity foundations still pending in `M4b`; consumers still depend on table freshness | canonical whale surface frozen | P1 | spec-047 |
 | `/api/metrics/latest` | code implemented and contract-registered | `nautilus_dev`, research | QuestDB | no structural blocker; freshness remains operational concern | tier-1 admitted bundle | P1 | spec-044, spec-045 |
 | `PRO Risk` | runtime-demoted; only `/zones` remains live metadata | research only today | mixed / placeholder inputs | real component inputs and historical serving are still absent | remain demoted until real implementation exists | P0 | spec-048 |
 | `Puell Multiple` | runtime-demoted placeholder | research only today | computed inline | real 365d miner revenue history is still absent | remain demoted until real implementation exists | P0 | spec-048 |
@@ -172,6 +172,11 @@ Outcome:
 
 - `/api/whale` becomes a canonical surface instead of a mixed namespace
 - entity foundations are defined only after route cleanup and namespace policy are stable
+
+Status:
+
+- `M4a` completed on 2026-04-01: canonical whale routes are frozen and legacy aliases now return explicit `410 Gone` migration stubs
+- entity foundations remain pending in `M4b`
 
 Work:
 
@@ -283,6 +288,10 @@ Exit criteria:
 - canonical whale route family is frozen
 - placeholder whale routes are removed, deprecated, or reimplemented
 
+Current status:
+
+- completed on 2026-04-01
+
 ### Milestone M4b: Entity Foundations
 
 Target window:
@@ -367,11 +376,11 @@ Whale/entity work can sprawl quickly unless the first canonical event schema is 
 
 ## 11. Recommended Immediate Next Step
 
-Start with Milestone M4a.
+Start with Milestone M4b.
 
 Concretely:
 
-1. execute whale canonicalization from spec-047
+1. define entity foundation fields and omission rules from spec-047
 2. keep contract and provenance artifacts in sync as new route families are promoted
 3. decide whether CI drift validation lands before or alongside the next admission change
 

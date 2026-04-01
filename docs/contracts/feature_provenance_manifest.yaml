@@ -152,9 +152,9 @@ entries:
       stale: "No explicit stale marker; operators must monitor table recency."
       degraded: "none"
       misconfigured: "QuestDB connectivity or writer bootstrap missing."
-      placeholder: "The prefix still contains legacy placeholder whale routes outside this canonical query family."
+      placeholder: "Legacy /api/whale/{latest,historical,history} aliases now return HTTP 410 deprecation stubs and are outside this canonical query family."
     provenance_notes:
-      - "Canonical whale query routes are implemented separately from legacy placeholder whale handlers in api.main."
+      - "Canonical whale query routes are implemented in api.mempool_whale_endpoints and are now the only supported whale API surface."
   - surface_id: "exchange_netflow_surface"
     route_family: "/api/metrics/exchange-netflow*"
     backend_class: "duckdb_utxo_lifecycle"

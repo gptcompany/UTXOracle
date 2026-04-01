@@ -2,7 +2,7 @@
 
 Date: 2026-04-01
 
-Status: Initial `v1` consumer contract for `nautilus_dev`, updated through `M3` Wave 1 productization
+Status: Initial `v1` consumer contract for `nautilus_dev`, updated through `M4a` whale canonicalization
 
 Contract registry source:
 
@@ -53,7 +53,7 @@ These surfaces are admitted only with the declared infrastructure and semantic c
 
 | Surface ID | Route family | Caveat |
 |------|------|------|
-| `whale_query_surface` | `/api/whale/{transactions,summary,transaction/{txid}}` | canonical query routes are real, but the namespace still contains legacy whale placeholders under the same prefix |
+| `whale_query_surface` | `/api/whale/{transactions,summary,transaction/{txid}}` | canonical whale query family is now frozen; consumers still depend on `mempool_predictions` freshness and no stale marker |
 | `exchange_netflow_surface` | `/api/metrics/exchange-netflow*` | requires populated DuckDB plus `exchange_addresses.csv` |
 | `binary_cdd_surface` | `/api/metrics/binary-cdd` | requires populated DuckDB and sufficient lookback history |
 | `net_realized_pnl_surface` | `/api/metrics/net-realized-pnl*` | requires populated spent UTXO history |
@@ -78,7 +78,7 @@ These surfaces are intentionally not admitted.
 | `rbn_validation_surface` | `/api/v1/validation/rbn/*` | useful for validation and ops, but not part of the first production feature bundle |
 | `advanced_research_surface` | `/api/metrics/{advanced,wasserstein*,cointime*,urpd,supply-profit-loss,reserve-risk,sell-side-risk,cdd-vdd,nupl,revived-supply,cost-basis}` | analytical logic exists, API contract does not |
 | `wallet_and_cohort_surface` | `/api/metrics/{address-cohorts,wallet-waves,absorption-rates}` | implemented as a research surface after Wave 1 productization, but still outside the first `v1` production bundle |
-| `legacy_whale_placeholder_surface` | `/api/whale/{latest,historical,history}` | placeholder namespace only |
+| `legacy_whale_placeholder_surface` | `/api/whale/{latest,historical,history}` | deprecated `410 Gone` compatibility stubs only; not part of the canonical whale contract |
 | `wallet_waves_history_placeholder_surface` | `/api/metrics/wallet-waves/history` | history route remains unavailable until snapshot materialization exists |
 | `main_operational_pages_surface` | `/{,health,metrics,whale,dashboard,monitor,power-law,power_law}` | operational UI surface, not a data contract |
 
@@ -101,7 +101,7 @@ These surfaces are intentionally not admitted.
 Future contract versions may:
 
 - admit individual Wave 1 calculator routes only after an explicit contract decision beyond `v1`
-- admit whale/entity surfaces only after canonicalization is frozen
+- add entity foundation fields only after canonical whale routes and provenance rules are frozen
 - re-admit `PRO Risk` or `Puell Multiple` only after their hardcoded behavior is removed
 - admit `power_law_surface` only after an explicit contract decision and tier promotion
 

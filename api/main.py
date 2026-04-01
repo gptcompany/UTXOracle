@@ -25,7 +25,7 @@ from typing import Optional, List, Dict, Any
 from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import aiohttp
@@ -335,6 +335,64 @@ class WhaleFlowData(BaseModel):
     )
 
 
+class DeprecatedWhaleRouteResponse(BaseModel):
+    """Explicit deprecation response for legacy whale aliases."""
+
+    status: str = Field(..., description="Always 'deprecated'")
+    detail: str = Field(..., description="Human-readable deprecation message")
+    deprecated_route: str = Field(..., description="Legacy route path that was called")
+    canonical_surface_id: str = Field(
+        ..., description="Canonical registry surface to migrate to"
+    )
+    canonical_routes: List[str] = Field(
+        ..., description="Canonical whale routes supported today"
+    )
+    migration_note: str = Field(
+        ..., description="Next-step migration guidance for callers"
+    )
+    removal_condition: str = Field(
+        ..., description="Condition under which the legacy stub will be removed"
+    )
+
+
+CANONICAL_WHALE_ROUTES = [
+    "/api/whale/transactions",
+    "/api/whale/summary",
+    "/api/whale/transaction/{txid}",
+]
+LEGACY_WHALE_SUNSET_HEADER = "Wed, 01 Jul 2026 00:00:00 GMT"
+
+
+def _deprecated_whale_route_response(deprecated_route: str) -> JSONResponse:
+    """Return explicit migration metadata for retired whale aliases."""
+    return JSONResponse(
+        status_code=410,
+        headers={
+            "Deprecation": "true",
+            "Sunset": LEGACY_WHALE_SUNSET_HEADER,
+            "Link": '</api/whale/transactions>; rel="successor-version"',
+        },
+        content={
+            "status": "deprecated",
+            "detail": (
+                "This legacy whale route is no longer part of the canonical whale "
+                "surface. Migrate to the canonical whale query routes."
+            ),
+            "deprecated_route": deprecated_route,
+            "canonical_surface_id": "whale_query_surface",
+            "canonical_routes": CANONICAL_WHALE_ROUTES,
+            "migration_note": (
+                "Use /api/whale/transactions for lists, /api/whale/summary for "
+                "aggregates, and /api/whale/transaction/{txid} for drill-down."
+            ),
+            "removal_condition": (
+                "This compatibility stub will be removed after downstream callers "
+                "migrate to the canonical whale query family."
+            ),
+        },
+    )
+
+
 # =============================================================================
 # Database Helper Functions
 # =============================================================================
@@ -562,73 +620,61 @@ async def get_comparison_stats(
 
 
 # =============================================================================
-# GET /api/whale/latest - Whale Flow Data (spec-004)
+# GET /api/whale/latest - Legacy whale alias (deprecated in M4a)
 # =============================================================================
 
 
-@app.get("/api/whale/latest", response_model=WhaleFlowData)
-async def get_latest_whale_flow(request: Request):
+@app.get(
+    "/api/whale/latest",
+    response_model=DeprecatedWhaleRouteResponse,
+    status_code=410,
+    deprecated=True,
+)
+async def get_latest_whale_flow():
     """
-    Get the most recent whale flow signal data.
-
-    **Public Endpoint:** No authentication required
-
-    Returns:
-        WhaleFlowData: Latest whale flow metrics (net_flow, direction, action, combined_signal)
-
-    Raises:
-        401: Missing or invalid authentication token
-        429: Rate limit exceeded
+    Deprecated compatibility stub for the old whale "latest" route.
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
-    # This is a placeholder as the price_analysis table is not migrated yet
-    raise HTTPException(status_code=501, detail="Not Implemented")
+    return _deprecated_whale_route_response("/api/whale/latest")
 
 
 # =============================================================================
-# GET /api/whale/historical - Historical Whale Flow Data (spec-004, T064)
+# GET /api/whale/historical - Legacy whale alias (deprecated in M4a)
 # =============================================================================
 
 
-@app.get("/api/whale/historical")
+@app.get(
+    "/api/whale/historical",
+    response_model=DeprecatedWhaleRouteResponse,
+    status_code=410,
+    deprecated=True,
+)
 async def get_historical_whale_flow(
-    request: Request,
     start: int = Query(None, description="Start timestamp (milliseconds)"),
     end: int = Query(None, description="End timestamp (milliseconds)"),
     timeframe: str = Query("24h", description="Timeframe (1h, 6h, 24h, 7d)"),
 ):
     """
-    Get historical whale flow data for the specified time range.
-
-    **Public Endpoint:** No authentication required
-
-    Args:
-        start: Start timestamp in milliseconds (optional, derived from timeframe if not provided)
-        end: End timestamp in milliseconds (optional, defaults to now)
-        timeframe: Time range (1h, 6h, 24h, 7d) - used if start/end not provided
-
-    Returns:
-        dict: { success: bool, data: [...], count: int }
-
-    Example:
-        GET /api/whale/historical?timeframe=24h
-        GET /api/whale/historical?start=1700000000000&end=1700086400000
+    Deprecated compatibility stub for the old whale historical route.
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
-    # This is a placeholder as the price_analysis table is not migrated yet
-    raise HTTPException(status_code=501, detail="Not Implemented")
+    _ = (start, end, timeframe)
+    return _deprecated_whale_route_response("/api/whale/historical")
 
 
 # Alias: /api/whale/history -> /api/whale/historical (for backward compatibility)
-@app.get("/api/whale/history")
+@app.get(
+    "/api/whale/history",
+    response_model=DeprecatedWhaleRouteResponse,
+    status_code=410,
+    deprecated=True,
+)
 async def whale_history_alias(
-    request: Request,
     start: int = Query(None),
     end: int = Query(None),
     timeframe: str = Query("24h"),
 ):
-    """Alias for /api/whale/historical endpoint (backward compatibility)."""
-    return await get_historical_whale_flow(request=request, start=start, end=end, timeframe=timeframe)
+    """Deprecated alias for the retired historical whale flow route."""
+    _ = (start, end, timeframe)
+    return _deprecated_whale_route_response("/api/whale/history")
 
 
 # =============================================================================
@@ -3220,7 +3266,8 @@ async def root():
             "latest": "/api/prices/latest",
             "historical": "/api/prices/historical?days=7",
             "comparison": "/api/prices/comparison?days=7",
-            "whale_latest": "/api/whale/latest",
+            "whale_transactions": "/api/whale/transactions",
+            "whale_summary": "/api/whale/summary",
             "whale_dashboard": "/whale",
             "performance_monitor": "/monitor",
             "health": "/health",
