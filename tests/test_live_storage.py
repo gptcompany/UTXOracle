@@ -155,8 +155,29 @@ def test_store_prunes_rows_older_than_retention_window():
     deleted = store.prune(now=now)
     history = store.get_history(180, now=now)
 
-    assert deleted == 1
+    assert deleted == 0
     assert [item.block_height for item in history] == [941456]
+
+
+def test_store_write_snapshot_applies_retention_automatically():
+    now = datetime(2026, 3, 20, 18, 0, tzinfo=timezone.utc)
+    repo = FakeQuestDBRepo()
+    store = LiveSnapshotStore(repo=repo, retention_hours=1)
+    store.initialize(for_write=True)
+
+    store.write_snapshot(
+        _build_snapshot(timestamp=now - timedelta(hours=2), block_height=941430, price=83000.0)
+    )
+    store.write_snapshot(
+        _build_snapshot(timestamp=now, block_height=941456, price=84211.52)
+    )
+
+    history = store.get_history(180, now=now)
+
+    assert [item.block_height for item in history] == [941456]
+    assert repo.execute_calls == [
+        ("DELETE FROM live_snapshots WHERE ts < $1", ((now - timedelta(hours=1)).replace(tzinfo=None),))
+    ]
 
 
 def test_store_close_closes_repo():

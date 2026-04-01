@@ -19,9 +19,11 @@ class LiveSnapshotStore:
         repo: QuestDBRepository | None = None,
         *,
         retention_hours: int = 24,
+        lock_path: str | None = None,
     ) -> None:
         self.repo = repo or QuestDBRepository()
         self.retention_hours = retention_hours
+        self.lock_path = lock_path
         self._initialized = False
 
     def initialize(self, *, for_write: bool = False) -> None:
@@ -71,6 +73,10 @@ class LiveSnapshotStore:
         )
         if not success:
             logger.error("Failed to write live snapshot to QuestDB at %s", snapshot.timestamp)
+            return
+
+        if self.retention_hours > 0:
+            await self.aprune(now=snapshot.timestamp)
 
     def get_latest(self) -> LiveSnapshot | None:
         return self._run_async(self.aget_latest())

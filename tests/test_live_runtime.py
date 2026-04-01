@@ -5,7 +5,11 @@ from pathlib import Path
 import httpx
 import pytest
 
-from scripts.live.runtime import ElectrsBlockOracleResolver, build_live_runtime
+from scripts.live.runtime import (
+    DEFAULT_LIVE_WORKER_LOCK_PATH,
+    ElectrsBlockOracleResolver,
+    build_live_runtime,
+)
 
 
 class DummyCalculator:
@@ -133,5 +137,24 @@ async def test_runtime_run_initializes_store_before_worker_run(monkeypatch, tmp_
     try:
         assert await runtime.run() == []
         assert calls == [("ainitialize", True)]
+    finally:
+        await runtime.aclose()
+
+
+@pytest.mark.asyncio
+async def test_build_live_runtime_uses_default_lock_path_when_env_missing(monkeypatch, tmp_path):
+    monkeypatch.delenv("LIVE_WORKER_LOCK_PATH", raising=False)
+    monkeypatch.delenv("LIVE_DB_PATH", raising=False)
+    monkeypatch.setenv("ELECTRS_HTTP_URL", "http://electrs.local")
+    monkeypatch.setenv("MEMPOOL_API_V1_URL", "http://mempool.local/api/v1")
+    monkeypatch.setenv("BRK_BASE_URL", "http://brk.local")
+    monkeypatch.setenv("HYPERLIQUID_NODE_API_URL", "http://hl.local/info")
+    monkeypatch.setenv("HYPERLIQUID_DATA_ROOT", str(tmp_path / "hl"))
+    monkeypatch.setattr("scripts.live.storage.QuestDBRepository", FakeQuestDBRepo)
+
+    runtime = build_live_runtime()
+    try:
+        assert runtime.worker.snapshot_store.lock_path == DEFAULT_LIVE_WORKER_LOCK_PATH
+        assert runtime.worker.process_lock_path == Path(DEFAULT_LIVE_WORKER_LOCK_PATH)
     finally:
         await runtime.aclose()

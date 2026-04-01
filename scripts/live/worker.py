@@ -351,6 +351,10 @@ def _resolve_process_lock_path(
     if process_lock_path is not None:
         return Path(process_lock_path)
 
+    lock_path = getattr(snapshot_store, "lock_path", None)
+    if lock_path is not None:
+        return Path(lock_path)
+
     db_path = getattr(snapshot_store, "db_path", None)
     if db_path is None:
         return None

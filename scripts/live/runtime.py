@@ -23,6 +23,7 @@ from scripts.live.worker import LiveWorker
 logger = logging.getLogger(__name__)
 DEFAULT_LIVE_ORACLE_TX_CONCURRENCY = int(os.getenv("LIVE_ORACLE_TX_CONCURRENCY", "50"))
 DEFAULT_LIVE_ORACLE_MIN_TX_COUNT = int(os.getenv("LIVE_ORACLE_MIN_TX_COUNT", "500"))
+DEFAULT_LIVE_WORKER_LOCK_PATH = "/tmp/utxoracle_live.worker.lock"
 
 
 class ElectrsBlockOracleResolver:
@@ -188,7 +189,7 @@ class LiveWorkerRuntime:
 def build_live_runtime() -> LiveWorkerRuntime:
     timeout_seconds = float(os.getenv("LIVE_SOURCE_TIMEOUT_SECONDS", str(DEFAULT_SOURCE_TIMEOUT_SECONDS)))
     retention_hours = int(os.getenv("LIVE_RETENTION_HOURS", "24"))
-    process_lock_path = os.getenv("LIVE_WORKER_LOCK_PATH") or None
+    process_lock_path = os.getenv("LIVE_WORKER_LOCK_PATH") or DEFAULT_LIVE_WORKER_LOCK_PATH
 
     electrs_client = ElectrsClient(timeout_seconds=timeout_seconds)
     mempool_client = MempoolApiClient(timeout_seconds=timeout_seconds)
@@ -199,7 +200,10 @@ def build_live_runtime() -> LiveWorkerRuntime:
         tx_fetch_concurrency=int(os.getenv("LIVE_ORACLE_TX_CONCURRENCY", str(DEFAULT_LIVE_ORACLE_TX_CONCURRENCY))),
         min_tx_count=int(os.getenv("LIVE_ORACLE_MIN_TX_COUNT", str(DEFAULT_LIVE_ORACLE_MIN_TX_COUNT))),
     )
-    snapshot_store = LiveSnapshotStore(retention_hours=retention_hours)
+    snapshot_store = LiveSnapshotStore(
+        retention_hours=retention_hours,
+        lock_path=process_lock_path,
+    )
     worker = LiveWorker(
         electrs_client=electrs_client,
         mempool_client=mempool_client,
