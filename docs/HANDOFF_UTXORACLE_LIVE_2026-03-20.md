@@ -105,6 +105,18 @@ Move the repository from dormant batch-oriented state toward one Dockerized `UTX
 - `docker-compose.live.yml`
 - `utxoracle-live-compose.service`
 
+### Cross-repo ownership contract
+
+- `UTXOracle` owns the live runtime contract, the compose stack, and the host-level rollout entrypoint.
+- `utxoracle-live-compose.service` is the deploy/reload owner for the workstation live stack.
+- `progressive-deploy` currently owns image builds for UTXOracle live, but **does not** deploy the compose-based workstation service.
+- `monitoring-stack` owns external observability for the live stack:
+  - blackbox probing of `http://localhost:8011/health`
+  - container-presence and restart-churn alerting for `utxoracle-live-api` and `utxoracle-live-worker`
+
+This means a `git push` to `UTXOracle` alone does not update the running live service.
+The service changes become active only after a host-level compose rebuild/reload.
+
 ### Legacy defaults corrected
 
 - `scripts/config/mempool_config.py`: `electrs` default aligned to `http://127.0.0.1:3002`
@@ -162,11 +174,11 @@ Implements snapshot collection and cadence control:
 
 ### `scripts/live/storage.py`
 
-Implements dedicated live SQLite WAL persistence:
-- dedicated path via `LIVE_DB_PATH`
-- worker-only write path with short-lived write connections
-- API read path with short-lived `read_only` connections
-- latest snapshot reads plus short-horizon history queries
+Implements QuestDB-backed live snapshot persistence:
+- QuestDB is the only live snapshot backend
+- retention is enforced from the write path using `LIVE_RETENTION_HOURS`
+- live snapshot reads and short-horizon history come from QuestDB
+- the worker still enforces a single-writer process lock via `LIVE_WORKER_LOCK_PATH`
 
 ### `api/routes/live.py`
 
