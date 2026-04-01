@@ -2,7 +2,7 @@
 
 Date: 2026-04-01
 
-Status: Execution roadmap updated after `M1` completion and `M2` hardening
+Status: Execution roadmap updated after `M1`, `M2`, and `M3` Wave 1 completion
 
 Primary baseline:
 
@@ -40,7 +40,7 @@ This roadmap assumes the verified state captured on 2026-04-01:
 - `:8011` is the canonical and only supported live consumer host today
 - `:8001` remains mixed legacy/main-app surface
 - some implemented routes were exposed with hardcoded or partial placeholder behavior before `M2`
-- several high-value analytics already exist in `scripts/metrics` but still return `501`
+- several high-value analytics still return `501`, but Wave 1 balance/holder routes are now promoted
 
 Operational assumption:
 
@@ -84,9 +84,9 @@ Lower priority:
 | `/api/metrics/latest` | code implemented and contract-registered | `nautilus_dev`, research | QuestDB | no structural blocker; freshness remains operational concern | tier-1 admitted bundle | P1 | spec-044, spec-045 |
 | `PRO Risk` | runtime-demoted; only `/zones` remains live metadata | research only today | mixed / placeholder inputs | real component inputs and historical serving are still absent | remain demoted until real implementation exists | P0 | spec-048 |
 | `Puell Multiple` | runtime-demoted placeholder | research only today | computed inline | real 365d miner revenue history is still absent | remain demoted until real implementation exists | P0 | spec-048 |
-| `address-cohorts` | calculator only | research, future trading features | DuckDB | API wiring + semantics | promoted Wave 1 route | P1 | spec-046 |
-| `wallet-waves` | calculator only | research, future trading features | DuckDB | API wiring + history strategy | promoted Wave 1 route | P1 | spec-046 |
-| `absorption-rates` | calculator only | research, future trading features | DuckDB + history baseline | API wiring + materialization | promoted Wave 1 route | P1 | spec-046 |
+| `address-cohorts` | code implemented | research, future trading features | DuckDB | contract admission decision only | promoted Wave 1 route | P1 | spec-046 |
+| `wallet-waves` | code implemented | research, future trading features | DuckDB | current route is live; historical route still needs snapshot materialization | promoted Wave 1 route | P1 | spec-046 |
+| `absorption-rates` | code implemented with on-demand historical reconstruction | research, future trading features | DuckDB + reconstructed baseline | persistent history/materialization is still pending | promoted Wave 1 route | P1 | spec-046 |
 | `reserve-risk`, `nupl`, `cost-basis` | calculator only | research, macro/feature bundles | DuckDB | second-wave productization | promoted Wave 2 routes | P2 | spec-046 |
 | feature contract registry | published | `nautilus_dev`, operators | docs + YAML | validation automation still missing | `v1` contract registry | P0 | spec-044 |
 | dependency/provenance manifest | published | operators, consumers | docs + YAML | drift validation and optional metadata endpoint still missing | authoritative manifest | P0 | spec-045 |
@@ -150,6 +150,11 @@ Must resolve:
 Outcome:
 
 - the first calculator-backed analytics leave the `501` bucket
+
+Status:
+
+- completed on 2026-04-01 for `address-cohorts`, `wallet-waves`, and `absorption-rates`
+- `wallet-waves/history` remains explicitly outside the promoted slice
 
 Work:
 
@@ -259,6 +264,10 @@ Exit criteria:
 
 - `address-cohorts`, `wallet-waves`, and `absorption-rates` no longer return `501`, or are explicitly re-scoped with documented blockers
 
+Current status:
+
+- completed on 2026-04-01
+
 ### Milestone M4a: Whale Canonicalization
 
 Target window:
@@ -358,12 +367,12 @@ Whale/entity work can sprawl quickly unless the first canonical event schema is 
 
 ## 11. Recommended Immediate Next Step
 
-Start with Milestone M3.
+Start with Milestone M4a.
 
 Concretely:
 
-1. execute Wave 1 from spec-046
+1. execute whale canonicalization from spec-047
 2. keep contract and provenance artifacts in sync as new route families are promoted
-3. decide whether CI drift validation lands before or alongside Wave 1
+3. decide whether CI drift validation lands before or alongside the next admission change
 
 Do not promote Wave 1 calculator routes without updating the contract registry and provenance manifest in the same change set.

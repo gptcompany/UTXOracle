@@ -351,20 +351,15 @@ def test_null_address_excluded(populated_db_connection):
 # =============================================================================
 
 
-def test_address_cohorts_api_endpoint_success():
+def test_address_cohorts_api_endpoint_success(wave1_client):
     """Test API endpoint returns valid JSON response.
 
     GET /api/metrics/address-cohorts?current_price=98500
 
     Expected response structure matches spec.md API definition.
     """
-    from fastapi.testclient import TestClient
-    from api.main import app
-
-    client = TestClient(app)
-
     # Test with explicit current_price parameter
-    response = client.get("/api/metrics/address-cohorts?current_price=98500")
+    response = wave1_client.get("/api/metrics/address-cohorts?current_price=98500")
 
     assert response.status_code == 200
     data = response.json()
@@ -389,7 +384,7 @@ def test_address_cohorts_api_endpoint_success():
 # =============================================================================
 
 
-def test_address_cohorts_api_endpoint_error_handling():
+def test_address_cohorts_api_endpoint_error_handling(wave1_client):
     """Test API endpoint handles errors gracefully.
 
     Test cases:
@@ -397,19 +392,14 @@ def test_address_cohorts_api_endpoint_error_handling():
     - Invalid current_price (negative) → 422 Validation Error
     - Invalid current_price (zero) → 422 Validation Error
     """
-    from fastapi.testclient import TestClient
-    from api.main import app
-
-    client = TestClient(app)
-
     # Test default current_price works (endpoint has default=100000.0)
-    response = client.get("/api/metrics/address-cohorts")
+    response = wave1_client.get("/api/metrics/address-cohorts")
     assert response.status_code == 200  # Default value is valid
 
     # Test invalid current_price (negative) - FastAPI validation rejects ge=1.0
-    response = client.get("/api/metrics/address-cohorts?current_price=-100")
+    response = wave1_client.get("/api/metrics/address-cohorts?current_price=-100")
     assert response.status_code == 422  # FastAPI validation error
 
     # Test invalid current_price (zero) - FastAPI validation rejects ge=1.0
-    response = client.get("/api/metrics/address-cohorts?current_price=0")
+    response = wave1_client.get("/api/metrics/address-cohorts?current_price=0")
     assert response.status_code == 422  # FastAPI validation error

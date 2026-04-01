@@ -2,7 +2,7 @@
 
 Date: 2026-04-01
 
-Status: Initial provenance and dependency matrix, updated through `M2` hardening
+Status: Initial provenance and dependency matrix, updated through `M3` Wave 1 productization
 
 Machine-readable source of truth:
 
@@ -48,6 +48,7 @@ Scope note:
 | `sopr_surface` | `/api/metrics/sopr` | `duckdb_utxo_lifecycle` | `utxo_lifecycle`, `utxo_lifecycle_full` | none | `UTXO_DB_PATH` or `DUCKDB_PATH` | UTXO lifecycle bootstrap/sync pipeline | `api.main` | latest spent UTXO coverage | `503` when DB missing; `404` when tables missing |
 | `nvt_surface` | `/api/metrics/nvt` | `duckdb_utxo_lifecycle` | `utxo_lifecycle_full`, `block_heights` | none | `UTXO_DB_PATH` or `DUCKDB_PATH` | UTXO lifecycle bootstrap/sync pipeline + `block_heights` build | `api.main` | latest UTXO coverage and `block_heights` tip | `503` on insufficient data or missing schema |
 | `volatility_surface` | `/api/metrics/volatility` | `duckdb_daily_prices` | `daily_prices` | none | `UTXO_DB_PATH` or `DUCKDB_PATH` | `scripts.bootstrap.build_price_table` | `api.main` | newest `daily_prices.date` | `503` on insufficient history or missing table |
+| `wallet_and_cohort_surface` | `/api/metrics/{address-cohorts,wallet-waves,absorption-rates}` | `duckdb_utxo_lifecycle` | `utxo_lifecycle_full` | none | `UTXO_DB_PATH` or `DUCKDB_PATH` | UTXO lifecycle bootstrap/sync pipeline | `scripts.metrics.address_cohorts`, `scripts.metrics.wallet_waves`, `scripts.metrics.absorption_rates`, `api.main` | latest visible `creation_block`; absorption baseline reconstructed from `current_block - window_days*144` | `503` when DB missing; `404` on missing schema; address cohorts can return zeroed cohorts, wallet waves returns `404` when no addressable balances exist, absorption rates can return `200` with `has_historical_data=false` when baseline is unavailable |
 | `puell_multiple_surface` | `/api/metrics/puell-multiple` | `computed_inline` | inline constants; optional read of `utxo_lifecycle` for block height only | none | none for runtime-demoted serving; `UTXO_DB_PATH` was only optional enrichment in the old path | none for core calculation | `api.main` | request-time demotion | route now returns `501` until the 365-day denominator is backed by real miner revenue history |
 | `mining_pulse_surface` | `/api/metrics/mining-pulse` | `bitcoin_core_rpc` | live block interval observations from RPC | Bitcoin Core RPC | `BITCOIN_RPC_URL`, `BITCOIN_RPC_USER`, `BITCOIN_RPC_PASSWORD` or equivalent RPC config | Bitcoin Core node | `api.main` | live tip and recent block intervals | `503` when RPC unavailable |
 | `hash_ribbons_surface` | `/api/metrics/hash-ribbons` | `external_api` | in-memory fetched hashrate series | mempool hashrate API | external hashrate API reachability; no repo-local persistence required | external hashrate upstream | `api.main` | upstream response timestamp | `503` when upstream unavailable |
@@ -64,4 +65,8 @@ Scope note:
 - DuckDB-backed routes fail in two materially different ways:
   - `503` when the DB file is absent or insufficiently populated
   - `404` or schema-specific `503` when the expected tables or views do not exist
+- Wave 1 wallet/cohort routes are now live on DuckDB:
+  - `address-cohorts` is current-state only
+  - `wallet-waves` is current-state only
+  - `absorption-rates` reconstructs its historical baseline on demand from `spent_block` semantics and may respond with `has_historical_data=false`
 - `computed_inline` does not mean “safe.” It only means the core value is produced inline without a persistent backend. `PRO Risk` and `Puell Multiple` remain contract-caveated or excluded for exactly this reason.

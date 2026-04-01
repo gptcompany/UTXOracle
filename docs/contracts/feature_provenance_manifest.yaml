@@ -317,6 +317,27 @@ entries:
       placeholder: "none"
     provenance_notes:
       - "Backed by daily_prices, not utxo_lifecycle_full."
+  - surface_id: "wallet_and_cohort_surface"
+    route_family: "/api/metrics/{address-cohorts,wallet-waves,absorption-rates}"
+    backend_class: "duckdb_utxo_lifecycle"
+    primary_tables:
+      - "utxo_lifecycle_full"
+    upstreams: []
+    required_env:
+      - "UTXO_DB_PATH"
+      - "DUCKDB_PATH"
+    writer_owner: "UTXO lifecycle bootstrap/sync pipeline"
+    read_path_owner: "scripts.metrics.address_cohorts + scripts.metrics.wallet_waves + scripts.metrics.absorption_rates + api.main"
+    freshness_source: "Latest visible creation_block in utxo_lifecycle_full; absorption baseline reconstructed from current_block - window_days*144"
+    failure_mode:
+      empty: "address-cohorts may return zeroed cohorts when no classified supply exists; wallet-waves returns HTTP 404 when no addressable balances exist; absorption-rates returns HTTP 200 with has_historical_data=false when the current snapshot exists but the baseline snapshot does not."
+      stale: "No explicit stale marker; request-time results depend on DuckDB recency."
+      degraded: "absorption-rates degrades to baseline-unavailable mode when historical reconstruction cannot produce a snapshot."
+      misconfigured: "HTTP 503 when the DuckDB file is absent; HTTP 404 when utxo_lifecycle_full is missing."
+      placeholder: "wallet-waves/history remains outside this promoted surface and is unavailable until snapshot materialization exists."
+    provenance_notes:
+      - "address-cohorts and wallet-waves are current-state calculations from utxo_lifecycle_full."
+      - "absorption-rates reconstructs its historical baseline on demand using spent_block semantics rather than a persisted snapshot table."
   - surface_id: "puell_multiple_surface"
     route_family: "/api/metrics/puell-multiple"
     backend_class: "computed_inline"

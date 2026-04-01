@@ -2,7 +2,7 @@
 
 Date: 2026-04-01
 
-Status: Initial `v1` consumer contract for `nautilus_dev`, updated through `M2` hardening
+Status: Initial `v1` consumer contract for `nautilus_dev`, updated through `M3` Wave 1 productization
 
 Contract registry source:
 
@@ -77,9 +77,9 @@ These surfaces are intentionally not admitted.
 | `models_core_surface` | `/api/v1/models*` | research surface, not frozen for downstream production use |
 | `rbn_validation_surface` | `/api/v1/validation/rbn/*` | useful for validation and ops, but not part of the first production feature bundle |
 | `advanced_research_surface` | `/api/metrics/{advanced,wasserstein*,cointime*,urpd,supply-profit-loss,reserve-risk,sell-side-risk,cdd-vdd,nupl,revived-supply,cost-basis}` | analytical logic exists, API contract does not |
-| `wallet_and_cohort_surface` | `/api/metrics/{address-cohorts,wallet-waves,absorption-rates}` | planned for later promotion, but still `501` today |
+| `wallet_and_cohort_surface` | `/api/metrics/{address-cohorts,wallet-waves,absorption-rates}` | implemented as a research surface after Wave 1 productization, but still outside the first `v1` production bundle |
 | `legacy_whale_placeholder_surface` | `/api/whale/{latest,historical,history}` | placeholder namespace only |
-| `wallet_waves_history_placeholder_surface` | `/api/metrics/wallet-waves/history` | placeholder route only |
+| `wallet_waves_history_placeholder_surface` | `/api/metrics/wallet-waves/history` | history route remains unavailable until snapshot materialization exists |
 | `main_operational_pages_surface` | `/{,health,metrics,whale,dashboard,monitor,power-law,power_law}` | operational UI surface, not a data contract |
 
 ## 6. Consumer Rules
@@ -100,7 +100,7 @@ These surfaces are intentionally not admitted.
 
 Future contract versions may:
 
-- promote Wave 1 calculator routes after spec-046 productization
+- admit individual Wave 1 calculator routes only after an explicit contract decision beyond `v1`
 - admit whale/entity surfaces only after canonicalization is frozen
 - re-admit `PRO Risk` or `Puell Multiple` only after their hardcoded behavior is removed
 - admit `power_law_surface` only after an explicit contract decision and tier promotion

@@ -1,9 +1,10 @@
 # spec-046: Calculator Surface Productization
 
-> **Status**: PROPOSED
+> **Status**: PARTIALLY IMPLEMENTED
 > **Priority**: HIGH
 > **Effort**: Large
 > **Created**: 2026-04-01
+> **Wave 1 Implemented**: 2026-04-01
 
 ## Problem Statement
 
@@ -13,10 +14,10 @@ Current gaps:
 
 1. calculator-backed routes exist, but are not consumable through the API
 2. high-value feature families such as wallet waves, address cohorts, and reserve-risk are trapped behind research-only code paths
-3. history-dependent surfaces lack persistent snapshot materialization
+3. history-dependent surfaces still lack persistent snapshot materialization even after Wave 1 route promotion
 4. roadmap work cannot prioritize feature promotion without a wave-based plan
 
-This spec productizes the most valuable calculator-backed surfaces in controlled waves.
+This spec productizes the most valuable calculator-backed surfaces in controlled waves. Wave 1 is now live; later waves and persistent history materialization remain open.
 
 ## Goals
 
@@ -151,4 +152,3 @@ Every promoted route family MUST have tests for:
 2. Wave 1 routes have explicit backend and failure semantics
 3. history-dependent routes have snapshot materialization defined
 4. roadmap work can refer to promotion waves instead of an undifferentiated `calculator only` bucket
-

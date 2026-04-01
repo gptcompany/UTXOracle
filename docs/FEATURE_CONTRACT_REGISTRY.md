@@ -2,7 +2,7 @@
 
 Date: 2026-04-01
 
-Status: Initial `v1` registry draft, updated through `M2` hardening
+Status: Initial `v1` registry draft, updated through `M3` Wave 1 productization
 
 Machine-readable source of truth:
 
@@ -93,12 +93,12 @@ Explicitly excluded from the supported contract because they are placeholder, sh
 | `models_core_surface` | `/api/v1/models`, `/api/v1/models/{name}/predict`, `/api/v1/models/backtest/{name}`, `/api/v1/models/compare`, `/api/v1/models/ensemble` | `code implemented` | `tier_3_research` | research | `:8001` | `computed_inline` | `api.routes.models` | Not part of first consumer slice |
 | `rbn_validation_surface` | `/api/v1/validation/rbn/*` | `code implemented` | `tier_3_research` | operators, research | `:8001` | `external_api` | `scripts.integrations.rbn_fetcher` + `api.main` | Requires `RBN_API_TOKEN` and is quota-bound |
 | `advanced_research_surface` | `/api/metrics/{advanced,wasserstein*,cointime*,urpd,supply-profit-loss,reserve-risk,sell-side-risk,cdd-vdd,nupl,revived-supply,cost-basis}` | `calculator only` | `tier_3_research` | research | `:8001` | `hybrid` | `scripts.metrics.*` + `api.main` | Registered today as `501`; promotion requires API wiring and, in some cases, history materialization |
-| `wallet_and_cohort_surface` | `/api/metrics/{address-cohorts,wallet-waves,absorption-rates}` | `calculator only` | `tier_3_research` | research, future `nautilus_dev` features | `:8001` | `duckdb_utxo_lifecycle` | `scripts.metrics.*` + `scripts.clustering.*` | Registered today as `501`; Wave 1 promotion target |
+| `wallet_and_cohort_surface` | `/api/metrics/{address-cohorts,wallet-waves,absorption-rates}` | `code implemented` | `tier_3_research` | research, future `nautilus_dev` features | `:8001` | `duckdb_utxo_lifecycle` | `scripts.metrics.*` + `scripts.clustering.*` + `api.main` | Wave 1 is live; `wallet-waves/history` remains outside the promoted surface and absorption baseline is reconstructed on demand |
 | `power_law_surface` | `/api/v1/models/power-law*` | `code implemented` | `tier_3_research` | research | `:8001` | `duckdb_daily_prices` | `api.main` + `scripts.metrics.power_law` | Dedicated handler now wins deterministically, but the surface remains outside the first `nautilus_dev` contract slice |
 | `pro_risk_surface` | `/api/risk/pro*` | `placeholder` | `tier_4_not_admitted` | research only today | `:8001` | `computed_inline` | `api.main` + `scripts.metrics.pro_risk` | `/api/risk/pro` and `/history` are now runtime-demoted; only `/zones` remains usable static metadata |
 | `puell_multiple_surface` | `/api/metrics/puell-multiple` | `placeholder` | `tier_4_not_admitted` | research only today | `:8001` | `computed_inline` | `api.main` | Runtime-demoted until real 365-day miner revenue history is wired |
 | `legacy_whale_placeholder_surface` | `/api/whale/{latest,historical,history}` | `placeholder` | `tier_4_not_admitted` | none | `:8001` | `computed_inline` | `api.main` | Legacy placeholder surface collides with canonical whale namespace |
-| `wallet_waves_history_placeholder_surface` | `/api/metrics/wallet-waves/history` | `placeholder` | `tier_4_not_admitted` | none | `:8001` | `computed_inline` | `api.main` | Historical serving path is not implemented |
+| `wallet_waves_history_placeholder_surface` | `/api/metrics/wallet-waves/history` | `placeholder` | `tier_4_not_admitted` | none | `:8001` | `computed_inline` | `api.main` | Route now returns explicit `503` until historical wallet-wave snapshots are materialized |
 | `main_operational_pages_surface` | `/{,health,metrics,whale,dashboard,monitor,power-law,power_law}` | `code implemented` | `tier_4_not_admitted` | operators | `:8001` | `computed_inline` | `api.main` | Useful operationally, but not part of the admitted feature API contract |
 
 ## 6. Governance Rules

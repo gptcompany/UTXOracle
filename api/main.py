@@ -1489,9 +1489,36 @@ class AddressCohortsResponse(BaseModel):
     total_addresses: int = Field(..., description="Sum of all cohort address counts")
 
 
+WALLET_WAVES_HISTORY_UNAVAILABLE_DETAIL = (
+    "Historical wallet wave snapshots are not materialized for this route yet."
+)
+
+
+def _connect_utxo_lifecycle_db():
+    """Open the local UTXO lifecycle DuckDB in read-only mode."""
+    import duckdb
+
+    db_path = Path(UTXO_DB_PATH)
+    if not db_path.exists():
+        raise HTTPException(
+            status_code=503,
+            detail=f"UTXO lifecycle database not found at {UTXO_DB_PATH}. "
+            "Run utxo_lifecycle sync first.",
+        )
+
+    return duckdb.connect(str(db_path), read_only=True)
+
+
+def _get_latest_utxo_block_height(conn) -> int:
+    """Return the latest creation block visible in utxo_lifecycle_full."""
+    result = conn.execute(
+        "SELECT COALESCE(MAX(creation_block), 0) FROM utxo_lifecycle_full"
+    ).fetchone()
+    return int(result[0] or 0)
+
+
 @app.get("/api/metrics/address-cohorts", response_model=AddressCohortsResponse)
 async def get_address_cohorts(
-    request: Request,
     current_price: float = Query(
         default=100000.0,
         ge=1.0,
@@ -1512,8 +1539,74 @@ async def get_address_cohorts(
 
     Uses `utxo_lifecycle_full` VIEW for two-stage aggregation.
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
-    raise HTTPException(status_code=501, detail="Not Implemented")
+    conn = None
+    try:
+        conn = _connect_utxo_lifecycle_db()
+
+        from scripts.metrics.address_cohorts import calculate_address_cohorts
+
+        result = calculate_address_cohorts(
+            conn=conn,
+            current_block=_get_latest_utxo_block_height(conn),
+            current_price_usd=current_price,
+        )
+
+        return AddressCohortsResponse(
+            timestamp=result.timestamp.isoformat(),
+            block_height=result.block_height,
+            current_price_usd=result.current_price_usd,
+            cohorts={
+                "retail": CohortMetricsResponse(
+                    cohort=result.retail.cohort.value,
+                    cost_basis=result.retail.cost_basis,
+                    supply_btc=result.retail.supply_btc,
+                    supply_pct=result.retail.supply_pct,
+                    mvrv=result.retail.mvrv,
+                    address_count=result.retail.address_count,
+                ),
+                "mid_tier": CohortMetricsResponse(
+                    cohort=result.mid_tier.cohort.value,
+                    cost_basis=result.mid_tier.cost_basis,
+                    supply_btc=result.mid_tier.supply_btc,
+                    supply_pct=result.mid_tier.supply_pct,
+                    mvrv=result.mid_tier.mvrv,
+                    address_count=result.mid_tier.address_count,
+                ),
+                "whale": CohortMetricsResponse(
+                    cohort=result.whale.cohort.value,
+                    cost_basis=result.whale.cost_basis,
+                    supply_btc=result.whale.supply_btc,
+                    supply_pct=result.whale.supply_pct,
+                    mvrv=result.whale.mvrv,
+                    address_count=result.whale.address_count,
+                ),
+            },
+            analysis=AddressCohortsAnalysis(
+                whale_retail_spread=result.whale_retail_spread,
+                whale_retail_mvrv_ratio=result.whale_retail_mvrv_ratio,
+            ),
+            total_supply_btc=result.total_supply_btc,
+            total_addresses=result.total_addresses,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "utxo_lifecycle" in error_msg or "does not exist" in error_msg:
+            raise HTTPException(
+                status_code=404,
+                detail="UTXO lifecycle table not found. Schema migration pending.",
+            )
+        _raise_http_exception(
+            status_code=500,
+            public_detail="Failed to calculate address cohorts",
+            log_message="Error calculating address cohorts",
+            exc=e,
+        )
+    finally:
+        if conn:
+            conn.close()
 
 
 # =============================================================================
@@ -1601,7 +1694,7 @@ class AbsorptionRatesResponse(BaseModel):
 
 
 @app.get("/api/metrics/wallet-waves", response_model=WalletWavesResponse)
-async def get_wallet_waves(request: Request):
+async def get_wallet_waves():
     """
     Get current wallet waves distribution (spec-025).
 
@@ -1621,13 +1714,70 @@ async def get_wallet_waves(request: Request):
 
     Spec: 025-wallet-waves
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
-    raise HTTPException(status_code=501, detail="Not Implemented")
+    conn = None
+    try:
+        conn = _connect_utxo_lifecycle_db()
+
+        from scripts.metrics.wallet_waves import calculate_wallet_waves
+
+        current_block = _get_latest_utxo_block_height(conn)
+        result = calculate_wallet_waves(conn=conn, block_height=current_block)
+
+        return WalletWavesResponse(
+            timestamp=result.timestamp.isoformat(),
+            block_height=result.block_height,
+            total_supply_btc=result.total_supply_btc,
+            bands=[
+                WalletBandResponse(
+                    band=band.band.value,
+                    supply_btc=band.supply_btc,
+                    supply_pct=band.supply_pct,
+                    address_count=band.address_count,
+                    avg_balance=band.avg_balance,
+                )
+                for band in result.bands
+            ],
+            retail_supply_pct=result.retail_supply_pct,
+            institutional_supply_pct=result.institutional_supply_pct,
+            address_count_total=result.address_count_total,
+            null_address_btc=result.null_address_btc,
+            confidence=result.confidence,
+        )
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        if "no utxo data found" in str(e).lower():
+            raise HTTPException(
+                status_code=404,
+                detail="No wallet wave data available in the current DuckDB snapshot.",
+            )
+        _raise_http_exception(
+            status_code=500,
+            public_detail="Failed to calculate wallet waves",
+            log_message="Wallet waves calculation failed",
+            exc=e,
+        )
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "utxo_lifecycle" in error_msg or "does not exist" in error_msg:
+            raise HTTPException(
+                status_code=404,
+                detail="UTXO lifecycle table not found. Schema migration pending.",
+            )
+        _raise_http_exception(
+            status_code=500,
+            public_detail="Failed to calculate wallet waves",
+            log_message="Error calculating wallet waves",
+            exc=e,
+        )
+    finally:
+        if conn:
+            conn.close()
 
 
 @app.get("/api/metrics/wallet-waves/history")
 async def get_wallet_waves_history(
-    request: Request,
     days: int = Query(
         default=30,
         ge=1,
@@ -1645,13 +1795,11 @@ async def get_wallet_waves_history(
 
     Spec: 025-wallet-waves
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
-    raise HTTPException(status_code=501, detail="Not Implemented")
+    raise HTTPException(status_code=503, detail=WALLET_WAVES_HISTORY_UNAVAILABLE_DETAIL)
 
 
 @app.get("/api/metrics/absorption-rates", response_model=AbsorptionRatesResponse)
 async def get_absorption_rates(
-    request: Request,
     window: str = Query(
         default="30d",
         description="Lookback window (7d, 30d, or 90d)",
@@ -1680,8 +1828,92 @@ async def get_absorption_rates(
 
     Spec: 025-wallet-waves
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
-    raise HTTPException(status_code=501, detail="Not Implemented")
+    conn = None
+    window_days_map = {"7d": 7, "30d": 30, "90d": 90}
+    window_days = window_days_map[window]
+
+    try:
+        conn = _connect_utxo_lifecycle_db()
+
+        from scripts.metrics.absorption_rates import calculate_absorption_rates
+        from scripts.metrics.wallet_waves import calculate_wallet_waves
+
+        current_block = _get_latest_utxo_block_height(conn)
+        current_snapshot = calculate_wallet_waves(conn=conn, block_height=current_block)
+
+        baseline_block = current_block - (window_days * 144)
+        historical_snapshot = None
+        if baseline_block > 0:
+            try:
+                historical_snapshot = calculate_wallet_waves(
+                    conn=conn,
+                    block_height=baseline_block,
+                    as_of_block=baseline_block,
+                    timestamp=_utc_now() - timedelta(days=window_days),
+                )
+            except ValueError:
+                historical_snapshot = None
+
+        result = calculate_absorption_rates(
+            conn=conn,
+            current_snapshot=current_snapshot,
+            historical_snapshot=historical_snapshot,
+            window_days=window_days,
+            timestamp=_utc_now(),
+        )
+
+        return AbsorptionRatesResponse(
+            timestamp=result.timestamp.isoformat(),
+            block_height=result.block_height,
+            window_days=result.window_days,
+            mined_supply_btc=result.mined_supply_btc,
+            bands=[
+                AbsorptionBandResponse(
+                    band=band.band.value,
+                    absorption_rate=band.absorption_rate,
+                    supply_delta_btc=band.supply_delta_btc,
+                    supply_start_btc=band.supply_start_btc,
+                    supply_end_btc=band.supply_end_btc,
+                )
+                for band in result.bands
+            ],
+            dominant_absorber=result.dominant_absorber.value,
+            retail_absorption=result.retail_absorption,
+            institutional_absorption=result.institutional_absorption,
+            confidence=result.confidence,
+            has_historical_data=result.has_historical_data,
+        )
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        if "no utxo data found" in str(e).lower():
+            raise HTTPException(
+                status_code=404,
+                detail="No wallet wave data available in the current DuckDB snapshot.",
+            )
+        _raise_http_exception(
+            status_code=500,
+            public_detail="Failed to calculate absorption rates",
+            log_message="Absorption rates calculation failed",
+            exc=e,
+        )
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "utxo_lifecycle" in error_msg or "does not exist" in error_msg:
+            raise HTTPException(
+                status_code=404,
+                detail="UTXO lifecycle table not found. Schema migration pending.",
+            )
+        _raise_http_exception(
+            status_code=500,
+            public_detail="Failed to calculate absorption rates",
+            log_message="Error calculating absorption rates",
+            exc=e,
+        )
+    finally:
+        if conn:
+            conn.close()
 
 
 # =============================================================================

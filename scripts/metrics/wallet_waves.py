@@ -64,6 +64,7 @@ def calculate_wallet_waves(
     conn: Any,
     block_height: int | None = None,
     timestamp: datetime | None = None,
+    as_of_block: int | None = None,
 ) -> WalletWavesResult:
     """Calculate wallet waves distribution snapshot.
 
@@ -73,6 +74,8 @@ def calculate_wallet_waves(
         conn: DuckDB connection object.
         block_height: Optional block height (defaults to latest).
         timestamp: Optional timestamp (defaults to now).
+        as_of_block: Optional historical block height to reconstruct the
+            address-balance snapshot at that point in time.
 
     Returns:
         WalletWavesResult with complete distribution.
@@ -83,17 +86,32 @@ def calculate_wallet_waves(
     if timestamp is None:
         timestamp = datetime.now(timezone.utc)
 
+    if as_of_block is not None and as_of_block < 0:
+        raise ValueError(f"as_of_block must be non-negative, got {as_of_block}")
+
+    if as_of_block is None:
+        active_utxo_filter = "is_spent = FALSE"
+        filter_params: list[int] = []
+    else:
+        # Historical reconstruction: include UTXOs that already existed at the
+        # target block and had not been spent yet at that block.
+        active_utxo_filter = """
+            creation_block <= ?
+            AND (is_spent = FALSE OR spent_block > ?)
+        """
+        filter_params = [as_of_block, as_of_block]
+
     # Query: Aggregate balance per address, then classify into bands
     # This is a two-step aggregation:
     # 1. Sum UTXOs by address
     # 2. Classify addresses into bands and aggregate
-    query = """
+    query = f"""
     WITH address_balances AS (
         SELECT
             address,
             SUM(btc_value) AS balance
         FROM utxo_lifecycle_full
-        WHERE is_spent = FALSE
+        WHERE {active_utxo_filter}
           AND address IS NOT NULL
         GROUP BY address
         HAVING balance > 0
@@ -123,37 +141,49 @@ def calculate_wallet_waves(
         END;
     """
 
-    result = conn.execute(query).fetchall()
+    if filter_params:
+        result = conn.execute(query, filter_params).fetchall()
+    else:
+        result = conn.execute(query).fetchall()
 
     if not result:
         raise ValueError("No UTXO data found in database")
 
     # Query total supply and null address BTC
-    total_query = """
+    total_query = f"""
     SELECT
         SUM(btc_value) AS total_supply
     FROM utxo_lifecycle_full
-    WHERE is_spent = FALSE;
+    WHERE {active_utxo_filter};
     """
-    total_result = conn.execute(total_query).fetchone()
+    if filter_params:
+        total_result = conn.execute(total_query, filter_params).fetchone()
+    else:
+        total_result = conn.execute(total_query).fetchone()
     total_supply_btc = total_result[0] if total_result and total_result[0] else 0.0
 
-    null_query = """
+    null_query = f"""
     SELECT
         COALESCE(SUM(btc_value), 0) AS null_address_btc
     FROM utxo_lifecycle_full
-    WHERE is_spent = FALSE AND address IS NULL;
+    WHERE {active_utxo_filter} AND address IS NULL;
     """
-    null_result = conn.execute(null_query).fetchone()
+    if filter_params:
+        null_result = conn.execute(null_query, filter_params).fetchone()
+    else:
+        null_result = conn.execute(null_query).fetchone()
     null_address_btc = null_result[0] if null_result else 0.0
 
     # Get block height if not provided
     if block_height is None:
-        height_query = """
-        SELECT MAX(creation_block) FROM utxo_lifecycle_full WHERE is_spent = FALSE;
-        """
-        height_result = conn.execute(height_query).fetchone()
-        block_height = height_result[0] if height_result and height_result[0] else 0
+        if as_of_block is not None:
+            block_height = as_of_block
+        else:
+            height_query = """
+            SELECT MAX(creation_block) FROM utxo_lifecycle_full WHERE is_spent = FALSE;
+            """
+            height_result = conn.execute(height_query).fetchone()
+            block_height = height_result[0] if height_result and height_result[0] else 0
 
     # Build band metrics dict from query results
     band_data: dict[str, tuple[int, float, float]] = {}
