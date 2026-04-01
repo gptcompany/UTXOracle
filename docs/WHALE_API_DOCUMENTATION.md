@@ -9,6 +9,8 @@
 > `GET /api/whale/transactions`, `GET /api/whale/summary`, and `GET /api/whale/transaction/{txid}`.
 > Legacy routes `GET /api/whale/latest`, `GET /api/whale/historical`, and `GET /api/whale/history`
 > are deprecated compatibility stubs and now return `410 Gone` with migration metadata.
+> As of 2026-04-02, canonical whale responses also expose additive `whale_event.v1`
+> entity-foundation fields. See [docs/WHALE_ENTITY_FOUNDATION.md](/media/sam/1TB/UTXOracle/docs/WHALE_ENTITY_FOUNDATION.md).
 
 ---
 

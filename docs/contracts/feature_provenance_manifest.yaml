@@ -136,6 +136,7 @@ entries:
     backend_class: "questdb"
     primary_tables:
       - "mempool_predictions"
+      - "address_clusters (optional enrichment)"
     upstreams:
       - "mempool whale monitoring pipeline"
     required_env:
@@ -144,17 +145,18 @@ entries:
       - "QUESTDB_PG_USER"
       - "QUESTDB_PG_PASSWORD"
       - "QUESTDB_PG_DATABASE"
-    writer_owner: "mempool whale monitor / prediction writer"
+    writer_owner: "mempool whale monitor / prediction writer + optional clustering bootstrap"
     read_path_owner: "api.mempool_whale_endpoints"
-    freshness_source: "Newest row in mempool_predictions.ts"
+    freshness_source: "Newest row in mempool_predictions.ts with optional point-in-time address_clusters reads for entity enrichment"
     failure_mode:
-      empty: "Empty arrays for filtered queries or HTTP 404 for missing txid."
+      empty: "Empty arrays for filtered queries or HTTP 404 for missing txid; entity stays null when enrichment cannot be derived."
       stale: "No explicit stale marker; operators must monitor table recency."
-      degraded: "none"
+      degraded: "Entity enrichment degrades to unavailable or ambiguous when exchange_addresses is absent or address_clusters evidence conflicts."
       misconfigured: "QuestDB connectivity or writer bootstrap missing."
       placeholder: "Legacy /api/whale/{latest,historical,history} aliases now return HTTP 410 deprecation stubs and are outside this canonical query family."
     provenance_notes:
-      - "Canonical whale query routes are implemented in api.mempool_whale_endpoints and are now the only supported whale API surface."
+      - "Canonical whale query routes are implemented in api.mempool_whale_endpoints and now expose additive whale_event.v1 fields."
+      - "Entity enrichment is optional and derives cluster metadata from address_clusters only when exchange_addresses exist."
   - surface_id: "exchange_netflow_surface"
     route_family: "/api/metrics/exchange-netflow*"
     backend_class: "duckdb_utxo_lifecycle"

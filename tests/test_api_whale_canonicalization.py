@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 
 class _FakeWhaleRepo:
-    def __init__(self) -> None:
+    def __init__(self, *, exchange_addresses: str = "", cluster_rows: list[dict] | None = None) -> None:
         self.row = {
             "prediction_id": "pred-001",
             "transaction_id": "tx-001",
@@ -17,11 +17,17 @@ class _FakeWhaleRepo:
             "detection_timestamp": datetime(2026, 4, 1, 12, 0, tzinfo=timezone.utc),
             "predicted_confirmation_block": 941500,
             "confidence_score": 0.84,
+            "exchange_addresses": exchange_addresses,
         }
+        self.cluster_rows = list(cluster_rows or [])
 
     async def fetch(self, query, *args):
-        assert "FROM mempool_predictions" in query
-        return [self.row]
+        if "FROM mempool_predictions" in query:
+            return [self.row]
+        if "FROM address_clusters" in query:
+            addresses = set(args)
+            return [row for row in self.cluster_rows if row["address"] in addresses]
+        raise AssertionError(f"Unexpected query: {query}")
 
     async def fetchrow(self, query, *args):
         assert "FROM mempool_predictions" in query
@@ -48,6 +54,31 @@ def whale_client(monkeypatch):
     client.close()
 
 
+@pytest.fixture
+def whale_enriched_client(monkeypatch):
+    from api.main import app
+
+    repo = _FakeWhaleRepo(
+        exchange_addresses="1Binance,1BinanceHot",
+        cluster_rows=[
+            {
+                "address": "1Binance",
+                "cluster_id": "cluster_001",
+                "label": "Binance",
+            },
+            {
+                "address": "1BinanceHot",
+                "cluster_id": "cluster_001",
+                "label": "Binance",
+            },
+        ],
+    )
+    monkeypatch.setattr(app.state, "questdb_repo", repo, raising=False)
+    client = TestClient(app)
+    yield client
+    client.close()
+
+
 def test_canonical_whale_query_routes_return_data(whale_client):
     transactions = whale_client.get("/api/whale/transactions")
     summary = whale_client.get("/api/whale/summary")
@@ -58,16 +89,44 @@ def test_canonical_whale_query_routes_return_data(whale_client):
     assert len(txs) == 1
     assert txs[0]["transaction_id"] == "tx-001"
     assert txs[0]["prediction_id"] == "pred-001"
+    assert txs[0]["event_id"] == "pred-001"
+    assert txs[0]["source"] == "questdb.mempool_predictions"
+    assert txs[0]["status"] == "detected"
+    assert txs[0]["entity_enrichment_status"] == "unavailable"
+    assert txs[0]["entity"] is None
 
     assert summary.status_code == 200
     summary_body = summary.json()
+    assert summary_body["surface_id"] == "whale_query_surface"
+    assert summary_body["event_schema_version"] == "whale_event.v1"
     assert summary_body["total_transactions"] == 1
     assert summary_body["high_urgency_count"] == 1
+    assert summary_body["entity_enrichment_mode"] == "best_effort_optional"
+    assert "transaction_id" in summary_body["entity_policy"]["observed_fields"]
+    assert "entity.entity_id" in summary_body["entity_policy"]["inferred_fields"]
 
     assert tx.status_code == 200
     tx_body = tx.json()
     assert tx_body["transaction_id"] == "tx-001"
     assert tx_body["confidence_score"] == 0.84
+    assert tx_body["entity_enrichment_status"] == "unavailable"
+    assert tx_body["entity"] is None
+
+
+def test_whale_event_enrichment_uses_cluster_foundation_when_available(
+    whale_enriched_client,
+):
+    response = whale_enriched_client.get("/api/whale/transaction/tx-001")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["entity_enrichment_status"] == "inferred"
+    assert body["entity"]["cluster_id"] == "cluster_001"
+    assert body["entity"]["entity_id"] == "cluster:cluster_001"
+    assert body["entity"]["entity_label"] == "Binance"
+    assert body["entity"]["label_source"] == "questdb.address_clusters.label"
+    assert body["entity"]["confidence"] == 0.8
+    assert body["entity"]["attribution_kind"] == "inferred"
 
 
 def test_unknown_canonical_whale_transaction_returns_404(whale_client):

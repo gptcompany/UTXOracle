@@ -2,7 +2,7 @@
 
 Date: 2026-04-01
 
-Status: Initial provenance and dependency matrix, updated through `M4a` whale canonicalization
+Status: Initial provenance and dependency matrix, updated through `M4b` whale entity foundations
 
 Machine-readable source of truth:
 
@@ -39,7 +39,7 @@ Scope note:
 | `live_chart_surface` | `/api/v1/charts/*` | `hybrid` | `LiveSnapshotStore` snapshots | same live upstreams as snapshot surface; BRK for realized-price chart | same as live snapshot surface | `scripts.live.worker.LiveWorker` | `api.routes.charts` | latest snapshot used in chart payload | `503` when no snapshots; stale/degraded encoded in payload metadata |
 | `prices_surface` | `/api/prices/*` | `questdb` | `price_analysis` | UTXOracle calculator + mempool price feed via daily analysis pipeline | `QUESTDB_PG_HOST`, `QUESTDB_PG_PORT`, `QUESTDB_PG_USER`, `QUESTDB_PG_PASSWORD`, `QUESTDB_PG_DATABASE` | `scripts.daily_analysis.py` via `QuestDBRepository` | `api.main` | newest `price_analysis.ts` row | `404` when empty; `500` on QuestDB failure |
 | `metrics_latest_surface` | `/api/metrics/latest` | `questdb` | `metrics` | `scripts.metrics` bundle produced by analysis pipeline | QuestDB PG env set above | `scripts.daily_analysis.py` + `scripts.metrics.save_metrics_to_db` | `api.main` | newest `metrics.ts` row | `404` when empty; `500` on QuestDB failure |
-| `whale_query_surface` | `/api/whale/{transactions,summary,transaction/{txid}}` | `questdb` | `mempool_predictions` | mempool whale monitor / prediction writers | QuestDB PG env set above | `scripts/mempool_whale_monitor.py` and related whale writers | `api.mempool_whale_endpoints` | newest `mempool_predictions.ts` row | `404` for missing txid; `500` on DB query failure |
+| `whale_query_surface` | `/api/whale/{transactions,summary,transaction/{txid}}` | `questdb` | `mempool_predictions`; optional `address_clusters` enrichment | mempool whale monitor / prediction writers; optional clustering bootstrap | QuestDB PG env set above | `scripts/mempool_whale_monitor.py`, clustering bootstrap, and related whale writers | `api.mempool_whale_endpoints` | newest `mempool_predictions.ts` row; optional enrichment reads current `address_clusters` rows | `404` for missing txid; `500` on base query failure; entity enrichment degrades to omission when `address_clusters` is absent or ambiguous |
 | `exchange_netflow_surface` | `/api/metrics/exchange-netflow*` | `duckdb_utxo_lifecycle` | `utxo_lifecycle_full`, `exchange_addresses.csv` | none beyond local dataset | `UTXO_DB_PATH` or `DUCKDB_PATH`; `data/exchange_addresses.csv` must exist | UTXO lifecycle bootstrap/sync pipeline + exchange address scraper | `api.main` | latest available UTXO data and exchange address CSV mtime | `503` when DB missing; `404` when tables missing |
 | `exchange_addresses_stats_surface` | `/api/exchange-addresses/stats` | `computed_inline` | `data/exchange_addresses.csv` | none | local CSV file must exist | exchange address scraper process | `api.main` | CSV file mtime | `404` when CSV missing; `500` on file read errors |
 | `binary_cdd_surface` | `/api/metrics/binary-cdd` | `duckdb_utxo_lifecycle` | `utxo_lifecycle_full` | none | `UTXO_DB_PATH` or `DUCKDB_PATH` | UTXO lifecycle bootstrap/sync pipeline | `api.main` | latest available UTXO data | `503` when DB missing; `404` when tables missing |
@@ -72,4 +72,8 @@ Scope note:
 - Whale canonicalization is now explicit:
   - `/api/whale/{transactions,summary,transaction/{txid}}` is the only canonical whale query family
   - `/api/whale/{latest,historical,history}` remains outside the canonical surface and now returns `410 Gone` deprecation metadata
+- Whale entity foundations are additive:
+  - base whale events come from `mempool_predictions`
+  - optional enrichment reads `address_clusters` only when exchange addresses exist
+  - missing or conflicting enrichment must not fail the base whale event response
 - `computed_inline` does not mean “safe.” It only means the core value is produced inline without a persistent backend. `PRO Risk` and `Puell Multiple` remain contract-caveated or excluded for exactly this reason.

@@ -24,10 +24,10 @@
 
 ## Phase 2: Canonical Schema
 
-- [ ] T005 Define canonical `whale_event` schema
-- [ ] T006 Define canonical summary response schema
-- [ ] T007 Define canonical transaction drill-down schema
-- [ ] T008 Define optional entity enrichment fields with provenance/confidence
+- [x] T005 Define canonical `whale_event` schema
+- [x] T006 Define canonical summary response schema
+- [x] T007 Define canonical transaction drill-down schema
+- [x] T008 Define optional entity enrichment fields with provenance/confidence
 
 **Checkpoint**: route cleanup targets one stable payload family.
 
@@ -35,7 +35,7 @@
 
 ## Phase 3: Route Unification
 
-- [ ] T009 [E] Rework existing whale query routes to conform to the canonical schema
+- [x] T009 [E] Rework existing whale query routes to conform to the canonical schema
 - [x] T010 Remove or deprecate `/api/whale/latest`
 - [x] T011 Remove or deprecate `/api/whale/historical`
 - [x] T012 Remove or deprecate `/api/whale/history`
@@ -47,10 +47,10 @@
 
 ## Phase 4: Entity Foundations
 
-- [ ] T014 Define entity registry schema with `entity_id`, provenance, and confidence
-- [ ] T015 Define observed-vs-inferred field policy for whale responses
-- [ ] T016 Add optional enrichment path from clustering/label data into whale events
-- [ ] T017 Document omission behavior when entity enrichment is unavailable
+- [x] T014 Define entity registry schema with `entity_id`, provenance, and confidence
+- [x] T015 Define observed-vs-inferred field policy for whale responses
+- [x] T016 Add optional enrichment path from clustering/label data into whale events
+- [x] T017 Document omission behavior when entity enrichment is unavailable
 
 **Checkpoint**: future entity work has a stable base without overcommitting attribution.
 
@@ -66,6 +66,6 @@ Execution note:
 
 - `M4a` is complete: `/api/whale/{transactions,summary,transaction/{txid}}` is the frozen canonical family.
 - Legacy `/api/whale/{latest,historical,history}` routes remain only as explicit `410 Gone` migration stubs.
-- Canonical event/entity schema work remains open for `M4b`.
+- `M4b` is complete: the canonical whale family now serves additive `whale_event.v1` fields and best-effort entity enrichment with explicit omission semantics.
 
 **Checkpoint**: the unified whale surface is reflected in contract and ops docs.

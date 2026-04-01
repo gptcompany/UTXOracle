@@ -2,7 +2,7 @@
 
 Date: 2026-04-01
 
-Status: Initial `v1` registry draft, updated through `M4a` whale canonicalization
+Status: Initial `v1` registry draft, updated through `M4b` whale entity foundations
 
 Machine-readable source of truth:
 
@@ -79,7 +79,7 @@ Explicitly excluded from the supported contract because they are placeholder, sh
 | `live_chart_surface` | `/api/v1/charts/*` | `runtime verified` | `tier_1_production` | `nautilus_dev`, research | `:8011` | `hybrid` | `scripts.live.worker` + `api.routes.charts` | Depends on live snapshot store and upstream source health |
 | `prices_surface` | `/api/prices/*` | `code implemented` | `tier_1_production` | `nautilus_dev`, research | `:8001` | `questdb` | `scripts.daily_analysis.py` + `api.main` | Main-app availability still depends on QuestDB connectivity |
 | `metrics_latest_surface` | `/api/metrics/latest` | `code implemented` | `tier_1_production` | `nautilus_dev`, research | `:8001` | `questdb` | `scripts.daily_analysis.py` + `scripts.metrics.save_metrics_to_db` | Depends on `metrics` table freshness |
-| `whale_query_surface` | `/api/whale/{transactions,summary,transaction/{txid}}` | `code implemented` | `tier_2_production_with_caveats` | research, `nautilus_dev` future forensics | `:8001` | `questdb` | `mempool whale monitor` + `api.mempool_whale_endpoints` | Canonical whale query family is now frozen; consumers still depend on `mempool_predictions` freshness |
+| `whale_query_surface` | `/api/whale/{transactions,summary,transaction/{txid}}` | `code implemented` | `tier_2_production_with_caveats` | research, `nautilus_dev` future forensics | `:8001` | `questdb` | `mempool whale monitor` + `address cluster bootstrap` + `api.mempool_whale_endpoints` | Canonical whale query family now serves additive `whale_event.v1` fields; entity enrichment is best-effort and may be omitted even when the base event is valid |
 | `exchange_netflow_surface` | `/api/metrics/exchange-netflow*` | `code implemented` | `tier_2_production_with_caveats` | `nautilus_dev`, research | `:8001` | `duckdb_utxo_lifecycle` | `scripts.metrics.exchange_netflow` + `api.main` | Requires populated DuckDB and exchange address CSV |
 | `binary_cdd_surface` | `/api/metrics/binary-cdd` | `code implemented` | `tier_2_production_with_caveats` | `nautilus_dev`, research | `:8001` | `duckdb_utxo_lifecycle` | `scripts.metrics.binary_cdd` + `api.main` | Returns `503`/`404` when DuckDB or tables are absent |
 | `net_realized_pnl_surface` | `/api/metrics/net-realized-pnl*` | `code implemented` | `tier_2_production_with_caveats` | `nautilus_dev`, research | `:8001` | `duckdb_utxo_lifecycle` | `scripts.metrics.net_realized_pnl` + `api.main` | Requires populated spent UTXO history |
@@ -124,3 +124,8 @@ Future specs that change route behavior must update:
 1. [docs/contracts/feature_contract_registry.yaml](/media/sam/1TB/UTXOracle/docs/contracts/feature_contract_registry.yaml)
 2. [docs/NAUTILUS_FEATURE_CONTRACT_V1.md](/media/sam/1TB/UTXOracle/docs/NAUTILUS_FEATURE_CONTRACT_V1.md), if `nautilus_dev` is affected
 3. [docs/contracts/feature_provenance_manifest.yaml](/media/sam/1TB/UTXOracle/docs/contracts/feature_provenance_manifest.yaml), if dependency or failure semantics changed
+
+Whale-specific schema note:
+
+- the canonical whale query family now serves additive `whale_event.v1` fields
+- entity enrichment is optional and documented in [docs/WHALE_ENTITY_FOUNDATION.md](/media/sam/1TB/UTXOracle/docs/WHALE_ENTITY_FOUNDATION.md)

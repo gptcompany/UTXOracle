@@ -1,10 +1,11 @@
 # spec-047: Whale Surface Unification & Entity Foundations
 
-> **Status**: PARTIALLY IMPLEMENTED
+> **Status**: IMPLEMENTED
 > **Priority**: HIGH
 > **Effort**: Large
 > **Created**: 2026-04-01
 > **M4a Implemented**: 2026-04-01
+> **M4b Implemented**: 2026-04-02
 
 ## Problem Statement
 
@@ -17,7 +18,7 @@ Current gaps:
 3. there is no entity or attribution foundation for future forensic expansion
 4. consumers cannot tell which whale routes are canonical and which are vestigial
 
-This spec unifies whale APIs into one supported surface and lays the minimum entity foundations needed for future cluster-aware features. Route canonicalization is now implemented; entity foundations remain open for the second slice.
+This spec unifies whale APIs into one supported surface and lays the minimum entity foundations needed for future cluster-aware features. Route canonicalization and the first entity foundation slice are now implemented.
 
 ## Goals
 

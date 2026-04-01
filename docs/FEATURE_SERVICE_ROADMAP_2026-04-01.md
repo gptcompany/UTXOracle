@@ -2,7 +2,7 @@
 
 Date: 2026-04-01
 
-Status: Execution roadmap updated after `M1`, `M2`, `M3`, and `M4a` whale canonicalization
+Status: Execution roadmap updated after `M1`, `M2`, `M3`, `M4a`, and `M4b` whale entity foundations
 
 Primary baseline:
 
@@ -80,7 +80,7 @@ Lower priority:
 | `/api/v1/live/*` | runtime verified on dedicated live host only | `nautilus_dev` | live app + live worker | resolved in `M2`; keep host policy frozen | tier-1 contract on one canonical host | P0 | spec-048 |
 | `/api/v1/charts/*` | runtime verified | `nautilus_dev`, research | live app + live worker | contract registration | admitted companion live surface | P1 | spec-044 |
 | `/api/prices/*` | code implemented and contract-registered | `nautilus_dev`, research | QuestDB | no structural blocker; freshness remains operational concern | tier-1 admitted price family | P0 | spec-044, spec-045 |
-| `/api/whale/transactions`, `/summary`, `/transaction/{txid}` | code implemented; canonicalized in `M4a` | research, future forensics | QuestDB `mempool_predictions` | entity foundations still pending in `M4b`; consumers still depend on table freshness | canonical whale surface frozen | P1 | spec-047 |
+| `/api/whale/transactions`, `/summary`, `/transaction/{txid}` | code implemented; canonicalized in `M4a` with additive `whale_event.v1` in `M4b` | research, future forensics | QuestDB `mempool_predictions` + optional `address_clusters` enrichment | consumers still depend on table freshness and best-effort enrichment omission rules | canonical whale surface frozen with entity foundation fields | P1 | spec-047 |
 | `/api/metrics/latest` | code implemented and contract-registered | `nautilus_dev`, research | QuestDB | no structural blocker; freshness remains operational concern | tier-1 admitted bundle | P1 | spec-044, spec-045 |
 | `PRO Risk` | runtime-demoted; only `/zones` remains live metadata | research only today | mixed / placeholder inputs | real component inputs and historical serving are still absent | remain demoted until real implementation exists | P0 | spec-048 |
 | `Puell Multiple` | runtime-demoted placeholder | research only today | computed inline | real 365d miner revenue history is still absent | remain demoted until real implementation exists | P0 | spec-048 |
@@ -176,7 +176,7 @@ Outcome:
 Status:
 
 - `M4a` completed on 2026-04-01: canonical whale routes are frozen and legacy aliases now return explicit `410 Gone` migration stubs
-- entity foundations remain pending in `M4b`
+- `M4b` completed on 2026-04-02: additive `whale_event.v1` fields and entity omission rules are now frozen for the canonical whale surface
 
 Work:
 
@@ -307,6 +307,10 @@ Exit criteria:
 - minimum entity foundation schema exists
 - entity provenance and confidence fields are frozen for future enrichment work
 
+Current status:
+
+- completed on 2026-04-02
+
 ### Milestone M5: Wave 2 Promotion Decision
 
 Target window:
@@ -376,11 +380,11 @@ Whale/entity work can sprawl quickly unless the first canonical event schema is 
 
 ## 11. Recommended Immediate Next Step
 
-Start with Milestone M4b.
+Start with Milestone M5.
 
 Concretely:
 
-1. define entity foundation fields and omission rules from spec-047
+1. decide Wave 2 promotion scope from spec-046 using the now-frozen contract baseline
 2. keep contract and provenance artifacts in sync as new route families are promoted
 3. decide whether CI drift validation lands before or alongside the next admission change
 

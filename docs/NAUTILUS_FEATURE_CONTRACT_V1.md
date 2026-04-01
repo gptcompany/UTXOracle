@@ -2,7 +2,7 @@
 
 Date: 2026-04-01
 
-Status: Initial `v1` consumer contract for `nautilus_dev`, updated through `M4a` whale canonicalization
+Status: Initial `v1` consumer contract for `nautilus_dev`, updated through `M4b` whale entity foundations
 
 Contract registry source:
 
@@ -53,7 +53,7 @@ These surfaces are admitted only with the declared infrastructure and semantic c
 
 | Surface ID | Route family | Caveat |
 |------|------|------|
-| `whale_query_surface` | `/api/whale/{transactions,summary,transaction/{txid}}` | canonical whale query family is now frozen; consumers still depend on `mempool_predictions` freshness and no stale marker |
+| `whale_query_surface` | `/api/whale/{transactions,summary,transaction/{txid}}` | canonical whale query family is frozen with additive `whale_event.v1` fields; entity enrichment is best-effort and may be omitted while the base event remains valid |
 | `exchange_netflow_surface` | `/api/metrics/exchange-netflow*` | requires populated DuckDB plus `exchange_addresses.csv` |
 | `binary_cdd_surface` | `/api/metrics/binary-cdd` | requires populated DuckDB and sufficient lookback history |
 | `net_realized_pnl_surface` | `/api/metrics/net-realized-pnl*` | requires populated spent UTXO history |
@@ -102,6 +102,7 @@ Future contract versions may:
 
 - admit individual Wave 1 calculator routes only after an explicit contract decision beyond `v1`
 - add entity foundation fields only after canonical whale routes and provenance rules are frozen
+- keep whale entity enrichment additive; no future version should require `entity` to be present for base whale-event validity
 - re-admit `PRO Risk` or `Puell Multiple` only after their hardcoded behavior is removed
 - admit `power_law_surface` only after an explicit contract decision and tier promotion
 
