@@ -76,8 +76,8 @@ These surfaces are intentionally not admitted.
 | `power_law_surface` | `/api/v1/models/power-law*` | research model surface; handler is now deterministic, but it is still outside the first production bundle |
 | `models_core_surface` | `/api/v1/models*` | research surface, not frozen for downstream production use |
 | `rbn_validation_surface` | `/api/v1/validation/rbn/*` | useful for validation and ops, but not part of the first production feature bundle |
-| `nupl_surface` | `/api/metrics/nupl` | implemented as a research route, but `pct_supply_in_profit` remains an explicitly estimated field and the surface is not admitted into `v1` |
-| `cost_basis_surface` | `/api/metrics/cost-basis` | implemented as a research route, but not yet admitted into the first production bundle |
+| `nupl_surface` | `/api/metrics/nupl` | implemented as a research route, but `pct_supply_in_profit` remains an explicitly estimated field and the surface is not admitted into `v1`; `M7` closed with no promotion |
+| `cost_basis_surface` | `/api/metrics/cost-basis` | implemented as a research route, but not yet admitted into the first production bundle; `M7` closed with no promotion |
 | `advanced_research_surface` | `/api/metrics/{advanced,wasserstein*,cointime*,urpd,supply-profit-loss,reserve-risk,sell-side-risk,cdd-vdd,revived-supply}` | analytical logic exists, API contract does not |
 | `wallet_and_cohort_surface` | `/api/metrics/{address-cohorts,wallet-waves,absorption-rates}` | implemented as a research surface after Wave 1 productization, but still outside the first `v1` production bundle |
 | `legacy_whale_placeholder_surface` | `/api/whale/{latest,historical,history}` | deprecated `410 Gone` compatibility stubs only; not part of the canonical whale contract |
@@ -106,7 +106,8 @@ Future contract versions may:
 - add entity foundation fields only after canonical whale routes and provenance rules are frozen
 - keep whale entity enrichment additive; no future version should require `entity` to be present for base whale-event validity
 - re-admit `PRO Risk` or `Puell Multiple` only after their hardcoded behavior is removed
-- selectively admit `nupl` and `cost-basis` only after an explicit research-to-production contract decision beyond `v1`
+- selectively admit `nupl` and `cost-basis` only after reopening the post-`M6` admission gate in [docs/FEATURE_SERVICE_ADMISSION_GATE_2026-04-02.md](/media/sam/1TB/UTXOracle/docs/FEATURE_SERVICE_ADMISSION_GATE_2026-04-02.md) and superseding the current no-promotion decision in [docs/FEATURE_SERVICE_M7_DECISION_2026-04-02.md](/media/sam/1TB/UTXOracle/docs/FEATURE_SERVICE_M7_DECISION_2026-04-02.md)
+- no future contract should admit NUPL's estimated `pct_supply_in_profit` field without an explicit field-level declaration that the value is estimated
 - keep `reserve-risk` excluded until placeholder/default internals are removed from the calculator itself
 - admit `power_law_surface` only after an explicit contract decision and tier promotion
 

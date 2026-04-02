@@ -70,6 +70,7 @@ Selective Wave 2 implementation result on 2026-04-02:
 - `/api/metrics/nupl` is now wired and returns a live DuckDB-backed response
 - `/api/metrics/cost-basis` is now wired and returns a live DuckDB-backed response
 - `/api/metrics/reserve-risk` remains intentionally unpromoted
+- any future admission of `nupl` or `cost-basis` beyond `tier_3_research` is now delegated to `spec-049`
 
 ### Wave 3: Broader Research Metrics
 

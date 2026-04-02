@@ -2,7 +2,7 @@
 
 Date: 2026-04-02
 
-Status: Execution roadmap updated after `M1`, `M2`, `M3`, `M4a`, `M4b`, `M5`, and `M6` selective Wave 2 productization
+Status: Execution roadmap updated after `M1`, `M2`, `M3`, `M4a`, `M4b`, `M5`, `M6`, and `M7` admission-governance closure
 
 Primary baseline:
 
@@ -15,6 +15,7 @@ Primary execution specs:
 - [specs/046-calculator-surface-productization/spec.md](/media/sam/1TB/UTXOracle/specs/046-calculator-surface-productization/spec.md)
 - [specs/047-whale-entity-surface-unification/spec.md](/media/sam/1TB/UTXOracle/specs/047-whale-entity-surface-unification/spec.md)
 - [specs/048-implemented-route-hardening/spec.md](/media/sam/1TB/UTXOracle/specs/048-implemented-route-hardening/spec.md)
+- [specs/049-feature-research-admission-gate/spec.md](/media/sam/1TB/UTXOracle/specs/049-feature-research-admission-gate/spec.md)
 
 ## 1. Roadmap Objective
 
@@ -90,6 +91,7 @@ Lower priority:
 | `reserve-risk` | calculator only; audit complete | research, macro/feature bundles | DuckDB + optional `cointime_metrics` | calculator still contains placeholder/default internals (`mvrv`, fallback liveliness, no-data fallback) | remain held outside the promoted slice | P2 | spec-046 |
 | `nupl` | code implemented with explicit estimated-field contract | research, macro/feature bundles | DuckDB | still research-only; `pct_supply_in_profit` remains a declared estimate rather than a direct profit-state measurement | promoted selective Wave 2 route | P2 | spec-046 |
 | `cost-basis` | code implemented | research, macro/feature bundles | DuckDB | still research-only; no `nautilus_dev` admission decision yet | promoted selective Wave 2 route | P2 | spec-046 |
+| post-`M6` admission gate for `nupl` and `cost-basis` | not yet formalized before this roadmap update | `nautilus_dev`, operators | docs + validation evidence | no explicit route-to-consumer gate existed after selective Wave 2 wiring | formal go/no-go gate for any future `v2` promotion | P1 | spec-049 |
 | feature contract registry | published | `nautilus_dev`, operators | docs + YAML | validation automation still missing | `v1` contract registry | P0 | spec-044 |
 | dependency/provenance manifest | published | operators, consumers | docs + YAML | drift validation and optional metadata endpoint still missing | authoritative manifest | P0 | spec-045 |
 
@@ -207,6 +209,29 @@ Work:
 
 - Wave 2 and later waves from [spec-046](/media/sam/1TB/UTXOracle/specs/046-calculator-surface-productization/spec.md)
 - decision package: [docs/FEATURE_SERVICE_WAVE2_DECISION_2026-04-02.md](/media/sam/1TB/UTXOracle/docs/FEATURE_SERVICE_WAVE2_DECISION_2026-04-02.md)
+
+### Track 6: Govern Research-to-Production Admission
+
+Outcome:
+
+- post-`M6` research routes do not drift into downstream contracts by convention
+- any promotion beyond `tier_3_research` is gated by explicit validation evidence and field-level policy
+
+Status:
+
+- completed on 2026-04-02 for the current post-`M6` candidate set
+- `nupl` and `cost-basis` remain live but research-only after an explicit no-promotion decision
+
+Work:
+
+- implement [spec-049](/media/sam/1TB/UTXOracle/specs/049-feature-research-admission-gate/spec.md)
+- freeze the admission gate in [docs/FEATURE_SERVICE_ADMISSION_GATE_2026-04-02.md](/media/sam/1TB/UTXOracle/docs/FEATURE_SERVICE_ADMISSION_GATE_2026-04-02.md)
+- publish the current decision package in [docs/FEATURE_SERVICE_M7_DECISION_2026-04-02.md](/media/sam/1TB/UTXOracle/docs/FEATURE_SERVICE_M7_DECISION_2026-04-02.md)
+
+Execution note:
+
+- `nupl` and `cost-basis` being wired in `M6` does not imply future `nautilus_dev` admission
+- `reserve-risk` remains out of scope for this track until its placeholder/default internals are removed under a separate hardening slice
 
 ## 7. Milestones and Dates
 
@@ -365,6 +390,30 @@ Current status:
 - `/api/metrics/nupl` and `/api/metrics/cost-basis` are now DuckDB-backed research routes with explicit `404`/`503` semantics
 - `reserve-risk` remains held at `501`
 
+### Milestone M7: Research-to-Production Admission Review
+
+Target window:
+
+- 2026-05-19 to 2026-05-23
+
+Includes:
+
+- spec-049
+
+Exit criteria:
+
+- `nupl` and `cost-basis` each have an explicit go/no-go admission decision beyond `tier_3_research`
+- field-level policy is frozen for any candidate consumer-facing subset
+- required validation evidence is named for each route family
+- `reserve-risk` is explicitly kept out of scope or moved under a separate hardening milestone
+
+Current status:
+
+- completed on 2026-04-02 as the post-`M6` governance track
+- `nupl_surface` remains `tier_3_research`; only a reduced field subset may be reconsidered in a future contract revision
+- `cost_basis_surface` remains `tier_3_research`; it is the strongest future candidate, but not admitted today
+- `reserve-risk` remains out of scope pending separate hardening
+
 ## 8. Dependency Order
 
 Recommended sequencing:
@@ -375,6 +424,7 @@ Recommended sequencing:
 4. spec-046 Wave 1
 5. spec-047
 6. spec-046 Wave 2+
+7. spec-049
 
 Reason:
 
@@ -394,6 +444,7 @@ Planning estimate based on the new spec kits:
 | spec-046 Wave 1 | 3-5 days |
 | spec-047 | 4-7 days |
 | spec-046 Wave 2+ | 2-4 days for Wave 2, then further waves |
+| spec-049 | 1.5-3 days |
 
 Compressed execution estimate:
 
@@ -417,14 +468,18 @@ Some Wave 1 and Wave 2 metrics are blocked less by formula logic than by baselin
 
 Whale/entity work can sprawl quickly unless the first canonical event schema is kept intentionally narrow.
 
+### Risk E: Research-Only Drift
+
+Once a route is live, downstream consumers may treat it as implicitly admitted unless a separate admission gate exists. This is now the main risk for `nupl` and `cost-basis`.
+
 ## 11. Recommended Immediate Next Step
 
-Start with Milestone M5.
+Start with the next evidence-producing slice, not a new admission change.
 
 Concretely:
 
-1. decide Wave 2 promotion scope from spec-046 using the now-frozen contract baseline
-2. keep contract and provenance artifacts in sync as new route families are promoted
-3. decide whether CI drift validation lands before or alongside the next admission change
+1. only reopen `nupl` admission if a future contract wants a reduced field subset and the validation evidence is refreshed with explicit operator sign-off
+2. only reopen `cost-basis` admission after publishing reproducibility checks and a clear consumer-use statement
+3. treat `reserve-risk` hardening or Wave 1 history materialization as the next substantive engineering milestones
 
-Do not promote Wave 1 calculator routes without updating the contract registry and provenance manifest in the same change set.
+Do not promote any research-only route into a downstream consumer contract without updating the registry, provenance manifest, and consumer contract in the same change set.

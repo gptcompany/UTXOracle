@@ -105,3 +105,4 @@ Execution note:
 - `/api/metrics/nupl` now serves a live DuckDB-backed payload with explicit `pct_supply_in_profit_is_estimated=true` and `pct_supply_in_profit_method=nupl_linear_proxy`.
 - `/api/metrics/cost-basis` now serves a live DuckDB-backed payload with route-level `404` on unusable snapshots and `503` on missing DuckDB.
 - `/api/metrics/reserve-risk` remains registered but intentionally returns `501`.
+- any future promotion of `nupl` or `cost-basis` beyond research-only is now handed off to `spec-049`.
