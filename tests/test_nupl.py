@@ -337,12 +337,16 @@ class TestNUPLAPIEndpoint:
             realized_cap_usd=1_218_000_000_000.0,
             unrealized_profit_usd=882_000_000_000.0,
             pct_supply_in_profit=75.3,
+            pct_supply_in_profit_is_estimated=True,
+            pct_supply_in_profit_method="nupl_linear_proxy",
             confidence=0.85,
             block_height=872500,
             timestamp="2025-12-16T10:30:00",
         )
         assert response.nupl == 0.42
         assert response.zone == "OPTIMISM"
+        assert response.pct_supply_in_profit_is_estimated is True
+        assert response.pct_supply_in_profit_method == "nupl_linear_proxy"
 
         # Test missing required field raises error
         with pytest.raises(ValidationError):
@@ -351,18 +355,20 @@ class TestNUPLAPIEndpoint:
                 # Missing zone and other required fields
             )
 
-    def test_nupl_endpoint_registered(self):
-        """T016: Verify /api/metrics/nupl endpoint is registered in the app."""
-        from fastapi.testclient import TestClient
+    def test_nupl_endpoint_registered(self, wave2_client):
+        """T016: Verify /api/metrics/nupl endpoint is wired through the API."""
         from api.main import app
 
-        # Check endpoint is in app routes
         routes = [route.path for route in app.routes]
         assert "/api/metrics/nupl" in routes
 
-        # Current Wave 2 state keeps the route registered but not yet wired.
-        client = TestClient(app, raise_server_exceptions=False)
-        response = client.get("/api/metrics/nupl?current_price=105000")
+        response = wave2_client.get("/api/metrics/nupl?current_price=105000")
 
-        assert response.status_code == 501
-        assert response.json()["detail"] == "Not Implemented"
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["zone"] == "BELIEF"
+        assert data["block_height"] == 870000
+        assert data["market_cap_usd"] > data["realized_cap_usd"] > 0
+        assert data["pct_supply_in_profit_is_estimated"] is True
+        assert data["pct_supply_in_profit_method"] == "nupl_linear_proxy"

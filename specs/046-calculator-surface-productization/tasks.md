@@ -93,9 +93,15 @@ Execution note:
 
 ## Phase 7: Selective Wave 2 Follow-Up
 
-- [ ] T026 Add RED tests for `/api/metrics/nupl` healthy and degraded serving paths
-- [ ] T027 Add RED tests for `/api/metrics/cost-basis` healthy and degraded serving paths
-- [ ] T028 Freeze field policy for NUPL `pct_supply_in_profit` before route admission
-- [ ] T029 Keep `/api/metrics/reserve-risk` at `501` until placeholder/default internals are removed or separately re-spec the route
+- [x] T026 Add RED tests for `/api/metrics/nupl` healthy and degraded serving paths
+- [x] T027 Add RED tests for `/api/metrics/cost-basis` healthy and degraded serving paths
+- [x] T028 Freeze field policy for NUPL `pct_supply_in_profit` before route admission
+- [x] T029 Keep `/api/metrics/reserve-risk` at `501` until placeholder/default internals are removed or separately re-spec the route
 
 **Checkpoint**: the next implementation milestone is narrowed to the routes that are actually ready for productization work.
+
+Execution note:
+
+- `/api/metrics/nupl` now serves a live DuckDB-backed payload with explicit `pct_supply_in_profit_is_estimated=true` and `pct_supply_in_profit_method=nupl_linear_proxy`.
+- `/api/metrics/cost-basis` now serves a live DuckDB-backed payload with route-level `404` on unusable snapshots and `503` on missing DuckDB.
+- `/api/metrics/reserve-risk` remains registered but intentionally returns `501`.

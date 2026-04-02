@@ -350,6 +350,46 @@ entries:
     owner: "api.main"
     version: "v1"
     deprecation_status: "none"
+  - surface_id: "nupl_surface"
+    route_family: "/api/metrics/nupl"
+    routes:
+      - "GET /api/metrics/nupl"
+    canonical_host: "http://127.0.0.1:8001"
+    consumer:
+      - "research"
+    current_label: "code implemented"
+    admission_tier: "tier_3_research"
+    source_of_truth: "DuckDB realized metrics helpers wired through api.main"
+    backend_class: "duckdb_utxo_lifecycle"
+    freshness_target: "Latest visible utxo_lifecycle_full snapshot at request time"
+    empty_state_policy: "Return HTTP 404 when the current DuckDB snapshot does not contain usable unspent supply and realized-cap data."
+    stale_state_policy: "No explicit stale marker; output depends on DuckDB recency."
+    known_caveats:
+      - "pct_supply_in_profit is served with explicit estimate metadata and uses method=nupl_linear_proxy."
+      - "The route is implemented, but remains outside the first nautilus production bundle."
+    owner: "scripts.metrics.nupl + scripts.metrics.realized_metrics + api.main"
+    version: "v1"
+    deprecation_status: "none"
+  - surface_id: "cost_basis_surface"
+    route_family: "/api/metrics/cost-basis"
+    routes:
+      - "GET /api/metrics/cost-basis"
+    canonical_host: "http://127.0.0.1:8001"
+    consumer:
+      - "research"
+    current_label: "code implemented"
+    admission_tier: "tier_3_research"
+    source_of_truth: "DuckDB-backed STH/LTH cohort cost basis calculation wired through api.main"
+    backend_class: "duckdb_utxo_lifecycle"
+    freshness_target: "Latest visible utxo_lifecycle_full snapshot at request time"
+    empty_state_policy: "Return HTTP 404 when the current DuckDB snapshot has no usable cost-basis data."
+    stale_state_policy: "No explicit stale marker; output depends on DuckDB recency."
+    known_caveats:
+      - "The route is implemented, but remains outside the first nautilus production bundle."
+      - "Partial cohort coverage is allowed and is reflected through confidence rather than route demotion."
+    owner: "scripts.metrics.cost_basis + api.main"
+    version: "v1"
+    deprecation_status: "none"
   - surface_id: "models_core_surface"
     route_family: "/api/v1/models*"
     routes:
@@ -420,7 +460,7 @@ entries:
     version: "v1"
     deprecation_status: "none"
   - surface_id: "advanced_research_surface"
-    route_family: "/api/metrics/{advanced,wasserstein*,cointime*,urpd,supply-profit-loss,reserve-risk,sell-side-risk,cdd-vdd,nupl,revived-supply,cost-basis}"
+    route_family: "/api/metrics/{advanced,wasserstein*,cointime*,urpd,supply-profit-loss,reserve-risk,sell-side-risk,cdd-vdd,revived-supply}"
     routes:
       - "GET /api/metrics/advanced"
       - "GET /api/metrics/wasserstein"
@@ -434,9 +474,7 @@ entries:
       - "GET /api/metrics/reserve-risk"
       - "GET /api/metrics/sell-side-risk"
       - "GET /api/metrics/cdd-vdd"
-      - "GET /api/metrics/nupl"
       - "GET /api/metrics/revived-supply"
-      - "GET /api/metrics/cost-basis"
     canonical_host: "http://127.0.0.1:8001"
     consumer:
       - "research"
@@ -449,7 +487,6 @@ entries:
     stale_state_policy: "Not applicable while routes return 501."
     known_caveats:
       - "Analytical modules exist, but the route family is not consumable through the API today."
-      - "Wave 2 audit froze NUPL and cost-basis as the next selective promotion candidates."
       - "Reserve-risk remains blocked because its calculator still contains placeholder/default internals."
     owner: "scripts.metrics.* + api.main"
     version: "v1"

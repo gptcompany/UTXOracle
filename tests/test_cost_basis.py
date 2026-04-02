@@ -303,19 +303,24 @@ def test_calculate_cost_basis_signal_full(populated_db_connection):
 # =============================================================================
 
 
-def test_cost_basis_api_endpoint():
+def test_cost_basis_api_endpoint(wave2_client):
     """Test GET /api/metrics/cost-basis endpoint.
 
-    Current Wave 2 state keeps the route registered but not yet wired.
+    Should return JSON with the live DuckDB-backed cost basis payload.
     """
-    from fastapi.testclient import TestClient
     from api.main import app
 
     routes = [route.path for route in app.routes]
     assert "/api/metrics/cost-basis" in routes
 
-    client = TestClient(app, raise_server_exceptions=False)
-    response = client.get("/api/metrics/cost-basis")
+    response = wave2_client.get("/api/metrics/cost-basis?current_price=95000")
 
-    assert response.status_code == 501
-    assert response.json()["detail"] == "Not Implemented"
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["block_height"] == 870000
+    assert data["sth_cost_basis"] > data["lth_cost_basis"] > 0
+    assert data["total_cost_basis"] > 0
+    assert data["sth_supply_btc"] > 0
+    assert data["lth_supply_btc"] > 0
+    assert data["confidence"] > 0

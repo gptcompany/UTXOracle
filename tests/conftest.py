@@ -92,6 +92,46 @@ def _populate_wave1_duckdb(db_path, *, base_block: int, delta_block: int) -> Non
     conn.close()
 
 
+def _populate_wave2_duckdb(db_path, *, with_unspent: bool = True) -> None:
+    """Create a small DuckDB fixture covering NUPL and cost-basis routes."""
+    conn = duckdb.connect(str(db_path))
+    conn.execute(
+        """
+        CREATE TABLE utxo_lifecycle (
+            txid VARCHAR,
+            vout_index INTEGER,
+            creation_block INTEGER,
+            btc_value DOUBLE,
+            creation_price_usd DOUBLE,
+            realized_value_usd DOUBLE,
+            is_spent BOOLEAN
+        )
+        """
+    )
+    conn.execute("CREATE VIEW utxo_lifecycle_full AS SELECT * FROM utxo_lifecycle")
+
+    if with_unspent:
+        conn.execute(
+            """
+            INSERT INTO utxo_lifecycle VALUES
+            ('sth_1', 0, 870000, 1.0, 60000.0, 60000.0, FALSE),
+            ('sth_2', 0, 865000, 2.0, 70000.0, 140000.0, FALSE),
+            ('lth_1', 0, 800000, 5.0, 30000.0, 150000.0, FALSE),
+            ('lth_2', 0, 750000, 10.0, 25000.0, 250000.0, FALSE),
+            ('spent_1', 0, 850000, 3.0, 50000.0, 150000.0, TRUE)
+            """
+        )
+    else:
+        conn.execute(
+            """
+            INSERT INTO utxo_lifecycle VALUES
+            ('spent_only', 0, 850000, 3.0, 50000.0, 150000.0, TRUE)
+            """
+        )
+
+    conn.close()
+
+
 @pytest.fixture
 def wave1_duckdb_path(tmp_path):
     """DuckDB fixture with enough block depth for historical baseline tests."""
@@ -128,6 +168,48 @@ def wave1_low_history_client(monkeypatch, wave1_low_history_duckdb_path):
     import api.main
 
     monkeypatch.setattr(api.main, "UTXO_DB_PATH", str(wave1_low_history_duckdb_path))
+
+    test_client = TestClient(app)
+    yield test_client
+    test_client.close()
+
+
+@pytest.fixture
+def wave2_duckdb_path(tmp_path):
+    """DuckDB fixture with enough data for NUPL and cost-basis serving tests."""
+    db_path = tmp_path / "wave2.duckdb"
+    _populate_wave2_duckdb(db_path, with_unspent=True)
+    return db_path
+
+
+@pytest.fixture
+def wave2_empty_snapshot_duckdb_path(tmp_path):
+    """DuckDB fixture with schema present but no usable unspent snapshot."""
+    db_path = tmp_path / "wave2_empty.duckdb"
+    _populate_wave2_duckdb(db_path, with_unspent=False)
+    return db_path
+
+
+@pytest.fixture
+def wave2_client(monkeypatch, wave2_duckdb_path):
+    """FastAPI client bound to the Wave 2 DuckDB fixture."""
+    from api.main import app
+    import api.main
+
+    monkeypatch.setattr(api.main, "UTXO_DB_PATH", str(wave2_duckdb_path))
+
+    test_client = TestClient(app)
+    yield test_client
+    test_client.close()
+
+
+@pytest.fixture
+def wave2_empty_snapshot_client(monkeypatch, wave2_empty_snapshot_duckdb_path):
+    """FastAPI client bound to a Wave 2 DuckDB fixture without usable data."""
+    from api.main import app
+    import api.main
+
+    monkeypatch.setattr(api.main, "UTXO_DB_PATH", str(wave2_empty_snapshot_duckdb_path))
 
     test_client = TestClient(app)
     yield test_client

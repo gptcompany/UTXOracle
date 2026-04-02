@@ -1,5 +1,5 @@
 schema_version: "1"
-published_at: "2026-04-01"
+published_at: "2026-04-02"
 source_documents:
   - "docs/FEATURE_SERVICE_ROADMAP_PREP_2026-04-01.md"
   - "docs/FEATURE_DEPENDENCY_MATRIX.md"
@@ -298,6 +298,47 @@ entries:
       placeholder: "none"
     provenance_notes:
       - "Route output also depends on the caller-supplied or default current_price query parameter."
+  - surface_id: "nupl_surface"
+    route_family: "/api/metrics/nupl"
+    backend_class: "duckdb_utxo_lifecycle"
+    primary_tables:
+      - "utxo_lifecycle_full"
+    upstreams: []
+    required_env:
+      - "UTXO_DB_PATH"
+      - "DUCKDB_PATH"
+    writer_owner: "UTXO lifecycle bootstrap/sync pipeline"
+    read_path_owner: "api.main"
+    freshness_source: "Latest visible utxo_lifecycle_full snapshot at request time"
+    failure_mode:
+      empty: "HTTP 404 when the current DuckDB snapshot does not contain usable unspent supply and realized-cap data."
+      stale: "No explicit stale marker; delayed DuckDB sync reduces confidence."
+      degraded: "pct_supply_in_profit remains a declared estimate rather than a direct per-UTXO profit-state measurement."
+      misconfigured: "HTTP 503 when the DuckDB file is absent; HTTP 404 when utxo_lifecycle_full is missing."
+      placeholder: "none"
+    provenance_notes:
+      - "The core NUPL value is computed from UTXOracle DuckDB state."
+      - "pct_supply_in_profit is explicitly marked as estimated and uses method=nupl_linear_proxy."
+  - surface_id: "cost_basis_surface"
+    route_family: "/api/metrics/cost-basis"
+    backend_class: "duckdb_utxo_lifecycle"
+    primary_tables:
+      - "utxo_lifecycle_full"
+    upstreams: []
+    required_env:
+      - "UTXO_DB_PATH"
+      - "DUCKDB_PATH"
+    writer_owner: "UTXO lifecycle bootstrap/sync pipeline"
+    read_path_owner: "api.main"
+    freshness_source: "Latest visible utxo_lifecycle_full snapshot at request time"
+    failure_mode:
+      empty: "HTTP 404 when the current DuckDB snapshot has no usable cost-basis data."
+      stale: "No explicit stale marker; delayed DuckDB sync reduces confidence."
+      degraded: "Partial cohort coverage is allowed and expressed through confidence."
+      misconfigured: "HTTP 503 when the DuckDB file is absent; HTTP 404 when utxo_lifecycle_full is missing."
+      placeholder: "none"
+    provenance_notes:
+      - "STH/LTH cost basis is computed directly from current utxo_lifecycle_full state."
   - surface_id: "volatility_surface"
     route_family: "/api/metrics/volatility"
     backend_class: "duckdb_daily_prices"

@@ -6,6 +6,7 @@
 > **Created**: 2026-04-01
 > **Wave 1 Implemented**: 2026-04-01
 > **Wave 2 Decision Frozen**: 2026-04-02
+> **Selective Wave 2 Implemented**: 2026-04-02
 
 ## Problem Statement
 
@@ -63,6 +64,12 @@ Wave 2 audit result frozen on 2026-04-02:
 - `/api/metrics/reserve-risk` stays out of the next promotion slice because the calculator still contains placeholder/default internals (`mvrv`, `liveliness`, and no-data fallback behavior)
 - `/api/metrics/nupl` is shortlisted for the next selective promotion slice, with an explicit caveat that `pct_supply_in_profit` is currently an estimate
 - `/api/metrics/cost-basis` is shortlisted for the next selective promotion slice as the strongest calculator-backed candidate
+
+Selective Wave 2 implementation result on 2026-04-02:
+
+- `/api/metrics/nupl` is now wired and returns a live DuckDB-backed response
+- `/api/metrics/cost-basis` is now wired and returns a live DuckDB-backed response
+- `/api/metrics/reserve-risk` remains intentionally unpromoted
 
 ### Wave 3: Broader Research Metrics
 
@@ -164,3 +171,4 @@ Wave 2 does not need to ship as an all-or-nothing bundle. Individual routes may 
 3. history-dependent routes have snapshot materialization defined
 4. roadmap work can refer to promotion waves instead of an undifferentiated `calculator only` bucket
 5. Wave 2 has an explicit freeze decision: `nupl` and `cost-basis` are the next candidates, while `reserve-risk` remains blocked
+6. selective Wave 2 routes (`nupl`, `cost-basis`) leave the `501` bucket without forcing `reserve-risk` through premature promotion

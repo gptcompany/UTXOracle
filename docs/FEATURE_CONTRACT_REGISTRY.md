@@ -2,7 +2,7 @@
 
 Date: 2026-04-02
 
-Status: Initial `v1` registry draft, updated through `M5` Wave 2 decision freeze
+Status: Initial `v1` registry draft, updated through `M6` selective Wave 2 productization
 
 Machine-readable source of truth:
 
@@ -92,9 +92,11 @@ Explicitly excluded from the supported contract because they are placeholder, sh
 | `hash_ribbons_surface` | `/api/metrics/hash-ribbons` | `code implemented` | `tier_2_production_with_caveats` | `nautilus_dev`, research | `:8001` | `external_api` | `scripts.data.hashrate_fetcher` + `api.main` | Hard dependency on hashrate upstream availability |
 | `mining_economics_surface` | `/api/metrics/mining-economics*` | `code implemented` | `tier_2_production_with_caveats` | `nautilus_dev`, research | `:8001` | `hybrid` | `scripts.metrics.mining_economics` + `api.main` | History path hardcodes `pulse_zone="NORMAL"` |
 | `exchange_addresses_stats_surface` | `/api/exchange-addresses/stats` | `code implemented` | `tier_3_research` | operators, research | `:8001` | `computed_inline` | `api.main` | Reads local CSV metadata only; not admitted to `nautilus_dev` |
+| `nupl_surface` | `/api/metrics/nupl` | `code implemented` | `tier_3_research` | research | `:8001` | `duckdb_utxo_lifecycle` | `scripts.metrics.nupl` + `scripts.metrics.realized_metrics` + `api.main` | `pct_supply_in_profit` remains an explicit estimate (`nupl_linear_proxy`), not a direct per-UTXO profit-state field |
+| `cost_basis_surface` | `/api/metrics/cost-basis` | `code implemented` | `tier_3_research` | research | `:8001` | `duckdb_utxo_lifecycle` | `scripts.metrics.cost_basis` + `api.main` | Live route now returns `404` on unusable snapshots and remains outside the first `nautilus_dev` bundle |
 | `models_core_surface` | `/api/v1/models`, `/api/v1/models/{name}/predict`, `/api/v1/models/backtest/{name}`, `/api/v1/models/compare`, `/api/v1/models/ensemble` | `code implemented` | `tier_3_research` | research | `:8001` | `computed_inline` | `api.routes.models` | Not part of first consumer slice |
 | `rbn_validation_surface` | `/api/v1/validation/rbn/*` | `code implemented` | `tier_3_research` | operators, research | `:8001` | `external_api` | `scripts.integrations.rbn_fetcher` + `api.main` | Requires `RBN_API_TOKEN` and is quota-bound |
-| `advanced_research_surface` | `/api/metrics/{advanced,wasserstein*,cointime*,urpd,supply-profit-loss,reserve-risk,sell-side-risk,cdd-vdd,nupl,revived-supply,cost-basis}` | `calculator only` | `tier_3_research` | research | `:8001` | `hybrid` | `scripts.metrics.*` + `api.main` | Registered today as `501`; `nupl` and `cost-basis` are the next selective promotion candidates, while `reserve-risk` remains blocked by placeholder/default internals |
+| `advanced_research_surface` | `/api/metrics/{advanced,wasserstein*,cointime*,urpd,supply-profit-loss,reserve-risk,sell-side-risk,cdd-vdd,revived-supply}` | `calculator only` | `tier_3_research` | research | `:8001` | `hybrid` | `scripts.metrics.*` + `api.main` | Remaining research bucket still returns `501`; `reserve-risk` stays blocked by placeholder/default internals |
 | `wallet_and_cohort_surface` | `/api/metrics/{address-cohorts,wallet-waves,absorption-rates}` | `code implemented` | `tier_3_research` | research, future `nautilus_dev` features | `:8001` | `duckdb_utxo_lifecycle` | `scripts.metrics.*` + `scripts.clustering.*` + `api.main` | Wave 1 is live; `wallet-waves/history` remains outside the promoted surface and absorption baseline is reconstructed on demand |
 | `power_law_surface` | `/api/v1/models/power-law*` | `code implemented` | `tier_3_research` | research | `:8001` | `duckdb_daily_prices` | `api.main` + `scripts.metrics.power_law` | Dedicated handler now wins deterministically, but the surface remains outside the first `nautilus_dev` contract slice |
 | `pro_risk_surface` | `/api/risk/pro*` | `placeholder` | `tier_4_not_admitted` | research only today | `:8001` | `computed_inline` | `api.main` + `scripts.metrics.pro_risk` | `/api/risk/pro` and `/history` are now runtime-demoted; only `/zones` remains usable static metadata |

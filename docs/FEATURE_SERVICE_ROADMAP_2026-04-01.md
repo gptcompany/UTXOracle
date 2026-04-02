@@ -2,7 +2,7 @@
 
 Date: 2026-04-02
 
-Status: Execution roadmap updated after `M1`, `M2`, `M3`, `M4a`, `M4b`, and the `M5` Wave 2 decision freeze
+Status: Execution roadmap updated after `M1`, `M2`, `M3`, `M4a`, `M4b`, `M5`, and `M6` selective Wave 2 productization
 
 Primary baseline:
 
@@ -87,9 +87,9 @@ Lower priority:
 | `address-cohorts` | code implemented | research, future trading features | DuckDB | contract admission decision only | promoted Wave 1 route | P1 | spec-046 |
 | `wallet-waves` | code implemented | research, future trading features | DuckDB | current route is live; historical route still needs snapshot materialization | promoted Wave 1 route | P1 | spec-046 |
 | `absorption-rates` | code implemented with on-demand historical reconstruction | research, future trading features | DuckDB + reconstructed baseline | persistent history/materialization is still pending | promoted Wave 1 route | P1 | spec-046 |
-| `reserve-risk` | calculator only; audit complete | research, macro/feature bundles | DuckDB + optional `cointime_metrics` | calculator still contains placeholder/default internals (`mvrv`, fallback liveliness, no-data fallback) | remain held outside the next promotion slice | P2 | spec-046 |
-| `nupl` | calculator only; audit complete | research, macro/feature bundles | DuckDB | API wiring still missing; `pct_supply_in_profit` remains an estimated field that needs explicit contract policy | next selective promotion candidate | P2 | spec-046 |
-| `cost-basis` | calculator only; audit complete | research, macro/feature bundles | DuckDB | API wiring and route-level degraded semantics are still missing | next selective promotion candidate | P2 | spec-046 |
+| `reserve-risk` | calculator only; audit complete | research, macro/feature bundles | DuckDB + optional `cointime_metrics` | calculator still contains placeholder/default internals (`mvrv`, fallback liveliness, no-data fallback) | remain held outside the promoted slice | P2 | spec-046 |
+| `nupl` | code implemented with explicit estimated-field contract | research, macro/feature bundles | DuckDB | still research-only; `pct_supply_in_profit` remains a declared estimate rather than a direct profit-state measurement | promoted selective Wave 2 route | P2 | spec-046 |
+| `cost-basis` | code implemented | research, macro/feature bundles | DuckDB | still research-only; no `nautilus_dev` admission decision yet | promoted selective Wave 2 route | P2 | spec-046 |
 | feature contract registry | published | `nautilus_dev`, operators | docs + YAML | validation automation still missing | `v1` contract registry | P0 | spec-044 |
 | dependency/provenance manifest | published | operators, consumers | docs + YAML | drift validation and optional metadata endpoint still missing | authoritative manifest | P0 | spec-045 |
 
@@ -199,7 +199,8 @@ Outcome:
 Status:
 
 - `M5` completed on 2026-04-02 as a decision milestone
-- `nupl` and `cost-basis` are frozen as the next selective promotion candidates
+- `M6` completed on 2026-04-02 for `nupl` and `cost-basis`
+- `nupl` and `cost-basis` are now live as research-only selective Wave 2 routes
 - `reserve-risk` remains held outside the next promotion slice
 
 Work:
@@ -357,6 +358,12 @@ Exit criteria:
 - `/api/metrics/nupl` and `/api/metrics/cost-basis` either stop returning `501` or are explicitly re-scoped with documented blockers
 - route-level healthy and degraded semantics are frozen in tests and docs
 - `reserve-risk` either remains held or moves only under a separate hardening plan that removes placeholder internals first
+
+Current status:
+
+- completed on 2026-04-02
+- `/api/metrics/nupl` and `/api/metrics/cost-basis` are now DuckDB-backed research routes with explicit `404`/`503` semantics
+- `reserve-risk` remains held at `501`
 
 ## 8. Dependency Order
 

@@ -1,8 +1,8 @@
 # UTXOracle Feature Dependency Matrix
 
-Date: 2026-04-01
+Date: 2026-04-02
 
-Status: Initial provenance and dependency matrix, updated through `M4b` whale entity foundations
+Status: Initial provenance and dependency matrix, updated through `M6` selective Wave 2 productization
 
 Machine-readable source of truth:
 
@@ -47,6 +47,8 @@ Scope note:
 | `pl_ratio_surface` | `/api/metrics/pl-ratio*` | `duckdb_utxo_lifecycle` | `utxo_lifecycle_full` | none | `UTXO_DB_PATH` or `DUCKDB_PATH` | UTXO lifecycle bootstrap/sync pipeline | `api.main` | latest spent UTXO coverage | `503` when DB missing; `404` when tables missing |
 | `sopr_surface` | `/api/metrics/sopr` | `duckdb_utxo_lifecycle` | `utxo_lifecycle`, `utxo_lifecycle_full` | none | `UTXO_DB_PATH` or `DUCKDB_PATH` | UTXO lifecycle bootstrap/sync pipeline | `api.main` | latest spent UTXO coverage | `503` when DB missing; `404` when tables missing |
 | `nvt_surface` | `/api/metrics/nvt` | `duckdb_utxo_lifecycle` | `utxo_lifecycle_full`, `block_heights` | none | `UTXO_DB_PATH` or `DUCKDB_PATH` | UTXO lifecycle bootstrap/sync pipeline + `block_heights` build | `api.main` | latest UTXO coverage and `block_heights` tip | `503` on insufficient data or missing schema |
+| `nupl_surface` | `/api/metrics/nupl` | `duckdb_utxo_lifecycle` | `utxo_lifecycle_full` | none | `UTXO_DB_PATH` or `DUCKDB_PATH` | UTXO lifecycle bootstrap/sync pipeline | `api.main` | latest visible `utxo_lifecycle_full` snapshot at request time | `503` when DB missing; `404` when schema or usable unspent snapshot is missing; `pct_supply_in_profit` is explicitly estimated |
+| `cost_basis_surface` | `/api/metrics/cost-basis` | `duckdb_utxo_lifecycle` | `utxo_lifecycle_full` | none | `UTXO_DB_PATH` or `DUCKDB_PATH` | UTXO lifecycle bootstrap/sync pipeline | `api.main` | latest visible `utxo_lifecycle_full` snapshot at request time | `503` when DB missing; `404` when schema or usable cost-basis snapshot is missing |
 | `volatility_surface` | `/api/metrics/volatility` | `duckdb_daily_prices` | `daily_prices` | none | `UTXO_DB_PATH` or `DUCKDB_PATH` | `scripts.bootstrap.build_price_table` | `api.main` | newest `daily_prices.date` | `503` on insufficient history or missing table |
 | `wallet_and_cohort_surface` | `/api/metrics/{address-cohorts,wallet-waves,absorption-rates}` | `duckdb_utxo_lifecycle` | `utxo_lifecycle_full` | none | `UTXO_DB_PATH` or `DUCKDB_PATH` | UTXO lifecycle bootstrap/sync pipeline | `scripts.metrics.address_cohorts`, `scripts.metrics.wallet_waves`, `scripts.metrics.absorption_rates`, `api.main` | latest visible `creation_block`; absorption baseline reconstructed from `current_block - window_days*144` | `503` when DB missing; `404` on missing schema; address cohorts can return zeroed cohorts, wallet waves returns `404` when no addressable balances exist, absorption rates can return `200` with `has_historical_data=false` when baseline is unavailable |
 | `puell_multiple_surface` | `/api/metrics/puell-multiple` | `computed_inline` | inline constants; optional read of `utxo_lifecycle` for block height only | none | none for runtime-demoted serving; `UTXO_DB_PATH` was only optional enrichment in the old path | none for core calculation | `api.main` | request-time demotion | route now returns `501` until the 365-day denominator is backed by real miner revenue history |
@@ -69,6 +71,9 @@ Scope note:
   - `address-cohorts` is current-state only
   - `wallet-waves` is current-state only
   - `absorption-rates` reconstructs its historical baseline on demand from `spent_block` semantics and may respond with `has_historical_data=false`
+- Selective Wave 2 DuckDB routes are now live as research surfaces:
+  - `nupl` serves explicit estimate metadata for `pct_supply_in_profit`
+  - `cost-basis` serves current-state STH/LTH cost basis with route-level `404` on unusable snapshots
 - Whale canonicalization is now explicit:
   - `/api/whale/{transactions,summary,transaction/{txid}}` is the only canonical whale query family
   - `/api/whale/{latest,historical,history}` remains outside the canonical surface and now returns `410 Gone` deprecation metadata

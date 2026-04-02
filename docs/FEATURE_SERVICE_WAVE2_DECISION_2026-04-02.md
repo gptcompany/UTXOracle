@@ -2,7 +2,12 @@
 
 Date: 2026-04-02
 
-Status: `M5` decision package for Wave 2 of spec-046
+Status: Historical `M5` decision package for Wave 2 of spec-046
+
+Historical note:
+
+- this document captures the pre-implementation freeze used to start `M6`
+- runtime and contract truth after `M6` now live in the roadmap, contract registry, and provenance manifest
 
 Scope:
 

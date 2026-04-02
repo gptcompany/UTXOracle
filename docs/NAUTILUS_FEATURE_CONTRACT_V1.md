@@ -2,7 +2,7 @@
 
 Date: 2026-04-02
 
-Status: Initial `v1` consumer contract for `nautilus_dev`, updated through `M5` Wave 2 decision freeze
+Status: Initial `v1` consumer contract for `nautilus_dev`, updated through `M6` selective Wave 2 productization
 
 Contract registry source:
 
@@ -76,7 +76,9 @@ These surfaces are intentionally not admitted.
 | `power_law_surface` | `/api/v1/models/power-law*` | research model surface; handler is now deterministic, but it is still outside the first production bundle |
 | `models_core_surface` | `/api/v1/models*` | research surface, not frozen for downstream production use |
 | `rbn_validation_surface` | `/api/v1/validation/rbn/*` | useful for validation and ops, but not part of the first production feature bundle |
-| `advanced_research_surface` | `/api/metrics/{advanced,wasserstein*,cointime*,urpd,supply-profit-loss,reserve-risk,sell-side-risk,cdd-vdd,nupl,revived-supply,cost-basis}` | analytical logic exists, API contract does not; `nupl` and `cost-basis` are only future candidates, not current `v1` surfaces |
+| `nupl_surface` | `/api/metrics/nupl` | implemented as a research route, but `pct_supply_in_profit` remains an explicitly estimated field and the surface is not admitted into `v1` |
+| `cost_basis_surface` | `/api/metrics/cost-basis` | implemented as a research route, but not yet admitted into the first production bundle |
+| `advanced_research_surface` | `/api/metrics/{advanced,wasserstein*,cointime*,urpd,supply-profit-loss,reserve-risk,sell-side-risk,cdd-vdd,revived-supply}` | analytical logic exists, API contract does not |
 | `wallet_and_cohort_surface` | `/api/metrics/{address-cohorts,wallet-waves,absorption-rates}` | implemented as a research surface after Wave 1 productization, but still outside the first `v1` production bundle |
 | `legacy_whale_placeholder_surface` | `/api/whale/{latest,historical,history}` | deprecated `410 Gone` compatibility stubs only; not part of the canonical whale contract |
 | `wallet_waves_history_placeholder_surface` | `/api/metrics/wallet-waves/history` | history route remains unavailable until snapshot materialization exists |
@@ -104,7 +106,7 @@ Future contract versions may:
 - add entity foundation fields only after canonical whale routes and provenance rules are frozen
 - keep whale entity enrichment additive; no future version should require `entity` to be present for base whale-event validity
 - re-admit `PRO Risk` or `Puell Multiple` only after their hardcoded behavior is removed
-- selectively admit `nupl` and `cost-basis` before broader research-surface fanout if their route contracts are frozen first
+- selectively admit `nupl` and `cost-basis` only after an explicit research-to-production contract decision beyond `v1`
 - keep `reserve-risk` excluded until placeholder/default internals are removed from the calculator itself
 - admit `power_law_surface` only after an explicit contract decision and tier promotion
 

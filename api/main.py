@@ -1331,6 +1331,17 @@ class NUPLResponse(BaseModel):
     pct_supply_in_profit: float = Field(
         ..., description="Approximate % of supply in profit"
     )
+    pct_supply_in_profit_is_estimated: bool = Field(
+        default=True,
+        description=(
+            "True because pct_supply_in_profit is currently a NUPL-derived "
+            "estimate, not a direct per-UTXO profit-state measurement"
+        ),
+    )
+    pct_supply_in_profit_method: str = Field(
+        default="nupl_linear_proxy",
+        description="Method used to derive pct_supply_in_profit",
+    )
     confidence: float = Field(..., description="Signal confidence (0-1)")
     block_height: int = Field(..., description="Block height at calculation")
     timestamp: str = Field(..., description="ISO timestamp of calculation")
@@ -1338,7 +1349,6 @@ class NUPLResponse(BaseModel):
 
 @app.get("/api/metrics/nupl", response_model=NUPLResponse)
 async def get_nupl(
-    request: Request,
     current_price: float = Query(
         default=100000.0,
         ge=1.0,
@@ -1364,9 +1374,70 @@ async def get_nupl(
     - Detect overbought/oversold conditions
     - Compare with MVRV and other on-chain metrics
 
+    Contract note:
+    - `pct_supply_in_profit` is currently a NUPL-derived estimate, not
+      a direct per-UTXO profit-state calculation
+
     Spec: 022-nupl-oscillator
     """
-    raise HTTPException(status_code=501, detail="Not Implemented")
+    conn = None
+    try:
+        conn = _connect_utxo_lifecycle_db()
+
+        from scripts.metrics.nupl import calculate_nupl_signal
+
+        current_block = _get_latest_utxo_block_height(conn)
+        if current_block <= 0:
+            raise HTTPException(
+                status_code=404,
+                detail="No NUPL data available in the current DuckDB snapshot.",
+            )
+
+        result = calculate_nupl_signal(
+            conn=conn,
+            block_height=current_block,
+            current_price_usd=current_price,
+            timestamp=_utc_now(),
+        )
+
+        if result.market_cap_usd <= 0 or result.realized_cap_usd <= 0:
+            raise HTTPException(
+                status_code=404,
+                detail="No NUPL data available in the current DuckDB snapshot.",
+            )
+
+        return NUPLResponse(
+            nupl=result.nupl,
+            zone=result.zone.value,
+            market_cap_usd=result.market_cap_usd,
+            realized_cap_usd=result.realized_cap_usd,
+            unrealized_profit_usd=result.unrealized_profit_usd,
+            pct_supply_in_profit=result.pct_supply_in_profit,
+            pct_supply_in_profit_is_estimated=True,
+            pct_supply_in_profit_method="nupl_linear_proxy",
+            confidence=result.confidence,
+            block_height=result.block_height,
+            timestamp=result.timestamp.isoformat(),
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "utxo_lifecycle" in error_msg or "does not exist" in error_msg:
+            raise HTTPException(
+                status_code=404,
+                detail="UTXO lifecycle table not found. Schema migration pending.",
+            )
+        _raise_http_exception(
+            status_code=500,
+            public_detail="Failed to calculate NUPL",
+            log_message="Error calculating NUPL",
+            exc=e,
+        )
+    finally:
+        if conn:
+            conn.close()
 
 
 # =============================================================================
@@ -1463,7 +1534,6 @@ class CostBasisResponse(BaseModel):
 
 @app.get("/api/metrics/cost-basis", response_model=CostBasisResponse)
 async def get_cost_basis(
-    request: Request,
     current_price: float = Query(
         default=100000.0,
         ge=1.0,
@@ -1487,7 +1557,66 @@ async def get_cost_basis(
 
     Spec: 023-cost-basis-cohorts
     """
-    raise HTTPException(status_code=501, detail="Not Implemented")
+    conn = None
+    try:
+        conn = _connect_utxo_lifecycle_db()
+
+        from scripts.metrics.cost_basis import calculate_cost_basis_signal
+
+        current_block = _get_latest_utxo_block_height(conn)
+        if current_block <= 0:
+            raise HTTPException(
+                status_code=404,
+                detail="No cost basis data available in the current DuckDB snapshot.",
+            )
+
+        result = calculate_cost_basis_signal(
+            conn=conn,
+            current_block=current_block,
+            current_price_usd=current_price,
+            timestamp=_utc_now(),
+        )
+
+        if result.total_cost_basis <= 0 or (
+            result.sth_supply_btc + result.lth_supply_btc
+        ) <= 0:
+            raise HTTPException(
+                status_code=404,
+                detail="No cost basis data available in the current DuckDB snapshot.",
+            )
+
+        return CostBasisResponse(
+            sth_cost_basis=result.sth_cost_basis,
+            lth_cost_basis=result.lth_cost_basis,
+            total_cost_basis=result.total_cost_basis,
+            sth_mvrv=result.sth_mvrv,
+            lth_mvrv=result.lth_mvrv,
+            sth_supply_btc=result.sth_supply_btc,
+            lth_supply_btc=result.lth_supply_btc,
+            current_price_usd=result.current_price_usd,
+            block_height=result.block_height,
+            timestamp=result.timestamp.isoformat(),
+            confidence=result.confidence,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "utxo_lifecycle" in error_msg or "does not exist" in error_msg:
+            raise HTTPException(
+                status_code=404,
+                detail="UTXO lifecycle table not found. Schema migration pending.",
+            )
+        _raise_http_exception(
+            status_code=500,
+            public_detail="Failed to calculate cost basis",
+            log_message="Error calculating cost basis",
+            exc=e,
+        )
+    finally:
+        if conn:
+            conn.close()
 
 
 # =============================================================================
