@@ -58,7 +58,7 @@ class LiveHealthStatus(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logging.info("UTXOracle live production API starting...")
-    
+
     # Initialize QuestDB for promoted production families
     questdb_repo = QuestDBRepository()
     await questdb_repo.initialize()
@@ -83,6 +83,13 @@ async def lifespan(app: FastAPI):
             cache_clear()
     except Exception as exc:
         logging.warning("Failed to close live snapshot store cleanly: %s", exc)
+
+    try:
+        questdb_repo = getattr(app.state, "questdb_repo", None)
+        if questdb_repo is not None:
+            await questdb_repo.close()
+    except Exception as exc:
+        logging.warning("Failed to close QuestDB repository cleanly: %s", exc)
 
 
 def _resolve_snapshot_store(app: FastAPI) -> LiveSnapshotStore:

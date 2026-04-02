@@ -238,6 +238,7 @@ Thumbs.db
 # UTXOracle specific - Temporary files
 *.tmp
 *.bak
+*.worker.lock
 *~
 debug_*.log
 *.trace
