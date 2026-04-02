@@ -1,9 +1,10 @@
 # spec-050: Canonical 8011 Promotion for QuestDB-Backed Families
 
-> **Status**: PROPOSED
+> **Status**: COMPLETE
 > **Priority**: HIGH
 > **Effort**: Medium
 > **Created**: 2026-04-02
+> **Implemented**: 2026-04-02
 
 ## Problem Statement
 
@@ -141,3 +142,9 @@ Registry, provenance manifest, architecture docs, and scope docs MUST reflect th
 2. `8001` is clearly secondary for the promoted slice
 3. no DuckDB-backed route enters the promoted production boundary through this work
 4. downstream consumers can treat `8011` as the only serious host for the promoted slice
+
+## Completion Notes
+
+- `023e0a7` promoted `/api/prices/*`, `/api/metrics/latest`, and canonical whale routes to `8011`
+- `8001` now serves the promoted slice as a documented secondary host with migration headers
+- `26ae0cc` tightened the production boundary checks by closing the live QuestDB repository cleanly on shutdown, strengthening boundary tests, and removing a tracked runtime lockfile
