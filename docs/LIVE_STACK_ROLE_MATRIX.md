@@ -1,9 +1,13 @@
 # Live Stack Role Matrix
 
 **Status**: Active reference for the live production direction
-**Updated**: 2026-03-31 (spec-041 boundary split verified and QuestDB cutover complete)
+**Updated**: 2026-04-02 (post-`M7` governance plus metric source-of-truth freeze)
 
 This document defines the correct role of `UTXOracle`, `BRK`, `electrs`, `mempool`, and `Hyperliquid` in the current live-first architecture.
+
+Metric-level source-of-truth decisions for overlapping analytics now live in:
+
+- [docs/METRIC_SOURCE_OF_TRUTH_MANIFEST.md](/media/sam/1TB/UTXOracle/docs/METRIC_SOURCE_OF_TRUTH_MANIFEST.md)
 
 ## Current Runtime on Host
 
@@ -130,6 +134,11 @@ These are the areas where BRK should be preferred as an upstream:
 - large cohort surface and vector queries
 - query ergonomics for blocks, addresses, txs, and metrics
 - future visual metric exploration and CheckOnChain-style validation
+
+Metric governance note:
+
+- if `BRK` already owns the shared metric semantics, the repo should not productize a duplicate local route by default
+- current metric-level decisions are frozen in [docs/METRIC_SOURCE_OF_TRUTH_MANIFEST.md](/media/sam/1TB/UTXOracle/docs/METRIC_SOURCE_OF_TRUTH_MANIFEST.md)
 
 ## What mempool plus electrs Still Own
 

@@ -2,16 +2,18 @@
 
 Date: 2026-04-02
 
-Status: Initial provenance and dependency matrix, updated through `M6` selective Wave 2 productization
+Status: Initial provenance and dependency matrix, updated through `M6` selective Wave 2 productization plus the metric source-of-truth manifest freeze
 
 Machine-readable source of truth:
 
 - [docs/contracts/feature_provenance_manifest.yaml](/media/sam/1TB/UTXOracle/docs/contracts/feature_provenance_manifest.yaml)
+- [docs/contracts/metric_source_of_truth_manifest.yaml](/media/sam/1TB/UTXOracle/docs/contracts/metric_source_of_truth_manifest.yaml) for metric-level `BRK` vs local ownership decisions
 
 Scope note:
 
 - this first-pass matrix covers the priority route families required by spec-045
 - it is intentionally narrower than the full contract registry in spec-044
+- it is a backend dependency view, not a complete metric-level ownership policy; overlapping `BRK` metrics must also follow [docs/METRIC_SOURCE_OF_TRUTH_MANIFEST.md](/media/sam/1TB/UTXOracle/docs/METRIC_SOURCE_OF_TRUTH_MANIFEST.md)
 
 ## 1. Backend Class Vocabulary
 
@@ -82,3 +84,4 @@ Scope note:
   - optional enrichment reads `address_clusters` only when exchange addresses exist
   - missing or conflicting enrichment must not fail the base whale event response
 - `computed_inline` does not mean “safe.” It only means the core value is produced inline without a persistent backend. `PRO Risk` and `Puell Multiple` remain contract-caveated or excluded for exactly this reason.
+- `duckdb_utxo_lifecycle` also does not imply “preferred source of truth.” Some overlapping macro metrics may remain local research routes while `BRK` is still the preferred shared production source.

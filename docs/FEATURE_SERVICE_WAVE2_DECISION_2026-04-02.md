@@ -8,6 +8,7 @@ Historical note:
 
 - this document captures the pre-implementation freeze used to start `M6`
 - runtime and contract truth after `M6` now live in the roadmap, contract registry, and provenance manifest
+- a later metric source-of-truth freeze also made `reserve-risk` a `BRK`-first overlapping metric, so this document should not be read as an instruction to resume local productization by default
 
 Scope:
 

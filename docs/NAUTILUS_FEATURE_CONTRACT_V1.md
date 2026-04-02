@@ -2,12 +2,13 @@
 
 Date: 2026-04-02
 
-Status: Initial `v1` consumer contract for `nautilus_dev`, updated through `M6` selective Wave 2 productization
+Status: Initial `v1` consumer contract for `nautilus_dev`, updated through `M7` and the metric source-of-truth manifest freeze
 
 Contract registry source:
 
 - [docs/FEATURE_CONTRACT_REGISTRY.md](/media/sam/1TB/UTXOracle/docs/FEATURE_CONTRACT_REGISTRY.md)
 - [docs/contracts/feature_contract_registry.yaml](/media/sam/1TB/UTXOracle/docs/contracts/feature_contract_registry.yaml)
+- [docs/METRIC_SOURCE_OF_TRUTH_MANIFEST.md](/media/sam/1TB/UTXOracle/docs/METRIC_SOURCE_OF_TRUTH_MANIFEST.md)
 
 ## 1. Scope
 
@@ -78,7 +79,7 @@ These surfaces are intentionally not admitted.
 | `rbn_validation_surface` | `/api/v1/validation/rbn/*` | useful for validation and ops, but not part of the first production feature bundle |
 | `nupl_surface` | `/api/metrics/nupl` | implemented as a research route, but `pct_supply_in_profit` remains an explicitly estimated field and the surface is not admitted into `v1`; `M7` closed with no promotion |
 | `cost_basis_surface` | `/api/metrics/cost-basis` | implemented as a research route, but not yet admitted into the first production bundle; `M7` closed with no promotion |
-| `advanced_research_surface` | `/api/metrics/{advanced,wasserstein*,cointime*,urpd,supply-profit-loss,reserve-risk,sell-side-risk,cdd-vdd,revived-supply}` | analytical logic exists, API contract does not |
+| `advanced_research_surface` | `/api/metrics/{advanced,wasserstein*,cointime*,urpd,supply-profit-loss,reserve-risk,sell-side-risk,cdd-vdd,revived-supply}` | analytical logic exists, API contract does not; `reserve-risk` is also held behind a `BRK`-first source-of-truth policy |
 | `wallet_and_cohort_surface` | `/api/metrics/{address-cohorts,wallet-waves,absorption-rates}` | implemented as a research surface after Wave 1 productization, but still outside the first `v1` production bundle |
 | `legacy_whale_placeholder_surface` | `/api/whale/{latest,historical,history}` | deprecated `410 Gone` compatibility stubs only; not part of the canonical whale contract |
 | `wallet_waves_history_placeholder_surface` | `/api/metrics/wallet-waves/history` | history route remains unavailable until snapshot materialization exists |
@@ -108,7 +109,7 @@ Future contract versions may:
 - re-admit `PRO Risk` or `Puell Multiple` only after their hardcoded behavior is removed
 - selectively admit `nupl` and `cost-basis` only after reopening the post-`M6` admission gate in [docs/FEATURE_SERVICE_ADMISSION_GATE_2026-04-02.md](/media/sam/1TB/UTXOracle/docs/FEATURE_SERVICE_ADMISSION_GATE_2026-04-02.md) and superseding the current no-promotion decision in [docs/FEATURE_SERVICE_M7_DECISION_2026-04-02.md](/media/sam/1TB/UTXOracle/docs/FEATURE_SERVICE_M7_DECISION_2026-04-02.md)
 - no future contract should admit NUPL's estimated `pct_supply_in_profit` field without an explicit field-level declaration that the value is estimated
-- keep `reserve-risk` excluded until placeholder/default internals are removed from the calculator itself
+- keep `reserve-risk` excluded unless the metric source-of-truth manifest is explicitly reopened and either approves `BRK` adoption into contract or a deliberately different local variant
 - admit `power_law_surface` only after an explicit contract decision and tier promotion
 
 Any such change must update:

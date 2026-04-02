@@ -15,7 +15,7 @@
 Current gaps:
 
 1. calculator-backed routes exist, but are not consumable through the API
-2. high-value feature families such as NUPL and cost basis are still trapped behind research-only API paths, while reserve-risk remains analytically incomplete
+2. high-value feature families such as NUPL and cost basis are still trapped behind research-only API paths, while reserve-risk is both analytically incomplete and a duplication-risk case against `BRK`
 3. history-dependent surfaces still lack persistent snapshot materialization even after Wave 1 route promotion
 4. roadmap work cannot prioritize feature promotion without a wave-based plan
 
@@ -61,7 +61,7 @@ These are the highest-value first promotions because they support institutional-
 
 Wave 2 audit result frozen on 2026-04-02:
 
-- `/api/metrics/reserve-risk` stays out of the next promotion slice because the calculator still contains placeholder/default internals (`mvrv`, `liveliness`, and no-data fallback behavior)
+- `/api/metrics/reserve-risk` stays out of the next promotion slice because the calculator still contains placeholder/default internals and the metric later becomes a `BRK`-first source-of-truth case rather than a default local productization target
 - `/api/metrics/nupl` is shortlisted for the next selective promotion slice, with an explicit caveat that `pct_supply_in_profit` is currently an estimate
 - `/api/metrics/cost-basis` is shortlisted for the next selective promotion slice as the strongest calculator-backed candidate
 
@@ -69,7 +69,7 @@ Selective Wave 2 implementation result on 2026-04-02:
 
 - `/api/metrics/nupl` is now wired and returns a live DuckDB-backed response
 - `/api/metrics/cost-basis` is now wired and returns a live DuckDB-backed response
-- `/api/metrics/reserve-risk` remains intentionally unpromoted
+- `/api/metrics/reserve-risk` remains intentionally unpromoted and should not be treated as the default next local productization slice
 - any future admission of `nupl` or `cost-basis` beyond `tier_3_research` is now delegated to `spec-049`
 
 ### Wave 3: Broader Research Metrics
@@ -173,3 +173,4 @@ Wave 2 does not need to ship as an all-or-nothing bundle. Individual routes may 
 4. roadmap work can refer to promotion waves instead of an undifferentiated `calculator only` bucket
 5. Wave 2 has an explicit freeze decision: `nupl` and `cost-basis` are the next candidates, while `reserve-risk` remains blocked
 6. selective Wave 2 routes (`nupl`, `cost-basis`) leave the `501` bucket without forcing `reserve-risk` through premature promotion
+7. overlapping metrics may be de-scoped from local productization entirely if a later source-of-truth manifest freezes `BRK` as the preferred shared production source

@@ -7,7 +7,7 @@ Status: Final `M7` decision package for post-`M6` research-to-production admissi
 Decision outcome:
 
 - no promotion beyond `tier_3_research` is approved today for either `nupl_surface` or `cost_basis_surface`
-- `reserve-risk` remains outside this decision and stays blocked behind separate hardening work
+- `reserve-risk` remains outside this decision and stays outside the current admission track; later source-of-truth governance makes it `BRK`-first by default
 
 ## 1. Final Decision Table
 
@@ -15,7 +15,7 @@ Decision outcome:
 |------|------|------|------|
 | `nupl_surface` | live DuckDB-backed research route | no-go for promotion today | core signal has a validation path, but the estimated `pct_supply_in_profit` field still creates a consumer-contract risk unless a reduced subset or explicit estimated-field contract is chosen |
 | `cost_basis_surface` | live DuckDB-backed research route | no-go for promotion today | calculator and runtime are strong, but consumer use and reproducibility evidence are not yet frozen tightly enough for admission |
-| `reserve-risk` | registered `501` research route | out of scope | still blocked by placeholder/default internals, so this is not an admission decision yet |
+| `reserve-risk` | registered `501` research route | out of scope | not part of this admission review and now additionally frozen behind a `BRK`-first source-of-truth decision |
 
 ## 2. Route Notes
 
@@ -63,13 +63,13 @@ If future work wants to reopen admission:
 
 1. `cost_basis_surface` is the first candidate
 2. a reduced `nupl_surface` slice is the second candidate
-3. `reserve-risk` remains blocked until separate hardening is complete
+3. `reserve-risk` remains blocked unless a later source-of-truth decision explicitly approves a non-duplicative local path
 
 ## 4. Immediate Follow-Up
 
 The next substantive engineering choices are:
 
-1. harden `reserve-risk` if macro-conviction surfaces are still a priority
+1. reopen `reserve-risk` only if the source-of-truth manifest is intentionally superseded and a `BRK` adoption path or explicit local-variant rationale is written down
 2. publish a reproducibility note for `cost_basis_surface` only if future contract admission is truly desired
 3. refresh and publish explicit validation evidence for `nupl_surface` only if future contract admission is truly desired
 
@@ -77,4 +77,4 @@ Until then, the runtime and contract truth remains:
 
 - `nupl_surface`: live, `tier_3_research`
 - `cost_basis_surface`: live, `tier_3_research`
-- `reserve-risk`: held at `501`
+- `reserve-risk`: held at `501` and no longer a default local hardening target

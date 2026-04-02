@@ -85,7 +85,7 @@ Execution note:
 Execution note:
 
 - Wave 2 is now explicitly selective rather than all-or-nothing.
-- `/api/metrics/reserve-risk` remains held because the calculator still mixes real reads with placeholder/default analytical internals.
+- `/api/metrics/reserve-risk` remains held because the calculator still mixes real reads with placeholder/default analytical internals; a later source-of-truth manifest also freezes it as a `BRK`-first overlapping metric rather than a default local productization target.
 - `/api/metrics/nupl` is the first selective promotion candidate, subject to explicit policy for the estimated `pct_supply_in_profit` field.
 - `/api/metrics/cost-basis` is the strongest selective promotion candidate, but still requires route wiring and route-level degraded semantics.
 
@@ -96,7 +96,7 @@ Execution note:
 - [x] T026 Add RED tests for `/api/metrics/nupl` healthy and degraded serving paths
 - [x] T027 Add RED tests for `/api/metrics/cost-basis` healthy and degraded serving paths
 - [x] T028 Freeze field policy for NUPL `pct_supply_in_profit` before route admission
-- [x] T029 Keep `/api/metrics/reserve-risk` at `501` until placeholder/default internals are removed or separately re-spec the route
+- [x] T029 Keep `/api/metrics/reserve-risk` at `501` until placeholder/default internals are removed or a later source-of-truth decision explicitly justifies a local route
 
 **Checkpoint**: the next implementation milestone is narrowed to the routes that are actually ready for productization work.
 
@@ -104,5 +104,5 @@ Execution note:
 
 - `/api/metrics/nupl` now serves a live DuckDB-backed payload with explicit `pct_supply_in_profit_is_estimated=true` and `pct_supply_in_profit_method=nupl_linear_proxy`.
 - `/api/metrics/cost-basis` now serves a live DuckDB-backed payload with route-level `404` on unusable snapshots and `503` on missing DuckDB.
-- `/api/metrics/reserve-risk` remains registered but intentionally returns `501`.
+- `/api/metrics/reserve-risk` remains registered but intentionally returns `501`, and it is no longer the default next local productization target while the `BRK`-first source-of-truth policy stands.
 - any future promotion of `nupl` or `cost-basis` beyond research-only is now handed off to `spec-049`.

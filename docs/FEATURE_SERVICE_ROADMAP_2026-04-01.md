@@ -2,11 +2,12 @@
 
 Date: 2026-04-02
 
-Status: Execution roadmap updated after `M1`, `M2`, `M3`, `M4a`, `M4b`, `M5`, `M6`, and `M7` admission-governance closure
+Status: Execution roadmap updated after `M1`, `M2`, `M3`, `M4a`, `M4b`, `M5`, `M6`, `M7`, and the metric source-of-truth manifest freeze
 
 Primary baseline:
 
 - [docs/FEATURE_SERVICE_ROADMAP_PREP_2026-04-01.md](/media/sam/1TB/UTXOracle/docs/FEATURE_SERVICE_ROADMAP_PREP_2026-04-01.md)
+- [docs/METRIC_SOURCE_OF_TRUTH_MANIFEST.md](/media/sam/1TB/UTXOracle/docs/METRIC_SOURCE_OF_TRUTH_MANIFEST.md)
 
 Primary execution specs:
 
@@ -88,7 +89,7 @@ Lower priority:
 | `address-cohorts` | code implemented | research, future trading features | DuckDB | contract admission decision only | promoted Wave 1 route | P1 | spec-046 |
 | `wallet-waves` | code implemented | research, future trading features | DuckDB | current route is live; historical route still needs snapshot materialization | promoted Wave 1 route | P1 | spec-046 |
 | `absorption-rates` | code implemented with on-demand historical reconstruction | research, future trading features | DuckDB + reconstructed baseline | persistent history/materialization is still pending | promoted Wave 1 route | P1 | spec-046 |
-| `reserve-risk` | calculator only; audit complete | research, macro/feature bundles | DuckDB + optional `cointime_metrics` | calculator still contains placeholder/default internals (`mvrv`, fallback liveliness, no-data fallback) | remain held outside the promoted slice | P2 | spec-046 |
+| `reserve-risk` | calculator only; intentionally held | research, macro/feature bundles | `BRK` for shared signal; local calculator only for validation/experiments unless separately approved | no explicit adopted `BRK`-backed contract path exists yet, and local duplication is not justified by default | remain excluded until a written `BRK` vs local decision is reopened | P2 | spec-046 |
 | `nupl` | code implemented with explicit estimated-field contract | research, macro/feature bundles | DuckDB | still research-only; `pct_supply_in_profit` remains a declared estimate rather than a direct profit-state measurement | promoted selective Wave 2 route | P2 | spec-046 |
 | `cost-basis` | code implemented | research, macro/feature bundles | DuckDB | still research-only; no `nautilus_dev` admission decision yet | promoted selective Wave 2 route | P2 | spec-046 |
 | post-`M6` admission gate for `nupl` and `cost-basis` | not yet formalized before this roadmap update | `nautilus_dev`, operators | docs + validation evidence | no explicit route-to-consumer gate existed after selective Wave 2 wiring | formal go/no-go gate for any future `v2` promotion | P1 | spec-049 |
@@ -203,7 +204,7 @@ Status:
 - `M5` completed on 2026-04-02 as a decision milestone
 - `M6` completed on 2026-04-02 for `nupl` and `cost-basis`
 - `nupl` and `cost-basis` are now live as research-only selective Wave 2 routes
-- `reserve-risk` remains held outside the next promotion slice
+- `reserve-risk` remains held outside the next promotion slice and is now frozen as a `BRK`-first overlapping metric rather than a default local hardening target
 
 Work:
 
@@ -231,7 +232,7 @@ Work:
 Execution note:
 
 - `nupl` and `cost-basis` being wired in `M6` does not imply future `nautilus_dev` admission
-- `reserve-risk` remains out of scope for this track until its placeholder/default internals are removed under a separate hardening slice
+- `reserve-risk` remains out of scope for this track unless the source-of-truth manifest is explicitly reopened and approves either `BRK` adoption or an intentionally different local variant
 
 ## 7. Milestones and Dates
 
@@ -382,7 +383,7 @@ Exit criteria:
 
 - `/api/metrics/nupl` and `/api/metrics/cost-basis` either stop returning `501` or are explicitly re-scoped with documented blockers
 - route-level healthy and degraded semantics are frozen in tests and docs
-- `reserve-risk` either remains held or moves only under a separate hardening plan that removes placeholder internals first
+- `reserve-risk` either remains held or moves only after an explicit source-of-truth decision justifies an independent local implementation
 
 Current status:
 
@@ -405,14 +406,14 @@ Exit criteria:
 - `nupl` and `cost-basis` each have an explicit go/no-go admission decision beyond `tier_3_research`
 - field-level policy is frozen for any candidate consumer-facing subset
 - required validation evidence is named for each route family
-- `reserve-risk` is explicitly kept out of scope or moved under a separate hardening milestone
+- `reserve-risk` is explicitly kept out of scope or moved only after a reopened source-of-truth decision
 
 Current status:
 
 - completed on 2026-04-02 as the post-`M6` governance track
 - `nupl_surface` remains `tier_3_research`; only a reduced field subset may be reconsidered in a future contract revision
 - `cost_basis_surface` remains `tier_3_research`; it is the strongest future candidate, but not admitted today
-- `reserve-risk` remains out of scope pending separate hardening
+- `reserve-risk` remains out of scope pending an explicit `BRK` vs local source-of-truth reopening
 
 ## 8. Dependency Order
 
@@ -480,6 +481,6 @@ Concretely:
 
 1. only reopen `nupl` admission if a future contract wants a reduced field subset and the validation evidence is refreshed with explicit operator sign-off
 2. only reopen `cost-basis` admission after publishing reproducibility checks and a clear consumer-use statement
-3. treat `reserve-risk` hardening or Wave 1 history materialization as the next substantive engineering milestones
+3. treat Wave 1 history materialization as the next substantive local engineering milestone; reopen `reserve-risk` only if the source-of-truth manifest is intentionally superseded
 
 Do not promote any research-only route into a downstream consumer contract without updating the registry, provenance manifest, and consumer contract in the same change set.

@@ -5,6 +5,7 @@ source_documents:
   - "docs/FEATURE_SERVICE_ROADMAP_PREP_2026-04-01.md"
   - "docs/FEATURE_SERVICE_ROADMAP_2026-04-01.md"
   - "docs/FEATURE_SERVICE_WAVE2_DECISION_2026-04-02.md"
+  - "docs/METRIC_SOURCE_OF_TRUTH_MANIFEST.md"
   - "docs/FEATURE_CONTRACT_REGISTRY.md"
 admission_tiers:
   tier_1_production:
@@ -488,6 +489,7 @@ entries:
     known_caveats:
       - "Analytical modules exist, but the route family is not consumable through the API today."
       - "Reserve-risk remains blocked because its calculator still contains placeholder/default internals."
+      - "Reserve-risk is also frozen by the metric source-of-truth manifest as a BRK-first overlapping metric rather than a default local productization target."
     owner: "scripts.metrics.* + api.main"
     version: "v1"
     deprecation_status: "none"

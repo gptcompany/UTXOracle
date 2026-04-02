@@ -2,7 +2,7 @@
 
 Date: 2026-04-02
 
-Status: Initial `v1` registry draft, updated through `M6` selective Wave 2 productization
+Status: Initial `v1` registry draft, updated through `M7` and the metric source-of-truth manifest freeze
 
 Machine-readable source of truth:
 
@@ -13,6 +13,7 @@ Primary inputs:
 - [docs/FEATURE_SERVICE_ROADMAP_PREP_2026-04-01.md](/media/sam/1TB/UTXOracle/docs/FEATURE_SERVICE_ROADMAP_PREP_2026-04-01.md)
 - [docs/FEATURE_SERVICE_ROADMAP_2026-04-01.md](/media/sam/1TB/UTXOracle/docs/FEATURE_SERVICE_ROADMAP_2026-04-01.md)
 - [docs/FEATURE_SERVICE_WAVE2_DECISION_2026-04-02.md](/media/sam/1TB/UTXOracle/docs/FEATURE_SERVICE_WAVE2_DECISION_2026-04-02.md)
+- [docs/METRIC_SOURCE_OF_TRUTH_MANIFEST.md](/media/sam/1TB/UTXOracle/docs/METRIC_SOURCE_OF_TRUTH_MANIFEST.md)
 - [specs/044-feature-service-contract-registry/spec.md](/media/sam/1TB/UTXOracle/specs/044-feature-service-contract-registry/spec.md)
 
 ## 1. Purpose
@@ -96,7 +97,7 @@ Explicitly excluded from the supported contract because they are placeholder, sh
 | `cost_basis_surface` | `/api/metrics/cost-basis` | `code implemented` | `tier_3_research` | research | `:8001` | `duckdb_utxo_lifecycle` | `scripts.metrics.cost_basis` + `api.main` | Live route now returns `404` on unusable snapshots and remains outside the first `nautilus_dev` bundle |
 | `models_core_surface` | `/api/v1/models`, `/api/v1/models/{name}/predict`, `/api/v1/models/backtest/{name}`, `/api/v1/models/compare`, `/api/v1/models/ensemble` | `code implemented` | `tier_3_research` | research | `:8001` | `computed_inline` | `api.routes.models` | Not part of first consumer slice |
 | `rbn_validation_surface` | `/api/v1/validation/rbn/*` | `code implemented` | `tier_3_research` | operators, research | `:8001` | `external_api` | `scripts.integrations.rbn_fetcher` + `api.main` | Requires `RBN_API_TOKEN` and is quota-bound |
-| `advanced_research_surface` | `/api/metrics/{advanced,wasserstein*,cointime*,urpd,supply-profit-loss,reserve-risk,sell-side-risk,cdd-vdd,revived-supply}` | `calculator only` | `tier_3_research` | research | `:8001` | `hybrid` | `scripts.metrics.*` + `api.main` | Remaining research bucket still returns `501`; `reserve-risk` stays blocked by placeholder/default internals |
+| `advanced_research_surface` | `/api/metrics/{advanced,wasserstein*,cointime*,urpd,supply-profit-loss,reserve-risk,sell-side-risk,cdd-vdd,revived-supply}` | `calculator only` | `tier_3_research` | research | `:8001` | `hybrid` | `scripts.metrics.*` + `api.main` | Remaining research bucket still returns `501`; `reserve-risk` is additionally frozen by the metric source-of-truth manifest as a `BRK`-first overlapping metric rather than a default local productization target |
 | `wallet_and_cohort_surface` | `/api/metrics/{address-cohorts,wallet-waves,absorption-rates}` | `code implemented` | `tier_3_research` | research, future `nautilus_dev` features | `:8001` | `duckdb_utxo_lifecycle` | `scripts.metrics.*` + `scripts.clustering.*` + `api.main` | Wave 1 is live; `wallet-waves/history` remains outside the promoted surface and absorption baseline is reconstructed on demand |
 | `power_law_surface` | `/api/v1/models/power-law*` | `code implemented` | `tier_3_research` | research | `:8001` | `duckdb_daily_prices` | `api.main` + `scripts.metrics.power_law` | Dedicated handler now wins deterministically, but the surface remains outside the first `nautilus_dev` contract slice |
 | `pro_risk_surface` | `/api/risk/pro*` | `placeholder` | `tier_4_not_admitted` | research only today | `:8001` | `computed_inline` | `api.main` + `scripts.metrics.pro_risk` | `/api/risk/pro` and `/history` are now runtime-demoted; only `/zones` remains usable static metadata |
