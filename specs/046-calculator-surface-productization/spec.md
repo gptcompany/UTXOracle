@@ -5,6 +5,7 @@
 > **Effort**: Large
 > **Created**: 2026-04-01
 > **Wave 1 Implemented**: 2026-04-01
+> **Wave 2 Decision Frozen**: 2026-04-02
 
 ## Problem Statement
 
@@ -13,7 +14,7 @@
 Current gaps:
 
 1. calculator-backed routes exist, but are not consumable through the API
-2. high-value feature families such as wallet waves, address cohorts, and reserve-risk are trapped behind research-only code paths
+2. high-value feature families such as NUPL and cost basis are still trapped behind research-only API paths, while reserve-risk remains analytically incomplete
 3. history-dependent surfaces still lack persistent snapshot materialization even after Wave 1 route promotion
 4. roadmap work cannot prioritize feature promotion without a wave-based plan
 
@@ -56,6 +57,12 @@ These are the highest-value first promotions because they support institutional-
 - `/api/metrics/reserve-risk`
 - `/api/metrics/nupl`
 - `/api/metrics/cost-basis`
+
+Wave 2 audit result frozen on 2026-04-02:
+
+- `/api/metrics/reserve-risk` stays out of the next promotion slice because the calculator still contains placeholder/default internals (`mvrv`, `liveliness`, and no-data fallback behavior)
+- `/api/metrics/nupl` is shortlisted for the next selective promotion slice, with an explicit caveat that `pct_supply_in_profit` is currently an estimate
+- `/api/metrics/cost-basis` is shortlisted for the next selective promotion slice as the strongest calculator-backed candidate
 
 ### Wave 3: Broader Research Metrics
 
@@ -146,9 +153,14 @@ Every promoted route family MUST have tests for:
 - empty state
 - stale or insufficient-history behavior where applicable
 
+### FR7: Selective Wave 2 Promotion
+
+Wave 2 does not need to ship as an all-or-nothing bundle. Individual routes may advance to the next milestone while others remain held with explicit blockers.
+
 ## Success Criteria
 
 1. Wave 1 routes stop returning `501`
 2. Wave 1 routes have explicit backend and failure semantics
 3. history-dependent routes have snapshot materialization defined
 4. roadmap work can refer to promotion waves instead of an undifferentiated `calculator only` bucket
+5. Wave 2 has an explicit freeze decision: `nupl` and `cost-basis` are the next candidates, while `reserve-risk` remains blocked

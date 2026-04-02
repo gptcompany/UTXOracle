@@ -1,9 +1,10 @@
 schema_version: "1"
-published_at: "2026-04-01"
+published_at: "2026-04-02"
 contract_version: "v1"
 source_documents:
   - "docs/FEATURE_SERVICE_ROADMAP_PREP_2026-04-01.md"
   - "docs/FEATURE_SERVICE_ROADMAP_2026-04-01.md"
+  - "docs/FEATURE_SERVICE_WAVE2_DECISION_2026-04-02.md"
   - "docs/FEATURE_CONTRACT_REGISTRY.md"
 admission_tiers:
   tier_1_production:
@@ -448,6 +449,8 @@ entries:
     stale_state_policy: "Not applicable while routes return 501."
     known_caveats:
       - "Analytical modules exist, but the route family is not consumable through the API today."
+      - "Wave 2 audit froze NUPL and cost-basis as the next selective promotion candidates."
+      - "Reserve-risk remains blocked because its calculator still contains placeholder/default internals."
     owner: "scripts.metrics.* + api.main"
     version: "v1"
     deprecation_status: "none"

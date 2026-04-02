@@ -1204,7 +1204,6 @@ async def get_reserve_risk(
 
     Spec: 021-advanced-onchain-metrics
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
     raise HTTPException(status_code=501, detail="Not Implemented")
 
 
@@ -1367,7 +1366,6 @@ async def get_nupl(
 
     Spec: 022-nupl-oscillator
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
     raise HTTPException(status_code=501, detail="Not Implemented")
 
 
@@ -1489,7 +1487,6 @@ async def get_cost_basis(
 
     Spec: 023-cost-basis-cohorts
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
     raise HTTPException(status_code=501, detail="Not Implemented")
 
 

@@ -270,6 +270,22 @@ class TestReserveRiskDataclass:
                 block_height=875000,
             )
 
+
+def test_reserve_risk_endpoint_registered_and_placeholder():
+    """Wave 2 keeps the route registered but not yet wired."""
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+
+    routes = [route.path for route in app.routes]
+    assert "/api/metrics/reserve-risk" in routes
+
+    client = TestClient(app, raise_server_exceptions=False)
+    response = client.get("/api/metrics/reserve-risk?current_price=100000")
+
+    assert response.status_code == 501
+    assert response.json()["detail"] == "Not Implemented"
+
     def test_to_dict(self):
         """to_dict() returns correct structure."""
         result = ReserveRiskResult(

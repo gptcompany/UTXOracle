@@ -1,8 +1,8 @@
 # UTXOracle Feature Service Roadmap
 
-Date: 2026-04-01
+Date: 2026-04-02
 
-Status: Execution roadmap updated after `M1`, `M2`, `M3`, `M4a`, and `M4b` whale entity foundations
+Status: Execution roadmap updated after `M1`, `M2`, `M3`, `M4a`, `M4b`, and the `M5` Wave 2 decision freeze
 
 Primary baseline:
 
@@ -87,7 +87,9 @@ Lower priority:
 | `address-cohorts` | code implemented | research, future trading features | DuckDB | contract admission decision only | promoted Wave 1 route | P1 | spec-046 |
 | `wallet-waves` | code implemented | research, future trading features | DuckDB | current route is live; historical route still needs snapshot materialization | promoted Wave 1 route | P1 | spec-046 |
 | `absorption-rates` | code implemented with on-demand historical reconstruction | research, future trading features | DuckDB + reconstructed baseline | persistent history/materialization is still pending | promoted Wave 1 route | P1 | spec-046 |
-| `reserve-risk`, `nupl`, `cost-basis` | calculator only | research, macro/feature bundles | DuckDB | second-wave productization | promoted Wave 2 routes | P2 | spec-046 |
+| `reserve-risk` | calculator only; audit complete | research, macro/feature bundles | DuckDB + optional `cointime_metrics` | calculator still contains placeholder/default internals (`mvrv`, fallback liveliness, no-data fallback) | remain held outside the next promotion slice | P2 | spec-046 |
+| `nupl` | calculator only; audit complete | research, macro/feature bundles | DuckDB | API wiring still missing; `pct_supply_in_profit` remains an estimated field that needs explicit contract policy | next selective promotion candidate | P2 | spec-046 |
+| `cost-basis` | calculator only; audit complete | research, macro/feature bundles | DuckDB | API wiring and route-level degraded semantics are still missing | next selective promotion candidate | P2 | spec-046 |
 | feature contract registry | published | `nautilus_dev`, operators | docs + YAML | validation automation still missing | `v1` contract registry | P0 | spec-044 |
 | dependency/provenance manifest | published | operators, consumers | docs + YAML | drift validation and optional metadata endpoint still missing | authoritative manifest | P0 | spec-045 |
 
@@ -192,10 +194,18 @@ Execution note:
 Outcome:
 
 - second-wave metric promotion begins only after the contract and hardening layers are stable
+- the Wave 2 bucket is narrowed to routes that are analytically ready enough to justify real wiring
+
+Status:
+
+- `M5` completed on 2026-04-02 as a decision milestone
+- `nupl` and `cost-basis` are frozen as the next selective promotion candidates
+- `reserve-risk` remains held outside the next promotion slice
 
 Work:
 
 - Wave 2 and later waves from [spec-046](/media/sam/1TB/UTXOracle/specs/046-calculator-surface-productization/spec.md)
+- decision package: [docs/FEATURE_SERVICE_WAVE2_DECISION_2026-04-02.md](/media/sam/1TB/UTXOracle/docs/FEATURE_SERVICE_WAVE2_DECISION_2026-04-02.md)
 
 ## 7. Milestones and Dates
 
@@ -325,6 +335,28 @@ Exit criteria:
 
 - `reserve-risk`, `nupl`, and `cost-basis` are either admitted into the next milestone or held with explicit blockers
 - any required BRK cross-validation or confidence review is accounted for in the decision
+
+Current status:
+
+- completed on 2026-04-02
+- `reserve-risk` held with explicit blockers
+- `nupl` and `cost-basis` shortlisted for the next selective promotion milestone
+
+### Milestone M6: Selective Wave 2 Productization
+
+Target window:
+
+- 2026-05-12 to 2026-05-18
+
+Includes:
+
+- selective Wave 2 implementation from spec-046
+
+Exit criteria:
+
+- `/api/metrics/nupl` and `/api/metrics/cost-basis` either stop returning `501` or are explicitly re-scoped with documented blockers
+- route-level healthy and degraded semantics are frozen in tests and docs
+- `reserve-risk` either remains held or moves only under a separate hardening plan that removes placeholder internals first
 
 ## 8. Dependency Order
 

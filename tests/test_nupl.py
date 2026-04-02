@@ -360,18 +360,9 @@ class TestNUPLAPIEndpoint:
         routes = [route.path for route in app.routes]
         assert "/api/metrics/nupl" in routes
 
-        # Check endpoint returns expected error (503) when DB not available
-        # This verifies the endpoint exists and handles errors correctly
+        # Current Wave 2 state keeps the route registered but not yet wired.
         client = TestClient(app, raise_server_exceptions=False)
         response = client.get("/api/metrics/nupl?current_price=105000")
 
-        # Should get 503 (DB not available) or 404 (table not found)
-        # rather than 404 (endpoint not found)
-        assert response.status_code in [200, 404, 500, 503]
-        # Verify it's not a "not found" error for the endpoint itself
-        if response.status_code == 404:
-            data = response.json()
-            # Should be about table/schema, not about endpoint
-            assert "UTXO" in data.get("detail", "") or "lifecycle" in data.get(
-                "detail", ""
-            )
+        assert response.status_code == 501
+        assert response.json()["detail"] == "Not Implemented"
