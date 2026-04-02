@@ -42,7 +42,7 @@ It should retain only:
 
 It should not be treated as the place where the product keeps expanding indefinitely.
 
-## 3. Promoted To `8011` (spec-050) — COMPLETE 2026-04-02
+## 3. Promoted To `8011` (spec-050 + Wave 1) — COMPLETE 2026-04-02
 
 These families are now natively served by the dedicated live app on `:8011`:
 
@@ -51,6 +51,9 @@ These families are now natively served by the dedicated live app on `:8011`:
 | `/api/prices/*` | **PROMOTED** | `QuestDB price_analysis` | Migration hint header |
 | `/api/metrics/latest` | **PROMOTED** | `QuestDB metrics` | Migration hint header |
 | `/api/whale/{transactions,summary,transaction/{txid}}` | **PROMOTED** | `QuestDB mempool_predictions` | Migration hint header |
+| `/api/metrics/address-cohorts` | **PROMOTED** | `QuestDB address_cohorts_daily` | Migration hint header |
+| `/api/metrics/wallet-waves` | **PROMOTED** | `QuestDB wallet_waves_daily` | Migration hint header |
+| `/api/metrics/absorption-rates` | **PROMOTED** | `QuestDB absorption_rates_daily` | Migration hint header |
 
 Port `8011` is the canonical production host for this slice.
 `8001` remains secondary for these routes to allow transition.
@@ -68,8 +71,7 @@ These families have real analytical value, but they are still bound to DuckDB/re
 | `/api/metrics/sopr` | DuckDB | same spent-history dependency | QuestDB serving table plus freshness policy |
 | `/api/metrics/nvt` | DuckDB + block metadata | depends on mutable request-time inputs | freeze reproducible serving inputs and materialize |
 | `/api/metrics/volatility` | DuckDB daily prices | local price table serving path only | QuestDB price-volatility materialization if it becomes consumer-grade |
-| `/api/metrics/{address-cohorts,wallet-waves,absorption-rates}` | DuckDB | Wave 1 is live, but history/materialization debt is still open | finish `spec-046` Phase 4 first |
-| `/api/metrics/wallet-waves/history` | placeholder | snapshots do not exist yet | persistent snapshot storage and backfill |
+| `/api/metrics/wallet-waves/history` | QuestDB | snapshots are now materialized | consolidate history read-path in api.routes.questdb |
 
 This is where the repo should keep analytical ambition without pretending the routes are already production-boundary ready.
 
@@ -115,5 +117,5 @@ The repo is concrete if we treat it as:
 
 The next two meaningful convergence moves are:
 
-1. finish Wave 1 history/materialization debt
-2. decide whether `/api/prices/*`, `/api/metrics/latest`, and canonical whale routes become the next `:8011` promotion slice
+1. decide whether selective Wave 2 metrics (e.g. SOPR, Net Flow) should be materialized and promoted to `:8011`
+2. implement validator and drift-check automation for registries and manifests

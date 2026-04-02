@@ -96,9 +96,9 @@ Scope lock:
 | `/api/metrics/latest` | code implemented and contract-registered | `nautilus_dev`, research | QuestDB | no structural blocker; freshness remains operational concern | tier-1 admitted bundle | P1 | spec-044, spec-045 |
 | `PRO Risk` | runtime-demoted; only `/zones` remains live metadata | research only today | mixed / placeholder inputs | real component inputs and historical serving are still absent | remain demoted until real implementation exists | P0 | spec-048 |
 | `Puell Multiple` | runtime-demoted placeholder | research only today | computed inline | real 365d miner revenue history is still absent | remain demoted until real implementation exists | P0 | spec-048 |
-| `address-cohorts` | code implemented | research, future trading features | DuckDB | contract admission decision only | promoted Wave 1 route | P1 | spec-046 |
-| `wallet-waves` | code implemented | research, future trading features | DuckDB | current route is live; historical route still needs snapshot materialization | promoted Wave 1 route | P1 | spec-046 |
-| `absorption-rates` | code implemented with on-demand historical reconstruction | research, future trading features | DuckDB + reconstructed baseline | persistent history/materialization is still pending | promoted Wave 1 route | P1 | spec-046 |
+| `address-cohorts` | runtime verified | research, future trading features | QuestDB | none | promoted Wave 1 route | P1 | spec-046 |
+| `wallet-waves` | runtime verified | research, future trading features | QuestDB | none | promoted Wave 1 route | P1 | spec-046 |
+| `absorption-rates` | runtime verified | research, future trading features | QuestDB | none | promoted Wave 1 route | P1 | spec-046 |
 | `reserve-risk` | calculator only; intentionally held | research, macro/feature bundles | `BRK` for shared signal; local calculator only for validation/experiments unless separately approved | no explicit adopted `BRK`-backed contract path exists yet, and local duplication is not justified by default | remain excluded until a written `BRK` vs local decision is reopened | P2 | spec-046 |
 | `nupl` | code implemented with explicit estimated-field contract | research, macro/feature bundles | DuckDB | still research-only; `pct_supply_in_profit` remains a declared estimate rather than a direct profit-state measurement | promoted selective Wave 2 route | P2 | spec-046 |
 | `cost-basis` | code implemented | research, macro/feature bundles | DuckDB | still research-only; no `nautilus_dev` admission decision yet | promoted selective Wave 2 route | P2 | spec-046 |
@@ -168,8 +168,8 @@ Outcome:
 
 Status:
 
-- completed on 2026-04-01 for `address-cohorts`, `wallet-waves`, and `absorption-rates`
-- `wallet-waves/history` remains explicitly outside the promoted slice
+- completed on 2026-04-02 for `address-cohorts`, `wallet-waves`, and `absorption-rates`
+- materialization in QuestDB is complete and verified on port `:8011`
 
 Work:
 

@@ -1,10 +1,10 @@
 # spec-046: Calculator Surface Productization
 
-> **Status**: PARTIALLY IMPLEMENTED
+> **Status**: CLOSED
 > **Priority**: HIGH
 > **Effort**: Large
 > **Created**: 2026-04-01
-> **Wave 1 Implemented**: 2026-04-01
+> **Wave 1 Materialized**: 2026-04-02
 > **Wave 2 Decision Frozen**: 2026-04-02
 > **Selective Wave 2 Implemented**: 2026-04-02
 

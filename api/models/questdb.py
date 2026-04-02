@@ -78,3 +78,68 @@ class MetricsLatestResponse(BaseModel):
         None, description="Address metrics"
     )
     tx_volume: Optional[TxVolumeResponse] = Field(None, description="Volume metrics")
+
+
+# =============================================================================
+# Wave 1 (spec-046) Promoted Models
+# =============================================================================
+
+class CohortMetricsResponse(BaseModel):
+    cohort: str
+    cost_basis: float
+    supply_btc: float
+    supply_pct: float
+    mvrv: float
+    address_count: int
+
+
+class AddressCohortsResponse(BaseModel):
+    timestamp: datetime
+    block_height: int
+    current_price_usd: float
+    cohorts: Dict[str, CohortMetricsResponse]
+    whale_retail_spread: float
+    whale_retail_mvrv_ratio: float
+    total_supply_btc: float
+    total_addresses: int
+
+
+class WalletBandMetricsResponse(BaseModel):
+    band: str
+    supply_btc: float
+    supply_pct: float
+    address_count: int
+    avg_balance: float
+
+
+class WalletWavesResponse(BaseModel):
+    timestamp: datetime
+    block_height: int
+    total_supply_btc: float
+    bands: List[WalletBandMetricsResponse]
+    retail_supply_pct: float
+    institutional_supply_pct: float
+    address_count_total: int
+    null_address_btc: float
+    confidence: float
+
+
+class AbsorptionRateMetricsResponse(BaseModel):
+    band: str
+    absorption_rate: Optional[float]
+    supply_delta_btc: float
+    supply_start_btc: float
+    supply_end_btc: float
+
+
+class AbsorptionRatesResponse(BaseModel):
+    timestamp: datetime
+    block_height: int
+    window_days: int
+    mined_supply_btc: float
+    bands: List[AbsorptionRateMetricsResponse]
+    dominant_absorber: str
+    retail_absorption: float
+    institutional_absorption: float
+    confidence: float
+    has_historical_data: bool

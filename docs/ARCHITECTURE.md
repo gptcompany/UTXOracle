@@ -18,6 +18,7 @@ The production boundary is now explicit:
 - `api.apps.live:app` is the canonical production entrypoint for `8011`
 - `api.apps.legacy:app` is the explicit legacy alias for the mixed historical surface on `8001`
 - the production app exposes `/health`, `/api/v1/live/*`, the admitted chart family on `/api/v1/charts/*`, and the newly promoted QuestDB-backed families (`/api/prices/*`, `/api/metrics/latest`, and canonical `/api/whale/*` query routes)
+- Wave 1 metrics (Address Cohorts, Wallet Waves, Absorption Rates) are also promoted to `8011` following their materialization in QuestDB (2026-04-02)
 - legacy route families such as `/api/v1/models/*` and `/api/v1/validation/*` remain research-only on `8001`
 - DuckDB-backed research metrics (e.g., `/api/metrics/nupl`, `/api/metrics/cost-basis`) remain research-only on `8001`
 - host runtime re-verified on 2026-04-02: `/api/prices/*` and `/api/metrics/latest` are now natively served on `8011`

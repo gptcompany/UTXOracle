@@ -34,7 +34,7 @@ Primary references:
 The active engineering slice is:
 
 1. `spec-050` canonical `8011` promotion (**COMPLETE 2026-04-02**)
-2. `spec-046` Phase 4 history/materialization debt
+2. `spec-046` Phase 4 history/materialization debt (**COMPLETE 2026-04-02**)
 3. validator and drift-check automation for `spec-044` and `spec-045`
 4. whale/entity forensics only when it extends the canonical whale surface rather than reopening macro-metric duplication
 

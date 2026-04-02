@@ -5,6 +5,11 @@ Repository for interacting with QuestDB.
 import os
 import logging
 from api.models.data import WhaleTransaction, NetFlowMetrics, Alert
+from scripts.models.metrics_models import (
+    WalletWavesResult,
+    AbsorptionRatesResult,
+    AddressCohortsResult,
+)
 from decimal import Decimal
 from typing import Optional, List, Dict, Any, Union
 from datetime import datetime, timedelta
@@ -390,6 +395,70 @@ async def create_tables_if_not_exist():
             """
         )
 
+        # Wave 1 Materialization Tables (spec-046 Phase 4)
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS wallet_waves_daily (
+                ts TIMESTAMP,
+                block_height LONG,
+                total_supply_btc DOUBLE,
+                retail_supply_pct DOUBLE,
+                institutional_supply_pct DOUBLE,
+                address_count_total LONG,
+                null_address_btc DOUBLE,
+                confidence DOUBLE,
+                band SYMBOL,
+                supply_btc DOUBLE,
+                supply_pct DOUBLE,
+                address_count LONG,
+                avg_balance DOUBLE,
+                created_at TIMESTAMP
+            ) timestamp(ts) PARTITION BY MONTH;
+            """
+        )
+
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS absorption_rates_daily (
+                ts TIMESTAMP,
+                block_height LONG,
+                window_days INT,
+                mined_supply_btc DOUBLE,
+                dominant_absorber SYMBOL,
+                retail_absorption DOUBLE,
+                institutional_absorption DOUBLE,
+                confidence DOUBLE,
+                band SYMBOL,
+                absorption_rate DOUBLE,
+                supply_delta_btc DOUBLE,
+                supply_start_btc DOUBLE,
+                supply_end_btc DOUBLE,
+                created_at TIMESTAMP
+            ) timestamp(ts) PARTITION BY YEAR;
+            """
+        )
+
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS address_cohorts_daily (
+                ts TIMESTAMP,
+                block_height LONG,
+                current_price_usd DOUBLE,
+                whale_retail_spread DOUBLE,
+                whale_retail_mvrv_ratio DOUBLE,
+                total_supply_btc DOUBLE,
+                total_addresses LONG,
+                cohort SYMBOL,
+                cost_basis DOUBLE,
+                supply_btc DOUBLE,
+                supply_pct DOUBLE,
+                mvrv DOUBLE,
+                address_count LONG,
+                created_at TIMESTAMP
+            ) timestamp(ts) PARTITION BY MONTH;
+            """
+        )
+
         logger.info("QuestDB tables verified/created successfully.")
 
     except Exception as e:
@@ -675,6 +744,110 @@ class QuestDBRepository:
             at=ts
         )
 
+    def save_wallet_waves(self, result: WalletWavesResult) -> bool:
+        """
+        Save wallet waves distribution via ILP.
+        Saves one row per band to allow flexible time-series aggregation.
+        """
+        success = True
+        created_at = datetime.utcnow()
+        for band_metrics in result.bands:
+            row_success = self._send_row(
+                "wallet_waves_daily",
+                symbols={
+                    "band": band_metrics.band.value,
+                },
+                columns={
+                    "block_height": result.block_height,
+                    "total_supply_btc": float(result.total_supply_btc),
+                    "retail_supply_pct": float(result.retail_supply_pct),
+                    "institutional_supply_pct": float(result.institutional_supply_pct),
+                    "address_count_total": int(result.address_count_total),
+                    "null_address_btc": float(result.null_address_btc),
+                    "confidence": float(result.confidence),
+                    "supply_btc": float(band_metrics.supply_btc),
+                    "supply_pct": float(band_metrics.supply_pct),
+                    "address_count": int(band_metrics.address_count),
+                    "avg_balance": float(band_metrics.avg_balance),
+                    "created_at": created_at,
+                },
+                at=result.timestamp,
+            )
+            if not row_success:
+                success = False
+        return success
+
+    def save_absorption_rates(self, result: AbsorptionRatesResult) -> bool:
+        """
+        Save absorption rates via ILP.
+        Saves one row per band.
+        """
+        success = True
+        created_at = datetime.utcnow()
+        for band_metrics in result.bands:
+            row_success = self._send_row(
+                "absorption_rates_daily",
+                symbols={
+                    "band": band_metrics.band.value,
+                    "dominant_absorber": result.dominant_absorber.value,
+                },
+                columns={
+                    "block_height": result.block_height,
+                    "window_days": int(result.window_days),
+                    "mined_supply_btc": float(result.mined_supply_btc),
+                    "retail_absorption": float(result.retail_absorption),
+                    "institutional_absorption": float(result.institutional_absorption),
+                    "confidence": float(result.confidence),
+                    "absorption_rate": float(band_metrics.absorption_rate) if band_metrics.absorption_rate is not None else None,
+                    "supply_delta_btc": float(band_metrics.supply_delta_btc),
+                    "supply_start_btc": float(band_metrics.supply_start_btc),
+                    "supply_end_btc": float(band_metrics.supply_end_btc),
+                    "created_at": created_at,
+                },
+                at=result.timestamp,
+            )
+            if not row_success:
+                success = False
+        return success
+
+    def save_address_cohorts(self, result: AddressCohortsResult) -> bool:
+        """
+        Save address cohorts via ILP.
+        Saves one row per cohort (retail, mid_tier, whale).
+        """
+        success = True
+        created_at = datetime.utcnow()
+        cohorts = {
+            "retail": result.retail,
+            "mid_tier": result.mid_tier,
+            "whale": result.whale,
+        }
+        for cohort_name, metrics in cohorts.items():
+            row_success = self._send_row(
+                "address_cohorts_daily",
+                symbols={
+                    "cohort": cohort_name,
+                },
+                columns={
+                    "block_height": result.block_height,
+                    "current_price_usd": float(result.current_price_usd),
+                    "whale_retail_spread": float(result.whale_retail_spread),
+                    "whale_retail_mvrv_ratio": float(result.whale_retail_mvrv_ratio),
+                    "total_supply_btc": float(result.total_supply_btc),
+                    "total_addresses": int(result.total_addresses),
+                    "cost_basis": float(metrics.cost_basis),
+                    "supply_btc": float(metrics.supply_btc),
+                    "supply_pct": float(metrics.supply_pct),
+                    "mvrv": float(metrics.mvrv),
+                    "address_count": int(metrics.address_count),
+                    "created_at": created_at,
+                },
+                at=result.timestamp,
+            )
+            if not row_success:
+                success = False
+        return success
+
     # --- Read Path (PostgreSQL Wire Protocol) ---
 
     async def fetch(self, query: str, *args) -> List[AsyncpgRecord]:
@@ -781,3 +954,35 @@ class QuestDBRepository:
         """
         # This would be expanded with actual exchange address filtering
         return None
+
+    async def get_wallet_waves_latest(self) -> List[AsyncpgRecord]:
+        """Fetch latest wallet waves snapshot (all bands)."""
+        # QuestDB specific: latest row per symbol
+        query = """
+        SELECT * FROM wallet_waves_daily LATEST ON ts PARTITION BY band;
+        """
+        return await self.fetch(query)
+
+    async def get_wallet_waves_history(self, days: int = 30) -> List[AsyncpgRecord]:
+        """Fetch historical wallet waves."""
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        query = """
+        SELECT * FROM wallet_waves_daily WHERE ts > $1 ORDER BY ts ASC, band ASC;
+        """
+        return await self.fetch(query, cutoff)
+
+    async def get_absorption_rates_latest(self, window_days: int = 30) -> List[AsyncpgRecord]:
+        """Fetch latest absorption rates for a specific window."""
+        query = """
+        SELECT * FROM absorption_rates_daily 
+        WHERE window_days = $1 
+        LATEST ON ts PARTITION BY band;
+        """
+        return await self.fetch(query, window_days)
+
+    async def get_address_cohorts_latest(self) -> List[AsyncpgRecord]:
+        """Fetch latest address cohorts (all cohorts)."""
+        query = """
+        SELECT * FROM address_cohorts_daily LATEST ON ts PARTITION BY cohort;
+        """
+        return await self.fetch(query)

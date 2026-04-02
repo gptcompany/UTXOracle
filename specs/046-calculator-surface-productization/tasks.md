@@ -48,8 +48,8 @@
 
 ## Phase 4: History Materialization
 
-- [ ] T015 Define persistent snapshot storage for wallet-wave baselines
-- [ ] T016 Define writer/backfill workflow for absorption-rate inputs
+- [x] T015 Define persistent snapshot storage for wallet-wave baselines
+- [x] T016 Define writer/backfill workflow for absorption-rate inputs
 - [x] T017 Implement `/api/metrics/wallet-waves/history` behavior or explicitly demote it to a later wave
 - [x] T018 Document insufficient-history semantics for history-dependent routes
 
