@@ -8,6 +8,8 @@ Primary baseline:
 
 - [docs/FEATURE_SERVICE_ROADMAP_PREP_2026-04-01.md](/media/sam/1TB/UTXOracle/docs/FEATURE_SERVICE_ROADMAP_PREP_2026-04-01.md)
 - [docs/METRIC_SOURCE_OF_TRUTH_MANIFEST.md](/media/sam/1TB/UTXOracle/docs/METRIC_SOURCE_OF_TRUTH_MANIFEST.md)
+- [docs/SCOPE_LOCK_2026-04-02.md](/media/sam/1TB/UTXOracle/docs/SCOPE_LOCK_2026-04-02.md)
+- [docs/PRODUCTION_SURFACE_DISPOSITION_2026-04-02.md](/media/sam/1TB/UTXOracle/docs/PRODUCTION_SURFACE_DISPOSITION_2026-04-02.md)
 
 Primary execution specs:
 
@@ -17,6 +19,7 @@ Primary execution specs:
 - [specs/047-whale-entity-surface-unification/spec.md](/media/sam/1TB/UTXOracle/specs/047-whale-entity-surface-unification/spec.md)
 - [specs/048-implemented-route-hardening/spec.md](/media/sam/1TB/UTXOracle/specs/048-implemented-route-hardening/spec.md)
 - [specs/049-feature-research-admission-gate/spec.md](/media/sam/1TB/UTXOracle/specs/049-feature-research-admission-gate/spec.md)
+- [specs/050-canonical-8011-promotion/spec.md](/media/sam/1TB/UTXOracle/specs/050-canonical-8011-promotion/spec.md)
 
 ## 1. Roadmap Objective
 
@@ -74,6 +77,13 @@ Lower priority:
 - wider research metric fanout
 - deeper entity attribution
 - full coverage of all historical families
+
+Scope lock:
+
+- new implementation work must strengthen the canonical `:8011` contract, extend repo-specific analytics not cleanly covered by `BRK`, or extend whale/entity forensics
+- `:8001` existence alone is not a reason to widen the production boundary
+- overlapping macro metrics should not reopen local productization by default while the metric source-of-truth manifest remains active
+- route-family disposition between `:8001`, `:8011`, `QuestDB`, `DuckDB`, and `BRK` should follow [docs/PRODUCTION_SURFACE_DISPOSITION_2026-04-02.md](/media/sam/1TB/UTXOracle/docs/PRODUCTION_SURFACE_DISPOSITION_2026-04-02.md)
 
 ## 5. Roadmap Matrix
 

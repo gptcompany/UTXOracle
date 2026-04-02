@@ -1,0 +1,80 @@
+from __future__ import annotations
+
+from datetime import datetime
+from typing import List, Optional, Dict
+
+from pydantic import BaseModel, Field
+
+
+class PriceEntry(BaseModel):
+    """Single price comparison entry"""
+
+    timestamp: str
+    utxoracle_price: Optional[float] = None
+    mempool_price: Optional[float] = None
+    confidence: float
+    tx_count: Optional[int] = None
+    diff_amount: Optional[float] = None
+    diff_percent: Optional[float] = None
+    is_valid: bool
+
+
+class ComparisonStats(BaseModel):
+    """Statistical comparison metrics"""
+
+    avg_diff: Optional[float] = None
+    max_diff: Optional[float] = None
+    min_diff: Optional[float] = None
+    avg_diff_percent: Optional[float] = None
+    total_entries: int
+    valid_entries: int
+    timeframe_days: int = 7
+
+
+class MonteCarloFusionResponse(BaseModel):
+    """Monte Carlo signal fusion result."""
+
+    signal_mean: float = Field(..., description="Mean of bootstrap samples")
+    signal_std: float = Field(..., description="Standard deviation of samples")
+    ci_lower: float = Field(..., description="95% CI lower bound")
+    ci_upper: float = Field(..., description="95% CI upper bound")
+    action: str = Field(..., description="Recommended action: BUY/SELL/HOLD")
+    action_confidence: float = Field(..., description="Confidence in action")
+    n_samples: int = Field(default=1000, description="Bootstrap iterations")
+    distribution_type: str = Field(default="unimodal", description="unimodal/bimodal")
+
+
+class ActiveAddressesResponse(BaseModel):
+    """Active addresses metric."""
+
+    block_height: int = Field(..., description="Bitcoin block height")
+    active_addresses_block: int = Field(..., description="Unique addresses in block")
+    active_addresses_24h: Optional[int] = Field(
+        None, description="24h unique addresses"
+    )
+    unique_senders: int = Field(..., description="Unique senders")
+    unique_receivers: int = Field(..., description="Unique receivers")
+    is_anomaly: bool = Field(default=False, description="Anomaly detected")
+
+
+class TxVolumeResponse(BaseModel):
+    """Transaction volume metric."""
+
+    tx_count: int = Field(..., description="Transaction count")
+    tx_volume_btc: float = Field(..., description="Volume in BTC")
+    tx_volume_usd: Optional[float] = Field(None, description="Volume in USD")
+    utxoracle_price_used: Optional[float] = Field(None, description="Price used")
+    low_confidence: bool = Field(default=False, description="Low confidence flag")
+
+
+class MetricsLatestResponse(BaseModel):
+    """Combined metrics response for /api/metrics/latest."""
+
+    timestamp: datetime = Field(..., description="Metrics timestamp")
+    monte_carlo: Optional[MonteCarloFusionResponse] = Field(
+        None, description="Signal fusion"
+    )
+    active_addresses: Optional[ActiveAddressesResponse] = Field(
+        None, description="Address metrics"
+    )
+    tx_volume: Optional[TxVolumeResponse] = Field(None, description="Volume metrics")

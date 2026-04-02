@@ -193,6 +193,24 @@ if LOGGING_CONFIGURED:
     logging.info("✅ Correlation ID middleware registered")
 
 # =============================================================================
+# spec-050: Migration Middleware (8001 -> 8011)
+# =============================================================================
+
+PROMOTED_PATH_PREFIXES = ("/api/prices/", "/api/metrics/latest", "/api/whale/")
+
+@app.middleware("http")
+async def migration_middleware(request: Request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if any(path.startswith(prefix) for prefix in PROMOTED_PATH_PREFIXES):
+        # Port 8001 is now secondary for these routes
+        response.headers["X-UTXOracle-Migration-Hint"] = "Canonical production host is :8011"
+        response.headers["Deprecation"] = "true"
+        # We don't return 410 yet to avoid breaking local operators immediately
+    return response
+
+
+# =============================================================================
 # T053: Performance Metrics Collection
 # =============================================================================
 
@@ -234,6 +252,14 @@ except ImportError as e:
     logging.warning("   Install mempool_whale_endpoints.py to enable whale API")
 
 # =============================================================================
+# spec-050: Promoted QuestDB-backed routes
+# =============================================================================
+
+from api.routes.questdb import router as questdb_router
+app.include_router(questdb_router)
+logging.info("✅ Promoted QuestDB-backed metrics registered (prices, metrics/latest)")
+
+# =============================================================================
 # spec-040: Dedicated live API host policy
 # =============================================================================
 
@@ -242,31 +268,6 @@ logging.info("ℹ️ Live service API endpoints are served only by the dedicated
 # =============================================================================
 # Pydantic Models
 # =============================================================================
-
-
-class PriceEntry(BaseModel):
-    """Single price comparison entry"""
-
-    timestamp: str
-    utxoracle_price: Optional[float] = None
-    mempool_price: Optional[float] = None
-    confidence: float
-    tx_count: Optional[int] = None
-    diff_amount: Optional[float] = None
-    diff_percent: Optional[float] = None
-    is_valid: bool
-
-
-class ComparisonStats(BaseModel):
-    """Statistical comparison metrics"""
-
-    avg_diff: Optional[float] = None
-    max_diff: Optional[float] = None
-    min_diff: Optional[float] = None
-    avg_diff_percent: Optional[float] = None
-    total_entries: int
-    valid_entries: int
-    timeframe_days: int = 7
 
 
 class ServiceCheck(BaseModel):
@@ -394,232 +395,6 @@ def _deprecated_whale_route_response(deprecated_route: str) -> JSONResponse:
 
 
 # =============================================================================
-# Database Helper Functions
-# =============================================================================
-
-
-def _prices_historical_dual_read_enabled() -> bool:
-    return os.getenv("PRICES_HISTORICAL_DUAL_READ_ENABLED", "false").lower() == "true"
-
-
-def _serialize_price_entries_for_dual_read(
-    payload: list[PriceEntry] | list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    serialized: list[dict[str, Any]] = []
-    for item in payload:
-        if isinstance(item, PriceEntry):
-            serialized.append(item.model_dump(mode="json"))
-        else:
-            serialized.append(dict(item))
-    return serialized
-
-
-def _log_prices_historical_dual_read(
-    payload: list[PriceEntry] | list[dict[str, Any]],
-    *,
-    days: int,
-) -> dict[str, Any]:
-    from scripts.config import UTXORACLE_DB_PATH
-    from scripts.validation.route_parity import run_prices_historical_dual_read
-
-    report = run_prices_historical_dual_read(
-        questdb_payload=_serialize_price_entries_for_dual_read(payload),
-        duckdb_path=os.getenv(
-            "PRICES_HISTORICAL_DUAL_READ_DUCKDB_PATH",
-            str(UTXORACLE_DB_PATH),
-        ),
-        lookback_days=days,
-        dataset_id=f"prices-historical:{days}d",
-        divergence_log=os.getenv("PRICES_HISTORICAL_DUAL_READ_LOG_PATH"),
-    )
-    logging.info(
-        "prices-historical dual-read completed: status=%s sample_count=%s failing_fields=%s notes=%s",
-        report.get("status"),
-        report.get("sample_count"),
-        report.get("failing_fields"),
-        report.get("notes"),
-    )
-    return report
-
-
-def _safe_log_prices_historical_dual_read(
-    payload: list[PriceEntry] | list[dict[str, Any]],
-    *,
-    days: int,
-) -> None:
-    try:
-        _log_prices_historical_dual_read(payload, days=days)
-    except Exception as exc:
-        logging.warning("prices-historical dual-read logging failed: %s", exc)
-
-
-
-
-
-# =============================================================================
-# T060: GET /api/prices/latest
-# =============================================================================
-
-
-@app.get("/api/prices/latest", response_model=PriceEntry)
-async def get_latest_price(request: Request):
-    """
-    Get the most recent price comparison entry.
-
-    **Public Endpoint:** No authentication required
-
-    Returns:
-        PriceEntry: Latest price data from database
-
-    Raises:
-        404: No price data available
-    """
-    repo: QuestDBRepository = request.app.state.questdb_repo
-    try:
-        row = await repo.get_latest_price_analysis()
-        if not row:
-            raise HTTPException(status_code=404, detail="No price data available")
-
-        return PriceEntry(
-            timestamp=row["ts"].isoformat(),
-            utxoracle_price=row["utxoracle_price"],
-            mempool_price=row["exchange_price"],
-            confidence=row["confidence"],
-            tx_count=row["tx_count"],
-            diff_amount=row["price_difference"],
-            diff_percent=row["avg_pct_diff"],
-            is_valid=row["is_valid"],
-        )
-    except Exception as e:
-        _raise_http_exception(
-            status_code=500,
-            public_detail="Failed to fetch latest price data",
-            log_message="Error getting latest price",
-            exc=e,
-        )
-
-
-# =============================================================================
-# T061: GET /api/prices/historical
-# =============================================================================
-
-
-@app.get("/api/prices/historical", response_model=List[PriceEntry])
-async def get_historical_prices(
-    background_tasks: BackgroundTasks,
-    request: Request,
-    days: int = Query(
-        default=7,
-        ge=1,
-        le=365,
-        description="Number of days of historical data to retrieve",
-    ),
-):
-    """
-    Get historical price comparison data.
-
-    **Public Endpoint:** No authentication required
-
-    Args:
-        days: Number of days to retrieve (1-365, default: 7)
-
-    Returns:
-        List[PriceEntry]: Historical price data
-    """
-    repo: QuestDBRepository = request.app.state.questdb_repo
-    try:
-        rows = await repo.get_historical_price_analysis(days)
-        response_items = [
-            PriceEntry(
-                timestamp=row["ts"].isoformat(),
-                utxoracle_price=row["utxoracle_price"],
-                mempool_price=row["exchange_price"],
-                confidence=row["confidence"],
-                tx_count=row["tx_count"],
-                diff_amount=row["price_difference"],
-                diff_percent=row["avg_pct_diff"],
-                is_valid=row["is_valid"],
-            )
-            for row in rows
-        ]
-
-        if _prices_historical_dual_read_enabled():
-            background_tasks.add_task(
-                _safe_log_prices_historical_dual_read,
-                response_items,
-                days=days,
-            )
-
-        return response_items
-    except Exception as e:
-        _raise_http_exception(
-            status_code=500,
-            public_detail="Failed to fetch historical price data",
-            log_message="Error getting historical prices",
-            exc=e,
-        )
-
-
-# =============================================================================
-# T062: GET /api/prices/comparison
-# =============================================================================
-
-
-@app.get("/api/prices/comparison", response_model=ComparisonStats)
-async def get_comparison_stats(
-    request: Request,
-    days: int = Query(
-        default=7, ge=1, le=365, description="Number of days for statistics calculation"
-    ),
-):
-    """
-    Get statistical comparison metrics between UTXOracle and exchange prices.
-
-    **Public Endpoint:** No authentication required
-
-    Args:
-        days: Number of days to calculate stats for (1-365, default: 7)
-
-    Returns:
-        ComparisonStats: Statistical metrics
-    """
-    repo: QuestDBRepository = request.app.state.questdb_repo
-    try:
-        query = """
-            SELECT
-                avg(abs(price_difference)) as avg_diff,
-                max(abs(price_difference)) as max_diff,
-                min(abs(price_difference)) as min_diff,
-                avg(abs(avg_pct_diff)) as avg_diff_percent,
-                count(*) as total_entries,
-                count(CASE WHEN is_valid = true THEN 1 END) as valid_entries
-            FROM price_analysis
-            WHERE ts > $1
-        """
-        cutoff_time = (_utc_now() - timedelta(days=days)).replace(tzinfo=None)
-        row = await repo.fetchrow(query, cutoff_time)
-        if not row:
-            return ComparisonStats(total_entries=0, valid_entries=0, timeframe_days=days)
-
-        return ComparisonStats(
-            avg_diff=row["avg_diff"],
-            max_diff=row["max_diff"],
-            min_diff=row["min_diff"],
-            avg_diff_percent=row["avg_diff_percent"],
-            total_entries=row["total_entries"],
-            valid_entries=row["valid_entries"],
-            timeframe_days=days,
-        )
-    except Exception as e:
-        _raise_http_exception(
-            status_code=500,
-            public_detail="Failed to fetch comparison statistics",
-            log_message="Error getting comparison stats",
-            exc=e,
-        )
-
-
-# =============================================================================
 # GET /api/whale/latest - Legacy whale alias (deprecated in M4a)
 # =============================================================================
 
@@ -675,60 +450,6 @@ async def whale_history_alias(
     """Deprecated alias for the retired historical whale flow route."""
     _ = (start, end, timeframe)
     return _deprecated_whale_route_response("/api/whale/history")
-
-
-# =============================================================================
-# Spec-007: On-Chain Metrics API Endpoints
-# =============================================================================
-
-
-class MonteCarloFusionResponse(BaseModel):
-    """Monte Carlo signal fusion result."""
-
-    signal_mean: float = Field(..., description="Mean of bootstrap samples")
-    signal_std: float = Field(..., description="Standard deviation of samples")
-    ci_lower: float = Field(..., description="95% CI lower bound")
-    ci_upper: float = Field(..., description="95% CI upper bound")
-    action: str = Field(..., description="Recommended action: BUY/SELL/HOLD")
-    action_confidence: float = Field(..., description="Confidence in action")
-    n_samples: int = Field(default=1000, description="Bootstrap iterations")
-    distribution_type: str = Field(default="unimodal", description="unimodal/bimodal")
-
-
-class ActiveAddressesResponse(BaseModel):
-    """Active addresses metric."""
-
-    block_height: int = Field(..., description="Bitcoin block height")
-    active_addresses_block: int = Field(..., description="Unique addresses in block")
-    active_addresses_24h: Optional[int] = Field(
-        None, description="24h unique addresses"
-    )
-    unique_senders: int = Field(..., description="Unique senders")
-    unique_receivers: int = Field(..., description="Unique receivers")
-    is_anomaly: bool = Field(default=False, description="Anomaly detected")
-
-
-class TxVolumeResponse(BaseModel):
-    """Transaction volume metric."""
-
-    tx_count: int = Field(..., description="Transaction count")
-    tx_volume_btc: float = Field(..., description="Volume in BTC")
-    tx_volume_usd: Optional[float] = Field(None, description="Volume in USD")
-    utxoracle_price_used: Optional[float] = Field(None, description="Price used")
-    low_confidence: bool = Field(default=False, description="Low confidence flag")
-
-
-class MetricsLatestResponse(BaseModel):
-    """Combined metrics response for /api/metrics/latest."""
-
-    timestamp: datetime = Field(..., description="Metrics timestamp")
-    monte_carlo: Optional[MonteCarloFusionResponse] = Field(
-        None, description="Signal fusion"
-    )
-    active_addresses: Optional[ActiveAddressesResponse] = Field(
-        None, description="Address metrics"
-    )
-    tx_volume: Optional[TxVolumeResponse] = Field(None, description="Volume metrics")
 
 
 # =============================================================================
@@ -865,48 +586,6 @@ def _fetch_derivatives_sync() -> dict:
     finally:
         if liq_conn:
             close_connection(liq_conn)
-
-
-@app.get("/api/metrics/latest", response_model=MetricsLatestResponse)
-async def get_latest_metrics(request: Request):
-    """
-    Get the most recent on-chain metrics (spec-007).
-
-    Returns Monte Carlo fusion, Active Addresses, and TX Volume.
-    """
-    repo: QuestDBRepository = request.app.state.questdb_repo
-    row = await repo.get_latest_metrics()
-    if not row:
-        raise HTTPException(status_code=404, detail="No metrics found")
-
-    return MetricsLatestResponse(
-        timestamp=row["ts"],
-        monte_carlo=MonteCarloFusionResponse(
-            signal_mean=row["signal_mean"],
-            signal_std=row["signal_std"],
-            ci_lower=row["ci_lower"],
-            ci_upper=row["ci_upper"],
-            action=row["action"],
-            action_confidence=row["action_confidence"],
-            n_samples=row["n_samples"],
-            distribution_type=row["distribution_type"],
-        ),
-        active_addresses=ActiveAddressesResponse(
-            block_height=row["block_height"],
-            active_addresses_block=row["active_addresses_block"],
-            active_addresses_24h=row["active_addresses_24h"],
-            unique_senders=row["unique_senders"],
-            unique_receivers=row["unique_receivers"],
-            is_anomaly=row["is_anomaly"],
-        ),
-        tx_volume=TxVolumeResponse(
-            tx_count=row["tx_count"],
-            tx_volume_btc=row["tx_volume_btc"],
-            tx_volume_usd=row["tx_volume_usd"],
-            utxoracle_price_used=row["utxoracle_price_used"],
-            low_confidence=row["low_confidence"],
-        ),
-    )
 
 
 @app.get("/api/metrics/advanced", response_model=AdvancedMetricsResponse)

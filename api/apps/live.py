@@ -20,6 +20,9 @@ from api.routes.live import (
     get_live_snapshot_store,
     router as live_router,
 )
+from api.routes.questdb import router as questdb_router
+from api.mempool_whale_endpoints import router as whale_router
+from api.questdb_repository import QuestDBRepository
 from scripts.live.storage import LiveSnapshotStore
 
 APP_VERSION = os.getenv("UTXORACLE_VERSION", "unknown")
@@ -55,6 +58,13 @@ class LiveHealthStatus(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logging.info("UTXOracle live production API starting...")
+    
+    # Initialize QuestDB for promoted production families
+    questdb_repo = QuestDBRepository()
+    await questdb_repo.initialize()
+    app.state.questdb_repo = questdb_repo
+    logging.info("QuestDB repository initialized for live production app.")
+
     yield
     logging.info("UTXOracle live production API shutting down...")
     try:
@@ -101,6 +111,8 @@ def create_app() -> FastAPI:
 
     app.include_router(live_router, prefix="/api/v1")
     app.include_router(charts_router, prefix="/api/v1")
+    app.include_router(questdb_router)
+    app.include_router(whale_router)
 
     @app.get("/charts/{chart_id}", include_in_schema=False)
     async def chart_page(chart_id: str) -> FileResponse:

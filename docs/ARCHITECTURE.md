@@ -17,10 +17,11 @@ The production boundary is now explicit:
 
 - `api.apps.live:app` is the canonical production entrypoint for `8011`
 - `api.apps.legacy:app` is the explicit legacy alias for the mixed historical surface on `8001`
-- the production app exposes `/health`, `/api/v1/live/*`, and the admitted chart family on `/api/v1/charts/*`
-- legacy route families such as `/api/prices/*`, `/api/metrics/*`, `/api/whale/*`, `/api/v1/models/*`, and `/api/v1/validation/*` are not admitted to the production app
-- host runtime re-verified on 2026-03-31: `/api/prices/*` is no longer exposed on `8011`
-- host runtime re-verified on 2026-03-31: the retained live family now reads directly from QuestDB `live_snapshots`
+- the production app exposes `/health`, `/api/v1/live/*`, the admitted chart family on `/api/v1/charts/*`, and the newly promoted QuestDB-backed families (`/api/prices/*`, `/api/metrics/latest`, and canonical `/api/whale/*` query routes)
+- legacy route families such as `/api/v1/models/*` and `/api/v1/validation/*` remain research-only on `8001`
+- DuckDB-backed research metrics (e.g., `/api/metrics/nupl`, `/api/metrics/cost-basis`) remain research-only on `8001`
+- host runtime re-verified on 2026-04-02: `/api/prices/*` and `/api/metrics/latest` are now natively served on `8011`
+- port 8001 remains active but serves promoted routes with a migration hint header (`X-UTXOracle-Migration-Hint`)
 
 **Completion fixes applied on 2026-03-23:**
 - `UTXO_DB_PATH` and `WASSERSTEIN_SHIFT_THRESHOLD` added to `api/config.py` (were incorrectly imported from there before being defined)
