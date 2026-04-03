@@ -57,8 +57,8 @@
 
 ## Phase 5: Validation
 
-- [ ] T017 Add validation checks for missing backend class, owner, or failure mode
-- [ ] T018 Detect route-family drift between roadmap docs and manifest
+- [x] T017 Add validation checks for missing backend class, owner, or failure mode
+- [x] T018 Detect route-family drift between roadmap docs and manifest
 - [x] T019 Add operator guidance for updating the manifest when route behavior changes
 
 **Checkpoint**: provenance metadata stays current as implementation evolves.

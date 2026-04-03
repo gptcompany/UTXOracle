@@ -115,7 +115,7 @@ The repo is concrete if we treat it as:
 - `DuckDB` = analytical computation plane
 - `BRK` = upstream breadth and validation plane
 
-The next two meaningful convergence moves are:
+The next meaningful convergence moves are:
 
 1. decide whether selective Wave 2 metrics (e.g. SOPR, Net Flow) should be materialized and promoted to `:8011`
-2. implement validator and drift-check automation for registries and manifests
+2. unify whale and entity forensics (spec-047)

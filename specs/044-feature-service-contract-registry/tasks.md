@@ -47,8 +47,8 @@
 
 ## Phase 4: Validation
 
-- [ ] T014 [E] Add a validator that fails on missing required fields in the YAML registry
-- [ ] T015 Add consistency checks between YAML registry and contract markdown
+- [x] T014 [E] Add a validator that fails on missing required fields in the YAML registry
+- [x] T015 Add consistency checks between YAML registry and contract markdown
 - [x] T016 Verify every `tier_1_production` or `tier_2_production_with_caveats` entry has freshness and stale-state semantics
 
 **Checkpoint**: the registry can be trusted as an operational artifact.

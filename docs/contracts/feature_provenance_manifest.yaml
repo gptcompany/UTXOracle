@@ -547,3 +547,71 @@ entries:
       placeholder: "none"
     provenance_notes:
       - "This is a metadata and validation surface, not part of the first production feature bundle."
+  - surface_id: "advanced_research_surface"
+    route_family: "/api/metrics/{advanced,wasserstein*,cointime*,urpd,supply-profit-loss,reserve-risk,sell-side-risk,cdd-vdd,revived-supply}"
+    backend_class: "hybrid"
+    primary_tables: []
+    upstreams: []
+    required_env: []
+    writer_owner: "none"
+    read_path_owner: "scripts.metrics.* + api.main"
+    freshness_source: "Not applicable while routes return 501."
+    failure_mode:
+      empty: "Return HTTP 501 Not Implemented."
+      stale: "Not applicable while routes return 501."
+      degraded: "none"
+      misconfigured: "none"
+      placeholder: "none"
+    provenance_notes:
+      - "Analytical modules exist, but the route family is not consumable through the API today."
+  - surface_id: "legacy_whale_placeholder_surface"
+    route_family: "/api/whale/{latest,historical,history}"
+    backend_class: "computed_inline"
+    primary_tables: []
+    upstreams: []
+    required_env: []
+    writer_owner: "none"
+    read_path_owner: "api.main"
+    freshness_source: "None; routes do not serve whale data anymore."
+    failure_mode:
+      empty: "Return HTTP 410 Gone with explicit migration metadata."
+      stale: "Not applicable while routes act as deprecation stubs."
+      degraded: "none"
+      misconfigured: "none"
+      placeholder: "none"
+    provenance_notes:
+      - "These routes no longer serve whale data; they remain only as explicit migration stubs."
+  - surface_id: "wallet_waves_history_placeholder_surface"
+    route_family: "/api/metrics/wallet-waves/history"
+    backend_class: "computed_inline"
+    primary_tables: []
+    upstreams: []
+    required_env: []
+    writer_owner: "none"
+    read_path_owner: "api.main"
+    freshness_source: "None"
+    failure_mode:
+      empty: "Return HTTP 503 until historical wallet-wave snapshots are materialized."
+      stale: "Not applicable while the route is unavailable pending materialization."
+      degraded: "none"
+      misconfigured: "none"
+      placeholder: "none"
+    provenance_notes:
+      - "Historical wallet-wave snapshots are not yet materialized."
+  - surface_id: "main_operational_pages_surface"
+    route_family: "/{,health,metrics,whale,dashboard,monitor,power-law,power_law}"
+    backend_class: "computed_inline"
+    primary_tables: []
+    upstreams: []
+    required_env: []
+    writer_owner: "none"
+    read_path_owner: "api.main"
+    freshness_source: "Not applicable"
+    failure_mode:
+      empty: "Route-specific behavior only."
+      stale: "Not applicable."
+      degraded: "none"
+      misconfigured: "none"
+      placeholder: "none"
+    provenance_notes:
+      - "Operational UI and HTML routes are intentionally outside the feature-service contract."
