@@ -529,8 +529,13 @@ class QuestDBRepository:
                     database=QUESTDB_PG_DATABASE,
                     min_size=QUESTDB_POOL_MIN_SIZE,
                     max_size=QUESTDB_POOL_MAX_SIZE,
+                    command_timeout=QUESTDB_COMMAND_TIMEOUT,
+                    max_inactive_connection_lifetime=QUESTDB_MAX_INACTIVE_LIFETIME,
                 )
-                logger.info(f"QuestDB PG pool initialized (min={QUESTDB_POOL_MIN_SIZE}, max={QUESTDB_POOL_MAX_SIZE})")
+                logger.info(
+                    f"QuestDB PG pool initialized (min={QUESTDB_POOL_MIN_SIZE}, max={QUESTDB_POOL_MAX_SIZE}, "
+                    f"timeout={QUESTDB_COMMAND_TIMEOUT}s)"
+                )
             except Exception as e:
                 logger.critical(f"Failed to create QuestDB PG connection pool: {e}")
                 raise

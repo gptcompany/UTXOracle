@@ -1107,8 +1107,9 @@ def save_to_questdb(data: Dict) -> None:
     """
     try:
         repo = QuestDBRepository()
-        repo.sender.row(
+        repo._send_row(
             "price_analysis",
+            symbols={},
             columns={
                 "exchange_price": data["mempool_price"],
                 "utxoracle_price": data["utxoracle_price"],
@@ -1120,8 +1121,8 @@ def save_to_questdb(data: Dict) -> None:
                 "created_at": datetime.now(),
             },
             at=datetime.fromisoformat(data["timestamp"]),
+            flush=True
         )
-        repo.sender.flush()
         logging.info("Data saved to QuestDB")
     except Exception as e:
         logging.error(f"Failed to save data to QuestDB: {e}")

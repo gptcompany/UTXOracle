@@ -125,12 +125,12 @@ class TestPriceComparison:
         assert result["diff_amount"] is None or result["diff_percent"] is None
 
 
-class TestDuckDBSave:
-    """T037: Test saving data to DuckDB"""
+class TestQuestDBSave:
+    """T037: Test saving data to QuestDB"""
 
-    def test_save_to_duckdb(self):
-        """Should insert price comparison data into DuckDB"""
-        from scripts.daily_analysis import save_to_duckdb
+    def test_save_to_questdb(self):
+        """Should insert price comparison data into QuestDB"""
+        from scripts.daily_analysis import save_to_questdb
 
         # Mock data
         data = {
@@ -144,32 +144,16 @@ class TestDuckDBSave:
             "is_valid": True,
         }
 
-        # Use in-memory DuckDB for testing
-        with patch("scripts.daily_analysis.duckdb.connect") as mock_connect:
-            mock_conn = Mock()
-            mock_connect.return_value.__enter__.return_value = mock_conn
-
-            save_to_duckdb(data, ":memory:", "/tmp/backup.db")
-
-            # Should execute INSERT statement
-            assert mock_conn.execute.called
-            call_args = mock_conn.execute.call_args[0][0]
-            assert "INSERT" in call_args and "price_analysis" in call_args
-
-    def test_save_to_duckdb_creates_table_if_not_exists(self):
-        """Should auto-create table schema on first run"""
-        from scripts.daily_analysis import init_database
-
-        with patch("scripts.daily_analysis.duckdb.connect") as mock_connect:
-            mock_conn = Mock()
-            mock_connect.return_value.__enter__.return_value = mock_conn
-
-            init_database(":memory:")
-
-            # Should execute CREATE TABLE IF NOT EXISTS
-            assert mock_conn.execute.called
-            call_args = mock_conn.execute.call_args[0][0]
-            assert "CREATE TABLE IF NOT EXISTS price_analysis" in call_args
+        with patch("scripts.daily_analysis.QuestDBRepository") as mock_repo_cls:
+            mock_repo = Mock()
+            mock_repo_cls.return_value = mock_repo
+            
+            save_to_questdb(data)
+            
+            assert mock_repo._send_row.called
+            call_args = mock_repo._send_row.call_args
+            assert call_args[0][0] == "price_analysis"
+            assert call_args[1]["flush"] is True
 
 
 # Summary comment for documentation

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import duckdb
 
-from api.main import _log_prices_historical_dual_read
+from api.routes.questdb import _log_prices_historical_dual_read
 
 
 def _create_price_analysis_duckdb(db_path: Path) -> None:
