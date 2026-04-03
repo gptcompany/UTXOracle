@@ -47,9 +47,9 @@
 
 ## Phase 4: Optional Metadata Endpoint
 
-- [ ] T014 [E] Define response schema for `GET /api/meta/features`
-- [ ] T015 Implement metadata endpoint derived from the manifest
-- [ ] T016 Add tests proving manifest-backed metadata output is stable
+- [x] T014 [E] Define response schema for `GET /api/meta/features`
+- [x] T015 Implement metadata endpoint derived from the manifest
+- [x] T016 Add tests proving manifest-backed metadata output is stable
 
 **Checkpoint**: provenance becomes queryable without reading the repo.
 

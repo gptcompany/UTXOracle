@@ -22,6 +22,7 @@ from api.routes.live import (
 )
 from api.routes.questdb import router as questdb_router
 from api.mempool_whale_endpoints import router as whale_router
+from api.routes.meta import router as meta_router
 from api.questdb_repository import QuestDBRepository
 from scripts.live.storage import LiveSnapshotStore
 
@@ -120,6 +121,7 @@ def create_app() -> FastAPI:
     app.include_router(charts_router, prefix="/api/v1")
     app.include_router(questdb_router)
     app.include_router(whale_router)
+    app.include_router(meta_router)
 
     @app.get("/charts/{chart_id}", include_in_schema=False)
     async def chart_page(chart_id: str) -> FileResponse:
@@ -169,6 +171,5 @@ def create_app() -> FastAPI:
         )
 
     return app
-
 
 app = create_app()
