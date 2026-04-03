@@ -47,62 +47,28 @@ def mock_questdb_repo():
             "low_confidence": False,
         }
     )
+    
+    # Address Cohorts: 3 cohorts required
     mock.get_address_cohorts_latest = AsyncMock(
         return_value=[
-            {
-                "ts": datetime(2026, 4, 2, 12, 0, tzinfo=timezone.utc),
-                "cohort": "whale",
-                "cost_basis": 45000.0,
-                "supply_btc": 5000000.0,
-                "supply_pct": 25.0,
-                "mvrv": 1.8,
-                "address_count": 2500,
-                "block_height": 840000,
-                "current_price_usd": 85000.0,
-                "whale_retail_spread": -5000.0,
-                "whale_retail_mvrv_ratio": 1.2,
-                "total_supply_btc": 19700000.0,
-                "total_addresses": 50000000,
-            }
+            {"block_height": 840000, "cohort": c, "ts": datetime.now(), "cost_basis": 45000.0, "supply_btc": 1.0, "supply_pct": 1.0, "mvrv": 1.0, "address_count": 1, "current_price_usd": 85000.0, "whale_retail_spread": 1.0, "whale_retail_mvrv_ratio": 1.0, "total_supply_btc": 1.0, "total_addresses": 1}
+            for c in ["retail", "mid_tier", "whale"]
         ]
     )
+    
+    # Wallet Waves: 6 bands required
     mock.get_wallet_waves_latest = AsyncMock(
         return_value=[
-            {
-                "ts": datetime(2026, 4, 2, 12, 0, tzinfo=timezone.utc),
-                "band": "shrimp",
-                "supply_btc": 1000000.0,
-                "supply_pct": 5.0,
-                "address_count": 40000000,
-                "avg_balance": 0.025,
-                "block_height": 840000,
-                "total_supply_btc": 19700000.0,
-                "retail_supply_pct": 15.0,
-                "institutional_supply_pct": 85.0,
-                "address_count_total": 50000000,
-                "null_address_btc": 500.0,
-                "confidence": 0.95,
-            }
+            {"block_height": 840000, "band": b, "ts": datetime.now(), "supply_btc": 1.0, "supply_pct": 1.0, "address_count": 1, "avg_balance": 1.0, "total_supply_btc": 1.0, "retail_supply_pct": 1.0, "institutional_supply_pct": 1.0, "address_count_total": 1, "null_address_btc": 1.0, "confidence": 1.0}
+            for b in ["shrimp", "crab", "fish", "shark", "whale", "humpback"]
         ]
     )
+    
+    # Absorption Rates: 6 bands required
     mock.get_absorption_rates_latest = AsyncMock(
         return_value=[
-            {
-                "ts": datetime(2026, 4, 2, 12, 0, tzinfo=timezone.utc),
-                "band": "crab",
-                "absorption_rate": 0.45,
-                "supply_delta_btc": 500.0,
-                "supply_start_btc": 150000.0,
-                "supply_end_btc": 150500.0,
-                "block_height": 840000,
-                "window_days": 30,
-                "mined_supply_btc": 13500.0,
-                "dominant_absorber": "whale",
-                "retail_absorption": 0.15,
-                "institutional_absorption": 0.85,
-                "confidence": 0.9,
-                "has_historical_data": True,
-            }
+            {"block_height": 840000, "band": b, "ts": datetime.now(), "absorption_rate": 0.45, "supply_delta_btc": 1.0, "supply_start_btc": 1.0, "supply_end_btc": 1.0, "window_days": 30, "mined_supply_btc": 1.0, "dominant_absorber": "whale", "retail_absorption": 1.0, "institutional_absorption": 1.0, "confidence": 1.0, "has_historical_data": True}
+            for b in ["shrimp", "crab", "fish", "shark", "whale", "humpback"]
         ]
     )
     return mock
@@ -142,8 +108,8 @@ def test_wave1_wallet_waves_promotion_8011(mock_questdb_repo):
     response = client.get("/api/metrics/wallet-waves")
     assert response.status_code == 200
     payload = response.json()
-    assert len(payload["bands"]) > 0
-    assert payload["bands"][0]["band"] == "shrimp"
+    assert len(payload["bands"]) == 6
+    assert any(b["band"] == "shrimp" for b in payload["bands"])
 
 def test_wave1_absorption_rates_promotion_8011(mock_questdb_repo):
     """TEST: Wave 1 /api/metrics/absorption-rates should be available on 8011."""
@@ -157,13 +123,8 @@ def test_wave1_absorption_rates_promotion_8011(mock_questdb_repo):
 
 def test_whale_promotion_8011(mock_questdb_repo):
     """TEST: /api/whale/summary should be available on 8011."""
-    # Note: whale routes don't strictly use questdb_repo in the same way but 
-    # the endpoint requires the app to be set up.
     client = TestClient(live_app)
     response = client.get("/api/whale/summary")
-    # If it's registered, it will try to hit DuckDB or QuestDB
-    # We just want to see it's NOT a 404. 
-    # Since we didn't mock the internal whale logic, it might 500, but not 404.
     assert response.status_code != 404
 
 def test_duckdb_metrics_stay_off_8011(mock_questdb_repo):
@@ -183,3 +144,23 @@ def test_8001_migration_headers_wave1(mock_questdb_repo):
         assert response.status_code != 404
         assert response.headers.get("X-UTXOracle-Migration-Hint") == "Canonical production host is :8011"
         assert response.headers.get("Deprecation") == "true"
+
+def test_8011_inconsistent_snapshot_fail(mock_questdb_repo):
+    """TEST: 8011 should return 503 if the snapshot is inconsistent (Frankenstein)."""
+    # Mock returns inconsistent heights for address cohorts (2 rows at H1, 1 at H2)
+    mock_questdb_repo.get_address_cohorts_latest = AsyncMock(
+        return_value=[
+            {"block_height": 840000, "cohort": "whale", "ts": datetime.now(), "cost_basis": 1.0, "supply_btc": 1.0, "supply_pct": 1.0, "mvrv": 1.0, "address_count": 1, "current_price_usd": 1.0, "whale_retail_spread": 1.0, "whale_retail_mvrv_ratio": 1.0, "total_supply_btc": 1.0, "total_addresses": 1},
+            {"block_height": 840000, "cohort": "mid_tier", "ts": datetime.now(), "cost_basis": 1.0, "supply_btc": 1.0, "supply_pct": 1.0, "mvrv": 1.0, "address_count": 1, "current_price_usd": 1.0, "whale_retail_spread": 1.0, "whale_retail_mvrv_ratio": 1.0, "total_supply_btc": 1.0, "total_addresses": 1},
+            {"block_height": 839999, "cohort": "retail", "ts": datetime.now(), "cost_basis": 1.0, "supply_btc": 1.0, "supply_pct": 1.0, "mvrv": 1.0, "address_count": 1, "current_price_usd": 1.0, "whale_retail_spread": 1.0, "whale_retail_mvrv_ratio": 1.0, "total_supply_btc": 1.0, "total_addresses": 1},
+        ]
+    )
+    
+    live_app.state.questdb_repo = mock_questdb_repo
+    client = TestClient(live_app)
+    response = client.get("/api/metrics/address-cohorts")
+    
+    # After hardening, it picks max height (840000) which only has 2 cohorts.
+    # It fails because 2 < 3.
+    assert response.status_code == 503
+    assert "Inconsistent snapshot detected" in response.json()["detail"]

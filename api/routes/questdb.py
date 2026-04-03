@@ -290,14 +290,31 @@ async def get_address_cohorts(
 ):
     """
     Get latest address balance cohorts (spec-039).
-    Now served from QuestDB materialization.
+    Now served from QuestDB materialization with block-consistency check.
     """
     try:
         rows = await repo.get_address_cohorts_latest()
         if not rows:
             raise HTTPException(status_code=404, detail="No address cohort data found")
 
-        # Map rows to response (flattened rows to grouped response)
+        # Hardening: Ensure all cohorts belong to the same block height (Atomicity)
+        heights = {row["block_height"] for row in rows}
+        if len(heights) > 1:
+            # We have an inconsistent snapshot. 
+            # Strategy: pick the max height and see if it's complete, 
+            # otherwise fail to avoid serving Frankenstein data.
+            max_height = max(heights)
+            rows = [row for row in rows if row["block_height"] == max_height]
+            
+        # For address cohorts we expect exactly 3: retail, mid_tier, whale
+        if len(rows) < 3:
+            logging.error(f"Inconsistent address cohorts snapshot: expected 3 cohorts, got {len(rows)} at heights {heights}")
+            raise HTTPException(
+                status_code=503, 
+                detail="Inconsistent snapshot detected. Materialization job may be partial."
+            )
+
+        # Map rows to response
         first = rows[0]
         cohorts = {}
         for row in rows:
@@ -337,12 +354,25 @@ async def get_wallet_waves(
 ):
     """
     Get latest wallet waves distribution (spec-025).
-    Now served from QuestDB materialization.
+    Now served from QuestDB materialization with block-consistency check.
     """
     try:
         rows = await repo.get_wallet_waves_latest()
         if not rows:
             raise HTTPException(status_code=404, detail="No wallet waves data found")
+
+        # Hardening: Atomicity check
+        heights = {row["block_height"] for row in rows}
+        if len(heights) > 1:
+            max_height = max(heights)
+            rows = [row for row in rows if row["block_height"] == max_height]
+
+        if len(rows) < 6:
+            logging.error(f"Inconsistent wallet waves snapshot: expected 6 bands, got {len(rows)} at heights {heights}")
+            raise HTTPException(
+                status_code=503,
+                detail="Inconsistent snapshot detected. Materialization job may be partial."
+            )
 
         first = rows[0]
         bands = [
@@ -385,12 +415,25 @@ async def get_absorption_rates(
 ):
     """
     Get latest absorption rates (spec-025).
-    Now served from QuestDB materialization.
+    Now served from QuestDB materialization with block-consistency check.
     """
     try:
         rows = await repo.get_absorption_rates_latest(window_days)
         if not rows:
             raise HTTPException(status_code=404, detail="No absorption data found for window")
+
+        # Hardening: Atomicity check
+        heights = {row["block_height"] for row in rows}
+        if len(heights) > 1:
+            max_height = max(heights)
+            rows = [row for row in rows if row["block_height"] == max_height]
+
+        if len(rows) < 6:
+            logging.error(f"Inconsistent absorption snapshot: expected 6 bands, got {len(rows)} at heights {heights}")
+            raise HTTPException(
+                status_code=503,
+                detail="Inconsistent snapshot detected. Materialization job may be partial."
+            )
 
         first = rows[0]
         bands = [
