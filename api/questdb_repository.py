@@ -359,7 +359,8 @@ async def create_tables_if_not_exist():
                 ts TIMESTAMP,
                 last_seen TIMESTAMP,
                 is_exchange_likely BOOLEAN,
-                label SYMBOL
+                label SYMBOL,
+                confidence DOUBLE
             ) timestamp(ts) PARTITION BY YEAR;
             """
         )
@@ -808,6 +809,47 @@ class QuestDBRepository:
             )
             if not row_success:
                 success = False
+        return success
+
+    async def save_address_clusters_bulk(self, rows: List[Dict[str, Any]]) -> bool:
+        """
+        Truncate and load address clusters via PostgreSQL wire and ILP.
+        Requires full refresh to avoid duplicate snapshots.
+        """
+        try:
+            # 1. Truncate existing table over PG pool
+            await self.execute("TRUNCATE TABLE address_clusters")
+            logger.info("Truncated address_clusters table in QuestDB.")
+        except Exception as e:
+            logger.error(f"Failed to truncate address_clusters before bulk load: {e}")
+            return False
+
+        # 2. Bulk load via ILP
+        success = True
+        for row in rows:
+            # first_seen acts as designated timestamp (ts)
+            ts = row.get("first_seen") or datetime.utcnow()
+            
+            # Only pass symbols if they have a value (to avoid creating empty symbols)
+            symbols = {}
+            if row.get("label"):
+                symbols["label"] = str(row["label"])
+                
+            row_success = self._send_row(
+                "address_clusters",
+                symbols=symbols,
+                columns={
+                    "address": str(row["address"]),
+                    "cluster_id": str(row["cluster_id"]),
+                    "last_seen": row.get("last_seen"),
+                    "is_exchange_likely": bool(row.get("is_exchange_likely", False)),
+                    "confidence": float(row.get("confidence", 0.6))
+                },
+                at=ts
+            )
+            if not row_success:
+                success = False
+
         return success
 
     def save_address_cohorts(self, result: AddressCohortsResult) -> bool:

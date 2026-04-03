@@ -5,16 +5,149 @@ Add global fixtures here that are used across multiple test modules.
 """
 
 import os
+from datetime import datetime, timezone
+from unittest.mock import AsyncMock, MagicMock
 
 import duckdb
 import pytest
 from fastapi.testclient import TestClient
+
+from api.questdb_repository import QuestDBRepository
 
 # Register plugins for fixtures from separate files (spec-016)
 pytest_plugins = ["tests.fixtures.sopr_fixtures"]
 
 if not os.getenv("JWT_SECRET"):
     os.environ["JWT_SECRET"] = "test-secret"
+
+
+@pytest.fixture
+def questdb_repo_mock(monkeypatch):
+    """Shared QuestDB repository mock for FastAPI lifespan."""
+    # Import here to avoid circular imports at module load time
+    import api.main
+    from api.apps import live as live_app
+
+    mock = MagicMock(spec=QuestDBRepository)
+    mock.initialize = AsyncMock()
+    mock.close = AsyncMock()
+
+    ts = datetime(2026, 4, 2, 12, 0, tzinfo=timezone.utc)
+
+    mock.get_latest_price_analysis = AsyncMock(
+        return_value={
+            "ts": ts,
+            "utxoracle_price": 85000.0,
+            "exchange_price": 85100.0,
+            "confidence": 0.92,
+            "tx_count": 1800,
+            "price_difference": -100.0,
+            "avg_pct_diff": -0.12,
+            "is_valid": True,
+        }
+    )
+
+    mock.get_latest_metrics = AsyncMock(
+        return_value={
+            "ts": ts,
+            "signal_mean": 0.15,
+            "signal_std": 0.05,
+            "ci_lower": 0.05,
+            "ci_upper": 0.25,
+            "action": "BUY",
+            "action_confidence": 0.85,
+            "n_samples": 1000,
+            "distribution_type": "unimodal",
+            "block_height": 840000,
+            "active_addresses_block": 15000,
+            "active_addresses_24h": 850000,
+            "unique_senders": 8000,
+            "unique_receivers": 7000,
+            "is_anomaly": False,
+            "tx_count": 450000,
+            "tx_volume_btc": 12000.5,
+            "tx_volume_usd": 1_020_042_500.0,
+            "utxoracle_price_used": 85000.0,
+            "low_confidence": False,
+        }
+    )
+
+    cohorts = []
+    for cohort, supply, pct in [
+        ("retail", 5.0, 0.25),
+        ("mid_tier", 65.0, 3.0),
+        ("whale", 1700.0, 80.0),
+    ]:
+        cohorts.append(
+            {
+                "block_height": 840000,
+                "cohort": cohort,
+                "ts": ts,
+                "cost_basis": 45000.0,
+                "supply_btc": supply,
+                "supply_pct": pct,
+                "mvrv": 1.0,
+                "address_count": 1,
+                "current_price_usd": 85000.0,
+                "whale_retail_spread": 1.0,
+                "whale_retail_mvrv_ratio": 1.0,
+                "total_supply_btc": 1770.0,
+                "total_addresses": 3,
+            }
+        )
+
+    wallet_bands = []
+    for band, block_height in zip(
+        ["shrimp", "crab", "fish", "shark", "whale", "humpback"],
+        [10000, 10000, 10000, 10000, 10000, 10000],
+    ):
+        wallet_bands.append(
+            {
+                "block_height": block_height,
+                "band": band,
+                "ts": ts,
+                "supply_btc": 1.0,
+                "supply_pct": 1.0,
+                "address_count": 1,
+                "avg_balance": 1.0,
+                "total_supply_btc": 6.0,
+                "retail_supply_pct": 50.0,
+                "institutional_supply_pct": 50.0,
+                "address_count_total": 6,
+                "null_address_btc": 0.0,
+                "confidence": 0.9,
+            }
+        )
+
+    absorption_bands = []
+    for band in ["shrimp", "crab", "fish", "shark", "whale", "humpback"]:
+        absorption_bands.append(
+            {
+                "block_height": 840000,
+                "band": band,
+                "ts": ts,
+                "absorption_rate": 0.45,
+                "supply_delta_btc": 1.0,
+                "supply_start_btc": 0.5,
+                "supply_end_btc": 1.5,
+                "window_days": 30,
+                "mined_supply_btc": 10.0,
+                "dominant_absorber": "whale",
+                "retail_absorption": 0.5,
+                "institutional_absorption": 0.5,
+                "confidence": 0.9,
+                "has_historical_data": True,
+            }
+        )
+
+    mock.get_address_cohorts_latest = AsyncMock(return_value=cohorts)
+    mock.get_wallet_waves_latest = AsyncMock(return_value=wallet_bands)
+    mock.get_absorption_rates_latest = AsyncMock(return_value=absorption_bands)
+
+    monkeypatch.setattr(api.main, "QuestDBRepository", lambda: mock)
+    monkeypatch.setattr(live_app, "QuestDBRepository", lambda: mock)
+
+    return mock
 
 
 @pytest.fixture
@@ -149,7 +282,7 @@ def wave1_low_history_duckdb_path(tmp_path):
 
 
 @pytest.fixture
-def wave1_client(monkeypatch, wave1_duckdb_path):
+def wave1_client(monkeypatch, wave1_duckdb_path, questdb_repo_mock):
     """FastAPI client bound to the Wave 1 DuckDB fixture."""
     from api.main import app
     import api.main
@@ -157,6 +290,7 @@ def wave1_client(monkeypatch, wave1_duckdb_path):
     monkeypatch.setattr(api.main, "UTXO_DB_PATH", str(wave1_duckdb_path))
 
     test_client = TestClient(app)
+    test_client.app.state.questdb_repo = questdb_repo_mock
     yield test_client
     test_client.close()
 

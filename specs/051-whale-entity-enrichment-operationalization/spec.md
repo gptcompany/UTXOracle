@@ -1,9 +1,10 @@
 # spec-051: Whale Entity Enrichment Operationalization
 
-> **Status**: PROPOSED
+> **Status**: CLOSED
 > **Priority**: HIGH
 > **Effort**: Medium
 > **Created**: 2026-04-03
+> **Closed**: 2026-04-03
 
 ## Problem Statement
 

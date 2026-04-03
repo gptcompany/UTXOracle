@@ -56,6 +56,9 @@ python3 scripts/daily_analysis.py --verbose
 
 # Run whale monitor manually
 python3 scripts/mempool_whale_monitor.py
+
+# Sync address clusters from DuckDB to QuestDB (spec-051)
+python3 scripts/bootstrap/sync_clusters_to_questdb.py --batch-size 100000
 ```
 
 ---

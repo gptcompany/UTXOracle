@@ -600,6 +600,11 @@ def main():
         action="store_true",
         help="Enable verbose logging",
     )
+    parser.add_argument(
+        "--sync-questdb",
+        action="store_true",
+        help="Publish the clustering snapshot to QuestDB serving plane after completion",
+    )
 
     args = parser.parse_args()
 
@@ -643,6 +648,32 @@ def main():
         workers=args.workers,
         checkpoint_interval=args.checkpoint_interval,
     )
+
+    if args.sync_questdb:
+        print("\n" + "=" * 70)
+        print("SYNCING CLUSTERS TO QUESTDB SERVING PLANE")
+        print("=" * 70)
+        try:
+            import asyncio
+            from scripts.bootstrap.sync_clusters_to_questdb import sync_clusters
+            from api.questdb_repository import QuestDBRepository
+            
+            async def run_sync():
+                repo = QuestDBRepository()
+                await repo.initialize()
+                conn = duckdb.connect(args.utxo_db_path, read_only=True)
+                try:
+                    await sync_clusters(repo, conn, batch_size=100000)
+                finally:
+                    conn.close()
+                    await repo.close()
+                    
+            asyncio.run(run_sync())
+            print("  ✅ QuestDB sync completed successfully.")
+        except Exception as e:
+            logger.error(f"Failed to sync clusters to QuestDB: {e}")
+            print(f"  ❌ QuestDB sync failed: {e}")
+            print("  ⚠️  DuckDB analytical plane remains the source of truth.")
 
     print("\n" + "=" * 70)
     print("COMBINED BOOTSTRAP COMPLETE")

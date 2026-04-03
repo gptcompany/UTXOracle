@@ -63,9 +63,9 @@
 
 - [x] T019 [E] For each surviving route, map the QuestDB source table and writer/backfill owner
 - [ ] T020 Implement or repair QuestDB ingestion for retained price comparison endpoints
-- [ ] T021 Implement or repair QuestDB ingestion for retained whale endpoints
-- [ ] T022 Implement or repair QuestDB ingestion for retained operational metric endpoints
-- [ ] T023 Define historical backfill requirements and fill historical gaps for all retained route families
+- [x] T021 Implement or repair QuestDB ingestion for retained whale endpoints
+- [x] T022 Implement or repair QuestDB ingestion for retained operational metric endpoints
+- [x] T023 Define historical backfill requirements and fill historical gaps for all retained route families
 - [ ] T024 Tune QuestDB connection-pool and concurrency settings for concurrent API/chart/trading reads
 - [x] T025 Remove DuckDB reads from all retained production routes
 - [x] T026 Add empty-state and stale-state semantics for every retained production dataset

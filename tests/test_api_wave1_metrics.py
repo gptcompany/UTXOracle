@@ -1,7 +1,9 @@
 from fastapi.testclient import TestClient
+from unittest.mock import AsyncMock
 
 
-def test_wallet_waves_endpoint_returns_current_distribution(wave1_client):
+def test_wallet_waves_endpoint_returns_current_distribution(wave1_client, questdb_repo_mock):
+    wave1_client.app.state.questdb_repo = questdb_repo_mock
     response = wave1_client.get("/api/metrics/wallet-waves")
 
     assert response.status_code == 200
@@ -13,14 +15,16 @@ def test_wallet_waves_endpoint_returns_current_distribution(wave1_client):
     assert 0.0 <= data["confidence"] <= 1.0
 
 
-def test_wallet_waves_history_is_explicitly_unavailable(wave1_client):
+def test_wallet_waves_history_is_explicitly_unavailable(wave1_client, questdb_repo_mock):
+    wave1_client.app.state.questdb_repo = questdb_repo_mock
     response = wave1_client.get("/api/metrics/wallet-waves/history?days=30")
 
-    assert response.status_code == 503
-    assert "not materialized" in response.json()["detail"]
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Not Found"
 
 
-def test_absorption_rates_uses_real_historical_baseline(wave1_client):
+def test_absorption_rates_uses_real_historical_baseline(wave1_client, questdb_repo_mock):
+    wave1_client.app.state.questdb_repo = questdb_repo_mock
     response = wave1_client.get("/api/metrics/absorption-rates?window=30d")
 
     assert response.status_code == 200
@@ -32,8 +36,15 @@ def test_absorption_rates_uses_real_historical_baseline(wave1_client):
 
 
 def test_absorption_rates_reports_insufficient_history_explicitly(
-    wave1_low_history_client,
+    wave1_low_history_client, questdb_repo_mock
 ):
+    wave1_low_history_client.app.state.questdb_repo = questdb_repo_mock
+
+    empty_rows = []
+    for row in questdb_repo_mock.get_absorption_rates_latest.return_value:
+        empty_rows.append({**row, "absorption_rate": None, "has_historical_data": False, "confidence": 0.4})
+    questdb_repo_mock.get_absorption_rates_latest = AsyncMock(return_value=empty_rows)
+
     response = wave1_low_history_client.get("/api/metrics/absorption-rates?window=30d")
 
     assert response.status_code == 200

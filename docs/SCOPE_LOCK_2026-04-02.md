@@ -36,7 +36,7 @@ The active engineering slice is:
 1. `spec-050` canonical `8011` promotion (**COMPLETE 2026-04-02**)
 2. `spec-046` Phase 4 history/materialization debt (**COMPLETE 2026-04-02**)
 3. validator and drift-check automation for `spec-044` and `spec-045` (**COMPLETE 2026-04-02**)
-4. `spec-051` whale entity enrichment operationalization (bridging DuckDB clustering to QuestDB serving)
+4. `spec-051` whale entity enrichment operationalization (**COMPLETE 2026-04-03**)
 
 Concrete next tasks:
 
@@ -44,8 +44,8 @@ Concrete next tasks:
 - define writer/backfill workflow for `absorption-rates` (**DONE**)
 - add YAML/markdown consistency validation for the feature contract registry (**DONE**)
 - add drift validation for the feature provenance manifest (**DONE**)
-- implement DuckDB-to-QuestDB synchronization script for `address_clusters`
-- update clustering pipeline to run synchronization automatically
+- implement DuckDB-to-QuestDB synchronization script for `address_clusters` (**DONE**)
+- update clustering pipeline to run synchronization automatically (**DONE**)
 - keep route-family promotion decisions aligned with [docs/PRODUCTION_SURFACE_DISPOSITION_2026-04-02.md](/media/sam/1TB/UTXOracle/docs/PRODUCTION_SURFACE_DISPOSITION_2026-04-02.md)
 
 ## 3. Explicit No-Go Work

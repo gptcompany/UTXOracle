@@ -632,6 +632,15 @@ def save_clusters_bulk(
 
 def main():
     """Run ultra-fast clustering pipeline."""
+    import argparse
+    parser = argparse.ArgumentParser(description="Ultra-fast Address Clustering (v3)")
+    parser.add_argument(
+        "--sync-questdb",
+        action="store_true",
+        help="Publish the clustering snapshot to QuestDB serving plane after completion",
+    )
+    args = parser.parse_args()
+
     print("\n" + "=" * 70)
     print("ULTRA-FAST CLUSTERING (v3)")
     print("=" * 70)
@@ -668,6 +677,34 @@ def main():
 
     # Phase 3: Save to database
     saved = save_clusters_bulk(uf, addr_to_int, UTXO_DB_PATH)
+
+    # Phase 4: Sync to QuestDB (Optional Operationalization)
+    if args.sync_questdb:
+        print("\n" + "=" * 70)
+        print("SYNCING CLUSTERS TO QUESTDB SERVING PLANE")
+        print("=" * 70)
+        try:
+            import asyncio
+            import duckdb
+            from scripts.bootstrap.sync_clusters_to_questdb import sync_clusters
+            from api.questdb_repository import QuestDBRepository
+            
+            async def run_sync():
+                repo = QuestDBRepository()
+                await repo.initialize()
+                conn = duckdb.connect(str(UTXO_DB_PATH), read_only=True)
+                try:
+                    await sync_clusters(repo, conn, batch_size=100000)
+                finally:
+                    conn.close()
+                    await repo.close()
+                    
+            asyncio.run(run_sync())
+            print("  ✅ QuestDB sync completed successfully.")
+        except Exception as e:
+            logger.error(f"Failed to sync clusters to QuestDB: {e}")
+            print(f"  ❌ QuestDB sync failed: {e}")
+            print("  ⚠️  DuckDB analytical plane remains the source of truth.")
 
     # Summary
     duration = time.time() - start_time

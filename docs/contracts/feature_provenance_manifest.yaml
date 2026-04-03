@@ -147,7 +147,7 @@ entries:
       - "QUESTDB_PG_USER"
       - "QUESTDB_PG_PASSWORD"
       - "QUESTDB_PG_DATABASE"
-    writer_owner: "mempool whale monitor / prediction writer + optional clustering bootstrap"
+    writer_owner: "mempool whale monitor / prediction writer + scripts.bootstrap.sync_clusters_to_questdb (entity enrichment)"
     read_path_owner: "api.mempool_whale_endpoints"
     freshness_source: "Newest row in mempool_predictions.ts with optional point-in-time address_clusters reads for entity enrichment"
     failure_mode:
