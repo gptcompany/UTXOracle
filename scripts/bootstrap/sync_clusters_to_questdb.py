@@ -143,6 +143,7 @@ async def sync_clusters(
                     r["address"],
                     r["cluster_id"],
                 )
+                repo.abort_ingestion()
                 return False
 
         total_synced += len(rows_to_insert)

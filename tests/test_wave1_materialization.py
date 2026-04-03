@@ -88,6 +88,7 @@ async def test_materialize_daily_snapshot_returns_false_on_partial_write_failure
     """The orchestration layer must fail if any QuestDB write returns False."""
     repo = MagicMock()
     repo.get_latest_price_analysis = AsyncMock(return_value={"utxoracle_price": 85000.0})
+    repo.abort_ingestion = MagicMock()
     repo.save_wallet_waves.return_value = True
     repo.save_absorption_rates.return_value = False
     repo.save_address_cohorts.return_value = True
@@ -120,4 +121,5 @@ async def test_materialize_daily_snapshot_returns_false_on_partial_write_failure
     assert success is False
     repo.save_wallet_waves.assert_called_once_with(wallet_waves)
     repo.save_absorption_rates.assert_called_once_with(absorption)
-    repo.save_address_cohorts.assert_called_once_with(address_cohorts)
+    repo.save_address_cohorts.assert_not_called()
+    repo.abort_ingestion.assert_called_once()

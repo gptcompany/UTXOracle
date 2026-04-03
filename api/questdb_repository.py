@@ -491,6 +491,7 @@ class QuestDBRepository:
         self._last_flush_time = time.time()
         self._flush_batch_size = 100
         self._flush_interval_seconds = 5.0
+        self._ingestion_aborted = False
 
     def _build_sender(self):
         if Sender is None:
@@ -542,11 +543,17 @@ class QuestDBRepository:
 
     async def close(self):
         """Closes the connection pool and flushes pending data."""
-        # Flush ILP sender before closing
-        try:
-            await self.async_flush_ingestion()
-        except Exception as e:
-            logger.error(f"Error flushing ILP sender on shutdown: {e}")
+        if not self._ingestion_aborted:
+            # Flush ILP sender before closing
+            try:
+                await self.async_flush_ingestion()
+            except Exception as e:
+                logger.error(f"Error flushing ILP sender on shutdown: {e}")
+        elif self._unflushed_rows > 0:
+            logger.warning(
+                "Skipping QuestDB ILP flush on shutdown because ingestion was aborted; dropping %s buffered rows",
+                self._unflushed_rows,
+            )
 
         if self.sender is not None:
             try:
@@ -564,6 +571,25 @@ class QuestDBRepository:
             finally:
                 QuestDBRepository._pool = None
 
+    def abort_ingestion(self) -> None:
+        """Drop any buffered ILP rows and prevent future flush on close."""
+        dropped_rows = self._unflushed_rows
+        self._ingestion_aborted = True
+        self._unflushed_rows = 0
+
+        if self.sender is not None:
+            try:
+                self.sender.close()
+            except Exception as e:
+                logger.error(f"Error closing QuestDB sender during abort: {e}")
+            finally:
+                self.sender = None
+
+        logger.warning(
+            "QuestDB ILP ingestion aborted; dropped %s buffered rows and disabled shutdown flush",
+            dropped_rows,
+        )
+
     # --- Write Path (ILP Ingestion) ---
 
     def _send_row(self, table: str, symbols: Dict[str, Any], columns: Dict[str, Any], at: Optional[Union[datetime, int]] = None, flush: bool = False):
@@ -572,6 +598,12 @@ class QuestDBRepository:
         Performance optimization: flush is False by default to allow buffering, but an automatic flush is triggered if batch size or time interval is exceeded.
         """
         import time
+        if self._ingestion_aborted:
+            logger.error(
+                "ILP ingestion is aborted; refusing to queue new row for table %s",
+                table,
+            )
+            return False
         try:
             try:
                 sender = self._ensure_sender()
@@ -603,6 +635,9 @@ class QuestDBRepository:
     def flush_ingestion(self):
         """Explicitly flush buffered ILP data."""
         import time
+        if self._ingestion_aborted:
+            logger.warning("Skipping QuestDB sender flush because ingestion was aborted")
+            return False
         try:
             if self._unflushed_rows > 0:
                 sender = self._ensure_sender()

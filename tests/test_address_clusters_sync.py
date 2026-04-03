@@ -11,6 +11,7 @@ def mock_repo():
     repo._send_row = MagicMock(return_value=True)
     repo.execute = AsyncMock(return_value="TRUNCATE")
     repo.async_flush_ingestion = AsyncMock()
+    repo.abort_ingestion = MagicMock()
     return repo
 
 @pytest.fixture
@@ -92,3 +93,4 @@ async def test_sync_clusters_returns_false_on_ilp_failure(mock_repo, test_db):
 
     assert success is False
     mock_repo.execute.assert_called_once_with("TRUNCATE TABLE address_clusters")
+    mock_repo.abort_ingestion.assert_called_once()

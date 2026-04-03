@@ -11,6 +11,7 @@ class _FakeSender:
         self.established = 0
         self.rows: list[tuple[str, dict, dict, object]] = []
         self.flushed = 0
+        self.closed = 0
 
     def establish(self):
         self.established += 1
@@ -22,6 +23,9 @@ class _FakeSender:
 
     def flush(self):
         self.flushed += 1
+
+    def close(self):
+        self.closed += 1
 
 
 def test_send_row_recreates_closed_sender_and_retries(monkeypatch):
@@ -88,3 +92,21 @@ def test_async_send_row_uses_sync_sender_without_executor(monkeypatch):
     assert calls == [
         ("live_snapshots", {"schema_version": "v1"}, {"block_height": 1}, None, False)
     ]
+
+
+def test_abort_ingestion_drops_buffer_and_prevents_flush_on_close():
+    repo = QuestDBRepository()
+    sender = _FakeSender()
+    repo.sender = sender
+    repo._unflushed_rows = 3
+
+    repo.abort_ingestion()
+
+    assert repo._ingestion_aborted is True
+    assert repo._unflushed_rows == 0
+    assert repo.sender is None
+    assert sender.closed == 1
+    assert repo.flush_ingestion() is False
+
+    asyncio.run(repo.close())
+    assert sender.flushed == 0
