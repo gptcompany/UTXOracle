@@ -147,7 +147,21 @@ def questdb_repo_mock(monkeypatch):
     monkeypatch.setattr(api.main, "QuestDBRepository", lambda: mock)
     monkeypatch.setattr(live_app, "QuestDBRepository", lambda: mock)
 
-    return mock
+    main_previous = getattr(api.main.app.state, "questdb_repo", None)
+    live_previous = getattr(live_app.app.state, "questdb_repo", None)
+
+    try:
+        yield mock
+    finally:
+        if main_previous is None and hasattr(api.main.app.state, "questdb_repo"):
+            delattr(api.main.app.state, "questdb_repo")
+        elif main_previous is not None:
+            api.main.app.state.questdb_repo = main_previous
+
+        if live_previous is None and hasattr(live_app.app.state, "questdb_repo"):
+            delattr(live_app.app.state, "questdb_repo")
+        elif live_previous is not None:
+            live_app.app.state.questdb_repo = live_previous
 
 
 @pytest.fixture
@@ -291,12 +305,18 @@ def wave1_client(monkeypatch, wave1_duckdb_path, questdb_repo_mock):
 
     test_client = TestClient(app)
     test_client.app.state.questdb_repo = questdb_repo_mock
-    yield test_client
-    test_client.close()
+    try:
+        yield test_client
+    finally:
+        if hasattr(test_client.app.state, "questdb_repo"):
+            delattr(test_client.app.state, "questdb_repo")
+        test_client.close()
 
 
 @pytest.fixture
-def wave1_low_history_client(monkeypatch, wave1_low_history_duckdb_path):
+def wave1_low_history_client(
+    monkeypatch, wave1_low_history_duckdb_path, questdb_repo_mock
+):
     """FastAPI client bound to a DuckDB fixture without enough history."""
     from api.main import app
     import api.main
@@ -304,8 +324,13 @@ def wave1_low_history_client(monkeypatch, wave1_low_history_duckdb_path):
     monkeypatch.setattr(api.main, "UTXO_DB_PATH", str(wave1_low_history_duckdb_path))
 
     test_client = TestClient(app)
-    yield test_client
-    test_client.close()
+    test_client.app.state.questdb_repo = questdb_repo_mock
+    try:
+        yield test_client
+    finally:
+        if hasattr(test_client.app.state, "questdb_repo"):
+            delattr(test_client.app.state, "questdb_repo")
+        test_client.close()
 
 
 @pytest.fixture

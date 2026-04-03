@@ -54,12 +54,10 @@ def test_absorption_rates_reports_insufficient_history_explicitly(
     assert data["confidence"] < 0.5
 
 
-def test_wave1_routes_return_503_when_utxo_db_is_missing(monkeypatch, tmp_path):
+def test_wave1_routes_return_503_when_questdb_repo_is_missing():
     from api.main import app
-    import api.main
-
-    missing_db = tmp_path / "missing-wave1.duckdb"
-    monkeypatch.setattr(api.main, "UTXO_DB_PATH", str(missing_db))
+    if hasattr(app.state, "questdb_repo"):
+        delattr(app.state, "questdb_repo")
 
     client = TestClient(app)
     try:
@@ -70,6 +68,6 @@ def test_wave1_routes_return_503_when_utxo_db_is_missing(monkeypatch, tmp_path):
         ]:
             response = client.get(path)
             assert response.status_code == 503
-            assert "UTXO lifecycle database not found" in response.json()["detail"]
+            assert response.json()["detail"] == "QuestDB repository unavailable. API startup may be incomplete."
     finally:
         client.close()

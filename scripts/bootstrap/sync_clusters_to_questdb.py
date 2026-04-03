@@ -10,12 +10,12 @@ Usage:
   python3 scripts/bootstrap/sync_clusters_to_questdb.py [--batch-size 100000]
 """
 
+import argparse
 import asyncio
 import logging
 import os
 import sys
-import argparse
-from typing import List, Dict, Any
+from typing import Any
 
 import duckdb
 
@@ -27,7 +27,39 @@ from api.questdb_repository import QuestDBRepository
 
 logger = setup_logging("sync_clusters")
 
-async def sync_clusters(repo: QuestDBRepository, conn: duckdb.DuckDBPyConnection, batch_size: int):
+
+def _build_duckdb_cluster_query(conn: duckdb.DuckDBPyConnection) -> str:
+    """Build a schema-tolerant SELECT for DuckDB address_clusters."""
+    columns = {
+        row[1] if len(row) > 1 else row[0]
+        for row in conn.execute("PRAGMA table_info('address_clusters')").fetchall()
+    }
+    required_columns = {"address", "cluster_id", "first_seen", "last_seen"}
+    missing_required = required_columns - columns
+    if missing_required:
+        missing = ", ".join(sorted(missing_required))
+        raise ValueError(f"DuckDB address_clusters missing required columns: {missing}")
+
+    select_parts = [
+        "address",
+        "cluster_id",
+        "first_seen",
+        "last_seen",
+        (
+            "is_exchange_likely"
+            if "is_exchange_likely" in columns
+            else "FALSE AS is_exchange_likely"
+        ),
+        ("label" if "label" in columns else "NULL AS label"),
+    ]
+    return f"SELECT {', '.join(select_parts)} FROM address_clusters"
+
+
+async def sync_clusters(
+    repo: QuestDBRepository,
+    conn: duckdb.DuckDBPyConnection,
+    batch_size: int,
+) -> bool:
     """
     Read all clusters from DuckDB and load them into QuestDB.
     Uses TRUNCATE + ILP for a clean, full-refresh snapshot.
@@ -47,7 +79,21 @@ async def sync_clusters(repo: QuestDBRepository, conn: duckdb.DuckDBPyConnection
         logger.error(f"Failed to query DuckDB address_clusters: {e}")
         return False
 
-    # 2. Truncate QuestDB table
+    try:
+        select_query = _build_duckdb_cluster_query(conn)
+    except Exception as e:
+        logger.error(f"Failed to inspect DuckDB address_clusters schema: {e}")
+        return False
+
+    # 2. Prepare DuckDB cursor before mutating QuestDB state
+    try:
+        cursor = conn.cursor()
+        cursor.execute(select_query)
+    except Exception as e:
+        logger.error(f"Failed to read DuckDB address_clusters: {e}")
+        return False
+
+    # 3. Truncate QuestDB table
     try:
         await repo.execute("TRUNCATE TABLE address_clusters")
         logger.info("Truncated QuestDB address_clusters table.")
@@ -55,15 +101,6 @@ async def sync_clusters(repo: QuestDBRepository, conn: duckdb.DuckDBPyConnection
         logger.error(f"Failed to truncate QuestDB table: {e}")
         return False
 
-    # 3. Read from DuckDB and insert in batches
-    # Use a cursor to fetch in chunks
-    cursor = conn.cursor()
-    # Ensure DuckDB schema matches our expectations (it may lack confidence, so we default it)
-    cursor.execute("""
-        SELECT address, cluster_id, first_seen, last_seen, is_exchange_likely, label 
-        FROM address_clusters
-    """)
-    
     total_synced = 0
     while True:
         batch = cursor.fetchmany(batch_size)
@@ -83,15 +120,12 @@ async def sync_clusters(repo: QuestDBRepository, conn: duckdb.DuckDBPyConnection
                 "confidence": 0.8 if row[5] else 0.6
             })
             
-        # We don't use save_address_clusters_bulk because it truncates.
-        # We will loop _send_row directly here since we already truncated.
-        # Actually, let's just do it directly to avoid multiple truncates.
         for r in rows_to_insert:
             symbols = {}
             if r.get("label"):
                 symbols["label"] = str(r["label"])
-                
-            repo._send_row(
+
+            row_success = repo._send_row(
                 "address_clusters",
                 symbols=symbols,
                 columns={
@@ -101,12 +135,19 @@ async def sync_clusters(repo: QuestDBRepository, conn: duckdb.DuckDBPyConnection
                     "is_exchange_likely": r["is_exchange_likely"],
                     "confidence": r["confidence"]
                 },
-                at=r.get("first_seen")
+                at=r.get("first_seen"),
             )
-            
+            if not row_success:
+                logger.error(
+                    "Failed to ingest address cluster for address=%s cluster_id=%s",
+                    r["address"],
+                    r["cluster_id"],
+                )
+                return False
+
         total_synced += len(rows_to_insert)
         logger.info(f"Synced {total_synced:,} / {total_rows:,} clusters...")
-        
+
     await repo.async_flush_ingestion()
     logger.info(f"✅ Successfully synchronized {total_synced:,} clusters to QuestDB.")
     return True

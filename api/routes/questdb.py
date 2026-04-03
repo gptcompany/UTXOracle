@@ -28,7 +28,13 @@ router = APIRouter(tags=["questdb-metrics"])
 
 
 def get_questdb_repo(request: Request) -> QuestDBRepository:
-    return request.app.state.questdb_repo
+    repo = getattr(request.app.state, "questdb_repo", None)
+    if repo is None:
+        raise HTTPException(
+            status_code=503,
+            detail="QuestDB repository unavailable. API startup may be incomplete.",
+        )
+    return repo
 
 
 def _utc_now() -> datetime:

@@ -83,9 +83,19 @@ async def materialize_daily_snapshot(
         address_cohorts.timestamp = target_date # Override with target date
         
         # 5. Save to QuestDB
-        repo.save_wallet_waves(wallet_waves)
-        repo.save_absorption_rates(absorption)
-        repo.save_address_cohorts(address_cohorts)
+        writes = [
+            repo.save_wallet_waves(wallet_waves),
+            repo.save_absorption_rates(absorption),
+            repo.save_address_cohorts(address_cohorts),
+        ]
+        if not all(writes):
+            logger.error(
+                "Wave 1 materialization write failure: wallet_waves=%s absorption_rates=%s address_cohorts=%s",
+                writes[0],
+                writes[1],
+                writes[2],
+            )
+            return False
         
         logger.info(f"✅ Successfully materialized Wave 1 for {target_date.date()}")
         return True

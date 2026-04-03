@@ -1,7 +1,8 @@
 import pytest
-import asyncio
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import duckdb
 
 from api.questdb_repository import QuestDBRepository
 from scripts.models.metrics_models import (
@@ -11,6 +12,7 @@ from scripts.models.metrics_models import (
     AbsorptionRateMetrics,
     AbsorptionRatesResult
 )
+from scripts.metrics.materialize_wave1 import materialize_daily_snapshot
 
 @pytest.fixture
 def mock_repo():
@@ -79,3 +81,43 @@ def test_save_absorption_rates(mock_repo):
     assert args[0] == "absorption_rates_daily"
     assert kwargs["columns"]["window_days"] == 30
     assert kwargs["symbols"]["dominant_absorber"] == WalletBand.SHRIMP.value
+
+
+@pytest.mark.asyncio
+async def test_materialize_daily_snapshot_returns_false_on_partial_write_failure():
+    """The orchestration layer must fail if any QuestDB write returns False."""
+    repo = MagicMock()
+    repo.get_latest_price_analysis = AsyncMock(return_value={"utxoracle_price": 85000.0})
+    repo.save_wallet_waves.return_value = True
+    repo.save_absorption_rates.return_value = False
+    repo.save_address_cohorts.return_value = True
+
+    conn = duckdb.connect(":memory:")
+    conn.execute("CREATE TABLE utxo_lifecycle (creation_block INTEGER)")
+    conn.execute("INSERT INTO utxo_lifecycle VALUES (840000)")
+    conn.execute("CREATE VIEW utxo_lifecycle_full AS SELECT * FROM utxo_lifecycle")
+
+    wallet_waves = MagicMock()
+    absorption = MagicMock()
+    address_cohorts = MagicMock()
+
+    target_date = datetime.now(timezone.utc)
+
+    with patch(
+        "scripts.metrics.materialize_wave1.calculate_wallet_waves",
+        return_value=wallet_waves,
+    ), patch(
+        "scripts.metrics.materialize_wave1.calculate_absorption_rates",
+        return_value=absorption,
+    ), patch(
+        "scripts.metrics.materialize_wave1.calculate_address_cohorts",
+        return_value=address_cohorts,
+    ):
+        success = await materialize_daily_snapshot(repo, conn, target_date)
+
+    conn.close()
+
+    assert success is False
+    repo.save_wallet_waves.assert_called_once_with(wallet_waves)
+    repo.save_absorption_rates.assert_called_once_with(absorption)
+    repo.save_address_cohorts.assert_called_once_with(address_cohorts)

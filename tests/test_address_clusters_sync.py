@@ -1,8 +1,6 @@
 import pytest
-import asyncio
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock
 import duckdb
-from datetime import datetime, timezone
 
 from scripts.bootstrap.sync_clusters_to_questdb import sync_clusters
 from api.questdb_repository import QuestDBRepository
@@ -24,9 +22,7 @@ def test_db():
             address VARCHAR PRIMARY KEY,
             cluster_id VARCHAR NOT NULL,
             first_seen TIMESTAMP,
-            last_seen TIMESTAMP,
-            is_exchange_likely BOOLEAN DEFAULT FALSE,
-            label VARCHAR
+            last_seen TIMESTAMP
         )
         """
     )
@@ -35,9 +31,9 @@ def test_db():
     conn.execute(
         """
         INSERT INTO address_clusters VALUES
-        ('addr1', 'cluster1', '2024-01-01', '2024-01-02', FALSE, NULL),
-        ('addr2', 'cluster1', '2024-01-01', '2024-01-03', FALSE, NULL),
-        ('addr3', 'cluster2', '2024-02-01', '2024-02-05', TRUE, 'Binance')
+        ('addr1', 'cluster1', '2024-01-01', '2024-01-02'),
+        ('addr2', 'cluster1', '2024-01-01', '2024-01-03'),
+        ('addr3', 'cluster2', '2024-02-01', '2024-02-05')
         """
     )
     yield conn
@@ -56,17 +52,16 @@ async def test_sync_clusters_truncate_and_load(mock_repo, test_db):
     # Verify 3 rows sent
     assert mock_repo._send_row.call_count == 3
     
-    # Check specific row formatting (Binance exchange)
-    # The last row inserted is addr3 (Binance)
+    # Check default formatting against the minimal real DuckDB schema
+    # The last row inserted is addr3
     args, kwargs = mock_repo._send_row.call_args_list[2]
     
     assert args[0] == "address_clusters"
-    assert kwargs["symbols"]["label"] == "Binance"
+    assert kwargs["symbols"] == {}
     assert kwargs["columns"]["address"] == "addr3"
     assert kwargs["columns"]["cluster_id"] == "cluster2"
-    assert kwargs["columns"]["is_exchange_likely"] is True
-    # Should get 0.8 confidence because it has a label
-    assert kwargs["columns"]["confidence"] == 0.8
+    assert kwargs["columns"]["is_exchange_likely"] is False
+    assert kwargs["columns"]["confidence"] == 0.6
     
     # Check unlabeled row formatting
     args, kwargs = mock_repo._send_row.call_args_list[0]
@@ -86,3 +81,14 @@ async def test_sync_clusters_empty_db(mock_repo):
     assert mock_repo.execute.call_count == 0  # Should NOT truncate
     assert mock_repo._send_row.call_count == 0
     conn.close()
+
+
+@pytest.mark.asyncio
+async def test_sync_clusters_returns_false_on_ilp_failure(mock_repo, test_db):
+    """TRUNCATE must not be reported as success when ILP ingestion fails."""
+    mock_repo._send_row = MagicMock(side_effect=[True, False])
+
+    success = await sync_clusters(mock_repo, test_db, batch_size=2)
+
+    assert success is False
+    mock_repo.execute.assert_called_once_with("TRUNCATE TABLE address_clusters")
