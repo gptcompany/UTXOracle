@@ -84,16 +84,15 @@ if [ -n "$LARGE_FILES" ]; then
 fi
 
 # ======================================
-# 6. Optional: Run tests (commented out by default)
+# 6. Validate Feature Contracts
 # ======================================
-# Uncomment to run tests before every commit
-# echo "  Running tests..."
-# if ! uv run pytest tests/ -q; then
-#     echo ""
-#     echo "❌ COMMIT BLOCKED: Tests failed"
-#     echo "Fix failing tests or use: git commit --no-verify"
-#     exit 1
-# fi
+echo "  Validating feature contracts..."
+if ! uv run pytest tests/test_contract_validation.py -q; then
+    echo ""
+    echo "❌ COMMIT BLOCKED: Contract validation failed"
+    echo "Fix the YAML or Markdown files, or bypass with: git commit --no-verify"
+    exit 1
+fi
 
 # ======================================
 # 7. Auto-update CLAUDE.md structure

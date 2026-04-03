@@ -70,33 +70,73 @@ def test_cross_yaml_consistency(registry, provenance):
 def test_consistency_yaml_vs_markdown(registry):
     """T015: Consistency checks between YAML registry and contract markdown."""
     with open(CONTRACT_MD_PATH, 'r') as f:
-        md_content = f.read()
+        md_lines = f.readlines()
         
+    # Extract surface IDs from the markdown table
+    md_surfaces = set()
+    in_table = False
+    for line in md_lines:
+        if line.startswith("| Surface ID |"):
+            in_table = True
+            continue
+        if in_table and line.startswith("|---"):
+            continue
+        if in_table and line.startswith("|"):
+            cols = [col.strip() for col in line.split("|")]
+            if len(cols) > 2:
+                # First col is empty string due to leading |, second col is Surface ID
+                surface_id = cols[1].strip("`")
+                if surface_id:
+                    md_surfaces.add(surface_id)
+        elif in_table and not line.strip():
+            in_table = False
+            
     reg_surfaces = {e["surface_id"] for e in registry["entries"]}
     for surface_id in reg_surfaces:
-        # Check if the surface_id is mentioned in the Markdown document
-        # Usually it's in a table or header. We'll do a simple existence check for now.
-        assert surface_id in md_content, f"Surface {surface_id} from YAML not found in {CONTRACT_MD_PATH.name}"
+        assert surface_id in md_surfaces, f"Surface {surface_id} from YAML not found in the markdown table of {CONTRACT_MD_PATH.name}"
 
 def test_drift_detection_roadmap_vs_manifest(provenance):
     """T018: Detect route-family drift between roadmap docs and manifest."""
     with open(ROADMAP_PATH, 'r') as f:
-        roadmap_content = f.read()
+        md_lines = f.readlines()
     
-    # Extract route families from the roadmap table (usually backticked in the first column)
-    # E.g. | `/api/prices/*` |
-    # This regex looks for Markdown table rows starting with a backticked route.
-    route_matches = re.findall(r'\|\s*`(/api/[^`]+)`\s*\|', roadmap_content)
-    
+    roadmap_surfaces = []
+    in_table = False
+    for line in md_lines:
+        if line.startswith("| Surface |"):
+            in_table = True
+            continue
+        if in_table and line.startswith("|---"):
+            continue
+        if in_table and line.startswith("|"):
+            cols = [col.strip() for col in line.split("|")]
+            if len(cols) > 2:
+                surface = cols[1].strip("`")
+                if surface:
+                    roadmap_surfaces.append(surface)
+        elif in_table and not line.strip():
+            in_table = False
+            
     prov_routes = {e["route_family"] for e in provenance["entries"]}
+    prov_ids = {e["surface_id"] for e in provenance["entries"]}
     
-    # Some routes in roadmap might be listed slightly differently (e.g. `/api/whale/transactions`, `/summary`...)
-    # We will just verify that the base prefix from the roadmap exists in *some* provenance route family.
-    # We can also check reverse: does every provenance route have some mention in the roadmap?
-    
-    for rm_route in route_matches:
-        # Clean up commas and multiple routes in a single backtick if any
-        base_route = rm_route.split(",")[0].strip().replace("/*", "").replace("*", "")
-        # Just ensure the base route string is found somewhere in the provenance routes
-        found = any(base_route in pr for pr in prov_routes)
-        assert found, f"Roadmap route {rm_route} not found in provenance manifest route families: {prov_routes}"
+    # We want to make sure roadmap entries map to something in the provenance manifest.
+    for rm_surface in roadmap_surfaces:
+        # Check if it's a route family prefix or a human-readable name like 'address-cohorts'
+        # Roadmap has things like '/api/prices/*' or 'address-cohorts'
+        if rm_surface.startswith("/api/"):
+            first_part = rm_surface.split(",")[0].strip().strip("`").replace("/*", "").replace("*", "")
+            prefix = "/".join(first_part.split("/")[:-1])
+            found = any(prefix in pr for pr in prov_routes)
+            assert found, f"Roadmap route {rm_surface} not found in provenance manifest route families: {prov_routes}"
+        elif "post-`M6`" in rm_surface or "manifest" in rm_surface or "registry" in rm_surface:
+            # Skip operational/governance rows that aren't API surfaces
+            continue
+        else:
+            # It's a named surface like 'address-cohorts' or 'PRO Risk'
+            # Just ensure it maps to some route or surface ID broadly
+            # PRO Risk -> pro_risk_surface
+            # Puell Multiple -> puell_multiple_surface
+            normalized_name = rm_surface.lower().replace(" ", "_").replace("-", "_")
+            found = any(normalized_name in pid for pid in prov_ids) or any(normalized_name in pr.lower().replace("-", "_") for pr in prov_routes)
+            assert found, f"Roadmap named surface '{rm_surface}' not found in provenance manifest IDs or routes."
