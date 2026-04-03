@@ -8,7 +8,12 @@ from pydantic import BaseModel, Field
 
 router = APIRouter(tags=["meta"])
 
-MANIFEST_PATH = Path(__file__).resolve().parents[3] / "docs" / "contracts" / "feature_provenance_manifest.yaml"
+MANIFEST_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "docs"
+    / "contracts"
+    / "feature_provenance_manifest.yaml"
+)
 
 
 class FeatureFailureMode(BaseModel):

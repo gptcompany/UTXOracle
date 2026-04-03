@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api.apps.live import app
+from api.routes.meta import MANIFEST_PATH
 
 client = TestClient(app)
 
@@ -55,6 +56,17 @@ def test_get_feature_provenance_success(tmp_path, valid_manifest_yaml):
         assert len(data["entries"]) == 1
         assert data["entries"][0]["surface_id"] == "test_surface"
         assert data["entries"][0]["failure_mode"]["empty"] == "503 empty"
+
+
+def test_get_feature_provenance_uses_repository_manifest_by_default():
+    assert MANIFEST_PATH.exists()
+
+    response = client.get("/api/meta/features")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["schema_version"] == "1"
+    assert len(data["entries"]) > 0
 
 def test_get_feature_provenance_missing_file(tmp_path):
     missing_file = tmp_path / "missing.yaml"
