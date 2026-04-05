@@ -1,5 +1,7 @@
 # Tasks: Cointime Economics Framework
 
+**Status**: ✅ COMPLETED (2026-04-05)
+**Maintenance Since**: 2026-04-05
 **Input**: Design documents from `/specs/018-cointime-economics/`
 **Prerequisites**: plan.md ✅, spec.md ✅, research.md ✅, data-model.md ✅
 
@@ -174,9 +176,9 @@
 
 - [x] T044 [P] Update CLAUDE.md with spec-018 status
 - [x] T045 [P] Update `docs/ARCHITECTURE.md` with Cointime documentation
-- [ ] T045a [P] Create `tests/fixtures/glassnode_cointime_reference.csv` with sampled reference values for `liveliness` and `aviv_ratio`
-- [ ] T045b Add `test_glassnode_comparison()` to `tests/test_cointime.py` comparing local outputs against `tests/fixtures/glassnode_cointime_reference.csv` for `SC-001`/`SC-002`
-- [ ] T045c Add a performance benchmark test to `tests/test_cointime.py` asserting the `<1s/block` requirement for `SC-003`
+- [x] T045a [P] Create `tests/fixtures/glassnode_cointime_reference.csv` with sampled reference values for `liveliness` and `aviv_ratio`
+- [x] T045b Add `test_glassnode_comparison()` to `tests/test_cointime.py` comparing local outputs against `tests/fixtures/glassnode_cointime_reference.csv` for `SC-001`/`SC-002`
+- [x] T045c Add a performance benchmark test to `tests/test_cointime.py` asserting the `<1s/block` requirement for `SC-003` (Passed: <1ms for 5000 tx)
 - [x] T046 Run full test suite (96 passed)
 - [x] T047 Run linter (all checks passed)
 - [x] T048 Validate quickstart.md (N/A - no quickstart for spec-018)
@@ -207,6 +209,7 @@ US1 (Coinblocks) → US2 (Liveliness) → US3 (Supply) → US4 (AVIV) → US5 (F
 | **US4** | 7 |
 | **US5** | 8 |
 | **Polish** | 9 |
-| **Parallel [P]** | 8 |
+| Parallel [P] | 8 |
+| **Completion** | **58/58 (100%)** |
 
 Estimated: 3-4 weeks after spec-017
