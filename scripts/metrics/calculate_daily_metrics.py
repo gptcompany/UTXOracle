@@ -157,7 +157,10 @@ def calculate_daily_sopr(
 
 
 def calculate_daily_mvrv(
-    conn: duckdb.DuckDBPyConnection, market_cap: float, realized_cap: float
+    conn: duckdb.DuckDBPyConnection,
+    market_cap: float,
+    realized_cap: float,
+    as_of_block: Optional[int] = None,
 ) -> tuple[Optional[float], Optional[float], Optional[float]]:
     """Calculate MVRV, MVRV-Z (simplified), and MVRV-Z (RBN).
 
@@ -177,8 +180,17 @@ def calculate_daily_mvrv(
     )
 
     from scripts.metrics.mvrv_variants import calculate_both_mvrv_z
-    variants = calculate_both_mvrv_z(conn, market_cap, realized_cap)
-    mvrv_z_rbn = variants.mvrv_z_rbn if (variants.mvrv_z_rbn != 0.0 or variants.std_all != 0.0) else None
+    variants = calculate_both_mvrv_z(
+        conn,
+        market_cap,
+        realized_cap,
+        max_block_height=as_of_block,
+    )
+    mvrv_z_rbn = (
+        variants.mvrv_z_rbn
+        if (variants.mvrv_z_rbn != 0.0 or variants.std_all != 0.0)
+        else None
+    )
 
     return mvrv, mvrv_z, mvrv_z_rbn
 
@@ -298,7 +310,12 @@ def calculate_daily_metrics(target_date: date, conn: duckdb.DuckDBPyConnection) 
     sopr = calculate_daily_sopr(conn, start_block, end_block)
 
     # Calculate MVRV
-    mvrv, mvrv_z, mvrv_z_rbn = calculate_daily_mvrv(conn, market_cap, realized_cap)
+    mvrv, mvrv_z, mvrv_z_rbn = calculate_daily_mvrv(
+        conn,
+        market_cap,
+        realized_cap,
+        as_of_block=end_block,
+    )
 
     # Calculate NUPL
     nupl = calculate_daily_nupl(market_cap, realized_cap)
@@ -366,20 +383,39 @@ def persist_metrics(metrics: dict, conn: duckdb.DuckDBPyConnection) -> None:
 
     # mvrv_daily
     if metrics.get("mvrv") is not None:
-        conn.execute(
-            """
-            INSERT OR REPLACE INTO mvrv_daily (date, mvrv, mvrv_z, mvrv_z_rbn, market_cap, realized_cap)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            [
-                target_date,
-                metrics["mvrv"],
-                metrics.get("mvrv_z"),
-                metrics.get("mvrv_z_rbn"),
-                metrics.get("market_cap"),
-                metrics.get("realized_cap"),
-            ],
-        )
+        mvrv_daily_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info('mvrv_daily')").fetchall()
+        }
+
+        if "mvrv_z_rbn" in mvrv_daily_columns:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO mvrv_daily (date, mvrv, mvrv_z, mvrv_z_rbn, market_cap, realized_cap)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    target_date,
+                    metrics["mvrv"],
+                    metrics.get("mvrv_z"),
+                    metrics.get("mvrv_z_rbn"),
+                    metrics.get("market_cap"),
+                    metrics.get("realized_cap"),
+                ],
+            )
+        else:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO mvrv_daily (date, mvrv, mvrv_z, market_cap, realized_cap)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                [
+                    target_date,
+                    metrics["mvrv"],
+                    metrics.get("mvrv_z"),
+                    metrics.get("market_cap"),
+                    metrics.get("realized_cap"),
+                ],
+            )
 
     # realized_cap_daily
     if metrics.get("realized_cap") is not None:

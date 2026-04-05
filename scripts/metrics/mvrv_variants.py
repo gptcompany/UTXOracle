@@ -41,22 +41,30 @@ class MVRVZVariants:
 
 def get_market_cap_history_all_time(
     conn: duckdb.DuckDBPyConnection,
+    max_block_height: Optional[int] = None,
 ) -> list[float]:
     """Get complete market cap history for all-time stdev.
 
     Args:
         conn: DuckDB connection.
+        max_block_height: Optional upper bound for historical cutoff.
 
     Returns:
         List of all market cap values (most recent first).
     """
-    result = conn.execute(
-        """
+    query = """
         SELECT market_cap_usd
         FROM utxo_snapshots
-        ORDER BY block_height DESC
-        """
-    ).fetchall()
+    """
+    params: list[int] = []
+
+    if max_block_height is not None:
+        query += " WHERE block_height <= ?"
+        params.append(max_block_height)
+
+    query += " ORDER BY block_height DESC"
+
+    result = conn.execute(query, params).fetchall()
 
     return [row[0] for row in result if row[0] is not None]
 
@@ -103,6 +111,7 @@ def calculate_both_mvrv_z(
     market_cap: float,
     realized_cap: float,
     days_1y: int = 365,
+    max_block_height: Optional[int] = None,
 ) -> MVRVZVariants:
     """Calculate both MVRV-Z variants.
 
@@ -111,12 +120,15 @@ def calculate_both_mvrv_z(
         market_cap: Current market cap in USD.
         realized_cap: Current realized cap in USD.
         days_1y: Days for 1-year variant (default 365).
+        max_block_height: Optional upper bound for historical cutoff.
 
     Returns:
         MVRVZVariants with both scores and metadata.
     """
     # Get all-time history
-    all_history = get_market_cap_history_all_time(conn)
+    all_history = get_market_cap_history_all_time(
+        conn, max_block_height=max_block_height
+    )
 
     # 1-year subset
     history_1y = all_history[:days_1y] if len(all_history) >= days_1y else all_history
