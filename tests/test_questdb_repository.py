@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import AsyncMock
 
 from api.questdb_repository import QuestDBRepository
 
@@ -110,3 +111,33 @@ def test_abort_ingestion_drops_buffer_and_prevents_flush_on_close():
 
     asyncio.run(repo.close())
     assert sender.flushed == 0
+
+
+def test_commit_address_clusters_refresh_runs_cutover_after_flush():
+    repo = QuestDBRepository()
+    repo.async_flush_ingestion = AsyncMock(return_value=True)
+    repo.execute = AsyncMock(return_value="OK")
+
+    assert asyncio.run(repo.commit_address_clusters_refresh()) is True
+
+    calls = repo.execute.await_args_list
+    assert calls[0].args == ("TRUNCATE TABLE address_clusters",)
+    assert "INSERT INTO address_clusters" in calls[1].args[0]
+    assert "FROM address_clusters_staging" in calls[1].args[0]
+    assert calls[2].args == ("TRUNCATE TABLE address_clusters_staging",)
+
+
+def test_commit_address_clusters_refresh_clears_tables_on_cutover_failure():
+    repo = QuestDBRepository()
+    repo.async_flush_ingestion = AsyncMock(return_value=True)
+    repo.execute = AsyncMock(
+        side_effect=["TRUNCATE", RuntimeError("boom"), "TRUNCATE", "TRUNCATE"]
+    )
+
+    assert asyncio.run(repo.commit_address_clusters_refresh()) is False
+
+    calls = [call.args[0] for call in repo.execute.await_args_list]
+    assert calls[0] == "TRUNCATE TABLE address_clusters"
+    assert "INSERT INTO address_clusters" in calls[1]
+    assert calls[2] == "TRUNCATE TABLE address_clusters_staging"
+    assert calls[3] == "TRUNCATE TABLE address_clusters"

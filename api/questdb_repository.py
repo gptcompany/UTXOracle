@@ -40,6 +40,9 @@ QUESTDB_PG_USER = os.getenv("QUESTDB_PG_USER", "admin")
 QUESTDB_PG_PASSWORD = os.getenv("QUESTDB_PG_PASSWORD", "quest")
 QUESTDB_PG_DATABASE = os.getenv("QUESTDB_PG_DATABASE", "main")
 
+ADDRESS_CLUSTERS_TABLE = "address_clusters"
+ADDRESS_CLUSTERS_STAGING_TABLE = "address_clusters_staging"
+
 
 QUESTDB_POOL_MIN_SIZE = int(os.getenv("QUESTDB_POOL_MIN_SIZE", "5"))
 QUESTDB_POOL_MAX_SIZE = int(os.getenv("QUESTDB_POOL_MAX_SIZE", "20"))
@@ -354,6 +357,20 @@ async def create_tables_if_not_exist():
         await conn.execute(
             """
             CREATE TABLE IF NOT EXISTS address_clusters (
+                address STRING,
+                cluster_id STRING,
+                ts TIMESTAMP,
+                last_seen TIMESTAMP,
+                is_exchange_likely BOOLEAN,
+                label SYMBOL,
+                confidence DOUBLE
+            ) timestamp(ts) PARTITION BY YEAR;
+            """
+        )
+
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS address_clusters_staging (
                 address STRING,
                 cluster_id STRING,
                 ts TIMESTAMP,
@@ -851,46 +868,116 @@ class QuestDBRepository:
                 success = False
         return success
 
-    async def save_address_clusters_bulk(self, rows: List[Dict[str, Any]]) -> bool:
+    def stage_address_cluster(
+        self,
+        row: Dict[str, Any],
+        *,
+        table: str = ADDRESS_CLUSTERS_STAGING_TABLE,
+    ) -> bool:
+        """Stage a single address-cluster row for a full-refresh cutover."""
+        ts = row.get("first_seen") or datetime.utcnow()
+        symbols = {}
+        if row.get("label"):
+            symbols["label"] = str(row["label"])
+
+        return self._send_row(
+            table,
+            symbols=symbols,
+            columns={
+                "address": str(row["address"]),
+                "cluster_id": str(row["cluster_id"]),
+                "last_seen": row.get("last_seen"),
+                "is_exchange_likely": bool(row.get("is_exchange_likely", False)),
+                "confidence": float(row.get("confidence", 0.6)),
+            },
+            at=ts,
+        )
+
+    async def prepare_address_clusters_refresh(self) -> bool:
         """
-        Truncate and load address clusters via PostgreSQL wire and ILP.
-        Requires full refresh to avoid duplicate snapshots.
+        Clear the staging table before loading a new full-refresh snapshot.
+
+        The live table is left untouched until commit succeeds.
         """
         try:
-            # 1. Truncate existing table over PG pool
-            await self.execute("TRUNCATE TABLE address_clusters")
-            logger.info("Truncated address_clusters table in QuestDB.")
+            await self.execute(f"TRUNCATE TABLE {ADDRESS_CLUSTERS_STAGING_TABLE}")
+            logger.info("Prepared QuestDB address_clusters staging table.")
+            return True
         except Exception as e:
-            logger.error(f"Failed to truncate address_clusters before bulk load: {e}")
+            logger.error(f"Failed to prepare address_clusters staging table: {e}")
             return False
 
-        # 2. Bulk load via ILP
-        success = True
-        for row in rows:
-            # first_seen acts as designated timestamp (ts)
-            ts = row.get("first_seen") or datetime.utcnow()
-            
-            # Only pass symbols if they have a value (to avoid creating empty symbols)
-            symbols = {}
-            if row.get("label"):
-                symbols["label"] = str(row["label"])
-                
-            row_success = self._send_row(
-                "address_clusters",
-                symbols=symbols,
-                columns={
-                    "address": str(row["address"]),
-                    "cluster_id": str(row["cluster_id"]),
-                    "last_seen": row.get("last_seen"),
-                    "is_exchange_likely": bool(row.get("is_exchange_likely", False)),
-                    "confidence": float(row.get("confidence", 0.6))
-                },
-                at=ts
-            )
-            if not row_success:
-                success = False
+    async def _truncate_address_clusters_table(self, table: str, *, reason: str) -> None:
+        try:
+            await self.execute(f"TRUNCATE TABLE {table}")
+        except Exception as e:
+            logger.error("Failed to truncate %s during %s: %s", table, reason, e)
 
-        return success
+    async def abort_address_clusters_refresh(self, *, clear_target: bool = False) -> None:
+        """
+        Abort a staged refresh and clean up any staged rows.
+
+        `clear_target=True` is used only after a cutover failure to avoid serving a
+        partially rebuilt snapshot.
+        """
+        self.abort_ingestion()
+        await self._truncate_address_clusters_table(
+            ADDRESS_CLUSTERS_STAGING_TABLE,
+            reason="address_clusters refresh abort",
+        )
+        if clear_target:
+            await self._truncate_address_clusters_table(
+                ADDRESS_CLUSTERS_TABLE,
+                reason="address_clusters cutover recovery",
+            )
+
+    async def commit_address_clusters_refresh(self) -> bool:
+        """
+        Publish a staged address_clusters snapshot after the ILP load completes.
+        """
+        if not await self.async_flush_ingestion():
+            logger.error("Failed to flush staged address_clusters rows before cutover.")
+            await self.abort_address_clusters_refresh()
+            return False
+
+        try:
+            await self.execute(f"TRUNCATE TABLE {ADDRESS_CLUSTERS_TABLE}")
+            await self.execute(
+                f"""
+                INSERT INTO {ADDRESS_CLUSTERS_TABLE}
+                SELECT
+                    address,
+                    cluster_id,
+                    ts,
+                    last_seen,
+                    is_exchange_likely,
+                    label,
+                    confidence
+                FROM {ADDRESS_CLUSTERS_STAGING_TABLE}
+                """
+            )
+            await self.execute(f"TRUNCATE TABLE {ADDRESS_CLUSTERS_STAGING_TABLE}")
+            logger.info("Committed staged address_clusters refresh in QuestDB.")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to commit staged address_clusters refresh: {e}")
+            await self.abort_address_clusters_refresh(clear_target=True)
+            return False
+
+    async def save_address_clusters_bulk(self, rows: List[Dict[str, Any]]) -> bool:
+        """
+        Stage and publish a full address_clusters refresh via ILP and PG cutover.
+        """
+        if not await self.prepare_address_clusters_refresh():
+            return False
+
+        for row in rows:
+            row_success = self.stage_address_cluster(row)
+            if not row_success:
+                await self.abort_address_clusters_refresh()
+                return False
+
+        return await self.commit_address_clusters_refresh()
 
     def save_address_cohorts(self, result: AddressCohortsResult) -> bool:
         """

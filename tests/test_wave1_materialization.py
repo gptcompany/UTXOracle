@@ -12,7 +12,7 @@ from scripts.models.metrics_models import (
     AbsorptionRateMetrics,
     AbsorptionRatesResult
 )
-from scripts.metrics.materialize_wave1 import materialize_daily_snapshot
+from scripts.metrics.materialize_wave1 import materialize_daily_snapshot, main
 
 @pytest.fixture
 def mock_repo():
@@ -123,3 +123,44 @@ async def test_materialize_daily_snapshot_returns_false_on_partial_write_failure
     repo.save_absorption_rates.assert_called_once_with(absorption)
     repo.save_address_cohorts.assert_not_called()
     repo.abort_ingestion.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_main_uses_fresh_repo_for_backfill_retry(monkeypatch):
+    """Backfill should run with a new repository even after an earlier write abort."""
+    first_repo = MagicMock()
+    first_repo.initialize = AsyncMock()
+    first_repo.async_flush_ingestion = AsyncMock(return_value=True)
+    first_repo.close = AsyncMock()
+
+    second_repo = MagicMock()
+    second_repo.initialize = AsyncMock()
+    second_repo.async_flush_ingestion = AsyncMock(return_value=True)
+    second_repo.close = AsyncMock()
+
+    repo_factory = MagicMock(side_effect=[first_repo, second_repo])
+    fake_conn = MagicMock()
+
+    monkeypatch.setattr("scripts.metrics.materialize_wave1.QuestDBRepository", repo_factory)
+    monkeypatch.setattr("scripts.metrics.materialize_wave1.os.path.exists", MagicMock(return_value=True))
+    monkeypatch.setattr("scripts.metrics.materialize_wave1.duckdb.connect", MagicMock(return_value=fake_conn))
+    monkeypatch.setattr(
+        "scripts.metrics.materialize_wave1.materialize_daily_snapshot",
+        AsyncMock(side_effect=[False, True]),
+    )
+    monkeypatch.setattr(
+        "scripts.metrics.materialize_wave1.sys.argv",
+        ["materialize_wave1.py", "--backfill"],
+    )
+
+    await main()
+
+    assert repo_factory.call_count == 2
+    first_repo.initialize.assert_awaited_once()
+    first_repo.async_flush_ingestion.assert_not_awaited()
+    first_repo.close.assert_awaited_once()
+
+    second_repo.initialize.assert_awaited_once()
+    second_repo.async_flush_ingestion.assert_awaited_once()
+    second_repo.close.assert_awaited_once()
+    fake_conn.close.assert_called_once()

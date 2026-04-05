@@ -113,10 +113,38 @@ async def materialize_daily_snapshot(
         return False
 
 
-async def main():
+async def run_materialization_pass(
+    conn: duckdb.DuckDBPyConnection,
+    target_date: datetime,
+) -> bool:
+    """
+    Run one materialization pass with a fresh repository instance.
+
+    A write failure aborts the current ILP sender; using a new repository for each
+    pass keeps the optional backfill retry path isolated.
+    """
     repo = QuestDBRepository()
     await repo.initialize()
-    
+
+    try:
+        success = await materialize_daily_snapshot(repo, conn, target_date)
+        if not success:
+            return False
+
+        flush_ok = await repo.async_flush_ingestion()
+        if not flush_ok:
+            logger.error(
+                "Wave 1 materialization flush failure after snapshot for %s",
+                target_date.date(),
+            )
+            return False
+
+        return True
+    finally:
+        await repo.close()
+
+
+async def main():
     if not os.path.exists(DUCKDB_PATH):
         logger.error(f"DuckDB database not found at {DUCKDB_PATH}")
         return
@@ -125,18 +153,15 @@ async def main():
     
     try:
         # Run for today
-        await materialize_daily_snapshot(repo, conn, datetime.now(timezone.utc))
+        await run_materialization_pass(conn, datetime.now(timezone.utc))
         
         # Optional backfill check
         if "--backfill" in sys.argv:
             # For now, just re-run for current state as a proxy
             logger.info("Backfill requested (placeholder logic executed)")
-            await materialize_daily_snapshot(repo, conn, datetime.now(timezone.utc))
-            
-        await repo.async_flush_ingestion()
+            await run_materialization_pass(conn, datetime.now(timezone.utc))
     finally:
         conn.close()
-        await repo.close()
 
 
 if __name__ == "__main__":

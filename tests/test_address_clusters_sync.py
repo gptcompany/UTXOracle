@@ -8,10 +8,10 @@ from api.questdb_repository import QuestDBRepository
 @pytest.fixture
 def mock_repo():
     repo = QuestDBRepository()
-    repo._send_row = MagicMock(return_value=True)
-    repo.execute = AsyncMock(return_value="TRUNCATE")
-    repo.async_flush_ingestion = AsyncMock()
-    repo.abort_ingestion = MagicMock()
+    repo.prepare_address_clusters_refresh = AsyncMock(return_value=True)
+    repo.stage_address_cluster = MagicMock(return_value=True)
+    repo.commit_address_clusters_refresh = AsyncMock(return_value=True)
+    repo.abort_address_clusters_refresh = AsyncMock()
     return repo
 
 @pytest.fixture
@@ -47,28 +47,27 @@ async def test_sync_clusters_truncate_and_load(mock_repo, test_db):
     
     assert success is True
     
-    # Verify truncate called
-    mock_repo.execute.assert_called_once_with("TRUNCATE TABLE address_clusters")
+    # Verify staged refresh lifecycle
+    mock_repo.prepare_address_clusters_refresh.assert_awaited_once()
+    mock_repo.commit_address_clusters_refresh.assert_awaited_once()
     
-    # Verify 3 rows sent
-    assert mock_repo._send_row.call_count == 3
+    # Verify 3 rows staged
+    assert mock_repo.stage_address_cluster.call_count == 3
     
     # Check default formatting against the minimal real DuckDB schema
     # The last row inserted is addr3
-    args, kwargs = mock_repo._send_row.call_args_list[2]
+    staged_row = mock_repo.stage_address_cluster.call_args_list[2].args[0]
     
-    assert args[0] == "address_clusters"
-    assert kwargs["symbols"] == {}
-    assert kwargs["columns"]["address"] == "addr3"
-    assert kwargs["columns"]["cluster_id"] == "cluster2"
-    assert kwargs["columns"]["is_exchange_likely"] is False
-    assert kwargs["columns"]["confidence"] == 0.6
+    assert staged_row["address"] == "addr3"
+    assert staged_row["cluster_id"] == "cluster2"
+    assert staged_row["is_exchange_likely"] is False
+    assert staged_row["confidence"] == 0.6
     
     # Check unlabeled row formatting
-    args, kwargs = mock_repo._send_row.call_args_list[0]
-    assert kwargs["columns"]["address"] == "addr1"
-    assert "label" not in kwargs["symbols"]  # Optional symbol omitted
-    assert kwargs["columns"]["confidence"] == 0.6  # Default confidence
+    first_row = mock_repo.stage_address_cluster.call_args_list[0].args[0]
+    assert first_row["address"] == "addr1"
+    assert first_row["label"] is None
+    assert first_row["confidence"] == 0.6
 
 @pytest.mark.asyncio
 async def test_sync_clusters_empty_db(mock_repo):
@@ -79,18 +78,19 @@ async def test_sync_clusters_empty_db(mock_repo):
     success = await sync_clusters(mock_repo, conn, batch_size=100)
     
     assert success is False
-    assert mock_repo.execute.call_count == 0  # Should NOT truncate
-    assert mock_repo._send_row.call_count == 0
+    assert mock_repo.prepare_address_clusters_refresh.await_count == 0
+    assert mock_repo.stage_address_cluster.call_count == 0
     conn.close()
 
 
 @pytest.mark.asyncio
 async def test_sync_clusters_returns_false_on_ilp_failure(mock_repo, test_db):
     """TRUNCATE must not be reported as success when ILP ingestion fails."""
-    mock_repo._send_row = MagicMock(side_effect=[True, False])
+    mock_repo.stage_address_cluster = MagicMock(side_effect=[True, False])
 
     success = await sync_clusters(mock_repo, test_db, batch_size=2)
 
     assert success is False
-    mock_repo.execute.assert_called_once_with("TRUNCATE TABLE address_clusters")
-    mock_repo.abort_ingestion.assert_called_once()
+    mock_repo.prepare_address_clusters_refresh.assert_awaited_once()
+    mock_repo.commit_address_clusters_refresh.assert_not_awaited()
+    mock_repo.abort_address_clusters_refresh.assert_awaited_once()
