@@ -18,6 +18,14 @@
 - **Shared**: `live/shared/` for data models
 - **Tests**: `tests/` at repository root
 
+## Governance Note (2026-04-05)
+
+- This spec captures the earlier mempool-live prototype line.
+- The current production live direction is governed by `spec-040` and `spec-041`, with the canonical consumer surface on `:8011`.
+- Remaining open tasks here should be read as legacy manual-validation, archival refactor, or optional parity backlog unless a concrete migration need reactivates them.
+- This spec should not be treated as the default roadmap for the current live product surface.
+- As of 2026-04-05, the remaining open tasks below are closed administratively so this dormant prototype does not continue to appear as active implementation debt.
+
 ---
 
 ## Phase 1: Setup (Shared Infrastructure)
@@ -125,9 +133,9 @@
 
 - [X] T060 [US1] Write benchmark test in tests/benchmark/benchmark_tx_processor.py (must achieve >1000 tx/sec) ✅ 1.6M tx/sec achieved
 - [X] T061 [US1] Verify T027 integration test PASSES (GREEN) ✅ test_end_to_end_zmq_to_websocket PASSED
-- [ ] T062 [US1] Manual end-to-end test: Start Bitcoin Core + backend + open browser → verify price updates every 0.5-5 seconds
-- [ ] T063 [US1] Validate price accuracy: Compare mempool price vs exchange rate (must be ±2%)
-- [ ] T064 [US1] 24-hour stability test: Run continuously for 24 hours without crashes
+- [X] T062 [US1] Closed administratively on 2026-04-05: manual prototype end-to-end validation is superseded by the current `:8011` live stack
+- [X] T063 [US1] Closed administratively on 2026-04-05: prototype price-accuracy comparison is not required for the dormant spec line
+- [X] T064 [US1] Closed administratively on 2026-04-05: 24-hour stability testing belongs to the maintained live stack, not this dormant prototype
 
 **Checkpoint**: At this point, User Story 1 should be fully functional - live price monitoring works end-to-end
 
@@ -163,13 +171,13 @@
 - [X] T074a [US2] Implement timeline scrolling in live/frontend/mempool-viz.js (fixed 5-min window, right=now, left=old, auto-scroll) ✅
 - [X] T074b [US2] Implement variable point size in live/frontend/mempool-viz.js (scale based on tx USD value, 1-8px radius) ✅
 - [X] T074c [US2] Implement fade-out in live/frontend/mempool-viz.js (older points fade to 30% opacity over last 20% of time window) ✅
-- [ ] T074d [US2] Manual test: Verify points move left-to-right, size varies, old points fade
+- [X] T074d [US2] Closed administratively on 2026-04-05: frontend manual verification is not maintained for this dormant prototype
 
 ### Bug Fixes (Critical for Visualization)
 
 - [X] T074e [BUG] Fix DataStreamer analyzer reference (currently None, prevents transaction history from being sent to frontend) ✅
-- [ ] T074f [BUG] Debug estimate_price() returning fallback 100000 instead of calculated price → SUPERSEDED by baseline architecture
-- [ ] T074g [BUG] Verify get_transaction_history() returns non-empty data → WORKING (66 tx visible)
+- [X] T074f [BUG] Closed administratively on 2026-04-05: superseded by the later baseline/live architecture
+- [X] T074g [BUG] Closed administratively on 2026-04-05: historical note already says the path was observed working; no further dormant-spec action required
 
 ### Baseline + Live Architecture - OPTION B + Pragmatic Approach (APPROVED)
 
@@ -201,19 +209,19 @@
 - [X] T107 Modify mempool-viz.js to render baseline points (cyan) vs mempool (orange)
 - [X] T108 Add baseline price line indicator (horizontal reference line)
 - [X] T109 Implement timeline split: LEFT=baseline (24h historical), RIGHT=mempool (3h real-time)
-- [ ] T110 Manual test: Verify baseline updates on new block and mempool scales correctly
+- [X] T110 Closed administratively on 2026-04-05: manual prototype validation is superseded by the maintained live stack
 
 **Phase BL-5: Code Refactoring** (Optional quality improvement) ⚠️ OPTIONAL
-- [ ] T111 Extract histogram logic from mempool_analyzer.py to live/backend/histogram_manager.py
-- [ ] T112 Extract price algorithm to live/backend/price_estimator.py (Steps 7-11 logic)
-- [ ] T113 Refactor mempool_analyzer.py to use extracted modules (cleaner separation)
-- [ ] T114 Verify all existing tests still pass after refactoring
+- [X] T111 Closed administratively on 2026-04-05: optional prototype refactor no longer belongs to the active roadmap
+- [X] T112 Closed administratively on 2026-04-05: optional prototype refactor no longer belongs to the active roadmap
+- [X] T113 Closed administratively on 2026-04-05: optional prototype refactor no longer belongs to the active roadmap
+- [X] T114 Closed administratively on 2026-04-05: optional prototype refactor verification no longer belongs to the active roadmap
 
 **Phase BL-6: Algorithm Verification** (Optional CI/CD) ⚠️ OPTIONAL - NOT PRIORITY
-- [ ] T115 Create tests/test_algorithm_parity.py with parity test suite
-- [ ] T116 Generate test vectors from real blockchain data (10+ diverse cases)
-- [ ] T117 Implement reference wrapper for UTXOracle.py Steps 7-11
-- [ ] T118 Add CI/CD hook to block merge if parity tests fail
+- [X] T115 Closed administratively on 2026-04-05: parity-suite work is not pursued on the dormant prototype line
+- [X] T116 Closed administratively on 2026-04-05: parity test-vector generation is not pursued on the dormant prototype line
+- [X] T117 Closed administratively on 2026-04-05: parity reference wrapper is not pursued on the dormant prototype line
+- [X] T118 Closed administratively on 2026-04-05: dormant prototype does not carry active CI gating work
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently - price display + scatter plot visualization
 
@@ -281,10 +289,16 @@
 - [X] T098 [P] Code cleanup: Run ruff format and ruff check --fix on all Python files ✅ All checks passing, 9 files formatted
 - [X] T099 [P] Documentation: Update CLAUDE.md if file structure changed ✅ Status updated to reflect implementation complete
 - [X] T100 [P] Documentation: Update README.md with quickstart instructions ✅ Added live system section with installation, systemd service
-- [ ] T101 Run quickstart.md validation: Follow all steps in specs/002-mempool-live-oracle/quickstart.md to verify setup works ⚠️ REQUIRES BITCOIN CORE ZMQ (see T093)
+- [X] T101 Closed administratively on 2026-04-05: quickstart revalidation is not required for the dormant prototype
 - [X] T102 Create systemd service file (production deployment support) ✅ Service file + DEPLOYMENT.md created
 - [X] T103 Security audit: Review for potential vulnerabilities (input validation, WebSocket connections) ✅ Comprehensive audit complete - NO CRITICAL ISSUES (see docs/T103_SECURITY_AUDIT_REPORT.md + tests/test_security.py)
-- [ ] T104 Browser compatibility testing: Verify on Chrome 120+, Firefox 121+, Safari 17+ ⚠️ DEFERRED - Manual testing required
+- [X] T104 Closed administratively on 2026-04-05: browser compatibility testing belongs to maintained surfaces, not this dormant prototype
+
+Dormancy disposition (2026-04-05):
+
+- Manual validation items were closed because the maintained live stack is now elsewhere.
+- Optional refactor/parity tasks were closed because they no longer represent prioritized engineering work.
+- Historical notes remain in place for traceability, but the spec no longer carries active implementation debt.
 
 ---
 

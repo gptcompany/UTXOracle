@@ -13,10 +13,10 @@
 
 ## Phase 1: RED Trustworthiness Tests
 
-- [ ] T001 Add failing tests proving `PRO Risk` currently uses mocked component inputs
-- [ ] T002 Add failing tests proving `PRO Risk` history currently returns empty data
-- [ ] T003 Add failing tests proving `Puell Multiple` currently depends on hardcoded baseline constants
-- [ ] T004 Add failing tests proving `/api/v1/models/power-law/predict` is shadowed by generic route order
+- [x] T001 Add failing tests proving `PRO Risk` currently uses mocked component inputs
+- [x] T002 Add failing tests proving `PRO Risk` history currently returns empty data
+- [x] T003 Add failing tests proving `Puell Multiple` currently depends on hardcoded baseline constants
+- [x] T004 Add failing tests proving `/api/v1/models/power-law/predict` is shadowed by generic route order
 - [x] T005 Add failing tests or route-table assertions for live router exposure policy
 
 **Checkpoint**: implementation debt is locked by tests before refactoring.
@@ -65,5 +65,6 @@ Execution note:
 
 - `M2` was completed through direct hardening and runtime-demotion work.
 - The original RED-only historical proof tasks `T001`-`T004` were not preserved as separate failing test artifacts after the implementation path was chosen.
+- The checklist is therefore closed administratively against the final hardened state and retained regression coverage, not against preserved standalone RED snapshots.
 
 **Checkpoint**: runtime behavior and documentation are aligned.

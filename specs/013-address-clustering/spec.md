@@ -2,9 +2,18 @@
 
 **Feature Branch**: `013-address-clustering`
 **Created**: 2025-12-04
-**Status**: Draft
+**Status**: Closed
+**Closed**: 2026-04-05
 **Prerequisites**: spec-004 (Whale Flow Detection)
 **Input**: User description: "Implement address clustering heuristics to identify addresses belonging to the same entity, and CoinJoin detection to filter out privacy-enhanced transactions from whale analysis. This improves whale tracking accuracy by reducing false positives from CoinJoin transactions and better identifying whale entities."
+
+## Closure Note (2026-04-05)
+
+This spec is closed as the foundational clustering/CoinJoin slice for the repository.
+
+- The implemented outputs remain active: clustering heuristics, CoinJoin filtering, local `address_clusters` state, and the downstream whale/entity serving path operationalized through `spec-051`.
+- The later wallet-cost-basis and independent `NUPL`/`SOPR` work remains useful as local research, but it is no longer treated as an open blocker for closing this spec under the current `BRK`-first governance for overlapping shared macro metrics.
+- Any future reopening of local independent `NUPL`/`SOPR` validation or any migration of `address_clusters` to `BRK` should happen through a follow-up spec, not by keeping `spec-013` administratively open.
 
 ## Context & Motivation
 
@@ -476,6 +485,13 @@ CHANGE_DETECTION_ENABLED=true
 - **External**: None (pure Python)
 - **Data**: Transaction data from electrs/mempool.space API
 
+### Current Governance Alignment (2026-04-05)
+
+- The clustering heuristics and DuckDB state defined here remain repo-owned and are not delegated to `BRK`.
+- Operational serving of `address_clusters` for canonical whale entity enrichment is now handled by `spec-051`, which syncs the local DuckDB clustering output into QuestDB for the `:8011` whale surface.
+- `wallet_cost_basis` and related cohort analytics remain valid local assets, but any future promotion of overlapping macro metrics such as `NUPL` or `SOPR` is now explicitly `BRK`-first for shared/admitted use unless a separate written exception is approved.
+- In practice: keep the clustering foundation, keep local cost-basis research, keep local independent `NUPL`/`SOPR` only as research/validation capability, and do not treat this spec as authority to reopen shared-metric productization against the current `BRK`-first governance without an explicit written decision.
+
 ### Known CoinJoin Patterns
 
 | Protocol | Pattern | Detection |
@@ -491,7 +507,7 @@ CHANGE_DETECTION_ENABLED=true
 
 As a Bitcoin analyst, I want to **track acquisition prices at the wallet level**, so that Realized Cap and NUPL calculations match industry standards (CheckOnChain/Glassnode).
 
-**Why this priority**: Current UTXO-level cost basis inflates Realized Cap by 1.8x, causing 36% NUPL deviation. CRITICAL for production accuracy.
+**Why this priority**: Current UTXO-level cost basis inflates Realized Cap by 1.8x, causing 36% NUPL deviation. This remains important for local research accuracy and any future `cost_basis` contract work.
 
 **Problem**: When BTC moves between addresses within the same wallet (cluster), UTXO-level tracking assigns current price as new cost basis. Wallet-level tracking preserves original acquisition price.
 
@@ -519,7 +535,12 @@ As a Bitcoin analyst, I want to **track acquisition prices at the wallet level**
    **When** compared to CheckOnChain
    **Then** deviation ≤2% from reference
 
-**Current Workaround**: NUPL/SOPR endpoints use CheckOnChain values directly (NOT independent calculation). This MUST be replaced with independent wallet-level calculation.
+Governance note (2026-04-05):
+
+- The scenarios above remain valid as local validation and reproducibility targets.
+- They are not, by themselves, authority to promote local `NUPL` or `SOPR` as the preferred shared/admitted source under the current `BRK`-first policy.
+
+**Historical Workaround Context**: `NUPL`/`SOPR` endpoints previously used CheckOnChain values directly instead of an independent wallet-level calculation. Independent local calculation remains a valid research objective, but shared/admitted `NUPL` and `SOPR` now follow the `BRK`-first source-of-truth decision unless a written exception is approved.
 
 ---
 

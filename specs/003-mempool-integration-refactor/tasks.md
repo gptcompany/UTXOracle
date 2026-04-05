@@ -18,6 +18,27 @@
 - **Tests**: `tests/` at repository root
 - **Scripts**: `scripts/` for automation
 
+## Governance Note (2026-04-05)
+
+- This spec still matters where it owns or validates the legacy batch writer path around `scripts.daily_analysis.py`, which remains the writer owner for the QuestDB-backed prices surface.
+- It is no longer the main product-direction document for the canonical live API, which now flows through `spec-040` and `spec-041`.
+- The remaining open tasks should therefore be read as targeted operational backlog for the batch writer and its resilience story, plus some legacy validation debt, not as a broad feature-expansion roadmap.
+- The remaining open tasks are intentionally left open because they still fit that narrowed maintenance scope.
+
+Maintenance classification (2026-04-05):
+
+- Keep open: service resilience, reboot verification, load/failure validation, and any remaining Tier-1 operational checks tied to `daily_analysis.py` and the comparison stack.
+- Do not reinterpret open tasks here as blockers for the canonical `:8011` feature roadmap.
+
+## Implementer Handoff (2026-04-05)
+
+Treat this spec as a maintenance backlog for the retained legacy batch/comparison system only.
+
+- Primary implementation files for remaining work: `scripts/daily_analysis.py`, `api/routes/questdb.py`, `tests/test_daily_analysis.py`, and the deployed cron/systemd configuration referenced by this spec.
+- Operational validation backlog still worth executing: `T092`, `T093`, `T101`-`T106`, and `T138`-`T140`.
+- Historical acceptance items `T108`-`T110` are lower-priority bookkeeping for the retained path; they are not blockers for the canonical `:8011` API/chart contract.
+- Do not use this spec to introduce new canonical chart/frontend work. `frontend/comparison.html` remains research-only, while the admitted chart contract lives under `spec-042` and `docs/ARCHITECTURE.md`.
+
 ---
 
 ## Phase 0: Pre-Setup & Git Hooks 🔧
@@ -1459,4 +1480,3 @@ git checkout -b library-v2
 1. **Fix Tier 1**: If solution is simple (config change, version upgrade)
 2. **Accept limitation**: If requires significant rework or maintenance burden
 3. **Enable Tier 2**: Use public API as primary fallback instead of Tier 3
-

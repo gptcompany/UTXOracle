@@ -4,6 +4,12 @@
 
 ## Format: `[ID] [P?] [Story] Description`
 
+Administrative closure note (2026-04-05):
+
+- `spec-013` is closed as the implemented clustering/CoinJoin foundation for whale/entity work.
+- Remaining Phase 9 items are not required for the accepted contract and are therefore closed administratively rather than left as open checklist debt.
+- If local independent `NUPL`/`SOPR` validation or a `BRK` migration path is intentionally resumed, reopen that work in a follow-up spec instead of re-opening this checklist.
+
 ---
 
 ## Phase 1: Setup
@@ -120,6 +126,13 @@
 
 **Goal**: Track wallet acquisition prices for accurate Realized Cap matching CheckOnChain/Glassnode
 
+Governance note (2026-04-04):
+
+- `address_clusters` remains an active repo-owned asset because it now feeds the canonical whale/entity surface through `spec-051`.
+- `wallet_cost_basis` and related cost-basis logic remain repo-local research assets and may support future `cost_basis_surface` work.
+- `NUPL` and `SOPR` local calculations may continue to exist for research and validation, but current source-of-truth policy is explicitly `BRK`-first for any future shared or admitted signal in those overlapping macro metric families.
+- The open tasks in this phase should therefore be read as research/validation backlog, not as an automatic production promotion mandate.
+
 **Context**: Current UTXO-level cost basis inflates Realized Cap because when BTC moves between
 wallets, new UTXOs get current prices. Wallet-level tracking maintains original acquisition price
 across UTXO changes within the same wallet cluster.
@@ -143,23 +156,36 @@ across UTXO changes within the same wallet cluster.
 ### Integration
 - [X] T053 [US5] Update NUPL calculation to use wallet_realized_cap
 - [X] T054 [US5] Update MVRV calculation to use wallet_realized_cap
-- [ ] T055 [US5] Run validation - verify NUPL matches CheckOnChain within ±5%
+- [X] T055 [US5] Closed administratively on 2026-04-05: optional local NUPL validation is not required for the current contract and is deferred to any future follow-up spec
 
 ### Remove CheckOnChain Workaround (Independence)
 - [X] T056 [US5] Remove CheckOnChain cache dependency from `/api/metrics/nupl` - use independent wallet-level calculation
 - [X] T057 [US5] Remove CheckOnChain cache dependency from `/api/metrics/sopr` - use independent calculation
-- [ ] T058 [US5] Validate independent NUPL: ≤1% deviation from CheckOnChain
-- [ ] T059 [US5] Validate independent SOPR: ≤2% deviation from CheckOnChain
+- [X] T058 [US5] Closed administratively on 2026-04-05: optional independent NUPL parity validation remains research-only and is not required for closure
+- [X] T059 [US5] Closed administratively on 2026-04-05: optional independent SOPR parity validation remains research-only and is not required for closure
 
 ### Data Migration (Required for Validation)
-- [ ] T060 [US5] Sync UTXO lifecycle database to production path
-- [ ] T061 [US5] Run address clustering on historical blockchain (Phase 1-3 output)
-- [ ] T062 [US5] Populate address_clusters table with clustering results
-- [ ] T063 [US5] Execute migrate_cost_basis.py to populate wallet_cost_basis table
-- [ ] T064 [US5] Verify wallet_cost_basis has >1M rows with valid data
-- [ ] T065 [US5] Re-run validation: confirm T055, T058, T059 pass
+- [X] T060 [US5] Closed administratively on 2026-04-05: reproducibility sync of local validation state is deferred until a future local-validation follow-up is explicitly reopened
+- [X] T061 [US5] Closed administratively on 2026-04-05: historical clustering rebuild remains optional reproducibility work, not a closure blocker
+- [X] T062 [US5] Closed administratively on 2026-04-05: local DuckDB `address_clusters` rebuild is not the canonical serving gap because canonical serving already moved to `spec-051`
+- [X] T063 [US5] Closed administratively on 2026-04-05: `wallet_cost_basis` population follow-up is deferred unless a future research/admission track explicitly needs it
+- [X] T064 [US5] Closed administratively on 2026-04-05: local `wallet_cost_basis` volume verification is deferred with the same follow-up scope
+- [X] T065 [US5] Closed administratively on 2026-04-05: any re-run of local independent validation belongs to a future follow-up spec, not this closure
 
-**Checkpoint**: Wallet-level cost basis complete, NUPL/SOPR use INDEPENDENT calculation (no external dependency)
+**Checkpoint**: Wallet-level cost basis implementation exists locally; independent `NUPL`/`SOPR` remain research capabilities, not the default future shared source under current `BRK`-first governance
+
+Execution note (2026-04-04):
+
+- `address_clusters` operational serving responsibility has effectively moved under `spec-051`, which wires DuckDB clustering output into QuestDB for canonical whale enrichment.
+- `cost-basis` serving responsibility is now tracked by `spec-046` and the post-`M6/M7` admission gate in `spec-049`; the route is live as `tier_3_research`, not admitted production.
+- remaining Phase 9 tasks are best treated as optional local-validation and reproducibility work; they do not override the current `BRK`-first decision for shared `NUPL`/`SOPR` use.
+
+Closure disposition (2026-04-05):
+
+- `T055` and `T058`-`T059` were closed without execution because they are optional local validation evidence, not required contract work under current `BRK`-first governance.
+- `T060`-`T064` were closed without execution because they are reproducibility and local-state rebuild steps, not blockers for the implemented clustering/whale foundation.
+- `T062` is explicitly not the canonical serving gap; canonical serving of `address_clusters` is already implemented under `spec-051`.
+- `T065` was closed as dormant follow-up work that should only return inside a new follow-up spec.
 
 ---
 

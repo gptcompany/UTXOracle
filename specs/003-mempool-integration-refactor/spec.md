@@ -2,8 +2,27 @@
 
 **Feature Branch**: `003-mempool-integration-refactor`
 **Created**: 2025-10-24
-**Status**: Draft
+**Status**: Maintenance
+**Maintenance Since**: 2026-04-05
 **Parent Spec**: 002-mempool-live-oracle (builds upon existing live system)
+
+## Maintenance Note (2026-04-05)
+
+This spec remains active only as a maintenance and operational-hardening document for the legacy batch/comparison path centered on `scripts/daily_analysis.py`.
+
+- It is not the primary roadmap for the canonical live API surface, which now flows through `spec-040` and `spec-041`.
+- The remaining open tasks are intentionally kept open where they still represent operational validation, resilience checks, or follow-up hardening for the batch writer path.
+- New feature-direction work should not start from this spec unless it clearly belongs to that retained ownership area.
+
+## Current Architecture Alignment (2026-04-05)
+
+This spec no longer defines the canonical live/chart architecture.
+
+- The canonical production app runs on `:8011` via `api.apps.live:app`; use `spec-040`, `spec-041`, `spec-042`, and `docs/ARCHITECTURE.md` for that boundary.
+- The retained ownership from this spec is the legacy batch/comparison path around `scripts/daily_analysis.py`, its tiered fetching/resilience behavior, and the QuestDB-backed price writer path consumed by `/api/prices/*` and `/api/metrics/latest`.
+- Canonical serving for those price routes is now `api.routes.questdb` on `:8011`; `api.main` on `:8001` is a secondary legacy path only.
+- `frontend/comparison.html` and `/static/comparison.html` remain research-only and must not be treated as the canonical chart surface.
+- Historical sections below that describe broad productization, frontend refactor, or codebase-reduction goals are archival context. When they conflict with `docs/ARCHITECTURE.md` or `docs/FEATURE_CONTRACT_REGISTRY.md`, follow those newer sources.
 
 ---
 

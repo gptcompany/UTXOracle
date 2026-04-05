@@ -11,6 +11,18 @@
 - **[P]**: Can run in parallel (different files, no dependencies)
 - **[E]**: Alpha-Evolve trigger - complex algorithmic task
 
+## Governance Note (2026-04-05)
+
+- This spec is in maintenance mode, not active feature build-out.
+- `scripts/metrics/cointime.py`, `api/main.py`, and `scripts/metrics/monte_carlo_fusion.py` already implement the calculator, route family, and fusion integration.
+- Remaining open tasks are limited to validation evidence and performance benchmarking on the research surface.
+
+## Implementer Handoff (2026-04-05)
+
+- Primary files for any remaining work: `tests/test_cointime.py`, `tests/fixtures/glassnode_cointime_reference.csv`, `scripts/metrics/cointime.py`, and `api/main.py`.
+- Do not reinterpret this spec as a request to redesign the API contract; `/api/metrics/cointime*` already exists on `:8001`.
+- When in doubt, follow current code reality: `cointime` sits in the 11-component `ENHANCED_WEIGHTS` set with weight `0.14`.
+
 ---
 
 ## Phase 1: Setup
@@ -148,9 +160,9 @@
 ### Implementation (GREEN)
 
 - [x] T039 [US5] Implement `generate_cointime_signal()` in `scripts/metrics/cointime.py`
-- [x] T040 [US5] Add `cointime` to `ENHANCED_WEIGHTS` in fusion (9 components)
-- [x] T040a [US5] Rebalance ENHANCED_WEIGHTS to sum to 1.0 (whale 0.21, utxo 0.12, funding 0.12, oi 0.09, power_law 0.09, symbolic 0.12, fractal 0.09, wasserstein 0.04, cointime 0.12)
-- [x] T041 [US5] Update `enhanced_fusion()` for 9 components
+- [x] T040 [US5] Add `cointime` to `ENHANCED_WEIGHTS` in fusion (current 11-component set)
+- [x] T040a [US5] Rebalance `ENHANCED_WEIGHTS` to the current 1.0-summing mix (`whale 0.24`, `utxo 0.12`, `funding 0.05`, `oi 0.05`, `power_law 0.06`, `symbolic 0.12`, `fractal 0.09`, `wasserstein 0.08`, `cointime 0.14`, `sopr 0.02`, `mvrv_z 0.03`)
+- [x] T041 [US5] Update `enhanced_fusion()` for the current 11-component set
 - [x] T042 [US5] Add `/api/metrics/cointime` endpoints in `api/main.py` (latest, history, signal)
 - [x] T043 [US5] Run tests → GREEN (96 passed)
 
@@ -162,9 +174,9 @@
 
 - [x] T044 [P] Update CLAUDE.md with spec-018 status
 - [x] T045 [P] Update `docs/ARCHITECTURE.md` with Cointime documentation
-- [ ] T045a [P] Create `tests/fixtures/glassnode_cointime_reference.csv` with sample validation data
-- [ ] T045b Add validation test `test_glassnode_comparison()` comparing outputs to reference (SC-001/SC-002)
-- [ ] T045c Add performance benchmark test for <1s/block requirement (SC-003)
+- [ ] T045a [P] Create `tests/fixtures/glassnode_cointime_reference.csv` with sampled reference values for `liveliness` and `aviv_ratio`
+- [ ] T045b Add `test_glassnode_comparison()` to `tests/test_cointime.py` comparing local outputs against `tests/fixtures/glassnode_cointime_reference.csv` for `SC-001`/`SC-002`
+- [ ] T045c Add a performance benchmark test to `tests/test_cointime.py` asserting the `<1s/block` requirement for `SC-003`
 - [x] T046 Run full test suite (96 passed)
 - [x] T047 Run linter (all checks passed)
 - [x] T048 Validate quickstart.md (N/A - no quickstart for spec-018)

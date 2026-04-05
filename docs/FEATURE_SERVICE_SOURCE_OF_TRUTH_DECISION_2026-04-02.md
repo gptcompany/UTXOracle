@@ -2,7 +2,9 @@
 
 Date: 2026-04-02
 
-Status: Active engineering policy freeze for overlapping metrics
+Updated: 2026-04-05
+
+Status: Active engineering policy freeze for overlapping metrics, updated after explicit `BRK`-first choice for overlapping macro analytics
 
 Primary policy documents:
 
@@ -39,9 +41,11 @@ That combination creates duplication risk and wasted work.
 | `utxoracle_price` | `UTXOracle` canonical | never replace with `BRK` |
 | `realized_price_usd` | `BRK` first | use upstream rather than opening a new local productization track |
 | `liveliness` | `BRK` first for shared feature use | local cointime remains valid for research and validation |
+| `sopr` | `BRK` first for any future shared or admitted signal | keep the local route research-oriented unless an intentionally different contract is approved |
 | `reserve_risk` | `BRK` first | do not continue local route productization by default |
-| `nupl` | undecided beyond research | future promotion must explicitly choose `BRK` adoption or a reduced local contract |
+| `nupl` | `BRK` first for any future shared or admitted signal | keep the local route research-only unless an explicitly reduced local contract is approved |
 | `cost_basis` | local `UTXOracle` | repo-native DuckDB implementation remains the preferred path |
+| `address_clusters` | local `UTXOracle` clustering asset for now | do not migrate to `BRK` unless `BRK` proves equivalent clustering/entity semantics for the whale contract |
 
 ## 4. Immediate Operational Consequence
 
@@ -61,6 +65,7 @@ Reason:
 DuckDB still owns repo-specific and UTXO-lifecycle-centric surfaces such as:
 
 - `cost-basis`
+- `address_clusters` and whale/entity enrichment state unless and until `BRK` proves an equivalent contract
 - Wave 1 holder/cohort analytics
 - custom research workflows
 - any route where `BRK` does not provide a suitable exposed equivalent
@@ -77,7 +82,7 @@ The next substantive local milestone should be Wave 1 history/materialization de
 
 ## 7. Required Discipline Going Forward
 
-Before productizing any overlapping metric family:
+Before productizing any overlapping metric family or migrating a repo-owned enrichment surface:
 
 1. check whether `BRK` already computes and exposes it
 2. decide `adopt`, `validate`, or `local-only`

@@ -3,8 +3,8 @@
 Sync Address Clusters from DuckDB to QuestDB (spec-051 Phase 2).
 
 This script reads the `address_clusters` table from DuckDB (produced by the
-clustering pipeline) and synchronizes it to the QuestDB serving plane via a 
-truncate-and-load approach.
+clustering pipeline) and synchronizes it to the QuestDB serving plane via a
+staged full-refresh cutover.
 
 Usage:
   python3 scripts/bootstrap/sync_clusters_to_questdb.py [--batch-size 100000]
@@ -62,7 +62,8 @@ async def sync_clusters(
 ) -> bool:
     """
     Read all clusters from DuckDB and load them into QuestDB.
-    Uses TRUNCATE + ILP for a clean, full-refresh snapshot.
+    Uses a staging table so the live snapshot is only replaced after the ILP
+    load completes successfully.
     """
     logger.info("Starting address_clusters sync from DuckDB to QuestDB...")
     
@@ -93,12 +94,8 @@ async def sync_clusters(
         logger.error(f"Failed to read DuckDB address_clusters: {e}")
         return False
 
-    # 3. Truncate QuestDB table
-    try:
-        await repo.execute("TRUNCATE TABLE address_clusters")
-        logger.info("Truncated QuestDB address_clusters table.")
-    except Exception as e:
-        logger.error(f"Failed to truncate QuestDB table: {e}")
+    # 3. Prepare QuestDB staging table
+    if not await repo.prepare_address_clusters_refresh():
         return False
 
     total_synced = 0
@@ -121,35 +118,22 @@ async def sync_clusters(
             })
             
         for r in rows_to_insert:
-            symbols = {}
-            if r.get("label"):
-                symbols["label"] = str(r["label"])
-
-            row_success = repo._send_row(
-                "address_clusters",
-                symbols=symbols,
-                columns={
-                    "address": str(r["address"]),
-                    "cluster_id": str(r["cluster_id"]),
-                    "last_seen": r.get("last_seen"),
-                    "is_exchange_likely": r["is_exchange_likely"],
-                    "confidence": r["confidence"]
-                },
-                at=r.get("first_seen"),
-            )
+            row_success = repo.stage_address_cluster(r)
             if not row_success:
                 logger.error(
                     "Failed to ingest address cluster for address=%s cluster_id=%s",
                     r["address"],
                     r["cluster_id"],
                 )
-                repo.abort_ingestion()
+                await repo.abort_address_clusters_refresh()
                 return False
 
         total_synced += len(rows_to_insert)
         logger.info(f"Synced {total_synced:,} / {total_rows:,} clusters...")
 
-    await repo.async_flush_ingestion()
+    if not await repo.commit_address_clusters_refresh():
+        return False
+
     logger.info(f"✅ Successfully synchronized {total_synced:,} clusters to QuestDB.")
     return True
 

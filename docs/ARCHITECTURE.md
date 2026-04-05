@@ -127,9 +127,11 @@ Artifacts and operator procedure:
 - [`specs/042-questdb-charting-validation/artifacts/realized-price-reference/README.md`](../specs/042-questdb-charting-validation/artifacts/realized-price-reference/README.md)
 - [`specs/042-questdb-charting-validation/operator-notes.md`](../specs/042-questdb-charting-validation/operator-notes.md)
 
-## Current Implementation (spec-003: Hybrid Architecture)
+## Retained Legacy Batch/Comparison Path (spec-003 Maintenance Scope)
 
-**4-Layer Architecture** - Combines reference implementation with self-hosted infrastructure:
+This section documents the retained ownership area of `spec-003`, not the canonical live/chart boundary.
+
+**4-Layer Architecture** - reference implementation plus the maintained legacy batch/comparison stack:
 
 ### Layer 1: Reference Implementation (UTXOracle.py)
 - Single-file reference implementation using sequential 12-step algorithm
@@ -152,7 +154,7 @@ Artifacts and operator procedure:
   * **MariaDB** - Transaction database
 - Benefits: Battle-tested, maintained by mempool.space team, zero custom parsing code
 
-### Layer 4: Integration & Visualization
+### Layer 4: Retained Batch Writer & Legacy Research Surface
 - **Integration Service** (`scripts/daily_analysis.py`)
   * Runs every 10 minutes via cron
   * **3-Tier Transaction Fetching** (Phase 9: Soluzione 3c+):
@@ -167,17 +169,15 @@ Artifacts and operator procedure:
   * Fallback: backup database, webhook alerts
   * **99.9% uptime** with 3-tier cascade resilience
 
-- **FastAPI Backend** (`api/main.py`)
-  * REST API: `/api/prices/latest`, `/api/prices/historical`, `/api/prices/comparison`
-  * Health check: `/health`
-  * Serves frontend dashboard
-  * Systemd service: `utxoracle-api.service`
+- **QuestDB Price Serving**
+  * Canonical serving for `/api/prices/*` and `/api/metrics/latest` is now the production app on `:8011`
+  * The serving owner is `api.routes.questdb`, while `scripts/daily_analysis.py` remains the writer owner for `price_analysis`
+  * `api.main` on `:8001` is now a secondary legacy path only for these routes
 
-- **Plotly.js Frontend** (`frontend/comparison.html`)
-  * Time series chart: UTXOracle (green) vs Exchange (red)
-  * Stats cards: avg/max/min diff, correlation
-  * Timeframe selector: 7/30/90 days
-  * Black background + orange theme
+- **Legacy Research UI** (`frontend/comparison.html`)
+  * Remains useful for operator/research comparison work on `:8001`
+  * Is explicitly not the canonical chart surface
+  * Canonical admitted chart routes live under `/api/v1/charts/*` on `:8011`
 
 ---
 

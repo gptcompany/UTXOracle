@@ -2,8 +2,17 @@
 
 **Feature Branch**: `002-mempool-live-oracle`
 **Created**: 2025-10-19
-**Status**: Draft
+**Status**: Dormant
+**Dormant Since**: 2026-04-05
 **Input**: User description: "/media/sam/1TB/UTXOracle/SPECKIT_FEATURE_SPEC.md"
+
+## Dormancy Note (2026-04-05)
+
+This spec is no longer the active roadmap for the live product surface.
+
+- The current production live direction is owned by `spec-040` and `spec-041`, with the canonical consumer surface on `:8011`.
+- This document remains useful as historical prototype context for the earlier mempool-live experiment, but it should not be treated as active implementation backlog.
+- Any future revival of this exact prototype line should happen through a new follow-up spec or an explicit reactivation decision, not by carrying the remaining checklist debt here.
 
 ## Problem Statement
 

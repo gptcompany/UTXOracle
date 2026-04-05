@@ -50,3 +50,7 @@
 - [x] T014 Update `docs/contracts/feature_provenance_manifest.yaml` to reflect the active sync pipeline as the `writer_owner`.
 
 **Checkpoint**: Whale entity enrichment is fully operationalized, documented, and contract-aligned.
+
+Execution note:
+
+- Post-close regression fix verified on 2026-04-04: the QuestDB `address_clusters` refresh path now stages and cuts over atomically enough to avoid serving a partially rebuilt table after an ILP failure; targeted pytest coverage was re-run after the fix.

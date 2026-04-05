@@ -2,10 +2,27 @@
 
 **Feature Branch**: `018-cointime-economics`
 **Created**: 2025-12-06
-**Status**: Draft
+**Status**: Maintenance
+**Maintenance Since**: 2026-04-05
 **Prerequisites**: spec-017 (UTXO Lifecycle Engine) complete
 **Priority**: TIER A (Score 62, 3-4 weeks after spec-017)
 **Evidence Grade**: A (ARK Invest + Glassnode White Paper, 2023)
+
+## Maintenance Note (2026-04-05)
+
+This spec is no longer a greenfield implementation brief.
+
+- The core calculator, API routes, and fusion integration already exist in code.
+- Remaining open work is limited to validation evidence and performance benchmarking.
+- The route family remains a `tier_3_research` surface on `:8001`, not a canonical production contract.
+
+## Current Architecture Alignment (2026-04-05)
+
+- `scripts/metrics/cointime.py` is the implementation source for the Cointime calculations.
+- `api/main.py` already exposes `/api/metrics/cointime`, `/api/metrics/cointime/history`, and `/api/metrics/cointime/signal` on the research host `:8001`.
+- `scripts/metrics/monte_carlo_fusion.py` currently includes `cointime` in the 11-component `ENHANCED_WEIGHTS` set with weight `0.14`.
+- The only remaining backlog for this spec is: fixture-based validation against Glassnode-style reference data and a benchmark for `SC-003`.
+- Historical schedule wording below ("3-4 weeks after spec-017") is archival context only.
 
 ## Context & Motivation
 
@@ -107,17 +124,17 @@ As a Bitcoin trader, I want the **AVIV ratio** as a superior MVRV.
 
 ### User Story 5 - Fusion Integration (Priority: P2)
 
-As a system operator, I want **Cointime as the 10th fusion component**, so I can improve signal quality with academically rigorous metrics.
+As a system operator, I want **Cointime included in the current enhanced fusion component set**, so I can improve signal quality with academically rigorous metrics.
 
 **Acceptance Scenarios**:
 
 1. **Given** cointime metrics calculated
    **When** fusion runs
-   **Then** cointime_vote included with weight 0.12
+   **Then** `cointime_vote` is included in the current `ENHANCED_WEIGHTS` set with weight `0.14`
 
-2. **Given** API request to `/api/metrics/cointime`
+2. **Given** API requests to `/api/metrics/cointime*`
    **When** endpoint called
-   **Then** returns CointimeSignal JSON
+   **Then** the research API returns the expected latest/history/signal payloads on `:8001`
 
 ---
 
@@ -144,9 +161,9 @@ As a system operator, I want **Cointime as the 10th fusion component**, so I can
 - **FR-010**: AVIV Ratio = Current Price / True Market Mean
 
 **Integration**:
-- **FR-011**: Cointime vote in enhanced fusion (10th component)
-- **FR-012**: Default weight: 0.12
-- **FR-013**: API endpoint `/api/metrics/cointime`
+- **FR-011**: Cointime vote in the current enhanced fusion component set
+- **FR-012**: Current default weight in `ENHANCED_WEIGHTS`: `0.14`
+- **FR-013**: API route family `/api/metrics/cointime*`
 
 ### Key Entities *(mandatory)*
 
@@ -184,8 +201,8 @@ See [data-model.md](./data-model.md) for complete entity definitions:
 - [ ] Liveliness and Vaultedness calculation
 - [ ] Active/Vaulted Supply split
 - [ ] True Market Mean and AVIV Ratio
-- [ ] Enhanced fusion extended (10 components)
-- [ ] API endpoint `/api/metrics/cointime`
+- [ ] Enhanced fusion aligned with the current `ENHANCED_WEIGHTS` entry for `cointime`
+- [ ] API route family `/api/metrics/cointime*`
 - [ ] Unit tests (≥85% coverage)
 - [ ] Documentation updated
 
@@ -202,7 +219,7 @@ See [data-model.md](./data-model.md) for complete entity definitions:
 
 ```bash
 COINTIME_ENABLED=true
-COINTIME_WEIGHT=0.12
+COINTIME_WEIGHT=0.14
 COINTIME_AVIV_UNDERVALUED=1.0
 COINTIME_AVIV_OVERVALUED=2.5
 ```

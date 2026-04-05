@@ -106,3 +106,4 @@ Execution note:
 - `/api/metrics/cost-basis` now serves a live DuckDB-backed payload with route-level `404` on unusable snapshots and `503` on missing DuckDB.
 - `/api/metrics/reserve-risk` remains registered but intentionally returns `501`, and it is no longer the default next local productization target while the `BRK`-first source-of-truth policy stands.
 - any future promotion of `nupl` or `cost-basis` beyond research-only is now handed off to `spec-049`.
+- Post-close regression fix verified on 2026-04-04: the shared `QuestDBRepository` no longer poisons the optional Wave 1 backfill retry path after an ingestion abort; targeted pytest coverage was re-run after the fix.

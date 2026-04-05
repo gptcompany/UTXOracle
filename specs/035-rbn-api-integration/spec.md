@@ -1,5 +1,28 @@
 # Spec-035: ResearchBitcoin.net API Integration
 
+**Status**: Maintenance
+**Maintenance Since**: 2026-04-05
+
+## Maintenance Note (2026-04-05)
+
+This spec remains active as a research/validation maintenance track.
+
+- It is not a canonical production serving spec.
+- Its retained value is external comparison, reproducibility, formula alignment, and upstream API follow-up.
+- The remaining open tasks stay open only for that purpose and should not be read as blockers for the canonical `:8011` contract.
+
+## Current Architecture Alignment (2026-04-05)
+
+This spec has already been implemented as a research surface and now serves mainly as maintenance guidance.
+
+- `api/models/validation_models.py` defines `RBNConfig`, `RBN_METRICS`, quota models, and response contracts.
+- `scripts/integrations/rbn_fetcher.py` owns async upstream fetches, cache management, and quota tracking.
+- `scripts/integrations/rbn_validator.py` owns the comparison service and CLI path.
+- `api/main.py` already exposes `/api/v1/validation/rbn/*` on `:8001`.
+- `scripts/integrations/metric_loader.py` and `scripts/integrations/validation_batch.py` own the batch-validation flow for formula alignment work.
+- Per `docs/FEATURE_CONTRACT_REGISTRY.md`, this is a `tier_3_research` route family, quota-bound, and not part of the canonical production contract.
+- Historical design sketches below predate the current implementation. When they disagree with code or the contract registry, follow the code and the newer docs.
+
 ## Overview
 
 Create a lightweight integration layer to fetch metrics from ResearchBitcoin.net (RBN) for comparison, validation, and gap-filling. RBN provides 300+ free metrics - we integrate selectively.
@@ -30,7 +53,9 @@ Swagger: /v1/swagger.json
 
 **Note**: Frontend uses Dash (Plotly), not Shiny. See `research.md` for full API discovery.
 
-## Technical Design
+## Historical Design Sketch (Archival)
+
+The sections below capture the original 2025 design intent. They are not the implementation source of truth for the current codebase.
 
 ### Integration Strategy
 
