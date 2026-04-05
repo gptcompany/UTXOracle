@@ -1,6 +1,6 @@
 # Tasks: mempool.space Integration & Codebase Refactor
 
-**Status**: ✅ COMPLETED (2026-04-05)
+**Status**: Maintenance backlog (2026-04-05)
 **Maintenance Since**: 2026-04-05
 **Input**: Design documents from `/media/sam/1TB/UTXOracle/specs/003-mempool-integration-refactor/`
 **Prerequisites**: plan.md ✅, spec.md ✅
@@ -37,7 +37,7 @@ Maintenance classification (2026-04-05):
 Treat this spec as a maintenance backlog for the retained legacy batch/comparison system only.
 
 - Primary implementation files for remaining work: `scripts/daily_analysis.py`, `api/routes/questdb.py`, `tests/test_daily_analysis.py`, and the deployed cron/systemd configuration referenced by this spec.
-- Operational validation backlog still worth executing: `T092`, `T093`, `T101`-`T106`, and `T138`-`T140`.
+- Remaining operational validation backlog: `T093`, `T102`, `T104`, `T106`, and `T139`.
 - Historical acceptance items `T108`-`T110` are lower-priority bookkeeping for the retained path; they are not blockers for the canonical `:8011` API/chart contract.
 - Do not use this spec to introduce new canonical chart/frontend work. `frontend/comparison.html` remains research-only, while the admitted chart contract lives under `spec-042` and `docs/ARCHITECTURE.md`.
 
@@ -363,20 +363,20 @@ Treat this spec as a maintenance backlog for the retained legacy batch/compariso
 
 - [X] T100 [Validation] End-to-end test: Trigger cron manually → Verify new data in DuckDB → Verify API returns it → Verify frontend shows it
 - [X] T101 [Validation] Load test: Insert 10,000 rows into DuckDB, measure query performance (Passed: <40ms via scripts/validation/load_test_duckdb.py)
-- [X] T102 [Validation] Failure recovery test: Stop mempool-stack → Verify daily_analysis.py handles error gracefully (Verified: retry_with_backoff implemented in scripts/daily_analysis.py)
+- [/] T102 [Validation] Failure recovery test: Stop mempool-stack → Verify daily_analysis.py handles error gracefully (Partial: retry helper and fallback unit coverage added; full live stop/restart exercise still pending)
 - [X] T103 [Validation] Price divergence test: Simulate large divergence (>5%) → Verify logged prominently (Implemented in scripts/daily_analysis.py and tested in tests/test_daily_analysis.py)
-- [X] T104 [Validation] Memory leak test: Run API for 24 hours → Monitor memory usage (Instrumented via scripts/validation/check_memory_usage.sh)
+- [/] T104 [Validation] Memory leak test: Run API for 24 hours → Monitor memory usage (Instrumented via scripts/validation/check_memory_usage.sh; 24h run not executed)
 - [X] T105 [Validation] Disk usage check: Verify electrs database ~38GB, DuckDB <100MB, logs <1GB (Integrated into scripts/health_check.sh)
-- [X] T106 [Validation] Network bandwidth test: Measure mempool-stack bandwidth usage (Instrumented via scripts/validation/check_bandwidth.sh)
+- [/] T106 [Validation] Network bandwidth test: Measure mempool-stack bandwidth usage (Instrumented via scripts/validation/check_bandwidth.sh; live bandwidth capture not executed)
 
 ### Acceptance Criteria Validation
 
 - [X] T107 [Validation] User Story 1: Price comparison dashboard shows dual time series (green vs red)
 - [X] T108 [Validation] User Story 2: Codebase is ≤800 lines ⏩ SUPERSEDED (Codebase has grown to ~8k lines to support production metrics and observability; core algorithm remains concise)
 - [X] T109 [Validation] User Story 3: `UTXOracle_library` import works ✅ VERIFIED (Confirmed via python3 import test)
-- [X] T110 [Validation] User Story 4: System survives reboot ✅ VERIFIED (utxoracle-api auto-starts; verify_reboot_readiness.sh confirms core persistence policies)
+- [/] T110 [Validation] User Story 4: System survives reboot ⚠️ PARTIAL (boot persistence is instrumented; full reboot verification remains pending with T093)
 
-**Checkpoint**: All acceptance criteria met, system production-ready
+**Checkpoint**: Acceptance criteria are mostly reconciled for the retained batch path, but reboot/manual resource validation remains partially open
 
 ---
 
@@ -1433,11 +1433,11 @@ git checkout -b library-v2
 
 ### Resilience Enhancement
 
-- [X] T139 [Config] Enable Tier 2 (public mempool.space) for production resilience
-  - ✅ Update `.env`: `MEMPOOL_FALLBACK_ENABLED=true` (Supported in daily_analysis.py)
+- [/] T139 [Config] Enable Tier 2 (public mempool.space) for production resilience
+  - ✅ Support in code path: `MEMPOOL_FALLBACK_ENABLED=true`
   - ✅ Document trade-off: Privacy vs resilience (In daily_analysis.py docstring)
-  - ✅ Test fallback: Stop local mempool-api → Verify Tier 2 activates
-  - ✅ Recommendation: Enable for production, disable for privacy-conscious deployments
+  - ✅ Unit coverage: Tier 2 fallback path exercised in `tests/test_daily_analysis.py`
+  - ⚠️ Operator enablement and live outage exercise remain pending before this can be treated as fully verified
 
 - [X] T140 [Monitoring] Create Tier usage dashboard
   - ✅ Track tier used in `price_analysis` table (QuestDB)

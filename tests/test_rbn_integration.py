@@ -678,3 +678,4 @@ class TestRBNMetricResponse:
         assert len(response.data) == 5
         assert response.data[0].date == date(2024, 12, 1)
         assert response.data[0].value == 2.45
+        assert response.timestamp == datetime(2024, 12, 26, 10, 0, 0)

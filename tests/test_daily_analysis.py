@@ -204,24 +204,49 @@ class TestPriceValidation:
 class TestFailureRecovery:
     """T102: Test system resilience and failure recovery"""
 
-    def test_fetch_bitcoin_transactions_retry_logic(self):
-        """Should retry on failure and eventually succeed or fail gracefully"""
+    def test_retry_with_backoff_retries_until_success(self):
+        """Retry helper should retry transient failures and then succeed."""
+        from scripts.daily_analysis import retry_with_backoff
+
+        attempts = {"count": 0}
+
+        def flaky_call():
+            attempts["count"] += 1
+            if attempts["count"] < 3:
+                raise ValueError("temporary failure")
+            return "ok"
+
+        with patch("time.sleep") as mock_sleep:
+            result = retry_with_backoff(flaky_call, max_retries=3, delay=0.1)
+
+        assert result == "ok"
+        assert attempts["count"] == 3
+        assert mock_sleep.call_count == 2
+
+    def test_fetch_bitcoin_transactions_falls_back_to_public_api(self):
+        """Tier 2 fallback should activate when Tier 1 fails and fallback is enabled."""
         from scripts.daily_analysis import fetch_bitcoin_transactions
         import requests
 
-        with patch("scripts.daily_analysis.requests.get") as mock_get:
-            # Simulate 2 failures then 1 success
-            mock_get.side_effect = [
-                requests.RequestException("Fail 1"),
-                requests.RequestException("Fail 2"),
-                Mock(status_code=200, json=lambda: "hash123"),  # tip/hash
-                Mock(status_code=200, json=lambda: [{"txid": "abc"}]),  # block txs
-            ]
+        config = {
+            "MEMPOOL_API_URL": "http://localhost:8999",
+            "MEMPOOL_FALLBACK_ENABLED": True,
+            "MEMPOOL_FALLBACK_URL": "https://mempool.space",
+            "BITCOIN_DATADIR": "~/.bitcoin",
+        }
 
-            # This depends on how exactly the retry is implemented in daily_analysis.py
-            # If it uses a retry decorator or loop, we verify it calls multiple times.
-            # For now, we just mock the success path after some failures if possible.
-            pass
+        with patch(
+            "scripts.daily_analysis._fetch_from_mempool_local",
+            side_effect=requests.RequestException("tier1 down"),
+        ), patch(
+            "scripts.daily_analysis._fetch_from_mempool_public",
+            return_value=[{"txid": "abc"}],
+        ) as mock_fallback:
+            transactions, tier = fetch_bitcoin_transactions(config)
+
+        assert transactions == [{"txid": "abc"}]
+        assert tier == 2
+        assert mock_fallback.called
 
 
 # Summary comment for documentation

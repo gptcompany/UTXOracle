@@ -208,8 +208,8 @@ Maintenance classification (2026-04-05):
 - [x] T034 [P] Validate `specs/035-rbn-api-integration/quickstart.md` examples end-to-end against the implemented CLI/API paths in `scripts/integrations/rbn_validator.py` and `api/main.py`
 - [X] T035 [P] Add error handling for network timeouts in scripts/integrations/rbn_fetcher.py
 - [X] T036 Run full test suite and verify 80% coverage target
-  - 24/24 tests passing
-  - Coverage: 68% (RBN modules) - CLI code not covered by unit tests
+  - Historical implementation note: Coverage landed at 68% (RBN modules); CLI code is not covered by unit tests
+  - Latest local verification (2026-04-05): `pytest -q tests/test_rbn_integration.py` → 25/25 passing
 
 ---
 
@@ -227,7 +227,7 @@ Maintenance classification (2026-04-05):
 - [ ] T042 Recalculate metrics after backfill: `uv run python -m scripts.metrics.calculate_daily_metrics --recalculate` (Blocked: `utxo_snapshots` table is empty locally, preventing all-time stdev calculation)
 - [ ] T043 Validate MVRV-Z MAPE < 10%: `uv run python -m scripts.integrations.validation_batch --metrics mvrv_z` (Blocked: missing local `mvrv_z_rbn` data due to T042)
 
-**Checkpoint**: MVRV-Z validation passes with < 10% MAPE
+**Checkpoint**: MVRV-Z schema/formula alignment is implemented, but recalculation and <10% MAPE validation remain blocked pending historical data
 
 ---
 

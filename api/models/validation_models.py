@@ -3,7 +3,7 @@ Pydantic models for RBN API Integration (spec-035).
 Tasks T005-T009: Data models for RBN fetcher, validation, and comparison.
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from enum import Enum
 from typing import Any, Optional
 
@@ -218,17 +218,22 @@ class RBNMetricResponse(BaseModel):
                     RBNDataPoint(date=d, value=v) for d, v in zip(dates, values)
                 ]
 
+        raw_timestamp = response.get("timestamp", datetime.now(timezone.utc).isoformat())
+        parsed_timestamp = datetime.fromisoformat(
+            raw_timestamp.replace("Z", "+00:00")
+        )
+        if parsed_timestamp.tzinfo is not None:
+            parsed_timestamp = parsed_timestamp.astimezone(timezone.utc).replace(
+                tzinfo=None
+            )
+
         return cls(
             status=response.get("status", "unknown"),
             message=response.get("message", ""),
             metric_id=metric_id,
             data=data_points,
             output_format=response.get("output_format", "json"),
-            timestamp=datetime.fromisoformat(
-                response.get("timestamp", datetime.now().isoformat()).replace(
-                    "+00:00", ""
-                )
-            ),
+            timestamp=parsed_timestamp,
             cached=cached,
         )
 
