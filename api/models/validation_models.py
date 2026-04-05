@@ -52,6 +52,10 @@ class RBNConfig(BaseModel):
         ...,
         description="API authentication token (UUID format)",
     )
+    token_date: Optional[date] = Field(
+        default=None,
+        description="Date when the token was issued/renewed (for 90-day expiry tracking)",
+    )
     tier: RBNTier = Field(
         default=RBNTier.FREE,
         description="API access tier",

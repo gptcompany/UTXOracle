@@ -58,6 +58,22 @@ class RBNFetcher:
         # Quota tracking file
         self._quota_file = self.cache_dir / "quota_tracking.json"
 
+        # Check for token expiry
+        self._check_token_expiry()
+
+    def _check_token_expiry(self) -> None:
+        """Warn if RBN token is older than 90 days."""
+        if not self.config.token_date:
+            return
+
+        days_old = (date.today() - self.config.token_date).days
+        if days_old >= 90:
+            logger.warning(
+                f"RBN API Token is {days_old} days old. "
+                "Tokens typically expire every 90 days. "
+                "Please renew at https://api.researchbitcoin.net/token"
+            )
+
     def _load_config_from_env(self) -> RBNConfig:
         """Load configuration from environment variables."""
         from pydantic import SecretStr
@@ -66,8 +82,18 @@ class RBNFetcher:
         if not token:
             raise ValueError("RBN_API_TOKEN environment variable not set")
 
+        token_date_str = os.getenv("RBN_TOKEN_DATE")
+        token_date = None
+        if token_date_str:
+            try:
+                from datetime import datetime
+                token_date = datetime.strptime(token_date_str, "%Y-%m-%d").date()
+            except ValueError:
+                logger.warning(f"Invalid RBN_TOKEN_DATE format: {token_date_str}")
+
         return RBNConfig(
             token=SecretStr(token),
+            token_date=token_date,
             tier=RBNTier(int(os.getenv("RBN_TIER", "0"))),
             cache_ttl_hours=int(os.getenv("RBN_CACHE_TTL_HOURS", "24")),
             timeout_seconds=float(os.getenv("RBN_TIMEOUT_SECONDS", "30")),

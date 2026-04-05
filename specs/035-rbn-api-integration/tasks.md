@@ -243,13 +243,13 @@ Maintenance classification (2026-04-05):
 - Metric naming/labeling conventions may differ
 - Full historical re-download may be needed for spent output metrics
 
-- [ ] T044 Review the current upstream API documentation and confirm whether v2 supersedes v1 in the active deployment
-- [ ] T045 Update `api/models/validation_models.py` and `scripts/integrations/rbn_fetcher.py` to support the active upstream base URL/version
-- [ ] T046 Add token renewal reminder/automation for the currently supported upstream auth flow (90-day expiry if still applicable)
-- [ ] T047 Map local metric identifiers to the naming conventions of the upstream version actually in use
-- [ ] T048 Re-download golden validation data from the active upstream version
-- [ ] T049 Validate all P1 metrics against the active upstream version data
-- [ ] T050 Update `specs/035-rbn-api-integration/quickstart.md` with the current upstream instructions
+- [x] T044 Review the current upstream API documentation and confirm whether v2 supersedes v1 in the active deployment (Confirmed v1 is still active, v2 is 404)
+- [x] T045 Update `api/models/validation_models.py` and `scripts/integrations/rbn_fetcher.py` to support the active upstream base URL/version (v1 maintained as active)
+- [x] T046 Add token renewal reminder/automation for the currently supported upstream auth flow (Implemented 90-day expiry warning)
+- [ ] T047 Map local metric identifiers to the naming conventions of the upstream version actually in use (Awaiting token for live mapping verification)
+- [ ] T048 Re-download golden validation data from the active upstream version (Blocked: No API token)
+- [ ] T049 Validate all P1 metrics against the active upstream version data (Blocked: No API token)
+- [x] T050 Update `specs/035-rbn-api-integration/quickstart.md` with the current upstream instructions (Done)
 
 **Checkpoint**: All validation passes with v2 API, v1 deprecated
 
@@ -353,12 +353,12 @@ Task: "Create error_response.json in tests/fixtures/rbn_mock_responses/"
 | US2 Tasks | 6 |
 | US3 Tasks | 3 |
 | Polish Tasks | 4 |
-| MVRV-Z Alignment | 7 (3 done, 4 pending) |
+| MVRV-Z Alignment | 7 (5 done, 2 blocked) |
 | Parallel Opportunities | 6 task groups |
 | MVP Scope | T001-T023 (23 tasks) |
-| API v2 Migration | 7 (0 done, 7 pending Jan 3) |
-| **Completion** | **40/50 (80%)** |
+| API v2 Migration | 7 (4 done, 3 blocked) |
+| **Completion** | **45/50 (90%)** |
 
-### Pending Tasks
-- T040-T043: MVRV-Z RBN alignment (awaiting backfill)
-- T044-T050: API v2 migration (available Jan 3, 2025)
+### Pending/Blocked Tasks
+- T042-T043: MVRV-Z RBN alignment (Blocked: missing `utxo_snapshots` data)
+- T047-T049: API v2 migration (Blocked: awaiting API token)
