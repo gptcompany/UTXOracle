@@ -623,3 +623,23 @@ entries:
     owner: "api.main"
     version: "v1"
     deprecation_status: "none"
+  - surface_id: "research_operations_surface"
+    route_family: "/api/research/*"
+    routes:
+      - "GET /api/research/tier-stats"
+    canonical_host: "http://127.0.0.1:8011"
+    consumer:
+      - "operators"
+      - "research"
+    current_label: "code implemented"
+    admission_tier: "tier_3_research"
+    source_of_truth: "QuestDB price_analysis table telemetry"
+    backend_class: "questdb"
+    freshness_target: "Latest batch execution telemetry"
+    empty_state_policy: "Return empty stats if no telemetry rows exist."
+    stale_state_policy: "No stale flag; depends on batch analysis frequency."
+    known_caveats:
+      - "Operational monitoring for fetch tier fallbacks (T140)."
+    owner: "api.routes.questdb"
+    version: "v1"
+    deprecation_status: "none"

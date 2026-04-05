@@ -21,6 +21,8 @@ from api.models.questdb import (
     WalletBandMetricsResponse,
     AbsorptionRatesResponse,
     AbsorptionRateMetricsResponse,
+    TierObservabilityResponse,
+    TierStats,
 )
 from api.questdb_repository import QuestDBRepository
 
@@ -132,6 +134,7 @@ async def get_latest_price(
             mempool_price=row["exchange_price"],
             confidence=row["confidence"],
             tx_count=row["tx_count"],
+            fetch_tier=row.get("fetch_tier"),
             diff_amount=row["price_difference"],
             diff_percent=row["avg_pct_diff"],
             is_valid=row["is_valid"],
@@ -170,6 +173,7 @@ async def get_historical_prices(
                 mempool_price=row["exchange_price"],
                 confidence=row["confidence"],
                 tx_count=row["tx_count"],
+                fetch_tier=row.get("fetch_tier"),
                 diff_amount=row["price_difference"],
                 diff_percent=row["avg_pct_diff"],
                 is_valid=row["is_valid"],
@@ -474,3 +478,59 @@ async def get_absorption_rates(
             log_message="Error getting absorption rates",
             exc=e,
         )
+
+
+# =============================================================================
+# Research & Operations (spec-003 Hardening)
+# =============================================================================
+
+@router.get("/api/research/tier-stats", response_model=TierObservabilityResponse)
+async def get_tier_stats(
+    repo: Annotated[QuestDBRepository, Depends(get_questdb_repo)],
+    days: int = Query(default=30, ge=1, le=365),
+):
+    """
+    Operator endpoint to monitor fetch tier fallbacks (T140).
+    RESEARCH ONLY.
+    """
+    try:
+        cutoff_time = (_utc_now() - timedelta(days=days)).replace(tzinfo=None)
+        
+        # 1. Get counts per tier
+        query_counts = """
+            SELECT fetch_tier, count(*) as cnt
+            FROM price_analysis
+            WHERE ts > $1 AND fetch_tier IS NOT NULL
+            GROUP BY fetch_tier
+        """
+        rows = await repo.fetchall(query_counts, cutoff_time)
+        
+        total_samples = sum(row["cnt"] for row in rows)
+        stats = []
+        for row in rows:
+            stats.append(TierStats(
+                tier=row["fetch_tier"],
+                count=row["cnt"],
+                percentage=(row["cnt"] / total_samples * 100) if total_samples > 0 else 0
+            ))
+            
+        # 2. Get last tier used
+        last_row = await repo.fetchrow(
+            "SELECT fetch_tier FROM price_analysis WHERE fetch_tier IS NOT NULL ORDER BY ts DESC LIMIT 1"
+        )
+        last_tier = last_row["fetch_tier"] if last_row else None
+        
+        return TierObservabilityResponse(
+            timeframe_days=days,
+            total_samples=total_samples,
+            stats=stats,
+            last_tier_used=last_tier
+        )
+    except Exception as e:
+        _raise_http_exception(
+            status_code=500,
+            public_detail="Failed to fetch tier statistics",
+            log_message="Error getting tier stats",
+            exc=e,
+        )
+

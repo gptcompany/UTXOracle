@@ -134,11 +134,18 @@ async def create_tables_if_not_exist():
                 avg_pct_diff DOUBLE,
                 confidence DOUBLE,
                 tx_count LONG,
+                fetch_tier LONG,
                 is_valid BOOLEAN,
                 created_at TIMESTAMP
             ) timestamp(ts) PARTITION BY DAY;
             """
         )
+
+        # Migration for T140: Add fetch_tier column if it doesn't exist
+        try:
+            await conn.execute("ALTER TABLE price_analysis ADD COLUMN fetch_tier LONG")
+        except Exception:
+            pass  # Already exists or table doesn't exist yet
 
         await conn.execute(
             """

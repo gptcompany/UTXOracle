@@ -14,6 +14,7 @@ class PriceEntry(BaseModel):
     mempool_price: Optional[float] = None
     confidence: float
     tx_count: Optional[int] = None
+    fetch_tier: Optional[int] = None
     diff_amount: Optional[float] = None
     diff_percent: Optional[float] = None
     is_valid: bool
@@ -143,3 +144,22 @@ class AbsorptionRatesResponse(BaseModel):
     institutional_absorption: float
     confidence: float
     has_historical_data: bool
+
+
+# =============================================================================
+# Research & Operations (spec-003 Hardening)
+# =============================================================================
+
+class TierStats(BaseModel):
+    """Observability for fetch tiers."""
+    tier: int
+    count: int
+    percentage: float
+
+
+class TierObservabilityResponse(BaseModel):
+    """Response for /api/research/tier-stats."""
+    timeframe_days: int
+    total_samples: int
+    stats: List[TierStats]
+    last_tier_used: Optional[int] = None

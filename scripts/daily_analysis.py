@@ -551,7 +551,7 @@ def _fetch_from_mempool_public(api_url: str) -> List[dict]:
     return transactions
 
 
-def fetch_bitcoin_transactions(config: Dict[str, any]) -> List[dict]:
+def fetch_bitcoin_transactions(config: Dict[str, any]) -> tuple[List[dict], int]:
     """
     Fetch Bitcoin transactions with configurable fallback (T124-T125).
 
@@ -566,7 +566,7 @@ def fetch_bitcoin_transactions(config: Dict[str, any]) -> List[dict]:
         config: Configuration dict with MEMPOOL_API_URL, MEMPOOL_FALLBACK_*
 
     Returns:
-        list: Transaction dictionaries with vout/vin data
+        tuple: (list of transaction dicts, tier used as int)
 
     Raises:
         requests.exceptions.RequestException: If primary fails and fallback disabled
@@ -578,7 +578,7 @@ def fetch_bitcoin_transactions(config: Dict[str, any]) -> List[dict]:
 
     # Tier 1: Primary API (self-hosted mempool.space)
     try:
-        return _fetch_from_mempool_local(primary_url)
+        return _fetch_from_mempool_local(primary_url), 1
     except requests.exceptions.RequestException as e:
         logging.warning(f"Tier 1 failed ({primary_url}): {e}")
 
@@ -586,7 +586,7 @@ def fetch_bitcoin_transactions(config: Dict[str, any]) -> List[dict]:
         if fallback_enabled:
             logging.warning(f"Attempting Tier 2: Fallback API ({fallback_url})")
             try:
-                return _fetch_from_mempool_public(fallback_url)
+                return _fetch_from_mempool_public(fallback_url), 2
             except requests.exceptions.RequestException as e_fallback:
                 logging.warning(f"Tier 2 failed ({fallback_url}): {e_fallback}")
         else:
@@ -598,7 +598,7 @@ def fetch_bitcoin_transactions(config: Dict[str, any]) -> List[dict]:
             bitcoin_datadir = config.get(
                 "BITCOIN_DATADIR", os.path.expanduser("~/.bitcoin")
             )
-            return _fetch_from_bitcoin_core(bitcoin_datadir)
+            return _fetch_from_bitcoin_core(bitcoin_datadir), 3
         except Exception as e_rpc:
             logging.error(f"Tier 3 failed (Bitcoin Core RPC): {e_rpc}")
             raise ValueError(
@@ -628,16 +628,20 @@ def calculate_utxoracle_price(config: Dict) -> Dict:
             'price_usd': float or None,
             'confidence': float (0-1),
             'tx_count': int,
-            'output_count': int
+            'output_count': int,
+            'fetch_tier': int
         }
     """
     try:
         # Fetch transactions from mempool.space API (Phase 9: Soluzione 3c)
-        transactions = fetch_bitcoin_transactions(config)
+        transactions, tier = fetch_bitcoin_transactions(config)
 
         # Calculate price using library
         calc = UTXOracleCalculator()
         result = calc.calculate_price_for_transactions(transactions)
+        
+        # Add tier to result
+        result["fetch_tier"] = tier
 
         # Validate result quality
         price = result.get("price_usd")
@@ -1160,6 +1164,7 @@ def save_to_questdb(data: Dict) -> None:
                 "avg_pct_diff": data["diff_percent"],
                 "confidence": data["confidence"],
                 "tx_count": data["tx_count"],
+                "fetch_tier": data.get("fetch_tier"),
                 "is_valid": data["is_valid"],
                 "created_at": datetime.now(),
             },
@@ -1375,6 +1380,10 @@ def main():
     # Load and validate configuration
     config = load_config()
     setup_logging(config["LOG_LEVEL"] if not args.verbose else "DEBUG")
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+    else:
+        logging.getLogger().setLevel(logging.INFO)
 
     try:
         validate_config(config)
