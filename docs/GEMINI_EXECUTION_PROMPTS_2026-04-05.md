@@ -15,7 +15,7 @@ Purpose: copy-paste prompts for Gemini that stay aligned with the current UTXOra
 
 ---
 
-## PROMPT_SPEC003_T092_T093_SYSTEMD_REBOOT
+## PROMPT_SPEC003_T092_T093_SYSTEMD_REBOOT [DONE]
 
 ```text
 Continua dalla prossima fase realmente aperta e coerente con gli artefatti allineati.
@@ -79,7 +79,7 @@ Fai un solo commit e fermati.
 
 ---
 
-## PROMPT_SPEC003_T101_T106_VALIDATION_BACKLOG
+## PROMPT_SPEC003_T101_T106_VALIDATION_BACKLOG [DONE]
 
 ```text
 Continua su `spec-003` senza scope drift.
@@ -540,7 +540,7 @@ Un solo commit e poi fermati.
 
 ---
 
-## PROMPT_SPEC035_T044_T050_UPSTREAM_VERSION_RECONCILIATION
+## PROMPT_SPEC035_T044_T050_UPSTREAM_VERSION_RECONCILIATION [DONE]
 
 ```text
 Continua su `spec-035` con disciplina rigida e senza assumere che la vecchia narrativa "v2 imminente" sia ancora vera.
