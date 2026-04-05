@@ -11,7 +11,7 @@
 This spec remains active only as a maintenance and operational-hardening document for the legacy batch/comparison path centered on `scripts/daily_analysis.py`.
 
 - It is not the primary roadmap for the canonical live API surface, which now flows through `spec-040` and `spec-041`.
-- The remaining open tasks are intentionally kept open where they still represent operational validation, resilience checks, or follow-up hardening for the batch writer path.
+- The remaining repository coding work is complete; any residual items are operator-run validation checks that are intentionally deferred rather than treated as active implementation backlog.
 - New feature-direction work should not start from this spec unless it clearly belongs to that retained ownership area.
 
 ## Current Architecture Alignment (2026-04-05)

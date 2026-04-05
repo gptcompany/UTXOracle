@@ -22,7 +22,7 @@ Purpose:
 | Spec | Label | Open tasks | Current interpretation |
 |------|------|------|------|
 | `spec-002` | `Dormant` | `0` | earlier mempool-live prototype line; superseded by the canonical `:8011` live stack and closed administratively as backlog noise |
-| `spec-003` | `Maintenance` | `14` | legacy batch/comparison path still owns resilience and validation work around `scripts.daily_analysis.py` |
+| `spec-003` | `Maintenance` | `0` | legacy batch/comparison path remains maintained, but the remaining reboot/resource drills were deferred as operator validations rather than active repository backlog |
 | `spec-004` | `Closed` | `0` | whale-flow detection foundation delivered; later whale/entity work builds on it without leaving active checklist debt here |
 | `spec-005` | `Closed` | `0` | mempool whale realtime foundation delivered; later canonical whale work moved to the unified `:8011` surface |
 | `spec-006` | `Dormant` | `83` | old whale dashboard plan, not aligned with the current canonical whale/entity surface and not part of the present roadmap |
