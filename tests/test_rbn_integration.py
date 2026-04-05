@@ -437,14 +437,48 @@ class TestValidationEndpoints:
             params={"start_date": "2024-12-01", "end_date": "2024-12-05"},
         )
 
-        # May return 200 (data exists), 503 (service unavailable - no token), or 500 (upstream error)
-        assert response.status_code in [200, 400, 422, 500, 503]
+        # May return 200 (data exists) or a handled client/service error.
+        assert response.status_code in [200, 400, 422, 503]
 
         if response.status_code == 200:
             data = response.json()
             assert "metric" in data
             assert "match_rate" in data
             assert data["status"] == "success"
+
+    def test_validate_metric_endpoint_upstream_http_error_maps_to_503(self, client):
+        """GET /api/v1/validation/rbn/{metric_id} should translate upstream HTTP errors."""
+        import httpx
+
+        request = httpx.Request(
+            "GET",
+            "https://api.researchbitcoin.net/v1/market_value_to_realized_value/mvrv_z",
+        )
+        upstream_response = httpx.Response(502, request=request)
+        upstream_error = httpx.HTTPStatusError(
+            "502 Bad Gateway",
+            request=request,
+            response=upstream_response,
+        )
+
+        mock_fetcher = MagicMock()
+        mock_fetcher.close = AsyncMock()
+        mock_validator = MagicMock()
+        mock_validator.validate_metric = AsyncMock(side_effect=upstream_error)
+
+        with patch(
+            "scripts.integrations.rbn_fetcher.RBNFetcher", return_value=mock_fetcher
+        ), patch(
+            "scripts.integrations.rbn_validator.ValidationService",
+            return_value=mock_validator,
+        ):
+            response = client.get(
+                "/api/v1/validation/rbn/mvrv_z",
+                params={"start_date": "2024-12-01", "end_date": "2024-12-05"},
+            )
+
+        assert response.status_code == 503
+        assert response.json()["detail"] == "RBN upstream unavailable"
 
     def test_validate_metric_endpoint_not_found(self, client):
         """GET /api/v1/validation/rbn/{invalid_metric} should return 404."""

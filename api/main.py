@@ -29,6 +29,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import aiohttp
+import httpx
 import psutil
 
 # =============================================================================
@@ -3925,6 +3926,13 @@ async def validate_rbn_metric(
             log_message="RBN metric validation failed",
             exc=e,
         )
+    except httpx.HTTPError as e:
+        _raise_http_exception(
+            status_code=503,
+            public_detail="RBN upstream unavailable",
+            log_message="RBN upstream request failed during validation",
+            exc=e,
+        )
     except Exception as e:
         _raise_http_exception(
             status_code=500,
@@ -4035,6 +4043,13 @@ async def generate_rbn_report(
             status_code=503,
             public_detail="RBN report generation unavailable",
             log_message="RBN report generation failed",
+            exc=e,
+        )
+    except httpx.HTTPError as e:
+        _raise_http_exception(
+            status_code=503,
+            public_detail="RBN upstream unavailable",
+            log_message="RBN upstream request failed during report generation",
             exc=e,
         )
     except Exception as e:

@@ -251,7 +251,7 @@ Maintenance classification (2026-04-05):
 - [ ] T049 Validate all P1 metrics against the active upstream version data (Blocked: No API token)
 - [x] T050 Update `specs/035-rbn-api-integration/quickstart.md` with the current upstream instructions (Done)
 
-**Checkpoint**: All validation passes with v2 API, v1 deprecated
+**Checkpoint**: Active upstream version is reconciled to v1; live mapping/re-download/validation remain blocked pending API token
 
 ---
 
