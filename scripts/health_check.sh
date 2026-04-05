@@ -76,8 +76,22 @@ else
 fi
 echo
 
-# 5. Check Disk Space
-echo "[5/5] Checking disk space..."
+# 5. Check Disk Usage (T105)
+echo "[5/5] Checking detailed disk usage..."
+PATHS=(
+    "/media/sam/3TB-WDC/prod/apps/mempool-stack/data/electrs"
+    "data/"
+    "logs/"
+)
+
+for p in "${PATHS[@]}"; do
+    if [ -d "$p" ] || [ -f "$p" ]; then
+        du -sh "$p" | awk '{print "   " $2 ": " $1}'
+    else
+        echo "   $p: NOT FOUND"
+    fi
+done
+
 df -h . | tail -1 | awk '{print "   Workspace usage: " $3 " used / " $2 " total (" $5 " full)"}'
 echo "✅ Disk space check complete"
 

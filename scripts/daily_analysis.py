@@ -197,6 +197,9 @@ def load_config() -> Dict[str, str]:
         ),
         "MIN_PRICE_USD": float(os.getenv("MIN_PRICE_USD", "10000")),
         "MAX_PRICE_USD": float(os.getenv("MAX_PRICE_USD", "500000")),
+        "MAX_PRICE_DIVERGENCE_PERCENT": float(
+            os.getenv("MAX_PRICE_DIVERGENCE_PERCENT", "5.0")
+        ),
         # Fallback configuration (T127 - Phase 9: Soluzione 3c)
         "MEMPOOL_FALLBACK_ENABLED": os.getenv(
             "MEMPOOL_FALLBACK_ENABLED", "false"
@@ -751,6 +754,22 @@ def validate_price_data(data: Dict, config: Dict) -> bool:
                 },
             )
             return False
+
+    # Check price divergence (T103)
+    diff_percent = data.get("diff_percent")
+    max_divergence = config["MAX_PRICE_DIVERGENCE_PERCENT"]
+    if diff_percent is not None and abs(diff_percent) > max_divergence:
+        logging.warning(
+            f"Large price divergence detected: {diff_percent:.2f}% > {max_divergence}%",
+            extra={
+                "diff_percent": diff_percent,
+                "max_divergence": max_divergence,
+                "utx_price": utx_price,
+                "mem_price": data.get("mempool_price"),
+            },
+        )
+        # We don't return False here because the data is technically "valid"
+        # but the warning fulfills T103 "logged prominently".
 
     return True
 

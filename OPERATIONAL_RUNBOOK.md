@@ -35,11 +35,35 @@
 
 # Persistence verification (reboot readiness)
 ./scripts/verify_reboot_readiness.sh
+
+# Resource and performance monitoring (T101, T104, T106)
+./scripts/validation/check_memory_usage.sh
+./scripts/validation/check_bandwidth.sh
 ```
 
 Expected output: All components showing ✅
 
-### Reboot Procedure
+## Performance & Validation
+
+### Load Testing (T101)
+
+To verify DuckDB performance with 10,000+ entries:
+```bash
+python3 scripts/validation/load_test_duckdb.py
+```
+Critical queries must remain < 50ms.
+
+### Price Divergence (T103)
+
+The system automatically logs a `WARNING` if the difference between UTXOracle and exchange price exceeds 5% (configurable via `MAX_PRICE_DIVERGENCE_PERCENT`).
+
+### Monitoring Resources
+
+- **Memory**: Use `scripts/validation/check_memory_usage.sh` to track API RSS.
+- **Bandwidth**: Use `scripts/validation/check_bandwidth.sh` or `sudo nethogs` to ensure traffic is localized.
+- **Disk**: `health_check.sh` reports Electrs, DuckDB, and Log sizes.
+
+## Reboot Procedure
 
 When maintenance requires a system reboot:
 
