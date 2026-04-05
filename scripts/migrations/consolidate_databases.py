@@ -72,11 +72,18 @@ def create_metric_tables(conn: duckdb.DuckDBPyConnection) -> None:
             date DATE PRIMARY KEY,
             mvrv DOUBLE,
             mvrv_z DOUBLE,
+            mvrv_z_rbn DOUBLE,
             market_cap DOUBLE,
             realized_cap DOUBLE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    
+    try:
+        conn.execute("ALTER TABLE mvrv_daily ADD COLUMN mvrv_z_rbn DOUBLE")
+    except Exception:
+        pass  # Column might already exist
+
 
     # Realized Cap Daily
     conn.execute("""

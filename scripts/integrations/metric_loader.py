@@ -75,9 +75,9 @@ METRIC_CONFIG = {
     # MVRV Z-Score RBN (spec-038) - All-time stdev, RBN compatible
     "mvrv_z_rbn": {
         "table": "mvrv_daily",
-        "column": "mvrv_z_rbn",  # Will be NULL until daily_metrics updated
+        "column": "mvrv_z_rbn",
         "fallback_table": None,
-        "transform": "calculate_mvrv_z_rbn",  # On-demand calculation
+        "transform": None,
     },
     # SOPR (spec-016, spec-037)
     "sopr": {

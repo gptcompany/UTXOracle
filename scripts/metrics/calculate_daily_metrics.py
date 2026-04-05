@@ -157,15 +157,16 @@ def calculate_daily_sopr(
 
 
 def calculate_daily_mvrv(
-    market_cap: float, realized_cap: float
-) -> tuple[Optional[float], Optional[float]]:
-    """Calculate MVRV and MVRV-Z.
+    conn: duckdb.DuckDBPyConnection, market_cap: float, realized_cap: float
+) -> tuple[Optional[float], Optional[float], Optional[float]]:
+    """Calculate MVRV, MVRV-Z (simplified), and MVRV-Z (RBN).
 
     MVRV = Market Cap / Realized Cap
     MVRV-Z = (Market Cap - Realized Cap) / StdDev(Market Cap) [simplified]
+    MVRV-Z (RBN) = (Market Cap - Realized Cap) / StdDev(All-time Market Cap)
     """
     if realized_cap <= 0:
-        return None, None
+        return None, None, None
 
     mvrv = market_cap / realized_cap
 
@@ -175,7 +176,11 @@ def calculate_daily_mvrv(
         (market_cap - realized_cap) / (realized_cap * 0.3) if realized_cap > 0 else None
     )
 
-    return mvrv, mvrv_z
+    from scripts.metrics.mvrv_variants import calculate_both_mvrv_z
+    variants = calculate_both_mvrv_z(conn, market_cap, realized_cap)
+    mvrv_z_rbn = variants.mvrv_z_rbn if (variants.mvrv_z_rbn != 0.0 or variants.std_all != 0.0) else None
+
+    return mvrv, mvrv_z, mvrv_z_rbn
 
 
 def calculate_daily_nupl(market_cap: float, realized_cap: float) -> Optional[float]:
@@ -293,7 +298,7 @@ def calculate_daily_metrics(target_date: date, conn: duckdb.DuckDBPyConnection) 
     sopr = calculate_daily_sopr(conn, start_block, end_block)
 
     # Calculate MVRV
-    mvrv, mvrv_z = calculate_daily_mvrv(market_cap, realized_cap)
+    mvrv, mvrv_z, mvrv_z_rbn = calculate_daily_mvrv(conn, market_cap, realized_cap)
 
     # Calculate NUPL
     nupl = calculate_daily_nupl(market_cap, realized_cap)
@@ -310,6 +315,7 @@ def calculate_daily_metrics(target_date: date, conn: duckdb.DuckDBPyConnection) 
         "sopr": sopr,
         "mvrv": mvrv,
         "mvrv_z": mvrv_z,
+        "mvrv_z_rbn": mvrv_z_rbn,
         "nupl": nupl,
         **cointime,
     }
@@ -362,13 +368,14 @@ def persist_metrics(metrics: dict, conn: duckdb.DuckDBPyConnection) -> None:
     if metrics.get("mvrv") is not None:
         conn.execute(
             """
-            INSERT OR REPLACE INTO mvrv_daily (date, mvrv, mvrv_z, market_cap, realized_cap)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO mvrv_daily (date, mvrv, mvrv_z, mvrv_z_rbn, market_cap, realized_cap)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
             [
                 target_date,
                 metrics["mvrv"],
                 metrics.get("mvrv_z"),
+                metrics.get("mvrv_z_rbn"),
                 metrics.get("market_cap"),
                 metrics.get("realized_cap"),
             ],
