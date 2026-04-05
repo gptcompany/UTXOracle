@@ -30,12 +30,33 @@
 ### Health Check
 
 ```bash
+# General status of all components
 ./scripts/health_check.sh
+
+# Persistence verification (reboot readiness)
+./scripts/verify_reboot_readiness.sh
 ```
 
 Expected output: All components showing ✅
 
-### Check Logs
+### Reboot Procedure
+
+When maintenance requires a system reboot:
+
+1. **Verify Readiness**: Run `./scripts/verify_reboot_readiness.sh`
+2. **Graceful Shutdown**: 
+   ```bash
+   # Services will be stopped by systemd during reboot, but manual stop is safer for DBs
+   sudo systemctl stop utxoracle-api
+   docker stop questdb-global
+   ```
+3. **Reboot**: `sudo reboot`
+4. **Post-Reboot Verification**:
+   ```bash
+   # Wait 2 minutes for containers to initialize
+   ./scripts/health_check.sh
+   ```
+
 
 ```bash
 # API server
