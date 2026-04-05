@@ -157,6 +157,33 @@ except ImportError as e:
 # =============================================================================
 
 
+def _get_env_int(key: str, default: int) -> int:
+    val = os.getenv(key)
+    if val is None or val.startswith("ENC["):
+        return default
+    try:
+        return int(val)
+    except ValueError:
+        return default
+
+
+def _get_env_float(key: str, default: float) -> float:
+    val = os.getenv(key)
+    if val is None or val.startswith("ENC["):
+        return default
+    try:
+        return float(val)
+    except ValueError:
+        return default
+
+
+def _get_env_str(key: str, default: str) -> str:
+    val = os.getenv(key)
+    if val is None or val.startswith("ENC["):
+        return default
+    return val
+
+
 def load_config() -> Dict[str, str]:
     """
     Load configuration from .env file or environment variables.
@@ -176,29 +203,26 @@ def load_config() -> Dict[str, str]:
 
     config = {
         # Required settings (fail fast if missing - T064a)
-        "DUCKDB_PATH": os.getenv(
-            "DUCKDB_PATH",
-            str(UTXORACLE_DB_PATH),
-        ),
-        "BITCOIN_DATADIR": os.getenv(
+        "DUCKDB_PATH": _get_env_str("DUCKDB_PATH", str(UTXORACLE_DB_PATH)),
+        "BITCOIN_DATADIR": _get_env_str(
             "BITCOIN_DATADIR", os.path.expanduser("~/.bitcoin")
         ),
-        "MEMPOOL_API_URL": os.getenv("MEMPOOL_API_URL", "http://localhost:8999"),
+        "MEMPOOL_API_URL": _get_env_str("MEMPOOL_API_URL", "http://localhost:8999"),
         # Optional settings with defaults
-        "LOG_LEVEL": os.getenv("LOG_LEVEL", "INFO"),
-        "ANALYSIS_INTERVAL_MINUTES": int(os.getenv("ANALYSIS_INTERVAL_MINUTES", "10")),
-        "DUCKDB_BACKUP_PATH": os.getenv(
+        "LOG_LEVEL": _get_env_str("LOG_LEVEL", "INFO"),
+        "ANALYSIS_INTERVAL_MINUTES": _get_env_int("ANALYSIS_INTERVAL_MINUTES", 10),
+        "DUCKDB_BACKUP_PATH": _get_env_str(
             "DUCKDB_BACKUP_PATH", "/tmp/utxoracle_backup.duckdb"
         ),
-        "ALERT_WEBHOOK_URL": os.getenv("ALERT_WEBHOOK_URL"),  # None if not set
+        "ALERT_WEBHOOK_URL": _get_env_str("ALERT_WEBHOOK_URL", ""),  # Empty if not set
         # Validation thresholds (T042a)
-        "UTXORACLE_CONFIDENCE_THRESHOLD": float(
-            os.getenv("UTXORACLE_CONFIDENCE_THRESHOLD", "0.3")
+        "UTXORACLE_CONFIDENCE_THRESHOLD": _get_env_float(
+            "UTXORACLE_CONFIDENCE_THRESHOLD", 0.3
         ),
-        "MIN_PRICE_USD": float(os.getenv("MIN_PRICE_USD", "10000")),
-        "MAX_PRICE_USD": float(os.getenv("MAX_PRICE_USD", "500000")),
-        "MAX_PRICE_DIVERGENCE_PERCENT": float(
-            os.getenv("MAX_PRICE_DIVERGENCE_PERCENT", "5.0")
+        "MIN_PRICE_USD": _get_env_float("MIN_PRICE_USD", 10000.0),
+        "MAX_PRICE_USD": _get_env_float("MAX_PRICE_USD", 500000.0),
+        "MAX_PRICE_DIVERGENCE_PERCENT": _get_env_float(
+            "MAX_PRICE_DIVERGENCE_PERCENT", 5.0
         ),
         # Fallback configuration (T127 - Phase 9: Soluzione 3c)
         "MEMPOOL_FALLBACK_ENABLED": os.getenv(
@@ -408,11 +432,11 @@ def _fetch_from_mempool_local(api_url: str) -> List[dict]:
     Tier 1 (Primary): Fetch from self-hosted electrs HTTP API.
 
     Note: Self-hosted mempool.space backend (port 8999) does NOT expose block transaction endpoints.
-    We use electrs HTTP API directly (port 3001) instead.
+    We use electrs HTTP API directly (port 3002) instead.
 
     Args:
         api_url: Base URL for mempool.space API (e.g., http://localhost:8999)
-                 This is used only for exchange prices. Transactions come from electrs at localhost:3001.
+                 This is used only for exchange prices. Transactions come from electrs at localhost:3002.
 
     Returns:
         list: Transaction dictionaries with vout values in BTC
@@ -420,8 +444,8 @@ def _fetch_from_mempool_local(api_url: str) -> List[dict]:
     Raises:
         ValueError: If local electrs unavailable or data incomplete
     """
-    # Use electrs HTTP API directly (localhost:3001)
-    electrs_url = "http://localhost:3001"
+    # Use electrs HTTP API directly (localhost:3002)
+    electrs_url = "http://localhost:3002"
 
     # Get best block hash from electrs
     resp = requests.get(f"{electrs_url}/blocks/tip/hash", timeout=10)

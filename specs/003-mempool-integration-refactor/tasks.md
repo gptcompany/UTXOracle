@@ -1423,10 +1423,10 @@ git checkout -b library-v2
   - ✅ Verified satoshi→BTC conversion still working
   - ✅ Updated docstring to explain electrs direct access
 
-- [ ] T138 [Validation] End-to-end Tier 1 testing ⏸️ READY FOR TESTING
+- [X] T138 [Validation] End-to-end Tier 1 testing ✅ VERIFIED (Confirmed electrs on port 3002; verified via scripts/validation/verify_tier1_e2e.py and daily_analysis.py --dry-run)
   - Run: `python3 scripts/daily_analysis.py --dry-run --verbose`
   - Expected: `"[Primary API - electrs] ✅ Fetched XXXX transactions"`
-  - Verify: Tier 1 fetches from electrs successfully (localhost:3001)
+  - Verify: Tier 1 fetches from electrs successfully (localhost:3002)
   - Monitor: 10 minutes of cron runs to ensure stability
 
 ### Resilience Enhancement

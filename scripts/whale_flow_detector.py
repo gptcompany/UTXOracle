@@ -30,7 +30,7 @@ from whale_flow_detector_interface import WhaleFlowSignal
 
 
 # Configuration
-ELECTRS_API_URL = "http://localhost:3001"
+ELECTRS_API_URL = "http://localhost:3002"
 WHALE_ACCUMULATION_THRESHOLD_BTC = -100  # Net outflow > 100 BTC
 WHALE_DISTRIBUTION_THRESHOLD_BTC = 100  # Net inflow > 100 BTC
 

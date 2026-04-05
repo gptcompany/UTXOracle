@@ -21,7 +21,10 @@ import duckdb
 
 
 # Default database path - can be overridden via environment variable
-UTXORACLE_DB_PATH = Path(os.getenv("UTXORACLE_DB_PATH", "data/utxoracle.duckdb"))
+_db_path_env = os.getenv("UTXORACLE_DB_PATH", "data/utxoracle.duckdb")
+if _db_path_env.startswith("ENC["):
+    _db_path_env = "data/utxoracle.duckdb"
+UTXORACLE_DB_PATH = Path(_db_path_env)
 
 
 def get_connection(read_only: bool = False) -> duckdb.DuckDBPyConnection:
