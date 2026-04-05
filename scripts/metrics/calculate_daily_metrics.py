@@ -466,13 +466,25 @@ def main():
     parser.add_argument(
         "--dry-run", action="store_true", help="Calculate without persisting"
     )
+    parser.add_argument(
+        "--recalculate", action="store_true", help="Recalculate entire history"
+    )
     parser.add_argument("--db-path", type=str, default=str(UTXORACLE_DB_PATH))
     args = parser.parse_args()
 
     conn = duckdb.connect(args.db_path)
 
     try:
-        if args.backfill:
+        if args.recalculate:
+            # Recalculate all days in daily_prices
+            result = conn.execute("SELECT count(*) FROM daily_prices").fetchone()
+            total_days = result[0] if result else 0
+            if total_days > 0:
+                logger.info(f"Recalculating {total_days} days of metrics")
+                backfill_metrics(total_days, conn, dry_run=args.dry_run)
+            else:
+                logger.warning("No daily prices found to recalculate")
+        elif args.backfill:
             end_date = None
             if args.end_date:
                 end_date = datetime.strptime(args.end_date, "%Y-%m-%d").date()

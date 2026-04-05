@@ -224,8 +224,8 @@ Maintenance classification (2026-04-05):
 - [x] T039 Add RBN_METRIC_MAPPING to validation_batch.py (mvrv_z -> mvrv_z_rbn)
 - [x] T040 Add a persisted `mvrv_z_rbn` path to the current metric-table schema in `scripts/migrations/consolidate_databases.py` and keep `scripts/integrations/metric_loader.py` aligned
 - [x] T041 Update `scripts/metrics/calculate_daily_metrics.py` to compute and persist both `mvrv_z` and `mvrv_z_rbn` in the agreed current schema
-- [ ] T042 Recalculate metrics after backfill: `uv run python -m scripts.metrics.calculate_daily_metrics --recalculate`
-- [ ] T043 Validate MVRV-Z MAPE < 10%: `uv run python -m scripts.integrations.validation_batch --metrics mvrv_z`
+- [ ] T042 Recalculate metrics after backfill: `uv run python -m scripts.metrics.calculate_daily_metrics --recalculate` (Blocked: `utxo_snapshots` table is empty locally, preventing all-time stdev calculation)
+- [ ] T043 Validate MVRV-Z MAPE < 10%: `uv run python -m scripts.integrations.validation_batch --metrics mvrv_z` (Blocked: missing local `mvrv_z_rbn` data due to T042)
 
 **Checkpoint**: MVRV-Z validation passes with < 10% MAPE
 
