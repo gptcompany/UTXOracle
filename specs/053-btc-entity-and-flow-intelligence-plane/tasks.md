@@ -1,0 +1,127 @@
+# Tasks: spec-053 BTC Entity and Flow Intelligence Plane
+
+**Input**: design documents from `/specs/053-btc-entity-and-flow-intelligence-plane/`
+**Prerequisites**: `spec.md`, `plan.md`
+
+## Format: `[ID] [Markers] Description`
+
+### Task Markers
+- **[P]**: can run in parallel
+- **[E]**: complex integration or schema task
+
+---
+
+## Phase 1: Scope Freeze and Vocabulary
+
+- [ ] T001 Freeze the problem boundary: this spec is about entity identity, provenance, and flow-of-funds, not macro metrics or execution logic
+- [ ] T002 Freeze the base vocabulary: `address`, `cluster_id`, `entity_id`, `entity_label`, `mapping_confidence`, `label_confidence`
+- [ ] T003 Decide the canonical `entity_id` format and compatibility rules with `cluster:{cluster_id}`
+- [ ] T004 Decide the API namespace for deep entity and movement APIs
+- [ ] T005 Record the baseline heuristics already implemented and explicitly list what this spec must not reinvent
+
+**Checkpoint**: the spec is framed as a new intelligence plane, not a reimplementation of old clustering code.
+
+---
+
+## Phase 2: Registry and Schema Design
+
+- [ ] T006 Design `entity_registry`
+- [ ] T007 Design `cluster_entity_map`
+- [ ] T008 Design `entity_labels`
+- [ ] T009 Design `entity_label_provenance`
+- [ ] T010 Decide which registry artifacts are authoritative in local storage versus materialized into QuestDB
+- [ ] T011 Freeze the status vocabulary for registry rows and labels
+
+**Checkpoint**: entity identity and label storage are explicit.
+
+---
+
+## Phase 3: Confidence and Provenance Model
+
+- [ ] T012 Freeze separate confidence fields for clustering, mapping, and labels
+- [ ] T013 Freeze provenance vocabulary: source kind, source name, source ref, review status, method version
+- [ ] T014 Design how confidence is computed and updated when evidence changes
+- [ ] T015 Design downgrade behavior when evidence becomes ambiguous or stale
+
+**Checkpoint**: entity confidence is no longer a single opaque number.
+
+---
+
+## Phase 4: Mapping Pipeline
+
+- [ ] T016 [E] Define how existing `address_clusters` rows become registry-grade cluster records
+- [ ] T017 [E] Define how cluster-to-entity mapping is generated or curated
+- [ ] T018 Define how exchange labels and known entity hints feed the registry
+- [ ] T019 Define how manual or curated overrides are represented without destroying provenance
+- [ ] T020 Define reconciliation rules when multiple evidence sources disagree
+
+**Checkpoint**: the entity registry has a real ingestion and reconciliation model.
+
+---
+
+## Phase 5: Flow-of-Funds Model
+
+- [ ] T021 Design `entity_movement_events`
+- [ ] T022 Design `entity_transfer_edges`
+- [ ] T023 Design `entity_flows_daily`
+- [ ] T024 Design `entity_balance_snapshots_daily`
+- [ ] T025 Freeze the movement classification vocabulary:
+  - `exchange_inflow`
+  - `exchange_outflow`
+  - `entity_to_entity`
+  - `entity_to_unlabeled`
+  - `unlabeled_to_entity`
+  - `internal_entity_reshuffle`
+  - `ambiguous`
+- [ ] T026 Define how internal reshuffles are distinguished from external directional flow
+
+**Checkpoint**: the spec has a real flow plane, not only labels.
+
+---
+
+## Phase 6: Materialization and Serving
+
+- [ ] T027 [E] Decide which entity/flow artifacts must be materialized into QuestDB for serving-grade APIs
+- [ ] T028 [E] Define the writer/backfill jobs for registry and flow artifacts
+- [ ] T029 Define freshness targets for registry and flow aggregates
+- [ ] T030 Define stale, degraded, and ambiguous behavior for entity APIs
+- [ ] T031 Decide whether any first slice remains research-only on `:8001` before later promotion
+
+**Checkpoint**: the serving path is operationally plausible.
+
+---
+
+## Phase 7: API Surface
+
+- [ ] T032 Freeze the first route family for entity metadata lookup
+- [ ] T033 Freeze the first route family for entity history
+- [ ] T034 Freeze the first route family for movement and flow queries
+- [ ] T035 Define pagination, filtering, and time-window semantics
+- [ ] T036 Define omission/degraded behavior for partially resolved counterparties
+- [ ] T037 Define compatibility behavior for the canonical whale surface
+
+**Checkpoint**: the entity intelligence plane has a concrete consumer interface.
+
+---
+
+## Phase 8: Whale and Bundle Integration
+
+- [ ] T038 Define how richer registry-backed `entity_id` values appear in whale enrichment without breaking `whale_event.v1`
+- [ ] T039 Define whether and when this spec should project into a future `btc_entity.v1` bundle
+- [ ] T040 Define whether `btc_flow.v2` should later reference the entity flow plane
+- [ ] T041 Keep the existing whale omission and ambiguity guarantees intact while adding richer entity resolution
+
+**Checkpoint**: the entity plane integrates forward without breaking current contracts.
+
+---
+
+## Phase 9: Verification and Governance
+
+- [ ] T042 Add contract tests for entity identity and provenance serialization
+- [ ] T043 Add tests for ambiguous and unavailable attribution cases
+- [ ] T044 Add tests for internal reshuffle versus external flow classification
+- [ ] T045 Update the feature contract registry if any new route family is admitted
+- [ ] T046 Update the provenance manifest for new registry and flow artifacts
+- [ ] T047 Update the address-clusters adoption checklist if any BRK-based entity alternative is proposed
+
+**Checkpoint**: the entity plane is explicit, testable, and governance-aligned.

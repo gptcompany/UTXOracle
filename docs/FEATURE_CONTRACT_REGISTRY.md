@@ -1,8 +1,8 @@
 # UTXOracle Feature Contract Registry
 
-Date: 2026-04-02
+Date: 2026-04-05
 
-Status: Initial `v1` registry draft, updated through `M7` and the metric source-of-truth manifest freeze
+Status: Current registry view, updated through `M7`, Wave 1 QuestDB promotion, and the 2026-04-05 service-profile classification
 
 Machine-readable source of truth:
 
@@ -99,7 +99,7 @@ Explicitly excluded from the supported contract because they are placeholder, sh
 | `models_core_surface` | `/api/v1/models`, `/api/v1/models/{name}/predict`, `/api/v1/models/backtest/{name}`, `/api/v1/models/compare`, `/api/v1/models/ensemble` | `code implemented` | `tier_3_research` | research | `:8001` | `computed_inline` | `api.routes.models` | Not part of first consumer slice |
 | `rbn_validation_surface` | `/api/v1/validation/rbn/*` | `code implemented` | `tier_3_research` | operators, research | `:8001` | `external_api` | `scripts.integrations.rbn_fetcher` + `api.main` | Requires `RBN_API_TOKEN` and is quota-bound |
 | `advanced_research_surface` | `/api/metrics/{advanced,wasserstein*,cointime*,urpd,supply-profit-loss,reserve-risk,sell-side-risk,cdd-vdd,revived-supply}` | `mixed research surface` | `tier_3_research` | research | `:8001` | `hybrid` | `scripts.metrics.*` + `api.main` | `cointime*` is code implemented on `:8001`, but the broader research bucket remains mixed and some members still return `501`; `reserve-risk` is additionally frozen by the metric source-of-truth manifest as a `BRK`-first overlapping metric rather than a default local productization target |
-| `wallet_and_cohort_surface` | `/api/metrics/{address-cohorts,wallet-waves,absorption-rates}` | `code implemented` | `tier_3_research` | research, future `nautilus_dev` features | `:8001` | `duckdb_utxo_lifecycle` | `scripts.metrics.*` + `scripts.clustering.*` + `api.main` | Wave 1 is live; `wallet-waves/history` remains outside the promoted surface and absorption baseline is reconstructed on demand |
+| `wallet_and_cohort_surface` | `/api/metrics/{address-cohorts,wallet-waves,absorption-rates}` | `runtime verified` | `tier_1_production` | research, `nautilus_dev` | `:8011` | `questdb` | `scripts.metrics.materialize_wave1` + `api.routes.questdb` | Latest snapshots are materialized and served on `:8011`; `wallet-waves/history` remains outside the admitted slice |
 | `power_law_surface` | `/api/v1/models/power-law*` | `code implemented` | `tier_3_research` | research | `:8001` | `duckdb_daily_prices` | `api.main` + `scripts.metrics.power_law` | Dedicated handler now wins deterministically, but the surface remains outside the first `nautilus_dev` contract slice |
 | `research_operations_surface` | `/api/research/tier-stats` | `code implemented` | `tier_3_research` | operators, research | `:8011` | `questdb` | `api.routes.questdb` | Monitoring for fetch tier fallbacks (T140) |
 | `pro_risk_surface` | `/api/risk/pro*` | `placeholder` | `tier_4_not_admitted` | research only today | `:8001` | `computed_inline` | `api.main` + `scripts.metrics.pro_risk` | `/api/risk/pro` and `/history` are now runtime-demoted; only `/zones` remains usable static metadata |
