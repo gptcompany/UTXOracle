@@ -25,28 +25,28 @@ RBN_CACHE_TTL_HOURS=24
 
 ```bash
 # Validate MVRV Z-Score for last 30 days
-python -m scripts.integrations.rbn_validator mvrv_z
+uv run python -m scripts.integrations.rbn_validator mvrv_z
 
 # Validate SOPR with custom date range
-python -m scripts.integrations.rbn_validator sopr \
+uv run python -m scripts.integrations.rbn_validator sopr \
     --start-date 2024-06-01 \
     --end-date 2024-12-31
 
 # Generate full validation report
-python -m scripts.integrations.rbn_validator --report
+uv run python -m scripts.integrations.rbn_validator --report
 ```
 
 ### API: Validation Endpoints
 
 ```bash
 # Check quota status
-curl http://localhost:8000/api/v1/validation/rbn/quota
+curl http://localhost:8001/api/v1/validation/rbn/quota
 
 # Validate single metric
-curl "http://localhost:8000/api/v1/validation/rbn/mvrv_z?start_date=2024-01-01"
+curl "http://localhost:8001/api/v1/validation/rbn/mvrv_z?start_date=2024-01-01"
 
 # Generate report for multiple metrics
-curl "http://localhost:8000/api/v1/validation/rbn/report?metrics=mvrv,sopr,nupl"
+curl "http://localhost:8001/api/v1/validation/rbn/report?metrics=mvrv,sopr,nupl"
 ```
 
 ### Python: Direct Usage
@@ -77,6 +77,8 @@ report = await validator.validate_metric(
 
 print(f"Match rate: {report.match_rate_pct:.1f}%")
 print(f"Avg deviation: {report.avg_deviation_pct:.2f}%")
+
+await fetcher.close()
 ```
 
 ## Available Metrics
@@ -112,7 +114,7 @@ print(f"Avg deviation: {report.avg_deviation_pct:.2f}%")
 Quota resets weekly. Check status anytime:
 
 ```bash
-curl http://localhost:8000/api/v1/validation/rbn/quota
+curl http://localhost:8001/api/v1/validation/rbn/quota
 ```
 
 ## Caching
@@ -121,7 +123,7 @@ curl http://localhost:8000/api/v1/validation/rbn/quota
 - Cache uses Parquet format for efficient storage
 - Clear cache with:
   ```bash
-  curl -X DELETE "http://localhost:8000/api/v1/validation/rbn/cache?metric_id=mvrv_z"
+  curl -X DELETE "http://localhost:8001/api/v1/validation/rbn/cache?metric_id=mvrv_z"
   ```
 
 ## Interpretation Guide

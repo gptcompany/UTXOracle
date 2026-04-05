@@ -14,6 +14,27 @@
 - **[E]**: Alpha-Evolve trigger (complex algorithms)
 - **[Story]**: User story reference (US1, US2, US3)
 
+## Governance Note (2026-04-05)
+
+- This spec defines a validation and comparison surface, not a canonical production serving path.
+- The route family is currently registered as `tier_3_research` and remains valuable for operator validation, reproducibility, and external comparison work.
+- Remaining open tasks should be read as maintenance, formula-alignment, or upstream-version-follow-up work, not as blockers for the canonical `:8011` contract.
+- The remaining open tasks are intentionally left open because they still fit that research-maintenance scope.
+
+Maintenance classification (2026-04-05):
+
+- Keep open: quickstart verification, MVRV-Z formula-alignment follow-up, and RBN API version migration work.
+- Do not interpret these tasks as admission debt for the main product surface.
+
+## Implementer Handoff (2026-04-05)
+
+- Primary implementation files: `api/models/validation_models.py`, `scripts/integrations/rbn_fetcher.py`, `scripts/integrations/rbn_validator.py`, `scripts/integrations/metric_loader.py`, `scripts/integrations/validation_batch.py`, and `api/main.py`.
+- Remaining open work is limited to three buckets:
+  - `T034`: verify `specs/035-rbn-api-integration/quickstart.md` against the implemented CLI/API behavior.
+  - `T040`-`T043`: finish the MVRV-Z alignment path in the current per-metric daily tables architecture.
+  - `T044`-`T050`: reconcile the integration with the currently active upstream API version and documentation.
+- Do not treat the design prose in `spec.md` as the runtime contract. The runtime contract already exists on `:8001`.
+
 ---
 
 ## Phase 1: Setup (Shared Infrastructure)
@@ -184,7 +205,7 @@
 - [X] T033 Add CLI interface in scripts/integrations/rbn_validator.py:
   - `python -m scripts.integrations.rbn_validator mvrv_z`
   - `python -m scripts.integrations.rbn_validator --report`
-- [ ] T034 [P] Validate quickstart.md examples work end-to-end
+- [x] T034 [P] Validate `specs/035-rbn-api-integration/quickstart.md` examples end-to-end against the implemented CLI/API paths in `scripts/integrations/rbn_validator.py` and `api/main.py`
 - [X] T035 [P] Add error handling for network timeouts in scripts/integrations/rbn_fetcher.py
 - [X] T036 Run full test suite and verify 80% coverage target
   - 24/24 tests passing
@@ -201,8 +222,8 @@
 - [x] T037 Create scripts/metrics/mvrv_variants.py with both formulas
 - [x] T038 Add mvrv_z_rbn metric config to metric_loader.py
 - [x] T039 Add RBN_METRIC_MAPPING to validation_batch.py (mvrv_z -> mvrv_z_rbn)
-- [ ] T040 Add mvrv_z_rbn column to daily_metrics table schema
-- [ ] T041 Update calculate_daily_metrics.py to compute both variants
+- [ ] T040 Add a persisted `mvrv_z_rbn` path to the current metric-table schema in `scripts/migrations/consolidate_databases.py` and keep `scripts/integrations/metric_loader.py` aligned
+- [ ] T041 Update `scripts/metrics/calculate_daily_metrics.py` to compute and persist both `mvrv_z` and `mvrv_z_rbn` in the agreed current schema
 - [ ] T042 Recalculate metrics after backfill: `uv run python -m scripts.metrics.calculate_daily_metrics --recalculate`
 - [ ] T043 Validate MVRV-Z MAPE < 10%: `uv run python -m scripts.integrations.validation_batch --metrics mvrv_z`
 
@@ -210,11 +231,11 @@
 
 ---
 
-## Phase 8: RBN API v2 Migration (Added 2025-12-29)
+## Phase 8: Upstream API Version Reconciliation (Added 2025-12-29)
 
-**Purpose**: Migrate to Bitcoin Lab API v2 before v1 sunset (Feb 14, 2026)
+**Purpose**: Reconcile the integration with the upstream API version that is actually active today.
 
-**Announcement**: RBN email Dec 29 - v2 launches Jan 3, 2025
+**Historical note**: An email on 2025-12-29 announced an imminent v2 launch. Those dates are now archival context and must not be treated as current truth without re-checking the live upstream documentation.
 
 **Key Changes**:
 - v2 processes every transaction (vs v1 snapshot-based) → more accurate
@@ -222,13 +243,13 @@
 - Metric naming/labeling conventions may differ
 - Full historical re-download may be needed for spent output metrics
 
-- [ ] T044 Review API v2 documentation when available (Jan 3)
-- [ ] T045 Update RBNConfig.base_url to support v2 endpoint
-- [ ] T046 Add token renewal reminder/automation (90-day expiry)
-- [ ] T047 Map v1 metric names to v2 naming conventions
-- [ ] T048 Re-download golden data from v2 for validation
-- [ ] T049 Validate all P1 metrics against v2 data
-- [ ] T050 Update quickstart.md with v2 instructions
+- [ ] T044 Review the current upstream API documentation and confirm whether v2 supersedes v1 in the active deployment
+- [ ] T045 Update `api/models/validation_models.py` and `scripts/integrations/rbn_fetcher.py` to support the active upstream base URL/version
+- [ ] T046 Add token renewal reminder/automation for the currently supported upstream auth flow (90-day expiry if still applicable)
+- [ ] T047 Map local metric identifiers to the naming conventions of the upstream version actually in use
+- [ ] T048 Re-download golden validation data from the active upstream version
+- [ ] T049 Validate all P1 metrics against the active upstream version data
+- [ ] T050 Update `specs/035-rbn-api-integration/quickstart.md` with the current upstream instructions
 
 **Checkpoint**: All validation passes with v2 API, v1 deprecated
 
@@ -336,9 +357,8 @@ Task: "Create error_response.json in tests/fixtures/rbn_mock_responses/"
 | Parallel Opportunities | 6 task groups |
 | MVP Scope | T001-T023 (23 tasks) |
 | API v2 Migration | 7 (0 done, 7 pending Jan 3) |
-| **Completion** | **39/50 (78%)** |
+| **Completion** | **40/50 (80%)** |
 
 ### Pending Tasks
-- T034: Validate quickstart.md (awaiting backfill)
 - T040-T043: MVRV-Z RBN alignment (awaiting backfill)
 - T044-T050: API v2 migration (available Jan 3, 2025)
