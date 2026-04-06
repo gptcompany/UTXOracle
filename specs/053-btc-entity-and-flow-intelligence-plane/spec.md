@@ -322,6 +322,73 @@ Candidate route families:
 - `GET /api/entities/search`
 - `GET /api/entities/top-movers`
 
+First-slice scope note:
+
+- the guaranteed first slice is limited to:
+  - entity metadata lookup
+  - entity history
+  - entity flow query routes
+- `/api/entities/search` and `/api/entities/top-movers` are explicitly deferred unless a later slice admits them with frozen payloads and serving semantics
+
+### 8a. Minimum API Payload Definitions
+
+The first entity API slice MUST freeze minimum payload shapes before RED tests are written.
+
+#### Entity metadata response
+
+Minimum fields:
+
+- `entity_id`
+- `display_label`
+- `entity_kind`
+- `registry_status`
+- `first_seen`
+- `last_seen`
+- `confidence`
+  - `cluster_confidence`
+  - `mapping_confidence`
+  - `label_confidence`
+  - `confidence_overall`
+- `labels`
+- `provenance_summary`
+- `source_status`
+
+#### Entity history row
+
+Minimum fields:
+
+- `entity_id`
+- `as_of`
+- `event_type`
+- `registry_status`
+- `cluster_ids`
+- `confidence_overall`
+- `provenance_ref`
+
+#### Flow query row
+
+Minimum fields:
+
+- `window_start`
+- `window_end`
+- `source_entity_id`
+- `target_entity_id`
+- `movement_classification`
+- `btc_amount`
+- `attribution_confidence`
+- `is_internal`
+- `materialization_status`
+
+#### Error and degraded payload rules
+
+All entity and flow APIs MUST explicitly distinguish:
+
+- `not_found`
+- `ambiguous`
+- `stale`
+- `degraded`
+- `partial_materialization`
+
 ### 9. Relationship to the Whale Surface
 
 The whale surface remains canonical for whale events.

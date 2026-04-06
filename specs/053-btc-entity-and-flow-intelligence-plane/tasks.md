@@ -86,33 +86,46 @@
 - [ ] T029 Define freshness targets for registry and flow aggregates
 - [ ] T030 Define stale, degraded, and ambiguous behavior for entity APIs
 - [ ] T031 Decide whether any first slice remains research-only on `:8001` before later promotion
+- [ ] T032 Record the security posture decision for entity and flow APIs: auth, rate limiting, input validation, and host exposure
+- [ ] T033 [E] Implement local authoritative storage for `entity_registry`, `cluster_entity_map`, `entity_labels`, and `entity_label_provenance`
+- [ ] T034 [E] Implement registry writer/backfill path from existing `address_clusters` and curated entity hints
+- [ ] T035 [E] Implement movement artifacts for `entity_movement_events`, `entity_transfer_edges`, `entity_flows_daily`, and `entity_balance_snapshots_daily`
+- [ ] T036 [E] Materialize serving-grade entity and flow artifacts into QuestDB with freshness metadata
+- [ ] T037 [E] Implement reconciliation and update logic when mapping evidence or labels change
 
-**Checkpoint**: the serving path is operationally plausible.
+**Checkpoint**: the serving path is operationally plausible and has a real implementation path.
 
 ---
 
 ## Phase 7: API Surface
 
-- [ ] T032 Freeze the first route family for entity metadata lookup
-- [ ] T033 Freeze the first route family for entity history
-- [ ] T034 Freeze the first route family for movement and flow queries
-- [ ] T035 Define pagination, filtering, and time-window semantics
-- [ ] T036 Define omission/degraded behavior for partially resolved counterparties
-- [ ] T037 Define compatibility behavior for the canonical whale surface
-- [ ] T038 Write RED tests for entity metadata lookup routes: response shape, confidence fields, degraded/ambiguous behavior
-- [ ] T039 Write RED tests for entity history and movement/flow query routes: ordering, pagination, empty-state
-- [ ] T040 Write RED tests for internal-reshuffle vs external-flow classification edge cases
+- [ ] T038 Freeze the first route family for entity metadata lookup
+- [ ] T039 Freeze the first route family for entity history
+- [ ] T040 Freeze the first route family for movement and flow queries
+- [ ] T041 Define pagination, filtering, and time-window semantics
+- [ ] T042 Define omission/degraded behavior for partially resolved counterparties
+- [ ] T043 Define compatibility behavior for the canonical whale surface
+- [ ] T044 Freeze minimum response shape for entity metadata routes
+- [ ] T045 Freeze minimum response shape for entity history routes
+- [ ] T046 Freeze minimum response shape for movement and flow routes
+- [ ] T047 Write RED tests for entity metadata lookup routes: response shape, confidence fields, degraded/ambiguous behavior
+- [ ] T048 Write RED tests for entity history and movement/flow query routes: ordering, pagination, empty-state
+- [ ] T049 Write RED tests for internal-reshuffle vs external-flow classification edge cases
+- [ ] T050 [E] Implement entity metadata lookup routes
+- [ ] T051 [E] Implement entity history routes
+- [ ] T052 [E] Implement movement and flow query routes
 
-**Checkpoint**: the entity intelligence plane has a concrete consumer interface with tests already in place.
+**Checkpoint**: the entity intelligence plane has a concrete consumer interface with frozen payloads and real implementation tasks.
 
 ---
 
 ## Phase 8: Whale and Bundle Integration
 
-- [ ] T041 Define how richer registry-backed `entity_id` values appear in whale enrichment without breaking `whale_event.v1`
-- [ ] T042 Define whether and when this spec should project into a future `btc_entity.v1` bundle
-- [ ] T043 Define whether `btc_flow.v2` should later reference the entity flow plane
-- [ ] T044 Keep the existing whale omission and ambiguity guarantees intact while adding richer entity resolution
+- [ ] T053 Define how richer registry-backed `entity_id` values appear in whale enrichment without breaking `whale_event.v1`
+- [ ] T054 Define whether and when this spec should project into a future `btc_entity.v1` bundle
+- [ ] T055 Define whether `btc_flow.v2` should later reference the entity flow plane
+- [ ] T056 Keep the existing whale omission and ambiguity guarantees intact while adding richer entity resolution
+- [ ] T057 [E] Implement whale surface enrichment upgrade using registry-backed entity objects without breaking `whale_event.v1`
 
 **Checkpoint**: the entity plane integrates forward without breaking current contracts.
 
@@ -120,11 +133,11 @@
 
 ## Phase 9: Verification and Governance
 
-- [ ] T045 Verify RED tests from T038-T040 now pass GREEN
-- [ ] T046 Add contract tests for entity identity and provenance serialization
-- [ ] T047 Add tests for ambiguous and unavailable attribution cases
-- [ ] T048 Update the feature contract registry if any new route family is admitted
-- [ ] T049 Update the provenance manifest for new registry and flow artifacts
-- [ ] T050 Update the address-clusters adoption checklist if any BRK-based entity alternative is proposed
+- [ ] T058 Verify RED tests from T047-T049 now pass GREEN
+- [ ] T059 Add contract tests for entity identity and provenance serialization
+- [ ] T060 Add tests for ambiguous and unavailable attribution cases
+- [ ] T061 Update the feature contract registry if any new route family is admitted
+- [ ] T062 Update the provenance manifest for new registry and flow artifacts
+- [ ] T063 Update the address-clusters adoption checklist if any BRK-based entity alternative is proposed
 
 **Checkpoint**: the entity plane is explicit, testable, and governance-aligned.

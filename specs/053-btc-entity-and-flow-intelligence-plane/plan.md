@@ -31,7 +31,8 @@ Phase 5: Materialization and Serving
 ├── decide which artifacts stay local-authoritative
 ├── decide which artifacts are served from QuestDB
 ├── define freshness and degraded behavior
-└── define writer/backfill responsibilities
+├── define writer/backfill responsibilities
+└── record security posture for entity and flow APIs
 
 Phase 6: API Surface and Whale Integration
 ├── implement entity metadata APIs
@@ -85,6 +86,18 @@ Before materializing any entity or flow artifact into QuestDB, confirm:
 2. freshness targets are explicit
 3. degraded behavior is defined
 4. the API consumer value justifies serving-grade exposure
+
+### Gate E: Security Posture
+
+Before exposing any new entity or flow route, decide:
+
+1. whether the route remains research-only or becomes serving-grade
+2. whether authentication is required
+3. what rate limiting threshold applies
+4. what query/input validation rules apply to entity search, pagination, and flow filters
+5. whether the security posture matches or exceeds the current host baseline
+
+This gate does not force a specific auth implementation. It requires an explicit written decision before live exposure.
 
 ## Estimated Effort
 
