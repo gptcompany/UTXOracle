@@ -106,7 +106,7 @@ The service profile already recognizes these production-consumable families:
 - `cost_basis_surface` is still a DuckDB-backed `tier_3_research` route on `:8001`
 - local `NUPL` remains research-only and explicitly estimated in part; future shared/admitted consumption is `BRK`-first
 - `RBN` is validation-only and quota-bound
-- `wallet-waves/history` is still not part of the admitted production consumer surface
+- `wallet-waves/history` is not part of the standalone admitted production consumer surface; however, `btc_cohort.v1/history` may contain historical wallet-waves snapshots as a bundle component without promoting the legacy standalone route
 
 ### Source-of-truth baseline
 
@@ -213,7 +213,7 @@ Purpose:
 Initial admitted source families:
 
 - canonical whale query surface
-- `absorption-rates`
+- `absorption-rates` (reference copy; canonical ownership remains in `btc_cohort.v1`)
 - optional later inclusion of `exchange-netflow` only after serving-grade materialization or explicit transition semantics are frozen
 
 Initial payload direction:
@@ -243,6 +243,8 @@ Initial payload direction:
   - `institutional_absorption`
   - `confidence`
   - `has_historical_data`
+
+Canonical ownership note: `absorption_rates` appears in both `btc_flow.v1` and `btc_cohort.v1`. The canonical owner is `btc_cohort.v1`. The copy in `btc_flow.v1` is a convenience snapshot for flow-oriented consumers. Both bundles read from the same materialized source; there is no independent computation.
 
 Explicit non-goal for `v1`:
 
@@ -461,6 +463,24 @@ Candidate payload:
   - `cohort_sequence_id`
 - `component_details`
   - named component inputs and normalized sub-scores
+
+### 12a. Signal Component Definitions
+
+All numeric signal fields use a normalized `[-1.0, +1.0]` scale unless stated otherwise.
+
+**`bias`**: categorical enum `{bearish, neutral, bullish}`. Derived from sign of composite score. Indicates regime direction, not a position recommendation.
+
+**`conviction`**: `[0.0, 1.0]` float. Proportion of non-degraded inputs that agree on directional bias. `0.0` = full disagreement or all inputs degraded. `1.0` = unanimous agreement with full input coverage.
+
+**`regime_score`**: `[-1.0, +1.0]`. Derived from `btc_macro.v1` and `btc_core_live.v1` inputs. Exact formula deferred to Phase 7 implementation; must use only admitted bundle fields.
+
+**`flow_score`**: `[-1.0, +1.0]`. Derived from `btc_flow.v1` inputs. Exact formula deferred to Phase 7 implementation; must account for the fact that raw urgency does not imply direction.
+
+**`valuation_score`**: `[-1.0, +1.0]`. Derived from `btc_cohort.v1` inputs (cost basis, MVRV). Exact formula deferred to Phase 7 implementation; historical reference bands must be explicitly defined before use.
+
+**`quality_score`**: `[0.0, 1.0]`. Fraction of admitted bundle inputs that are fresh and non-degraded: `(non_degraded_input_count / total_expected_input_count)`.
+
+**Determinism and versioning rule**: weights and normalization parameters are static configuration, not learned or adaptive. Any change to weights or formula logic requires a `schema_version` bump in `btc_signal_snapshot.v1`.
 
 Signal-layer rules:
 

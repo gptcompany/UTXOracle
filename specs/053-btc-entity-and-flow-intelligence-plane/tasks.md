@@ -99,17 +99,20 @@
 - [ ] T035 Define pagination, filtering, and time-window semantics
 - [ ] T036 Define omission/degraded behavior for partially resolved counterparties
 - [ ] T037 Define compatibility behavior for the canonical whale surface
+- [ ] T038 Write RED tests for entity metadata lookup routes: response shape, confidence fields, degraded/ambiguous behavior
+- [ ] T039 Write RED tests for entity history and movement/flow query routes: ordering, pagination, empty-state
+- [ ] T040 Write RED tests for internal-reshuffle vs external-flow classification edge cases
 
-**Checkpoint**: the entity intelligence plane has a concrete consumer interface.
+**Checkpoint**: the entity intelligence plane has a concrete consumer interface with tests already in place.
 
 ---
 
 ## Phase 8: Whale and Bundle Integration
 
-- [ ] T038 Define how richer registry-backed `entity_id` values appear in whale enrichment without breaking `whale_event.v1`
-- [ ] T039 Define whether and when this spec should project into a future `btc_entity.v1` bundle
-- [ ] T040 Define whether `btc_flow.v2` should later reference the entity flow plane
-- [ ] T041 Keep the existing whale omission and ambiguity guarantees intact while adding richer entity resolution
+- [ ] T041 Define how richer registry-backed `entity_id` values appear in whale enrichment without breaking `whale_event.v1`
+- [ ] T042 Define whether and when this spec should project into a future `btc_entity.v1` bundle
+- [ ] T043 Define whether `btc_flow.v2` should later reference the entity flow plane
+- [ ] T044 Keep the existing whale omission and ambiguity guarantees intact while adding richer entity resolution
 
 **Checkpoint**: the entity plane integrates forward without breaking current contracts.
 
@@ -117,11 +120,11 @@
 
 ## Phase 9: Verification and Governance
 
-- [ ] T042 Add contract tests for entity identity and provenance serialization
-- [ ] T043 Add tests for ambiguous and unavailable attribution cases
-- [ ] T044 Add tests for internal reshuffle versus external flow classification
-- [ ] T045 Update the feature contract registry if any new route family is admitted
-- [ ] T046 Update the provenance manifest for new registry and flow artifacts
-- [ ] T047 Update the address-clusters adoption checklist if any BRK-based entity alternative is proposed
+- [ ] T045 Verify RED tests from T038-T040 now pass GREEN
+- [ ] T046 Add contract tests for entity identity and provenance serialization
+- [ ] T047 Add tests for ambiguous and unavailable attribution cases
+- [ ] T048 Update the feature contract registry if any new route family is admitted
+- [ ] T049 Update the provenance manifest for new registry and flow artifacts
+- [ ] T050 Update the address-clusters adoption checklist if any BRK-based entity alternative is proposed
 
 **Checkpoint**: the entity plane is explicit, testable, and governance-aligned.

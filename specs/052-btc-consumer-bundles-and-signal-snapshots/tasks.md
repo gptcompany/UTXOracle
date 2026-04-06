@@ -77,15 +77,18 @@
 
 ## Phase 6: Bundle Serving and History
 
-- [ ] T030 [E] Implement `/api/features/btc/core/latest`
-- [ ] T031 [E] Implement `/api/features/btc/core/history`
-- [ ] T032 [E] Implement `/api/features/btc/flow/latest`
-- [ ] T033 [E] Implement `/api/features/btc/flow/history`
-- [ ] T034 [E] Implement `/api/features/btc/macro/latest`
-- [ ] T035 [E] Implement `/api/features/btc/macro/history`
-- [ ] T036 [E] Implement `/api/features/btc/cohort/latest`
-- [ ] T037 [E] Implement `/api/features/btc/cohort/history`
-- [ ] T038 Freeze uniform `empty`, `stale`, `degraded`, and `misconfigured` behavior across all new bundle routes
+- [ ] T030 Freeze uniform `empty`, `stale`, `degraded`, and `misconfigured` behavior across all new bundle routes
+- [ ] T031 Write RED tests for all four bundle `latest` routes: expected response shape, `sequence_id` presence, `bundle_status` vocabulary, and degraded behavior
+- [ ] T032 Write RED tests for all four bundle `history` routes: ordering by `sequence_id`, pagination, and empty-state behavior
+- [ ] T033 [E] Implement `/api/features/btc/core/latest`
+- [ ] T034 [E] Implement `/api/features/btc/core/history`
+- [ ] T035 [E] Implement `/api/features/btc/flow/latest`
+- [ ] T036 [E] Implement `/api/features/btc/flow/history`
+- [ ] T037 [E] Implement `/api/features/btc/macro/latest`
+- [ ] T038 [E] Implement `/api/features/btc/macro/history`
+- [ ] T039 [E] Implement `/api/features/btc/cohort/latest`
+- [ ] T040 [E] Implement `/api/features/btc/cohort/history`
+- [ ] T041 Verify all RED tests from T031-T032 now pass GREEN
 
 **Checkpoint**: the new feature plane is consumable and replayable.
 
@@ -93,18 +96,18 @@
 
 ## Phase 7: Signal Snapshot Layer
 
-- [ ] T039 Freeze the payload schema for `btc_signal_snapshot.v1`
-- [ ] T040 Freeze the deterministic formulas and component normalization rules for:
+- [ ] T042 Freeze the payload schema for `btc_signal_snapshot.v1`
+- [ ] T043 Freeze the deterministic formulas and component normalization rules for:
   - `regime_score`
   - `flow_score`
   - `valuation_score`
   - `quality_score`
-- [ ] T041 Decide the final `service_status` vocabulary for the signal plane
-- [ ] T042 [E] Implement the signal snapshot writer using only admitted bundle inputs
-- [ ] T043 [E] Implement `/api/signals/btc/latest`
-- [ ] T044 [E] Implement `/api/signals/btc/history`
-- [ ] T045 Add tests proving signal snapshots carry referenced input bundle sequence IDs
-- [ ] T046 Add tests proving degraded bundle inputs degrade signal status deterministically
+- [ ] T044 Decide the final `service_status` vocabulary for the signal plane
+- [ ] T045 Write RED tests for signal snapshot routes: response shape, `input_refs` presence, `sequence_id` monotonicity, and degraded-input propagation
+- [ ] T046 [E] Implement the signal snapshot writer using only admitted bundle inputs
+- [ ] T047 [E] Implement `/api/signals/btc/latest`
+- [ ] T048 [E] Implement `/api/signals/btc/history`
+- [ ] T049 Verify RED tests from T045 now pass GREEN
 
 **Checkpoint**: the service exposes a real signal layer, not only raw features.
 
@@ -112,11 +115,11 @@
 
 ## Phase 8: Contract, Provenance, and Consumer Docs
 
-- [ ] T047 Update the contract registry with the new bundle and signal surfaces
-- [ ] T048 Update the provenance manifest with writer/read-path ownership for the new bundle and signal surfaces
-- [ ] T049 Update the production consumer service profile to reflect the implemented state
-- [ ] T050 Update the scope lock so the new service plane becomes the active boundary
-- [ ] T051 Update consumer-facing docs describing the production-ready BTC service
+- [ ] T050 Update the contract registry with the new bundle and signal surfaces
+- [ ] T051 Update the provenance manifest with writer/read-path ownership for the new bundle and signal surfaces
+- [ ] T052 Update the production consumer service profile to reflect the implemented state
+- [ ] T053 Update the scope lock so the new service plane becomes the active boundary
+- [ ] T054 Update consumer-facing docs describing the production-ready BTC service
 
 **Checkpoint**: the implemented service and the docs match exactly.
 
@@ -124,11 +127,11 @@
 
 ## Phase 9: Verification
 
-- [ ] T052 Run targeted tests for all new bundle routes
-- [ ] T053 Run targeted tests for all new signal routes
-- [ ] T054 Run replay-order verification using `sequence_id`
-- [ ] T055 Run degradation verification with missing BRK data
-- [ ] T056 Run degradation verification with stale or missing QuestDB rows
-- [ ] T057 Verify that `RBN` is absent from the runtime dependency path of the new service plane
+- [ ] T055 Run full integration suite across all bundle and signal routes
+- [ ] T056 Run replay-order verification using `sequence_id`
+- [ ] T057 Run degradation verification with missing BRK data
+- [ ] T058 Run degradation verification with stale or missing QuestDB rows
+- [ ] T059 Verify that `RBN` is absent from the runtime dependency path of the new service plane
+- [ ] T060 Verify security posture decision from Gate E has been applied
 
 **Checkpoint**: the BTC bundle and signal service is production-consumable, not merely documented.

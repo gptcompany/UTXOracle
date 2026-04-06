@@ -88,6 +88,16 @@ Before admitting any signal field, confirm:
 3. missing inputs degrade the output explicitly
 4. it is not strategy or execution logic disguised as service output
 
+### Gate E: Security Posture
+
+Before exposing any new bundle or signal route, decide:
+
+1. whether the route requires authentication (signal data is financial intelligence; Constitution Principle V applies)
+2. whether rate limiting is needed and at what threshold
+3. whether the security posture matches or exceeds the current `:8011` baseline
+
+This gate does not mandate a specific auth implementation. It requires an explicit written decision before the routes go live, so that the security posture is deliberate rather than inherited by omission.
+
 ## Estimated Effort
 
 | Area | Effort | Notes |
