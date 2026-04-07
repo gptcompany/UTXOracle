@@ -193,3 +193,24 @@ def test_get_cost_basis_latest_uses_fetchrow():
     query = repo.fetchrow.await_args.args[0]
     assert "FROM cost_basis_daily" in query
     assert "LATEST ON ts" in query
+
+
+def test_get_feature_bundle_history_pages_oldest_first():
+    repo = QuestDBRepository()
+    repo.fetch = AsyncMock(return_value=[{"sequence_id": 101}])  # type: ignore[method-assign]
+
+    rows = asyncio.run(
+        repo.get_feature_bundle_history(
+            "btc_core_live.v1",
+            limit=51,
+            after_sequence_id=100,
+        )
+    )
+
+    assert rows == [{"sequence_id": 101}]
+    repo.fetch.assert_awaited_once()
+    query = repo.fetch.await_args.args[0]
+    assert "bundle_id = 'btc_core_live.v1'" in query
+    assert "AND sequence_id > 100" in query
+    assert "ORDER BY sequence_id ASC, produced_at ASC" in query
+    assert "LIMIT 51" in query

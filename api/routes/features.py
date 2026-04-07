@@ -84,7 +84,12 @@ async def get_bundle_latest(request: Request, bundle_type: str):
 
 
 @router.get("/{bundle_type}/history")
-async def get_bundle_history(request: Request, bundle_type: str, limit: int = Query(default=50)):
+async def get_bundle_history(
+    request: Request,
+    bundle_type: str,
+    limit: int = Query(default=50, ge=1, le=500),
+    page_token: int | None = Query(default=None, ge=0),
+):
     if bundle_type not in BUNDLE_CONTRACTS:
         raise HTTPException(status_code=404, detail="Unknown bundle type")
         
@@ -97,12 +102,15 @@ async def get_bundle_history(request: Request, bundle_type: str, limit: int = Qu
         return _empty_bundle(bundle_type) if "latest" in request.url.path else {"items": [], "pagination": {"next_page_token": None, "has_more": False}}
         
     try:
-        rows = await repo.get_feature_bundle_history(bundle_id, limit)
+        rows = await repo.get_feature_bundle_history(bundle_id, limit + 1, page_token)
         if not rows:
             return {"items": [], "pagination": {"next_page_token": None, "has_more": False}}
+
+        has_more = len(rows) > limit
+        visible_rows = rows[:limit]
             
         items = []
-        for row in rows:
+        for row in visible_rows:
             payload = json.loads(row["payload_json"])
             if "metadata" not in payload:
                 payload["metadata"] = {
@@ -115,10 +123,11 @@ async def get_bundle_history(request: Request, bundle_type: str, limit: int = Qu
                 }
             items.append(payload)
             
-        # The db query returns ORDER BY sequence_id DESC, produced_at DESC,
-        # but the spec asks for oldest-to-newest ordering by default for history (T017)
-        items.sort(key=lambda x: (x["metadata"]["sequence_id"], x["metadata"]["produced_at"]))
-        
-        return {"items": items, "pagination": {"next_page_token": None, "has_more": False}}
+        next_page_token = str(items[-1]["metadata"]["sequence_id"]) if has_more and items else None
+
+        return {
+            "items": items,
+            "pagination": {"next_page_token": next_page_token, "has_more": has_more},
+        }
     except Exception as e:
         return {"items": [], "pagination": {"next_page_token": None, "has_more": False}}

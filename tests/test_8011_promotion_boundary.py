@@ -58,6 +58,18 @@ def test_wave1_absorption_rates_promotion_8011(questdb_repo_mock):
         assert payload["dominant_absorber"] == "whale"
 
 
+def test_btc_feature_bundle_promotion_8011(questdb_repo_mock):
+    questdb_repo_mock.get_latest_feature_bundle = AsyncMock(return_value=None)
+    live_app.state.questdb_repo = questdb_repo_mock
+    with TestClient(live_app) as client:
+        response = client.get("/api/features/btc/core/latest")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["metadata"]["bundle_id"] == "btc_core_live.v1"
+    assert payload["metadata"]["bundle_status"] == "empty"
+
+
 def test_whale_promotion_8011(questdb_repo_mock):
     live_app.state.questdb_repo = questdb_repo_mock
     with TestClient(live_app) as client:

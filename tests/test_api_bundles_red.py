@@ -1,3 +1,6 @@
+import json
+from datetime import datetime, timezone
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -33,6 +36,37 @@ BUNDLE_CONTRACTS = {
 def api_client():
     from api.main import app
     return TestClient(app, raise_server_exceptions=False)
+
+
+def _bundle_row(bundle_type: str, sequence_id: int):
+    produced_at = datetime(2026, 4, 7, 12, sequence_id, tzinfo=timezone.utc)
+    metadata = {
+        "schema_version": "v1",
+        "bundle_id": BUNDLE_CONTRACTS[bundle_type]["bundle_id"],
+        "sequence_id": sequence_id,
+        "produced_at": produced_at.isoformat(),
+        "bundle_status": "healthy",
+        "degraded_reasons": [],
+    }
+    payload = {"metadata": metadata}
+    for key in BUNDLE_CONTRACTS[bundle_type]["payload_keys"]:
+        payload[key] = {}
+    return {
+        "payload_json": json.dumps(payload),
+        "sequence_id": sequence_id,
+        "produced_at": produced_at,
+        "bundle_status": "healthy",
+    }
+
+
+class FakeBundleHistoryRepo:
+    def __init__(self, rows):
+        self.rows = rows
+        self.calls = []
+
+    async def get_feature_bundle_history(self, bundle_id, limit, after_sequence_id=None):
+        self.calls.append((bundle_id, limit, after_sequence_id))
+        return self.rows
 
 
 @pytest.mark.parametrize("bundle_type", BUNDLE_CONTRACTS)
@@ -81,3 +115,28 @@ def test_bundle_routes_handle_empty_state_gracefully(api_client, bundle_type):
     
     assert response.status_code == 200
     assert response.json()["metadata"]["bundle_status"] == "empty"
+
+
+def test_bundle_history_paginates_from_oldest_rows(api_client):
+    repo = FakeBundleHistoryRepo(
+        [
+            _bundle_row("core", 1),
+            _bundle_row("core", 2),
+            _bundle_row("core", 3),
+        ]
+    )
+    previous_repo = getattr(api_client.app.state, "questdb_repo", None)
+    api_client.app.state.questdb_repo = repo
+    try:
+        response = api_client.get("/api/features/btc/core/history?limit=2")
+    finally:
+        if previous_repo is None and hasattr(api_client.app.state, "questdb_repo"):
+            delattr(api_client.app.state, "questdb_repo")
+        elif previous_repo is not None:
+            api_client.app.state.questdb_repo = previous_repo
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["metadata"]["sequence_id"] for item in payload["items"]] == [1, 2]
+    assert payload["pagination"] == {"next_page_token": "2", "has_more": True}
+    assert repo.calls == [("btc_core_live.v1", 3, None)]

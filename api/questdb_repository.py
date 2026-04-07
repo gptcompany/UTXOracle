@@ -1239,11 +1239,22 @@ class QuestDBRepository:
             return None
         return dict(row)
 
-    async def get_feature_bundle_history(self, bundle_id: str, limit: int) -> list[dict]:
+    async def get_feature_bundle_history(
+        self,
+        bundle_id: str,
+        limit: int,
+        after_sequence_id: int | None = None,
+    ) -> list[dict]:
+        sequence_filter = (
+            f"AND sequence_id > {after_sequence_id}"
+            if after_sequence_id is not None
+            else ""
+        )
         query = f"""
         SELECT * FROM btc_feature_bundles 
         WHERE bundle_id = '{bundle_id}'
-        ORDER BY sequence_id DESC, produced_at DESC
+        {sequence_filter}
+        ORDER BY sequence_id ASC, produced_at ASC
         LIMIT {limit};
         """
         rows = await self.fetch(query)
