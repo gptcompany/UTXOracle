@@ -13,11 +13,11 @@
 
 ## Phase 1: Scope Freeze and Vocabulary
 
-- [ ] T001 Freeze the problem boundary: this spec is about entity identity, provenance, and flow-of-funds, not macro metrics or execution logic
-- [ ] T002 Freeze the base vocabulary: `address`, `cluster_id`, `entity_id`, `entity_label`, `mapping_confidence`, `label_confidence`
-- [ ] T003 Decide the canonical `entity_id` format, generation strategy, and namespace vocabulary; freeze compatibility rules with `cluster:{cluster_id}`
-- [ ] T004 Decide the API namespace for deep entity and movement APIs
-- [ ] T005 Record the baseline heuristics already implemented and explicitly list what this spec must not reinvent
+- [x] T001 Freeze the problem boundary: this spec is about entity identity, provenance, and flow-of-funds, not macro metrics or execution logic
+- [x] T002 Freeze the base vocabulary: `address`, `cluster_id`, `entity_id`, `entity_label`, `mapping_confidence`, `label_confidence`
+- [x] T003 Decide the canonical `entity_id` format, generation strategy, and namespace vocabulary; freeze compatibility rules with `cluster:{cluster_id}`
+- [x] T004 Decide the API namespace for deep entity and movement APIs
+- [x] T005 Record the baseline heuristics already implemented and explicitly list what this spec must not reinvent
 
 **Checkpoint**: the spec is framed as a new intelligence plane, not a reimplementation of old clustering code.
 

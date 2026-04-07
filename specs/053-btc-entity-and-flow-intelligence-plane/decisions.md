@@ -13,11 +13,11 @@ Expected coverage: 19 binding decision rows.
 
 | Phase | Task | Topic | Decision | Binding For | Source Ref |
 |-------|------|-------|----------|-------------|------------|
-| Phase 1 | T001 | intelligence-plane boundary |  | T002-T064, non-goal enforcement, implementation scope |  |
-| Phase 1 | T002 | base vocabulary freeze |  | T006-T064, serialization, API payloads, docs |  |
-| Phase 1 | T003 | canonical `entity_id` format and namespace |  | T006-T020, T039-T061, whale compatibility, registry serialization |  |
-| Phase 1 | T004 | deep API namespace |  | T039-T064, route docs, admission/gov artifacts |  |
-| Phase 1 | T005 | baseline heuristics inventory |  | T016-T017 (must not reinvent existing clustering) |  |
+| Phase 1 | T001 | intelligence-plane boundary | Entity identity, provenance, and flow-of-funds forensics; excluding trading/execution logic and AML/sanctions products | T002-T064, non-goal enforcement, implementation scope | spec.md#problem-statement |
+| Phase 1 | T002 | base vocabulary freeze | address, cluster_id, entity_id, entity_label, mapping_confidence, label_confidence, confidence_overall | T006-T064, serialization, API payloads, docs | spec.md#1-identity-model |
+| Phase 1 | T003 | canonical `entity_id` format and namespace | btc:entity:<namespace>:<stable_id>; namespaces: cluster, curated, external; compatible with cluster:{id} alias | T006-T020, T039-T061, whale compatibility, registry serialization | spec.md#1-identity-model |
+| Phase 1 | T004 | deep API namespace | /api/entities/* (research-first); later projection to btc_entity.v1 | T039-T064, route docs, admission/gov artifacts | spec.md#8-api-namespace |
+| Phase 1 | T005 | baseline heuristics inventory | Union-find MIH, CAH, CoinJoin detection, change filtering, DuckDB sync to QuestDB address_clusters | T016-T017 (must not reinvent existing clustering) | spec.md#existing-heuristics-and-infrastructure |
 | Phase 2 | T010 | local-authoritative vs QuestDB artifacts |  | T028-T038, T051-T064, serving architecture |  |
 | Phase 2 | T011 | registry and label status vocabulary |  | T034-T038, T045-T047, T060-T063 |  |
 | Phase 3 | T012 | separate confidence fields |  | T014-T015, T045, T048, T060-T061 |  |
