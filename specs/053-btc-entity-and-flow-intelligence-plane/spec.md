@@ -156,6 +156,19 @@ Recommended canonical format:
 
 - `btc:entity:<namespace>:<stable_id>`
 
+Canonical first-slice rule:
+
+- `namespace` MUST identify the origin of the entity assignment, for example:
+  - `cluster`
+  - `curated`
+  - `external`
+- the first slice MUST default to `btc:entity:cluster:<cluster_id>` for registry-backed entities derived only from local clustering
+- future non-cluster entity identifiers may use:
+  - `btc:entity:curated:<stable_id>`
+  - `btc:entity:external:<stable_id>`
+- `stable_id` MUST be deterministic within its namespace
+- the first slice MUST NOT use random UUIDs for canonical entity identity
+
 Transitional compatibility rule:
 
 - the current `cluster:{cluster_id}` form may remain as a compatibility alias during migration
@@ -199,6 +212,21 @@ Minimum logical tables or artifacts:
   - `review_status`
   - `method_version`
 
+Minimum first-slice `entity_kind` vocabulary:
+
+- `exchange`
+- `miner`
+- `custodian`
+- `fund`
+- `service`
+- `unknown`
+
+Rules:
+
+- first slice may keep most rows as `unknown`
+- `entity_kind` is classification metadata, not identity
+- promotion from `unknown` requires provenance-backed evidence
+
 ### 3. Confidence Model
 
 The current single `confidence` field is not sufficient for a serious entity plane.
@@ -214,6 +242,15 @@ Hard rule:
 
 - these values are not trading scores
 - they are forensic attribution confidence only
+
+First-slice composition rule:
+
+- `confidence_overall` MUST be conservative
+- it MUST NOT exceed the weakest materially relevant component confidence
+- the default first-slice policy is:
+  - `confidence_overall = min(cluster_confidence, mapping_confidence, label_confidence)` when all three are present
+  - if one component is absent, the computation must declare which components participated
+- future weighted composition is allowed only with an explicit versioned methodology change
 
 ### 4. Provenance Model
 
@@ -261,6 +298,13 @@ Minimum event concepts:
 - timestamp
 - direction classification
 - attribution confidence
+
+Event-layer distinction:
+
+- `entity_movement_events` = one observed transaction-level movement record, normalized for downstream query
+- `entity_transfer_edges` = one directional relationship record between source and target entity/cluster derived from the same event layer
+- one movement event may produce zero, one, or multiple transfer edges depending on attribution completeness
+- movement events are event-centric; transfer edges are relationship-centric
 
 #### Aggregate layer
 

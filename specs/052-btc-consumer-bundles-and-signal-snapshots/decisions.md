@@ -9,12 +9,15 @@ Usage:
 - use `Binding For` to name the downstream tasks, phases, or artifacts that must follow this decision
 - use `Source Ref` to point to the spec section, commit, or implementation file that made the decision effective
 
-Expected coverage: 18 binding decision rows.
+Expected coverage: 22 binding decision rows.
 
 | Phase | Task | Topic | Decision | Binding For | Source Ref |
 |-------|------|-------|----------|-------------|------------|
 | Phase 1 | T001 | bundle-plane boundary |  | T006-T011, T015-T016, T033-T040, T050-T054 |  |
 | Phase 1 | T002 | signal-plane boundary |  | T016, T042-T049, T050-T054 |  |
+| Phase 1 | T003 | existing production-ready input families on :8011 |  | T008-T011 (payload shapes must align with existing sources) |  |
+| Phase 1 | T004 | families excluded from v1 by design |  | T012, T029 (non-goal enforcement) |  |
+| Phase 1 | T005 | current BRK curated subset |  | T024, T027 (macro expansion must start from this baseline) |  |
 | Phase 2 | T007 | common bundle metadata |  | T031-T041, T055-T058 |  |
 | Phase 2 | T008 | `btc_core_live.v1` payload shape |  | T031-T034, T041, T050-T055 |  |
 | Phase 2 | T009 | `btc_flow.v1` payload shape |  | T031-T036, T041, T050-T056 |  |
@@ -27,6 +30,7 @@ Expected coverage: 18 binding decision rows.
 | Phase 4 | T018 | admitted `cost_basis` subset |  | T019-T023, `btc_cohort.v1`, contract registry updates |  |
 | Phase 4 | T021 | `cost_basis` serving path |  | T022-T023, `btc_cohort.v1`, degraded semantics, consumer docs |  |
 | Phase 5 | T024 | curated `BRK` macro subset |  | T027-T029, T037-T038, `btc_macro.v1`, T057, T059 |  |
+| Phase 5 | T026 | `cost_basis` vs BRK comparison outcome |  | T018 (confirms local ownership), contract registry |  |
 | Phase 6 | T030 | uniform failure vocabulary |  | T031-T041, T045-T049, T055-T060 |  |
 | Phase 7 | T042 | `btc_signal_snapshot.v1` payload schema |  | T045-T049, T050-T054 |  |
 | Phase 7 | T043 | signal formulas and normalization rules |  | T045-T049, signal writer, consumer docs |  |
