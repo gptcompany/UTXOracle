@@ -29,8 +29,8 @@ Expected coverage: 22 binding decision rows.
 | Phase 3 | T017 | history ordering semantics | ordered oldest-to-newest by sequence_id then produced_at | T032, T034, T036, T038, T040, T048, T055-T056 | spec.md#10-history-and-replay-policy |
 | Phase 4 | T018 | admitted `cost_basis` subset | sth_cost_basis, lth_cost_basis, total_cost_basis, mvrv ratios, supply_btc | T019-T023, `btc_cohort.v1`, contract registry updates |  |
 | Phase 4 | T021 | `cost_basis` serving path | QuestDB Materialization in wave1 batch | T022-T023, `btc_cohort.v1`, degraded semantics, consumer docs |  |
-| Phase 5 | T024 | curated `BRK` macro subset |  | T027-T029, T037-T038, `btc_macro.v1`, T057, T059 |  |
-| Phase 5 | T026 | `cost_basis` vs BRK comparison outcome |  | T018 (confirms local ownership), contract registry |  |
+| Phase 5 | T024 | curated `BRK` macro subset | exactly realized_price_usd, liveliness, reserve_risk, nupl, sopr | T027-T029, T037-T038, `btc_macro.v1`, T057, T059 | spec.md#5-btc_macrov1 |
+| Phase 5 | T026 | `cost_basis` vs BRK comparison outcome | No exact equivalent in BRK; UTXOracle retains local ownership | T018 (confirms local ownership), contract registry | docs/COST_BASIS_COMPARISON_2026-04-07.md |
 | Phase 6 | T030 | uniform failure vocabulary |  | T031-T041, T045-T049, T055-T060 |  |
 | Phase 7 | T042 | `btc_signal_snapshot.v1` payload schema |  | T045-T049, T050-T054 |  |
 | Phase 7 | T043 | signal formulas and normalization rules |  | T045-T049, signal writer, consumer docs |  |

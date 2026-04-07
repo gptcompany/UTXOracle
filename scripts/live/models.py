@@ -54,6 +54,8 @@ class LiveFeatureSet(BaseModel):
     brk_realized_price: float | None = Field(default=None, gt=0)
     brk_liveliness: float | None = Field(default=None, ge=0, le=1)
     brk_reserve_risk: float | None = Field(default=None, ge=0)
+    brk_nupl: float | None = Field(default=None, ge=-1, le=1)
+    brk_sopr: float | None = Field(default=None, ge=0)
 
 
 class LiveComparison(BaseModel):

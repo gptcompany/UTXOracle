@@ -64,12 +64,12 @@
 
 ## Phase 5: BRK Macro Normalization
 
-- [ ] T024 Freeze the first admitted `BRK` macro subset for `btc_macro.v1`
-- [ ] T025 Verify whether `BRK` exposes an exact `cost_basis` equivalent, a partial overlap only, or no usable equivalent
-- [ ] T026 Record the `cost_basis` comparison outcome without changing local ownership unless equivalence is explicit
-- [ ] T027 [E] Extend the current BRK curated subset beyond `realized_price_usd`, `liveliness`, and `reserve_risk` as needed for the macro bundle
-- [ ] T028 Add missing-value and partial-degradation semantics for `btc_macro.v1`
-- [ ] T029 Add tests proving the bundle does not proxy the full BRK universe
+- [x] T024 Freeze the first admitted `BRK` macro subset for `btc_macro.v1`
+- [x] T025 Verify whether `BRK` exposes an exact `cost_basis` equivalent, a partial overlap only, or no usable equivalent
+- [x] T026 Record the `cost_basis` comparison outcome without changing local ownership unless equivalence is explicit
+- [x] T027 [E] Extend the current BRK curated subset beyond `realized_price_usd`, `liveliness`, and `reserve_risk` as needed for the macro bundle
+- [x] T028 Add missing-value and partial-degradation semantics for `btc_macro.v1`
+- [x] T029 Add tests proving the bundle does not proxy the full BRK universe
 
 **Checkpoint**: the macro bundle is `BRK`-first, deliberate, and bounded.
 

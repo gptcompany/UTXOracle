@@ -60,11 +60,14 @@ def _build_snapshot(*, timestamp: datetime, block_height: int, price: float) -> 
 
 def _build_client(store: InMemorySnapshotStore, *, brk_client=None) -> TestClient:
     from api.apps.live import create_app
+    import unittest.mock
 
     app = create_app()
     app.dependency_overrides[get_live_snapshot_store] = lambda: store
     if brk_client is not None:
         app.dependency_overrides[get_brk_client] = lambda: brk_client
+        
+    unittest.mock.patch("api.questdb_repository.QuestDBRepository.initialize").start()
     return TestClient(app)
 
 

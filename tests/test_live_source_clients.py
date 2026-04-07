@@ -49,13 +49,15 @@ async def test_mempool_client_reads_usd_price():
 async def test_brk_client_fetches_curated_features_via_bulk_metrics():
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/api/metrics/bulk"
-        assert request.url.params["metrics"] == "realized_price_usd,liveliness,reserve_risk"
+        assert request.url.params["metrics"] == "realized_price_usd,liveliness,reserve_risk,nupl,sopr"
         return httpx.Response(
             200,
             json=[
                 {"stamp": "2026-03-20T17:13:19Z", "data": [54311.39]},
                 {"stamp": "2026-03-20T17:13:19Z", "data": [0.6380666186]},
                 {"stamp": "2026-03-20T17:13:19Z", "data": [4.100239e-06]},
+                {"stamp": "2026-03-20T17:13:19Z", "data": [0.55]},
+                {"stamp": "2026-03-20T17:13:19Z", "data": [1.02]},
             ],
         )
 
@@ -68,7 +70,8 @@ async def test_brk_client_fetches_curated_features_via_bulk_metrics():
     assert result.value.brk_realized_price == pytest.approx(54311.39)
     assert result.value.brk_liveliness == pytest.approx(0.6380666186)
     assert result.value.brk_reserve_risk == pytest.approx(4.100239e-06)
-
+    assert result.value.brk_nupl == pytest.approx(0.55)
+    assert result.value.brk_sopr == pytest.approx(1.02)
 
 @pytest.mark.asyncio
 async def test_brk_client_tolerates_partial_bulk_payload_with_metric_names():
@@ -98,8 +101,7 @@ async def test_brk_client_tolerates_partial_bulk_payload_with_metric_names():
     assert result.value.brk_realized_price == pytest.approx(54311.39)
     assert result.value.brk_liveliness is None
     assert result.value.brk_reserve_risk == pytest.approx(4.100239e-06)
-    assert result.health.details["missing_metrics"] == ["liveliness"]
-
+    assert result.health.details["missing_metrics"] == ["liveliness", "nupl", "sopr"]
 
 @pytest.mark.asyncio
 async def test_hyperliquid_client_reads_filtered_oracle_updates_from_zst(tmp_path):
