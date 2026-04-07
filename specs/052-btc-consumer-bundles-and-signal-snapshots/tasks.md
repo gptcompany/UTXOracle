@@ -13,11 +13,11 @@
 
 ## Phase 1: Scope Freeze and Baseline Inventory
 
-- [ ] T001 Freeze the new bundle plane to exactly `btc_core_live.v1`, `btc_flow.v1`, `btc_macro.v1`, and `btc_cohort.v1`
-- [ ] T002 Freeze the signal plane to exactly `btc_signal_snapshot.v1`
-- [ ] T003 Record the existing production-ready input families already available on `:8011`
-- [ ] T004 Record which interesting families remain outside the first bundle plane by design: `RBN`, mixed advanced research, and local `NUPL`
-- [ ] T005 Record the current `BRK` curated subset already consumed by the live worker
+- [x] T001 Freeze the new bundle plane to exactly `btc_core_live.v1`, `btc_flow.v1`, `btc_macro.v1`, and `btc_cohort.v1`
+- [x] T002 Freeze the signal plane to exactly `btc_signal_snapshot.v1`
+- [x] T003 Record the existing production-ready input families already available on `:8011`
+- [x] T004 Record which interesting families remain outside the first bundle plane by design: `RBN`, mixed advanced research, and local `NUPL`
+- [x] T005 Record the current `BRK` curated subset already consumed by the live worker
 
 **Checkpoint**: the scope is narrow before any implementation starts.
 
@@ -25,13 +25,13 @@
 
 ## Phase 2: Bundle Contract Freeze
 
-- [ ] T006 Define the exact route families for `latest` and `history` under `/api/features/btc/*`
-- [ ] T007 Freeze the top-level metadata common to all bundles: `schema_version`, `bundle_id`, `sequence_id`, `produced_at`, `bundle_status`, `degraded_reasons`
-- [ ] T008 Freeze the payload shape for `btc_core_live.v1`
-- [ ] T009 Freeze the payload shape for `btc_flow.v1`
-- [ ] T010 Freeze the payload shape for `btc_macro.v1`
-- [ ] T011 Freeze the payload shape for `btc_cohort.v1`
-- [ ] T012 Decide whether any currently existing route fields stay outside the first admitted bundle subset
+- [x] T006 Define the exact route families for `latest` and `history` under `/api/features/btc/*`
+- [x] T007 Freeze the top-level metadata common to all bundles: `schema_version`, `bundle_id`, `sequence_id`, `produced_at`, `bundle_status`, `degraded_reasons`
+- [x] T008 Freeze the payload shape for `btc_core_live.v1`
+- [x] T009 Freeze the payload shape for `btc_flow.v1`
+- [x] T010 Freeze the payload shape for `btc_macro.v1`
+- [x] T011 Freeze the payload shape for `btc_cohort.v1`
+- [x] T012 Decide whether any currently existing route fields stay outside the first admitted bundle subset
 
 **Checkpoint**: bundle names and schemas are frozen before wiring.
 
@@ -39,11 +39,11 @@
 
 ## Phase 3: Storage and Monotonicity
 
-- [ ] T013 [E] Decide how `sequence_id` is generated and persisted for bundle rows
-- [ ] T014 [E] Decide whether `sequence_id` is per-bundle only or part of a cross-bundle generation model
-- [ ] T015 Define the QuestDB tables or serving artifacts for the four bundle families
-- [ ] T016 Define the QuestDB table or serving artifact for `btc_signal_snapshot.v1`
-- [ ] T017 Freeze history ordering semantics for all bundles and the signal plane
+- [x] T013 [E] Decide how `sequence_id` is generated and persisted for bundle rows
+- [x] T014 [E] Decide whether `sequence_id` is per-bundle only or part of a cross-bundle generation model
+- [x] T015 Define the QuestDB tables or serving artifacts for the four bundle families
+- [x] T016 Define the QuestDB table or serving artifact for `btc_signal_snapshot.v1`
+- [x] T017 Freeze history ordering semantics for all bundles and the signal plane
 
 **Checkpoint**: replay and deduplication semantics are explicit.
 
