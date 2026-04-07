@@ -25,12 +25,12 @@
 
 ## Phase 2: Registry and Schema Design
 
-- [ ] T006 Design `entity_registry`; freeze `entity_kind` vocabulary
-- [ ] T007 Design `cluster_entity_map`
-- [ ] T008 Design `entity_labels`
-- [ ] T009 Design `entity_label_provenance`
-- [ ] T010 Decide which registry artifacts are authoritative in local storage versus materialized into QuestDB
-- [ ] T011 Freeze the status vocabulary for registry rows and labels
+- [x] T006 Design `entity_registry`; freeze `entity_kind` vocabulary
+- [x] T007 Design `cluster_entity_map`
+- [x] T008 Design `entity_labels`
+- [x] T009 Design `entity_label_provenance`
+- [x] T010 Decide which registry artifacts are authoritative in local storage versus materialized into QuestDB
+- [x] T011 Freeze the status vocabulary for registry rows and labels
 
 **Checkpoint**: entity identity and label storage are explicit.
 
@@ -38,10 +38,10 @@
 
 ## Phase 3: Confidence and Provenance Model
 
-- [ ] T012 Freeze separate confidence fields for clustering, mapping, and labels
-- [ ] T013 Freeze provenance vocabulary: source kind, source name, source ref, review status, method version
-- [ ] T014 Design how confidence is computed and updated when evidence changes; freeze first-slice composition rule for `confidence_overall`
-- [ ] T015 Design downgrade behavior when evidence becomes ambiguous or stale
+- [x] T012 Freeze separate confidence fields for clustering, mapping, and labels
+- [x] T013 Freeze provenance vocabulary: source kind, source name, source ref, review status, method version
+- [x] T014 Design how confidence is computed and updated when evidence changes; freeze first-slice composition rule for `confidence_overall`
+- [x] T015 Design downgrade behavior when evidence becomes ambiguous or stale
 
 **Checkpoint**: entity confidence is no longer a single opaque number.
 
