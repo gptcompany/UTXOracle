@@ -11,6 +11,22 @@ class SignalSnapshotWriter:
     def __init__(self, repo: QuestDBRepository):
         self.repo = repo
 
+    @staticmethod
+    def _as_float(value: Any) -> float | None:
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _first_numeric(self, source: Dict[str, Any], *keys: str) -> float | None:
+        for key in keys:
+            value = self._as_float(source.get(key))
+            if value is not None:
+                return value
+        return None
+
     def calculate_regime_score(self, nupl: float | None, reserve_risk: float | None) -> float:
         # NUPL scale maps roughly to regime. 
         # Typically NUPL is between -0.5 and 1.0. We clamp to [-1, 1]
@@ -32,14 +48,78 @@ class SignalSnapshotWriter:
         return score / inputs
 
     def calculate_flow_score(self, flow: Dict[str, Any]) -> float:
-        net_flow_btc = flow.get("net_flow_btc", 0.0)
-        absorption = flow.get("absorption_rate_24h", 0.0)
+        net_flow_btc = self._as_float(flow.get("net_flow_btc"))
+        if net_flow_btc is None:
+            net_flow_btc = 0.0
+        absorption = self._as_float(flow.get("absorption_rate_24h"))
+        if absorption is None:
+            absorption = 1.0
         
         # normalize to [-1, 1]
         flow_mapped = max(-1.0, min(1.0, net_flow_btc / 5000.0))
         abs_mapped = max(-1.0, min(1.0, (absorption - 1.0)))
         
         return (flow_mapped + abs_mapped) / 2.0
+
+    def extract_flow_inputs(self, flow_bundle: Dict[str, Any]) -> Dict[str, Any]:
+        whale_summary = flow_bundle.get("whale_summary", {}) or {}
+        recent_window = flow_bundle.get("recent_whale_window", {}) or {}
+        absorption_rates = flow_bundle.get("absorption_rates", {}) or {}
+
+        net_flow_btc = self._first_numeric(
+            recent_window,
+            "net_flow_btc",
+            "whale_net_flow_btc",
+            "net_btc_flow",
+            "net_flow",
+        )
+        if net_flow_btc is None:
+            inflow_btc = self._first_numeric(
+                recent_window,
+                "inflow_btc",
+                "total_inflow_btc",
+                "whale_inflow_btc",
+            )
+            outflow_btc = self._first_numeric(
+                recent_window,
+                "outflow_btc",
+                "total_outflow_btc",
+                "whale_outflow_btc",
+            )
+            if inflow_btc is not None and outflow_btc is not None:
+                net_flow_btc = inflow_btc - outflow_btc
+        if net_flow_btc is None:
+            net_flow_btc = self._first_numeric(whale_summary, "net_flow_btc")
+
+        absorption_context = self._first_numeric(
+            recent_window,
+            "absorption_rate_24h",
+            "absorption_rate",
+            "absorption_context",
+        )
+        if absorption_context is None:
+            absorption_context = self._first_numeric(
+                absorption_rates,
+                "absorption_rate_24h",
+                "absorption_rate",
+                "absorption_context",
+            )
+        if absorption_context is None:
+            institutional_absorption = self._first_numeric(
+                absorption_rates,
+                "institutional_absorption",
+            )
+            retail_absorption = self._first_numeric(absorption_rates, "retail_absorption")
+            if institutional_absorption is not None and retail_absorption is not None:
+                absorption_context = 1.0 + institutional_absorption - retail_absorption
+
+        return {
+            "net_flow_btc": net_flow_btc if net_flow_btc is not None else 0.0,
+            "absorption_rate_24h": absorption_context if absorption_context is not None else 1.0,
+            "absorption_context": absorption_context if absorption_context is not None else 1.0,
+            "dominant_absorber": absorption_rates.get("dominant_absorber"),
+            "absorption_confidence": absorption_rates.get("confidence"),
+        }
 
     def calculate_valuation_score(self, mvrv: float | None) -> float:
         if mvrv is None:
@@ -49,6 +129,27 @@ class SignalSnapshotWriter:
         # Above 2 = overvalued (bearish, negative score)
         val = 1.0 - mvrv
         return max(-1.0, min(1.0, val))
+
+    def extract_valuation_inputs(self, cohort_bundle: Dict[str, Any]) -> Dict[str, Any]:
+        cost_basis = cohort_bundle.get("cost_basis", {}) or {}
+        sth_mvrv = self._first_numeric(cost_basis, "sth_mvrv")
+        lth_mvrv = self._first_numeric(cost_basis, "lth_mvrv")
+        mvrv = self._first_numeric(cost_basis, "mvrv", "total_mvrv")
+        if mvrv is None:
+            mvrv_values = [value for value in (sth_mvrv, lth_mvrv) if value is not None]
+            if mvrv_values:
+                mvrv = sum(mvrv_values) / len(mvrv_values)
+
+        return {
+            "mvrv": mvrv,
+            "mvrv_used": mvrv,
+            "sth_mvrv": sth_mvrv,
+            "lth_mvrv": lth_mvrv,
+            "sth_cost_basis": cost_basis.get("sth_cost_basis"),
+            "lth_cost_basis": cost_basis.get("lth_cost_basis"),
+            "total_cost_basis": cost_basis.get("total_cost_basis"),
+            "current_price_usd": cost_basis.get("current_price_usd"),
+        }
 
     def evaluate_bias(self, regime: float, flow: float, valuation: float) -> str:
         total = regime + flow + valuation
@@ -102,11 +203,11 @@ class SignalSnapshotWriter:
                 macro_metrics.get("reserve_risk")
             )
 
-            flow_metrics = flow.get("whale_summary", {})
+            flow_metrics = self.extract_flow_inputs(flow)
             flow_score = self.calculate_flow_score(flow_metrics)
 
-            cost_basis = cohort.get("cost_basis", {})
-            valuation = self.calculate_valuation_score(cost_basis.get("mvrv"))
+            valuation_inputs = self.extract_valuation_inputs(cohort)
+            valuation = self.calculate_valuation_score(valuation_inputs.get("mvrv"))
 
             bias = self.evaluate_bias(regime, flow_score, valuation)
             
@@ -151,8 +252,8 @@ class SignalSnapshotWriter:
                 },
                 "component_details": {
                     "regime_components": {"nupl": macro_metrics.get("nupl"), "reserve_risk": macro_metrics.get("reserve_risk")},
-                    "flow_components": {"net_flow_btc": flow_metrics.get("net_flow_btc"), "absorption_rate": flow_metrics.get("absorption_rate_24h")},
-                    "valuation_components": {"mvrv": cost_basis.get("mvrv")}
+                    "flow_components": flow_metrics,
+                    "valuation_components": valuation_inputs
                 }
             }
 
