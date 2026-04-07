@@ -247,6 +247,20 @@ async def create_tables_if_not_exist():
         # On-Chain Metrics Tables
         await conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS btc_feature_bundles (
+                bundle_id SYMBOL,
+                sequence_id LONG,
+                produced_at TIMESTAMP,
+                bundle_status SYMBOL,
+                degraded_reasons STRING,
+                payload_json STRING,
+                ts TIMESTAMP
+            ) timestamp(ts) PARTITION BY DAY;
+            """
+        )
+
+        await conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS metrics (
                 ts TIMESTAMP,
                 signal_mean DOUBLE,
@@ -1212,3 +1226,25 @@ class QuestDBRepository:
         SELECT * FROM cost_basis_daily LATEST ON ts;
         """
         return await self.fetchrow(query)
+
+
+    async def get_latest_feature_bundle(self, bundle_id: str) -> dict | None:
+        query = f"""
+        SELECT * FROM btc_feature_bundles 
+        WHERE bundle_id = '{bundle_id}'
+        LATEST ON ts;
+        """
+        row = await self.fetchrow(query)
+        if not row:
+            return None
+        return dict(row)
+
+    async def get_feature_bundle_history(self, bundle_id: str, limit: int) -> list[dict]:
+        query = f"""
+        SELECT * FROM btc_feature_bundles 
+        WHERE bundle_id = '{bundle_id}'
+        ORDER BY sequence_id DESC, produced_at DESC
+        LIMIT {limit};
+        """
+        rows = await self.fetch(query)
+        return [dict(row) for row in rows]

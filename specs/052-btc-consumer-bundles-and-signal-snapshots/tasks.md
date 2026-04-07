@@ -80,15 +80,15 @@
 - [x] T030 Freeze uniform `empty`, `stale`, `degraded`, and `misconfigured` behavior across all new bundle routes
 - [x] T031 Write RED tests for all four bundle `latest` routes: expected response shape, `sequence_id` presence, `bundle_status` vocabulary, and degraded behavior
 - [x] T032 Write RED tests for all four bundle `history` routes: ordering by `sequence_id`, pagination, and empty-state behavior
-- [ ] T033 [E] Implement `/api/features/btc/core/latest`
-- [ ] T034 [E] Implement `/api/features/btc/core/history`
-- [ ] T035 [E] Implement `/api/features/btc/flow/latest`
-- [ ] T036 [E] Implement `/api/features/btc/flow/history`
-- [ ] T037 [E] Implement `/api/features/btc/macro/latest`
-- [ ] T038 [E] Implement `/api/features/btc/macro/history`
-- [ ] T039 [E] Implement `/api/features/btc/cohort/latest`
-- [ ] T040 [E] Implement `/api/features/btc/cohort/history`
-- [ ] T041 Verify all RED tests from T031-T032 now pass GREEN
+- [x] T033 [E] Implement `/api/features/btc/core/latest`
+- [x] T034 [E] Implement `/api/features/btc/core/history`
+- [x] T035 [E] Implement `/api/features/btc/flow/latest`
+- [x] T036 [E] Implement `/api/features/btc/flow/history`
+- [x] T037 [E] Implement `/api/features/btc/macro/latest`
+- [x] T038 [E] Implement `/api/features/btc/macro/history`
+- [x] T039 [E] Implement `/api/features/btc/cohort/latest`
+- [x] T040 [E] Implement `/api/features/btc/cohort/history`
+- [x] T041 Verify all RED tests from T031-T032 now pass GREEN
 
 **Checkpoint**: the new feature plane is consumable and replayable.
 

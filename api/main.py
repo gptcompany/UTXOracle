@@ -268,6 +268,14 @@ app.include_router(questdb_router)
 logging.info("✅ Promoted QuestDB-backed metrics registered (prices, metrics/latest)")
 
 # =============================================================================
+# spec-052: BTC Consumer Bundles
+# =============================================================================
+
+from api.routes.features import router as features_router
+app.include_router(features_router)
+logging.info("✅ spec-052 BTC Consumer Bundles routes registered at /api/features/btc/*")
+
+# =============================================================================
 # spec-040: Dedicated live API host policy
 # =============================================================================
 
