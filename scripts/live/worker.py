@@ -380,18 +380,13 @@ def _carry_forward_features(
     if previous is None:
         return current
     return LiveFeatureSet(
-        brk_realized_price=_carry_forward_scalar(
-            current.brk_realized_price,
-            previous.features.brk_realized_price,
-        ),
-        brk_liveliness=_carry_forward_scalar(
-            current.brk_liveliness,
-            previous.features.brk_liveliness,
-        ),
-        brk_reserve_risk=_carry_forward_scalar(
-            current.brk_reserve_risk,
-            previous.features.brk_reserve_risk,
-        ),
+        **{
+            field_name: _carry_forward_scalar(
+                getattr(current, field_name),
+                getattr(previous.features, field_name),
+            )
+            for field_name in LiveFeatureSet.model_fields
+        }
     )
 
 

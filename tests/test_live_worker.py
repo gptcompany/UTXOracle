@@ -8,11 +8,12 @@ import pytest
 from scripts.live.models import (
     HyperliquidPriceSnapshot,
     LiveFeatureSet,
+    LiveSnapshot,
     OracleObservation,
     SourceHealth,
 )
 from scripts.live.source_clients import SourceRead
-from scripts.live.worker import LiveWorker, ProcessLockError, _WorkerProcessLock
+from scripts.live.worker import LiveWorker, ProcessLockError, _carry_forward_features, _WorkerProcessLock
 
 
 class QueueClient:
@@ -38,6 +39,28 @@ class RecordingResolver:
     async def __call__(self, block_height: int, block_changed: bool) -> OracleObservation:
         self.calls.append((block_height, block_changed))
         return self._observations.popleft()
+
+
+def test_carry_forward_features_preserves_new_brk_fields_on_partial_current():
+    previous = LiveSnapshot(
+        timestamp="2026-03-20T17:13:19Z",
+        features=LiveFeatureSet(
+            brk_realized_price=54311.39,
+            brk_liveliness=0.63,
+            brk_reserve_risk=4.100239e-06,
+            brk_nupl=0.55,
+            brk_sopr=1.02,
+        ),
+    )
+    current = LiveFeatureSet(brk_realized_price=54312.00)
+
+    carried = _carry_forward_features(current, previous)
+
+    assert carried.brk_realized_price == pytest.approx(54312.00)
+    assert carried.brk_liveliness == pytest.approx(0.63)
+    assert carried.brk_reserve_risk == pytest.approx(4.100239e-06)
+    assert carried.brk_nupl == pytest.approx(0.55)
+    assert carried.brk_sopr == pytest.approx(1.02)
 
 
 class RecordingSnapshotStore:
@@ -177,7 +200,17 @@ async def test_worker_carries_forward_previous_values_when_sources_fail():
     brk = QueueClient(
         "fetch_curated_features",
         [
-            SourceRead(value=LiveFeatureSet(brk_realized_price=54311.39), health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:13:19Z"),
+            SourceRead(
+                value=LiveFeatureSet(
+                    brk_realized_price=54311.39,
+                    brk_liveliness=0.63,
+                    brk_reserve_risk=4.100239e-06,
+                    brk_nupl=0.55,
+                    brk_sopr=1.02,
+                ),
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:13:19Z",
+            ),
             SourceRead(value=None, health=SourceHealth(status="unavailable", last_error="brk timeout"), source_timestamp=None),
         ],
     )
@@ -221,6 +254,10 @@ async def test_worker_carries_forward_previous_values_when_sources_fail():
     assert second.utxoracle_price == first.utxoracle_price
     assert second.mempool_exchange_price == first.mempool_exchange_price
     assert second.features.brk_realized_price == first.features.brk_realized_price
+    assert second.features.brk_liveliness == first.features.brk_liveliness
+    assert second.features.brk_reserve_risk == first.features.brk_reserve_risk
+    assert second.features.brk_nupl == first.features.brk_nupl
+    assert second.features.brk_sopr == first.features.brk_sopr
     assert second.hyperliquid_oracle_price == first.hyperliquid_oracle_price
     assert second.source_health["utxoracle"].status == "stale"
     assert second.source_health["mempool_api"].status == "stale"

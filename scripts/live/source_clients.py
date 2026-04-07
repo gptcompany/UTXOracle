@@ -326,7 +326,7 @@ def _normalize_brk_bulk_payload(payload: Any) -> dict[str, dict[str, Any]]:
                 normalized[metric_name] = entry
             return normalized
 
-        if len(unnamed_entries) == len(BRK_CURATED_METRICS):
+        if 0 < len(unnamed_entries) <= len(BRK_CURATED_METRICS):
             return {
                 metric_name: entry
                 for (_, metric_name), entry in zip(BRK_CURATED_METRICS, unnamed_entries)

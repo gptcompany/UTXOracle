@@ -1050,6 +1050,7 @@ class QuestDBRepository:
         created_at = datetime.utcnow()
         return self._send_row(
             "cost_basis_daily",
+            symbols={},
             columns={
                 "block_height": result.block_height,
                 "current_price_usd": float(result.current_price_usd),
@@ -1210,4 +1211,4 @@ class QuestDBRepository:
         query = """
         SELECT * FROM cost_basis_daily LATEST ON ts;
         """
-        return await self.fetch_row(query)
+        return await self.fetchrow(query)

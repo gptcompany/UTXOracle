@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 from api.questdb_repository import QuestDBRepository
+from scripts.models.metrics_models import CostBasisResult
 
 
 class _FakeSender:
@@ -141,3 +143,53 @@ def test_commit_address_clusters_refresh_clears_tables_on_cutover_failure():
     assert "INSERT INTO address_clusters" in calls[1]
     assert calls[2] == "TRUNCATE TABLE address_clusters_staging"
     assert calls[3] == "TRUNCATE TABLE address_clusters"
+
+
+def test_save_cost_basis_passes_empty_symbols():
+    repo = QuestDBRepository()
+    calls: list[tuple[str, dict, dict, object]] = []
+
+    def fake_send_row(table, symbols, columns, at=None, flush=False):
+        calls.append((table, symbols, columns, at))
+        return True
+
+    repo._send_row = fake_send_row  # type: ignore[attr-defined]
+    timestamp = datetime(2026, 1, 2, tzinfo=timezone.utc)
+    result = CostBasisResult(
+        sth_cost_basis=65000.0,
+        lth_cost_basis=30000.0,
+        total_cost_basis=42000.0,
+        sth_mvrv=1.2,
+        lth_mvrv=2.6,
+        sth_supply_btc=3.5,
+        lth_supply_btc=15.0,
+        current_price_usd=78000.0,
+        block_height=900000,
+        timestamp=timestamp,
+        confidence=0.85,
+    )
+
+    assert repo.save_cost_basis(result) is True
+
+    assert len(calls) == 1
+    table, symbols, columns, at = calls[0]
+    assert table == "cost_basis_daily"
+    assert symbols == {}
+    assert columns["sth_cost_basis"] == 65000.0
+    assert columns["lth_cost_basis"] == 30000.0
+    assert columns["total_cost_basis"] == 42000.0
+    assert at is timestamp
+
+
+def test_get_cost_basis_latest_uses_fetchrow():
+    repo = QuestDBRepository()
+    expected = {"block_height": 900000}
+    repo.fetchrow = AsyncMock(return_value=expected)  # type: ignore[method-assign]
+
+    row = asyncio.run(repo.get_cost_basis_latest())
+
+    assert row is expected
+    repo.fetchrow.assert_awaited_once()
+    query = repo.fetchrow.await_args.args[0]
+    assert "FROM cost_basis_daily" in query
+    assert "LATEST ON ts" in query

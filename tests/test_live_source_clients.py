@@ -103,6 +103,33 @@ async def test_brk_client_tolerates_partial_bulk_payload_with_metric_names():
     assert result.value.brk_reserve_risk == pytest.approx(4.100239e-06)
     assert result.health.details["missing_metrics"] == ["liveliness", "nupl", "sopr"]
 
+
+@pytest.mark.asyncio
+async def test_brk_client_tolerates_partial_unnamed_bulk_payload():
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[
+                {"stamp": "2026-03-20T17:13:19Z", "data": [54311.39]},
+                {"stamp": "2026-03-20T17:13:19Z", "data": [0.6380666186]},
+                {"stamp": "2026-03-20T17:13:19Z", "data": [4.100239e-06]},
+            ],
+        )
+
+    client = BrkClient(base_url="http://brk.local", transport=httpx.MockTransport(handler))
+    result = await client.fetch_curated_features()
+    await client.aclose()
+
+    assert result.health.status == "degraded"
+    assert result.value is not None
+    assert result.value.brk_realized_price == pytest.approx(54311.39)
+    assert result.value.brk_liveliness == pytest.approx(0.6380666186)
+    assert result.value.brk_reserve_risk == pytest.approx(4.100239e-06)
+    assert result.value.brk_nupl is None
+    assert result.value.brk_sopr is None
+    assert result.health.details["missing_metrics"] == ["nupl", "sopr"]
+
+
 @pytest.mark.asyncio
 async def test_hyperliquid_client_reads_filtered_oracle_updates_from_zst(tmp_path):
     stream_dir = tmp_path / "filtered" / "hip3_oracle_updates_by_block" / "hourly" / "20260320"
