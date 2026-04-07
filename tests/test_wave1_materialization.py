@@ -94,8 +94,8 @@ async def test_materialize_daily_snapshot_returns_false_on_partial_write_failure
     repo.save_address_cohorts.return_value = True
 
     conn = duckdb.connect(":memory:")
-    conn.execute("CREATE TABLE utxo_lifecycle (creation_block INTEGER)")
-    conn.execute("INSERT INTO utxo_lifecycle VALUES (840000)")
+    conn.execute("CREATE TABLE utxo_lifecycle (creation_block INTEGER, is_spent BOOLEAN, creation_price_usd DOUBLE, realized_value_usd DOUBLE, btc_value DOUBLE)")
+    conn.execute("INSERT INTO utxo_lifecycle VALUES (840000, FALSE, 1000.0, 1000.0, 1.0)")
     conn.execute("CREATE VIEW utxo_lifecycle_full AS SELECT * FROM utxo_lifecycle")
 
     wallet_waves = MagicMock()

@@ -105,6 +105,20 @@ class AddressCohortsResponse(BaseModel):
     total_addresses: int
 
 
+class CostBasisResponse(BaseModel):
+    timestamp: datetime
+    block_height: int
+    current_price_usd: float
+    total_cost_basis: float
+    sth_cost_basis: float
+    lth_cost_basis: float
+    sth_mvrv: float
+    lth_mvrv: float
+    sth_supply_btc: float
+    lth_supply_btc: float
+    confidence: float
+
+
 class WalletBandMetricsResponse(BaseModel):
     band: str
     supply_btc: float

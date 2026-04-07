@@ -27,6 +27,7 @@ from api.questdb_repository import QuestDBRepository
 from scripts.metrics.absorption_rates import calculate_absorption_rates
 from scripts.metrics.wallet_waves import calculate_wallet_waves
 from scripts.metrics.address_cohorts import calculate_address_cohorts
+from scripts.metrics.cost_basis import calculate_cost_basis_signal
 
 logger = setup_logging("materialize_wave1")
 
@@ -81,6 +82,14 @@ async def materialize_daily_snapshot(
             current_price_usd=current_price
         )
         address_cohorts.timestamp = target_date # Override with target date
+
+        # 4.5. Calculate Cost Basis
+        cost_basis = calculate_cost_basis_signal(
+            conn=conn,
+            current_block=latest_height,
+            current_price_usd=current_price,
+            timestamp=target_date
+        )
         
         # 5. Save to QuestDB
         wallet_waves_written = repo.save_wallet_waves(wallet_waves)
@@ -102,6 +111,14 @@ async def materialize_daily_snapshot(
             repo.abort_ingestion()
             logger.error(
                 "Wave 1 materialization write failure: wallet_waves=True absorption_rates=True address_cohorts=False"
+            )
+            return False
+
+        cost_basis_written = repo.save_cost_basis(cost_basis)
+        if not cost_basis_written:
+            repo.abort_ingestion()
+            logger.error(
+                "Wave 1 materialization write failure: wallet_waves=True absorption_rates=True address_cohorts=True cost_basis=False"
             )
             return False
         

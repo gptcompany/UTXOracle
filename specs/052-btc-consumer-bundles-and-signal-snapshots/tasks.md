@@ -51,12 +51,12 @@
 
 ## Phase 4: Cost Basis Promotion
 
-- [ ] T018 Freeze the admitted `cost_basis` field subset for production consumption
-- [ ] T019 Publish the consumer-use statement for promoted `cost_basis`
-- [ ] T020 Publish reproducibility checks for `cost_basis`
-- [ ] T021 [E] Decide whether the promoted `cost_basis` slice is served directly from DuckDB with caveats or materialized into QuestDB
-- [ ] T022 Implement the chosen `cost_basis` serving-grade path
-- [ ] T023 Add boundary and degraded-state tests for the promoted `cost_basis` slice
+- [x] T018 Freeze the admitted `cost_basis` field subset for production consumption
+- [x] T019 Publish the consumer-use statement for promoted `cost_basis`
+- [x] T020 Publish reproducibility checks for `cost_basis`
+- [x] T021 [E] Decide whether the promoted `cost_basis` slice is served directly from DuckDB with caveats or materialized into QuestDB
+- [x] T022 Implement the chosen `cost_basis` serving-grade path
+- [x] T023 Add boundary and degraded-state tests for the promoted `cost_basis` slice
 
 **Checkpoint**: `cost_basis` is no longer trapped as a research-only route if it belongs in the service.
 

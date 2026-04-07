@@ -484,6 +484,25 @@ async def create_tables_if_not_exist():
             """
         )
 
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS cost_basis_daily (
+                ts TIMESTAMP,
+                block_height LONG,
+                current_price_usd DOUBLE,
+                sth_cost_basis DOUBLE,
+                lth_cost_basis DOUBLE,
+                total_cost_basis DOUBLE,
+                sth_mvrv DOUBLE,
+                lth_mvrv DOUBLE,
+                sth_supply_btc DOUBLE,
+                lth_supply_btc DOUBLE,
+                confidence DOUBLE,
+                created_at TIMESTAMP
+            ) timestamp(ts) PARTITION BY MONTH;
+            """
+        )
+
         logger.info("QuestDB tables verified/created successfully.")
 
     except Exception as e:
@@ -1024,6 +1043,29 @@ class QuestDBRepository:
                 success = False
         return success
 
+    def save_cost_basis(self, result: "CostBasisResult") -> bool:
+        """
+        Save STH/LTH cost basis metrics via ILP.
+        """
+        created_at = datetime.utcnow()
+        return self._send_row(
+            "cost_basis_daily",
+            columns={
+                "block_height": result.block_height,
+                "current_price_usd": float(result.current_price_usd),
+                "sth_cost_basis": float(result.sth_cost_basis),
+                "lth_cost_basis": float(result.lth_cost_basis),
+                "total_cost_basis": float(result.total_cost_basis),
+                "sth_mvrv": float(result.sth_mvrv),
+                "lth_mvrv": float(result.lth_mvrv),
+                "sth_supply_btc": float(result.sth_supply_btc),
+                "lth_supply_btc": float(result.lth_supply_btc),
+                "confidence": float(result.confidence),
+                "created_at": created_at,
+            },
+            at=result.timestamp,
+        )
+
     # --- Read Path (PostgreSQL Wire Protocol) ---
 
     async def fetch(self, query: str, *args) -> List[AsyncpgRecord]:
@@ -1162,3 +1204,10 @@ class QuestDBRepository:
         SELECT * FROM address_cohorts_daily LATEST ON ts PARTITION BY cohort;
         """
         return await self.fetch(query)
+
+    async def get_cost_basis_latest(self) -> Optional[AsyncpgRecord]:
+        """Fetch the latest STH/LTH cost basis metrics."""
+        query = """
+        SELECT * FROM cost_basis_daily LATEST ON ts;
+        """
+        return await self.fetch_row(query)

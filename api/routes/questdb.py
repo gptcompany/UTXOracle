@@ -16,6 +16,7 @@ from api.models.questdb import (
     ActiveAddressesResponse,
     TxVolumeResponse,
     AddressCohortsResponse,
+    CostBasisResponse,
     CohortMetricsResponse,
     WalletWavesResponse,
     WalletBandMetricsResponse,
@@ -354,6 +355,43 @@ async def get_address_cohorts(
             status_code=500,
             public_detail="Failed to fetch address cohorts",
             log_message="Error getting address cohorts",
+            exc=e,
+        )
+
+
+@router.get("/api/metrics/cost-basis", response_model=CostBasisResponse)
+async def get_cost_basis(
+    repo: Annotated[QuestDBRepository, Depends(get_questdb_repo)],
+):
+    """
+    Get latest STH/LTH cost basis metrics (spec-023).
+    Now served from QuestDB materialization.
+    """
+    try:
+        row = await repo.get_cost_basis_latest()
+        if not row:
+            raise HTTPException(status_code=404, detail="No cost basis data found")
+
+        return CostBasisResponse(
+            timestamp=row["ts"],
+            block_height=row["block_height"],
+            current_price_usd=row["current_price_usd"],
+            total_cost_basis=row["total_cost_basis"],
+            sth_cost_basis=row["sth_cost_basis"],
+            lth_cost_basis=row["lth_cost_basis"],
+            sth_mvrv=row["sth_mvrv"],
+            lth_mvrv=row["lth_mvrv"],
+            sth_supply_btc=row["sth_supply_btc"],
+            lth_supply_btc=row["lth_supply_btc"],
+            confidence=row["confidence"],
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        _raise_http_exception(
+            status_code=500,
+            public_detail="Failed to fetch cost basis metrics",
+            log_message="Error getting cost basis metrics",
             exc=e,
         )
 
