@@ -39,6 +39,7 @@ The active engineering slice is:
 2. `spec-046` Phase 4 history/materialization debt (**COMPLETE 2026-04-02**)
 3. validator and drift-check automation for `spec-044` and `spec-045` (**COMPLETE 2026-04-02**)
 4. `spec-051` whale entity enrichment operationalization (**COMPLETE 2026-04-03**)
+5. `spec-052` BTC Consumer Bundles and Signal Snapshots (**COMPLETE 2026-04-07**)
 
 Concrete next tasks:
 

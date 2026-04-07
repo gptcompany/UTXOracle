@@ -14,7 +14,7 @@ from api.main import app as main_app
 
 @pytest.fixture
 def api_client():
-    return TestClient(main_app, raise_server_exceptions=False)
+    return TestClient(live_app, raise_server_exceptions=False)
 
 
 def _signal_payload(

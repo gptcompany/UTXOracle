@@ -115,11 +115,11 @@
 
 ## Phase 8: Contract, Provenance, and Consumer Docs
 
-- [ ] T050 Update the contract registry with the new bundle and signal surfaces
-- [ ] T051 Update the provenance manifest with writer/read-path ownership for the new bundle and signal surfaces
-- [ ] T052 Update the production consumer service profile to reflect the implemented state
-- [ ] T053 Update the scope lock so the new service plane becomes the active boundary
-- [ ] T054 Update consumer-facing docs describing the production-ready BTC service
+- [x] T050 Update the contract registry with the new bundle and signal surfaces
+- [x] T051 Update the provenance manifest with writer/read-path ownership for the new bundle and signal surfaces
+- [x] T052 Update the production consumer service profile to reflect the implemented state
+- [x] T053 Update the scope lock so the new service plane becomes the active boundary
+- [x] T054 Update consumer-facing docs describing the production-ready BTC service
 
 **Checkpoint**: the implemented service and the docs match exactly.
 
@@ -127,11 +127,11 @@
 
 ## Phase 9: Verification
 
-- [ ] T055 Run full integration suite across all bundle and signal routes
-- [ ] T056 Run replay-order verification using `sequence_id`
-- [ ] T057 Run degradation verification with missing BRK data
-- [ ] T058 Run degradation verification with stale or missing QuestDB rows
-- [ ] T059 Verify that `RBN` is absent from the runtime dependency path of the new service plane
-- [ ] T060 Verify security posture decision from Gate E has been applied
+- [x] T055 Run full integration suite across all bundle and signal routes
+- [x] T056 Run replay-order verification using `sequence_id`
+- [x] T057 Run degradation verification with missing BRK data
+- [x] T058 Run degradation verification with stale or missing QuestDB rows
+- [x] T059 Verify `RBN` absent from runtime dependency path
+- [x] T060 Verify Gate E security posture decision has been applied
 
 **Checkpoint**: the BTC bundle and signal service is production-consumable, not merely documented.

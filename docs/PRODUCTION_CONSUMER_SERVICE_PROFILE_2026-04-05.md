@@ -1,8 +1,8 @@
 # Production Consumer Service Profile
 
-Date: 2026-04-05
+Date: 2026-04-07
 
-Status: Current service-consumption decision after the `:8011` promotion pass, Wave 1 materialization, and the metric source-of-truth freeze
+Status: Current service-consumption decision after the `:8011` promotion pass, Wave 1 materialization, the metric source-of-truth freeze, and the spec-052 introduction of btc feature bundles and signal snapshots.
 
 Purpose:
 
@@ -70,6 +70,26 @@ Role:
 
 - production-consumable daily analytical bundle for cohort and holder-state features
 - latest snapshots are in scope; `wallet-waves/history` is not
+
+### BTC Consumer Feature Bundles
+
+- `/api/features/btc/core/{latest,history}`
+- `/api/features/btc/flow/{latest,history}`
+- `/api/features/btc/macro/{latest,history}`
+- `/api/features/btc/cohort/{latest,history}`
+
+Role:
+
+- structured and admitted downstream consumer feature contracts (spec-052)
+- aggregates underlying metrics into stable bounded interfaces for strategy consumption
+
+### BTC Signal Snapshot
+
+- `/api/signals/btc/{latest,history}`
+
+Role:
+
+- the canonical deterministic layer aggregating the four feature bundles into normalized bounded bias, conviction, and flow/regime/valuation scores (spec-052)
 
 ## 3. Classification For The Remaining Interesting Families
 

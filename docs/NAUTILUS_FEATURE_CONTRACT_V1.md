@@ -1,8 +1,8 @@
 # Nautilus Feature Contract V1
 
-Date: 2026-04-02
+Date: 2026-04-07
 
-Status: Initial `v1` consumer contract for `nautilus_dev`, updated through `M7` and the metric source-of-truth manifest freeze
+Status: Initial `v1` consumer contract for `nautilus_dev`, updated through spec-052
 
 Contract registry source:
 
@@ -25,6 +25,8 @@ Use `http://127.0.0.1:8011` for:
 - `/health`
 - `/api/v1/live/*`
 - `/api/v1/charts/*`
+- `/api/features/btc/*`
+- `/api/signals/btc/*`
 
 `/api/v1/live/*` is served only by the dedicated live app. The main app `:8001` is not part of the live-plane contract.
 
@@ -47,6 +49,9 @@ These surfaces are admitted for direct production consumption in `v1`.
 | `live_chart_surface` | `/api/v1/charts/*` on `:8011` | strongest runtime-verified chart surface | `<= 60s` | `503` when snapshot history unavailable; stale shown in chart metadata |
 | `prices_surface` | `/api/prices/*` | canonical price comparison family for main app | newest `price_analysis` row | `404` when no rows; `500` on QuestDB failures |
 | `metrics_latest_surface` | `/api/metrics/latest` | compact admitted bundle already exposed for downstream feature use | newest `metrics` row | `404` when no rows; `500` on QuestDB failures |
+| `btc_feature_bundles_surface` | `/api/features/btc/*` on `:8011` | admitted consumer feature bundles | newest bundle | `200 OK` with `empty`/`stale` status in payload |
+| `btc_signal_snapshot_surface` | `/api/signals/btc/*` on `:8011` | canonical deterministic signal layer | newest signal | `200 OK` with `empty`/`stale` status in payload |
+
 
 ## 4. Tier 2 Production With Caveats
 
@@ -78,9 +83,7 @@ These surfaces are intentionally not admitted.
 | `models_core_surface` | `/api/v1/models*` | research surface, not frozen for downstream production use |
 | `rbn_validation_surface` | `/api/v1/validation/rbn/*` | useful for validation and ops, but not part of the first production feature bundle |
 | `nupl_surface` | `/api/metrics/nupl` | implemented as a research route, but `pct_supply_in_profit` remains an explicitly estimated field and the surface is not admitted into `v1`; `M7` closed with no promotion |
-| `cost_basis_surface` | `/api/metrics/cost-basis` | implemented as a research route, but not yet admitted into the first production bundle; `M7` closed with no promotion |
 | `advanced_research_surface` | `/api/metrics/{advanced,wasserstein*,cointime*,urpd,supply-profit-loss,reserve-risk,sell-side-risk,cdd-vdd,revived-supply}` | analytical logic exists, API contract does not; `reserve-risk` is also held behind a `BRK`-first source-of-truth policy |
-| `wallet_and_cohort_surface` | `/api/metrics/{address-cohorts,wallet-waves,absorption-rates}` | implemented as a research surface after Wave 1 productization, but still outside the first `v1` production bundle |
 | `legacy_whale_placeholder_surface` | `/api/whale/{latest,historical,history}` | deprecated `410 Gone` compatibility stubs only; not part of the canonical whale contract |
 | `wallet_waves_history_placeholder_surface` | `/api/metrics/wallet-waves/history` | history route remains unavailable until snapshot materialization exists |
 | `main_operational_pages_surface` | `/{,health,metrics,whale,dashboard,monitor,power-law,power_law}` | operational UI surface, not a data contract |

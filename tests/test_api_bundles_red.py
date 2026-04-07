@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
+from api.apps.live import app as live_app
 
 # These tests establish the RED baseline for the bundle serving routes
 # as defined in spec-052 Phase 6. They will fail until the routes are implemented.
@@ -34,8 +35,7 @@ BUNDLE_CONTRACTS = {
 
 @pytest.fixture
 def api_client():
-    from api.main import app
-    return TestClient(app, raise_server_exceptions=False)
+    return TestClient(live_app, raise_server_exceptions=False)
 
 
 def _bundle_row(bundle_type: str, sequence_id: int):
