@@ -77,9 +77,9 @@
 
 ## Phase 6: Bundle Serving and History
 
-- [ ] T030 Freeze uniform `empty`, `stale`, `degraded`, and `misconfigured` behavior across all new bundle routes
-- [ ] T031 Write RED tests for all four bundle `latest` routes: expected response shape, `sequence_id` presence, `bundle_status` vocabulary, and degraded behavior
-- [ ] T032 Write RED tests for all four bundle `history` routes: ordering by `sequence_id`, pagination, and empty-state behavior
+- [x] T030 Freeze uniform `empty`, `stale`, `degraded`, and `misconfigured` behavior across all new bundle routes
+- [x] T031 Write RED tests for all four bundle `latest` routes: expected response shape, `sequence_id` presence, `bundle_status` vocabulary, and degraded behavior
+- [x] T032 Write RED tests for all four bundle `history` routes: ordering by `sequence_id`, pagination, and empty-state behavior
 - [ ] T033 [E] Implement `/api/features/btc/core/latest`
 - [ ] T034 [E] Implement `/api/features/btc/core/history`
 - [ ] T035 [E] Implement `/api/features/btc/flow/latest`

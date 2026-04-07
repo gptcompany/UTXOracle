@@ -31,7 +31,7 @@ Expected coverage: 22 binding decision rows.
 | Phase 4 | T021 | `cost_basis` serving path | QuestDB Materialization in wave1 batch | T022-T023, `btc_cohort.v1`, degraded semantics, consumer docs |  |
 | Phase 5 | T024 | curated `BRK` macro subset | exactly realized_price_usd, liveliness, reserve_risk, nupl, sopr | T027-T029, T037-T038, `btc_macro.v1`, T057, T059 | spec.md#5-btc_macrov1 |
 | Phase 5 | T026 | `cost_basis` vs BRK comparison outcome | No exact equivalent in BRK; UTXOracle retains local ownership | T018 (confirms local ownership), contract registry | docs/COST_BASIS_COMPARISON_2026-04-07.md |
-| Phase 6 | T030 | uniform failure vocabulary |  | T031-T041, T045-T049, T055-T060 |  |
+| Phase 6 | T030 | uniform failure vocabulary | Routes must return empty/stale/degraded/misconfigured via BundleStatus in payload, not 404/500, unless service is truly down | T031-T041, T045-T049, T055-T060 | spec.md#11-uniform-failure-vocabulary |
 | Phase 7 | T042 | `btc_signal_snapshot.v1` payload schema |  | T045-T049, T050-T054 |  |
 | Phase 7 | T043 | signal formulas and normalization rules |  | T045-T049, signal writer, consumer docs |  |
 | Phase 7 | T044 | signal `service_status` vocabulary |  | T045-T049, T055-T060 |  |
