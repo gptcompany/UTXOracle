@@ -49,11 +49,11 @@
 
 ## Phase 4: Mapping Pipeline
 
-- [ ] T016 [E] Define how existing `address_clusters` rows become registry-grade cluster records
-- [ ] T017 [E] Define how cluster-to-entity mapping is generated or curated
-- [ ] T018 Define how exchange labels and known entity hints feed the registry
-- [ ] T019 Define how manual or curated overrides are represented without destroying provenance
-- [ ] T020 Define reconciliation rules when multiple evidence sources disagree
+- [x] T016 [E] Define how existing `address_clusters` rows become registry-grade cluster records
+- [x] T017 [E] Define how cluster-to-entity mapping is generated or curated
+- [x] T018 Define how exchange labels and known entity hints feed the registry
+- [x] T019 Define how manual or curated overrides are represented without destroying provenance
+- [x] T020 Define reconciliation rules when multiple evidence sources disagree
 
 **Checkpoint**: the entity registry has a real ingestion and reconciliation model.
 
@@ -61,12 +61,12 @@
 
 ## Phase 5: Flow-of-Funds Model
 
-- [ ] T021 Design `entity_movement_events` (transaction-level movement records, event-centric)
-- [ ] T022 Design `entity_transfer_edges` (directional relationship records between entities derived from movement events, relationship-centric)
-- [ ] T023 Design `entity_flows_daily`
-- [ ] T024 Design `entity_balance_snapshots_daily`
-- [ ] T025 Design `entity_counterparty_edges_daily`
-- [ ] T026 Freeze the movement classification vocabulary:
+- [x] T021 Design `entity_movement_events` (transaction-level movement records, event-centric)
+- [x] T022 Design `entity_transfer_edges` (directional relationship records between entities derived from movement events, relationship-centric)
+- [x] T023 Design `entity_flows_daily`
+- [x] T024 Design `entity_balance_snapshots_daily`
+- [x] T025 Design `entity_counterparty_edges_daily`
+- [x] T026 Freeze the movement classification vocabulary:
   - `exchange_inflow`
   - `exchange_outflow`
   - `entity_to_entity`
@@ -74,7 +74,7 @@
   - `unlabeled_to_entity`
   - `internal_entity_reshuffle`
   - `ambiguous`
-- [ ] T027 Define how internal reshuffles are distinguished from external directional flow
+- [x] T027 Define how internal reshuffles are distinguished from external directional flow
 
 **Checkpoint**: the spec has a real flow plane, not only labels.
 

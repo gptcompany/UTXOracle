@@ -22,7 +22,7 @@ Expected coverage: 19 binding decision rows.
 | Phase 2 | T011 | registry and label status vocabulary | Registry: active, candidate, deprecated; Label: verified, provisional, stale | T034-T038, T045-T047, T060-T063 | spec.md#2-registry-model |
 | Phase 3 | T012 | separate confidence fields | cluster_confidence, mapping_confidence, label_confidence, confidence_overall | T014-T015, T045, T048, T060-T061 | spec.md#3-confidence-model |
 | Phase 3 | T013 | provenance vocabulary | source_kind: heuristic, curated_csv, manual, external, inherited; review_status: unreviewed, provisional, reviewed, deprecated | T018-T020, T045-T047, T060-T063 | spec.md#4-provenance-model |
-| Phase 5 | T026 | movement classification vocabulary |  | T027, T036, T041, T047, T050, T053, T061 |  |
+| Phase 5 | T026 | movement classification vocabulary | exchange_inflow, exchange_outflow, entity_to_entity, entity_to_unlabeled, unlabeled_to_entity, internal_entity_reshuffle, ambiguous | T027, T036, T041, T047, T050, T053, T061 | spec.md#6-movement-classification |
 | Phase 6 | T028 | QuestDB materialization scope |  | T029-T038, T051-T064 |  |
 | Phase 6 | T032 | first-slice host boundary (`:8001` vs serving-grade) |  | T033, T039-T064, exposure decisions, docs |  |
 | Phase 6 | T033 | entity and flow API security posture |  | T039-T064, route exposure, input validation, cross-spec security sync |  |
