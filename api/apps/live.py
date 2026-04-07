@@ -22,6 +22,7 @@ from api.routes.live import (
 )
 from api.routes.questdb import router as questdb_router
 from api.routes.features import router as features_router
+from api.routes.signals import router as signals_router
 from api.mempool_whale_endpoints import router as whale_router
 from api.routes.meta import router as meta_router
 from api.questdb_repository import QuestDBRepository
@@ -122,6 +123,7 @@ def create_app() -> FastAPI:
     app.include_router(charts_router, prefix="/api/v1")
     app.include_router(questdb_router)
     app.include_router(features_router)
+    app.include_router(signals_router)
     app.include_router(whale_router)
     app.include_router(meta_router)
 

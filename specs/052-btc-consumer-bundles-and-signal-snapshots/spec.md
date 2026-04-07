@@ -472,15 +472,17 @@ All numeric signal fields use a normalized `[-1.0, +1.0]` scale unless stated ot
 
 **`conviction`**: `[0.0, 1.0]` float. Proportion of non-degraded inputs that agree on directional bias. `0.0` = full disagreement or all inputs degraded. `1.0` = unanimous agreement with full input coverage.
 
-**`regime_score`**: `[-1.0, +1.0]`. Derived from `btc_macro.v1` and `btc_core_live.v1` inputs. Exact formula deferred to Phase 7 implementation; must use only admitted bundle fields.
+**`regime_score`**: `[-1.0, +1.0]`. Derived only from admitted `btc_macro.v1` and `btc_core_live.v1` fields. The first slice uses the `BRK` macro family, with `NUPL` and `reserve_risk` as the required named component inputs when available.
 
-**`flow_score`**: `[-1.0, +1.0]`. Derived from `btc_flow.v1` inputs. Exact formula deferred to Phase 7 implementation; must account for the fact that raw urgency does not imply direction.
+**`flow_score`**: `[-1.0, +1.0]`. Derived only from admitted `btc_flow.v1` fields. The first slice uses directional net flow plus absorption context; raw urgency alone MUST NOT imply direction.
 
-**`valuation_score`**: `[-1.0, +1.0]`. Derived from `btc_cohort.v1` inputs (cost basis, MVRV). Exact formula deferred to Phase 7 implementation; historical reference bands must be explicitly defined before use.
+**`valuation_score`**: `[-1.0, +1.0]`. Derived only from admitted `btc_cohort.v1` fields. The first slice uses `MVRV` and local `cost_basis` distance; historical reference bands MUST be explicitly encoded before they are used.
 
 **`quality_score`**: `[0.0, 1.0]`. Fraction of admitted bundle inputs that are fresh and non-degraded: `(non_degraded_input_count / total_expected_input_count)`.
 
 **Determinism and versioning rule**: weights and normalization parameters are static configuration, not learned or adaptive. Any change to weights or formula logic requires a `schema_version` bump in `btc_signal_snapshot.v1`.
+
+The first implementation MUST record the exact normalization constants and participating inputs in `component_details`. This phase freezes the signal component families and bounds; it does not authorize hidden learned weights or strategy-specific logic.
 
 Signal-layer rules:
 

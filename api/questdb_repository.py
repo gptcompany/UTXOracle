@@ -261,6 +261,19 @@ async def create_tables_if_not_exist():
 
         await conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS btc_signal_snapshots (
+                schema_version SYMBOL,
+                sequence_id LONG,
+                produced_at TIMESTAMP,
+                service_status SYMBOL,
+                payload_json STRING,
+                ts TIMESTAMP
+            ) timestamp(ts) PARTITION BY DAY;
+            """
+        )
+
+        await conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS metrics (
                 ts TIMESTAMP,
                 signal_mean DOUBLE,
@@ -1253,6 +1266,37 @@ class QuestDBRepository:
         query = f"""
         SELECT * FROM btc_feature_bundles 
         WHERE bundle_id = '{bundle_id}'
+        {sequence_filter}
+        ORDER BY sequence_id ASC, produced_at ASC
+        LIMIT {limit};
+        """
+        rows = await self.fetch(query)
+        return [dict(row) for row in rows]
+
+    async def get_latest_signal_snapshot(self) -> dict | None:
+        query = """
+        SELECT * FROM btc_signal_snapshots 
+        WHERE schema_version = 'v1'
+        LATEST ON ts;
+        """
+        row = await self.fetchrow(query)
+        if not row:
+            return None
+        return dict(row)
+
+    async def get_signal_snapshot_history(
+        self,
+        limit: int,
+        after_sequence_id: int | None = None,
+    ) -> list[dict]:
+        sequence_filter = (
+            f"AND sequence_id > {after_sequence_id}"
+            if after_sequence_id is not None
+            else ""
+        )
+        query = f"""
+        SELECT * FROM btc_signal_snapshots 
+        WHERE schema_version = 'v1'
         {sequence_filter}
         ORDER BY sequence_id ASC, produced_at ASC
         LIMIT {limit};
