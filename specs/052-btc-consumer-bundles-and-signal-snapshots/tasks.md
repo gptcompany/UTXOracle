@@ -96,14 +96,14 @@
 
 ## Phase 7: Signal Snapshot Layer
 
-- [ ] T042 Freeze the payload schema for `btc_signal_snapshot.v1`
-- [ ] T043 Freeze the deterministic formulas and component normalization rules for:
+- [x] T042 Freeze the payload schema for `btc_signal_snapshot.v1`
+- [x] T043 Freeze the deterministic formulas and component normalization rules for:
   - `regime_score`
   - `flow_score`
   - `valuation_score`
   - `quality_score`
-- [ ] T044 Decide the final `service_status` vocabulary for the signal plane
-- [ ] T045 Write RED tests for signal snapshot routes: response shape, `input_refs` presence, `sequence_id` monotonicity, and degraded-input propagation
+- [x] T044 Decide the final `service_status` vocabulary for the signal plane
+- [x] T045 Write RED tests for signal snapshot routes: response shape, `input_refs` presence, `sequence_id` monotonicity, and degraded-input propagation
 - [ ] T046 [E] Implement the signal snapshot writer using only admitted bundle inputs
 - [ ] T047 [E] Implement `/api/signals/btc/latest`
 - [ ] T048 [E] Implement `/api/signals/btc/history`
