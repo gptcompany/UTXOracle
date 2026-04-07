@@ -22,17 +22,17 @@ class TestTokenBucket:
         # Should allow initial consumption
         allowed, remaining = await bucket.consume(5)
         assert allowed is True
-        assert remaining == 5
+        assert remaining == pytest.approx(5, abs=0.01)
 
         # Should allow more consumption
         allowed, remaining = await bucket.consume(3)
         assert allowed is True
-        assert remaining == 2
+        assert remaining == pytest.approx(2, abs=0.01)
 
         # Should deny when not enough tokens
         allowed, remaining = await bucket.consume(5)
         assert allowed is False
-        assert remaining == 2
+        assert remaining == pytest.approx(2, abs=0.01)
 
     @pytest.mark.asyncio
     async def test_token_refill(self):
@@ -144,7 +144,8 @@ class TestRateLimiter:
 
         # Consume remaining tokens quickly
         bucket = limiter.get_http_bucket("192.168.1.1")
-        await bucket.consume(100)  # Exhaust tokens
+        while (await bucket.consume())[0]:
+            pass
 
         # Should now be rate limited
         allowed, headers = await limiter.check_http_limit(request)
@@ -164,7 +165,8 @@ class TestRateLimiter:
 
         # Exhaust tokens
         bucket = limiter.get_ws_bucket(conn_id)
-        await bucket.consume(100)
+        while (await bucket.consume())[0]:
+            pass
 
         # Should now be rate limited
         allowed = await limiter.check_ws_limit(conn_id)

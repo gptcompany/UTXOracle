@@ -186,9 +186,14 @@ class WhaleDetectionOrchestrator:
             except asyncio.TimeoutError:
                 logger.warning("⚠️ Monitor stop timeout")
 
-        # Broadcaster will be stopped by task cancellation
+        # Stop broadcaster
         if self.broadcaster:
-            logger.info("✅ Broadcaster task will be cancelled")
+            logger.info("Stopping WebSocket broadcaster...")
+            try:
+                await asyncio.wait_for(self.broadcaster.stop(), timeout=5.0)
+                logger.info("✅ Broadcaster stopped")
+            except asyncio.TimeoutError:
+                logger.warning("⚠️ Broadcaster stop timeout")
 
         # Print final statistics
         await self.print_statistics()
@@ -206,16 +211,24 @@ class WhaleDetectionOrchestrator:
         logger.info("=" * 60)
         logger.info(f"Uptime: {uptime:.1f} seconds ({uptime / 60:.1f} minutes)")
 
-        # Monitor stats (get_stats() not implemented yet)
+        # Monitor stats
         if self.monitor:
-            logger.info("\n🐋 Monitor: Active")
-            # TODO: Implement get_stats() in MempoolWhaleMonitor
-            # monitor_stats = self.monitor.get_stats()
+            logger.info("\n🐋 Monitor Statistics:")
+            stats = self.monitor.get_stats()
+            for key, value in stats.items():
+                if isinstance(value, dict):
+                    logger.info(f"  {key}:")
+                    for sub_key, sub_value in value.items():
+                        logger.info(f"    {sub_key}: {sub_value}")
+                else:
+                    logger.info(f"  {key}: {value}")
 
-        # Broadcaster stats (get_stats() not implemented yet)
+        # Broadcaster stats
         if self.broadcaster:
-            logger.info("\n📡 Broadcaster: Active")
-            # TODO: Implement get_stats() in WhaleAlertBroadcaster
+            logger.info("\n📡 Broadcaster Statistics:")
+            stats = self.broadcaster.get_stats()
+            for key, value in stats.items():
+                logger.info(f"  {key}: {value}")
 
         logger.info("=" * 60 + "\n")
 

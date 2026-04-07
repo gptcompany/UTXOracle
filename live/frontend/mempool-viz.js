@@ -693,10 +693,10 @@ class MempoolVisualizer {
 
         // BUGFIX 2025-10-23: Use cached points with fixed jitter (no movement)
         if (this.baselinePointsCache.length > 0) {
-            for (const point of this.baselinePointsCache) {
-                const baseX = this.scaleXBaseline(point.timestamp);
-                const x = baseX + point.jitter; // Use saved jitter
-                const y = this.scaleY(point.price);
+            for (const tx of this.baselinePointsCache) {
+                const baseX = this.scaleXBaseline(tx.timestamp);
+                const x = baseX + tx.jitter; // Use saved jitter
+                const y = this.scaleY(tx.price);
 
                 // Bounds check: keep points inside baseline panel
                 if (x >= this.marginLeft && x <= this.marginLeft + this.baselineWidth &&

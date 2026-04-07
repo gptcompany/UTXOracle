@@ -29,7 +29,7 @@ import pytest
 @pytest.fixture(scope="session")
 def base_url():
     """Base URL for dashboard"""
-    return "http://localhost:8000"
+    return "http://localhost:8001"
 
 
 @pytest.fixture(scope="function")

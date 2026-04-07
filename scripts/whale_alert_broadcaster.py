@@ -275,11 +275,28 @@ class WhaleAlertBroadcaster:
             f"Authentication: {'ENABLED' if self.auth_enabled else 'DISABLED (Development Mode)'}"
         )
 
+        self._stop_event = asyncio.Event()
         async with websockets.serve(self.handle_client_with_auth, self.host, self.port):
             logger.info(
                 f"Whale alert broadcaster ready on ws://{self.host}:{self.port}"
             )
-            await asyncio.Future()  # Run forever
+            await self._stop_event.wait()
+
+    async def stop(self):
+        """Stop the WebSocket server"""
+        logger.info("Stopping WebSocket broadcaster...")
+        if hasattr(self, "_stop_event"):
+            self._stop_event.set()
+        logger.info("✅ Broadcaster stopped")
+
+    def get_stats(self) -> dict:
+        """Get broadcaster statistics"""
+        return {
+            **self.stats,
+            "active_connections": len(self.authenticated_clients)
+            + len(self.unauthenticated_clients),
+            "authenticated_clients": len(self.authenticated_clients),
+        }
 
     async def broadcast_test_alert(self):
         """Broadcast a test alert for development"""

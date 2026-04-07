@@ -116,7 +116,7 @@ class TestOrchestratorStartup:
 
                     # Verify broadcaster was created with correct config
                     MockBroadcaster.assert_called_once_with(
-                        host="127.0.0.1", port=18765
+                        host="127.0.0.1", port=18765, auth_enabled=True
                     )
 
                     # Verify monitor was created with correct config
@@ -270,7 +270,7 @@ class TestOrchestratorStartup:
         """Orchestrator should use config defaults when not specified"""
         with patch("scripts.whale_detection_orchestrator.get_config") as mock_config:
             mock_cfg = Mock()
-            mock_cfg.database.db_path = "/default/path/to/db.duckdb"
+            mock_cfg.database_path = "/default/path/to/db.duckdb"
             mock_config.return_value = mock_cfg
 
             orch = WhaleDetectionOrchestrator()
@@ -343,6 +343,7 @@ class TestOrchestratorCLI:
                     ws_port=7777,
                     mempool_ws_url="ws://custom.mempool/track",
                     whale_threshold_btc=250.0,
+                    auth_enabled=True,
                 )
 
 
