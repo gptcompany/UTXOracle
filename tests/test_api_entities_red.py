@@ -8,7 +8,8 @@ from api.apps.live import app as live_app
 
 @pytest.fixture
 def api_client():
-    return TestClient(live_app, raise_server_exceptions=False)
+    with TestClient(live_app, raise_server_exceptions=False) as client:
+        yield client
 
 def test_entity_metadata_route_exists_and_returns_correct_shape(api_client):
     """T048: Expected response shape for entity metadata lookup."""

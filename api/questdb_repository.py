@@ -1336,11 +1336,34 @@ class QuestDBRepository:
             if after_sequence_id is not None
             else ""
         )
+        rows = await self.fetch(query)
+        return [dict(row) for row in rows]
+
+    async def get_entity_metadata(self, entity_id: str) -> dict | None:
         query = f"""
-        SELECT * FROM btc_signal_snapshots 
-        WHERE schema_version = 'v1'
-        {sequence_filter}
-        ORDER BY sequence_id ASC, produced_at ASC
+        SELECT * FROM entity_registry_serving 
+        WHERE entity_id = '{entity_id}'
+        ORDER BY ts DESC
+        LIMIT 1;
+        """
+        row = await self.fetchrow(query)
+        return dict(row) if row else None
+
+    async def get_entity_flows(self, min_value: float = 0.0, limit: int = 50) -> list[dict]:
+        query = f"""
+        SELECT * FROM entity_flows_daily 
+        WHERE netflow_btc >= {min_value} OR netflow_btc <= -{min_value}
+        ORDER BY date DESC
+        LIMIT {limit};
+        """
+        rows = await self.fetch(query)
+        return [dict(row) for row in rows]
+
+    async def get_entity_history(self, entity_id: str, limit: int = 50) -> list[dict]:
+        query = f"""
+        SELECT * FROM entity_flows_daily 
+        WHERE entity_id = '{entity_id}'
+        ORDER BY date DESC
         LIMIT {limit};
         """
         rows = await self.fetch(query)

@@ -124,6 +124,8 @@ def create_app() -> FastAPI:
     app.include_router(questdb_router)
     app.include_router(features_router)
     app.include_router(signals_router)
+    from api.routes.entities import router as entities_router
+    app.include_router(entities_router)
     app.include_router(whale_router)
     app.include_router(meta_router)
 

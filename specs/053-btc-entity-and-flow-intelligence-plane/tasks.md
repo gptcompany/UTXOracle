@@ -117,9 +117,9 @@ Note:
 - [x] T048 Write RED tests for entity metadata lookup routes: response shape, confidence fields, degraded/ambiguous behavior
 - [x] T049 Write RED tests for entity history and movement/flow query routes: ordering, pagination, empty-state
 - [x] T050 Write RED tests for internal-reshuffle vs external-flow classification edge cases
-- [ ] T051 [E] Implement entity metadata lookup routes
-- [ ] T052 [E] Implement entity history routes
-- [ ] T053 [E] Implement movement and flow query routes
+- [x] T051 [E] Implement entity metadata lookup routes
+- [x] T052 [E] Implement entity history routes
+- [x] T053 [E] Implement movement and flow query routes
 
 **Checkpoint**: the entity intelligence plane has a concrete consumer interface with frozen payloads and real implementation tasks.
 
@@ -127,11 +127,11 @@ Note:
 
 ## Phase 8: Whale and Bundle Integration
 
-- [ ] T054 Define how richer registry-backed `entity_id` values appear in whale enrichment without breaking `whale_event.v1`
-- [ ] T055 Define whether and when this spec should project into a future `btc_entity.v1` bundle
-- [ ] T056 Define whether `btc_flow.v2` should later reference the entity flow plane
-- [ ] T057 Keep the existing whale omission and ambiguity guarantees intact while adding richer entity resolution
-- [ ] T058 [E] Implement whale surface enrichment upgrade using registry-backed entity objects without breaking `whale_event.v1`
+- [x] T054 Define how richer registry-backed `entity_id` values appear in whale enrichment without breaking `whale_event.v1`
+- [x] T055 Define whether and when this spec should project into a future `btc_entity.v1` bundle
+- [x] T056 Define whether `btc_flow.v2` should later reference the entity flow plane
+- [x] T057 Keep the existing whale omission and ambiguity guarantees intact while adding richer entity resolution
+- [x] T058 [E] Implement whale surface enrichment upgrade using registry-backed entity objects without breaking `whale_event.v1`
 
 **Checkpoint**: the entity plane integrates forward without breaking current contracts.
 

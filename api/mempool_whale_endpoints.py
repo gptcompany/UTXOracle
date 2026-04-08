@@ -157,7 +157,8 @@ async def _fetch_cluster_rows(
     return grouped
 
 
-def _derive_entity_attribution(
+async def _derive_entity_attribution(
+    repo: QuestDBRepository,
     exchange_addresses: list[str],
     cluster_rows_by_address: dict[str, list[dict]],
 ) -> tuple[Optional[WhaleEntityAttributionResponse], str]:
@@ -175,21 +176,30 @@ def _derive_entity_attribution(
     if len(cluster_ids) != 1:
         return None, "ambiguous"
 
-    labels = sorted({row["label"] for row in records if row["label"]})
-    entity_label = labels[0] if len(labels) == 1 else None
-
-    if entity_label is not None:
-        label_source = "questdb.address_clusters.label"
-        confidence = WHALE_ENTITY_LABEL_CONFIDENCE
-    else:
-        label_source = "questdb.address_clusters.cluster_id"
-        confidence = WHALE_ENTITY_CLUSTER_CONFIDENCE
-
     cluster_id = cluster_ids[0]
+    
+    # Try to find a richer entity ID from the new registry
+    entity_id = f"cluster:{cluster_id}"
+    confidence = WHALE_ENTITY_CLUSTER_CONFIDENCE
+    label_source = "questdb.address_clusters.cluster_id"
+    
+    entity_row = await repo.get_entity_metadata(f"btc:entity:cluster:{cluster_id}")
+    if entity_row:
+        entity_id = entity_row["entity_id"]
+        entity_label = entity_row["display_label"]
+        confidence = entity_row["confidence_overall"]
+        label_source = "questdb.entity_registry_serving"
+    else:
+        labels = sorted({row["label"] for row in records if row["label"]})
+        entity_label = labels[0] if len(labels) == 1 else None
+        if entity_label is not None:
+            label_source = "questdb.address_clusters.label"
+            confidence = WHALE_ENTITY_LABEL_CONFIDENCE
+
     return (
         WhaleEntityAttributionResponse(
             cluster_id=cluster_id,
-            entity_id=f"cluster:{cluster_id}",
+            entity_id=entity_id,
             entity_label=entity_label,
             label_source=label_source,
             confidence=confidence,
@@ -297,8 +307,8 @@ async def get_whale_transactions(
         events: list[WhaleTransactionResponse] = []
         for row in result:
             exchange_addresses = _parse_exchange_addresses(row["exchange_addresses"])
-            entity, entity_status = _derive_entity_attribution(
-                exchange_addresses, cluster_rows_by_address
+            entity, entity_status = await _derive_entity_attribution(
+                repo, exchange_addresses, cluster_rows_by_address
             )
             events.append(_build_whale_event(row, entity, entity_status))
         return events
@@ -383,10 +393,11 @@ async def get_whale_transaction(request: Request, txid: str):
 
         exchange_addresses = _parse_exchange_addresses(result["exchange_addresses"])
         cluster_rows_by_address = await _fetch_cluster_rows(repo, exchange_addresses)
-        entity, entity_status = _derive_entity_attribution(
-            exchange_addresses, cluster_rows_by_address
+        entity, entity_status = await _derive_entity_attribution(
+            repo,
+            exchange_addresses,
+            cluster_rows_by_address,
         )
-
         return _build_whale_event(result, entity, entity_status)
 
     except HTTPException:
