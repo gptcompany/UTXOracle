@@ -88,11 +88,11 @@
 - [x] T031 Define stale, degraded, and ambiguous behavior for entity APIs
 - [x] T032 Decide whether any first slice remains research-only on `:8001` before later promotion
 - [x] T033 Record the security posture decision for entity and flow APIs: auth, rate limiting, input validation, and host exposure
-- [ ] T034 [E] Implement local authoritative storage for `entity_registry`, `cluster_entity_map`, `entity_labels`, and `entity_label_provenance`
-- [ ] T035 [E] Implement registry writer/backfill path from existing `address_clusters` and curated entity hints
-- [ ] T036 [E] Implement movement artifacts for `entity_movement_events`, `entity_transfer_edges`, `entity_flows_daily`, `entity_balance_snapshots_daily`, and `entity_counterparty_edges_daily`
-- [ ] T037 [E] Materialize serving-grade entity and flow artifacts into QuestDB with freshness metadata
-- [ ] T038 [E] Implement reconciliation and update logic when mapping evidence or labels change
+- [x] T034 [E] Implement local authoritative storage for `entity_registry`, `cluster_entity_map`, `entity_labels`, and `entity_label_provenance`
+- [x] T035 [E] Implement registry writer/backfill path from existing `address_clusters` and curated entity hints
+- [x] T036 [E] Implement movement artifacts for `entity_movement_events`, `entity_transfer_edges`, `entity_flows_daily`, `entity_balance_snapshots_daily`, and `entity_counterparty_edges_daily`
+- [x] T037 [E] Materialize serving-grade entity and flow artifacts into QuestDB with freshness metadata
+- [x] T038 [E] Implement reconciliation and update logic when mapping evidence or labels change
 
 **Checkpoint**: the serving path is operationally plausible and has a real implementation path.
 

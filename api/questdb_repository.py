@@ -46,6 +46,8 @@ ADDRESS_CLUSTERS_STAGING_TABLE = "address_clusters_staging"
 
 QUESTDB_POOL_MIN_SIZE = int(os.getenv("QUESTDB_POOL_MIN_SIZE", "5"))
 QUESTDB_POOL_MAX_SIZE = int(os.getenv("QUESTDB_POOL_MAX_SIZE", "20"))
+QUESTDB_COMMAND_TIMEOUT = int(os.getenv("QUESTDB_COMMAND_TIMEOUT", "30"))
+QUESTDB_MAX_INACTIVE_LIFETIME = int(os.getenv("QUESTDB_MAX_INACTIVE_LIFETIME", "300"))
 
 
 async def create_tables_if_not_exist():
@@ -267,6 +269,46 @@ async def create_tables_if_not_exist():
                 produced_at TIMESTAMP,
                 service_status SYMBOL,
                 payload_json STRING,
+                ts TIMESTAMP
+            ) timestamp(ts) PARTITION BY DAY;
+            """
+        )
+
+        # Entity Intelligence Tables (spec-053)
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS entity_registry_serving (
+                entity_id SYMBOL INDEX,
+                entity_kind SYMBOL,
+                registry_status SYMBOL,
+                display_label SYMBOL,
+                confidence_overall DOUBLE,
+                last_seen TIMESTAMP,
+                ts TIMESTAMP
+            ) timestamp(ts) PARTITION BY DAY;
+            """
+        )
+
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS entity_flows_daily (
+                entity_id SYMBOL INDEX,
+                date TIMESTAMP,
+                inflow_btc DOUBLE,
+                outflow_btc DOUBLE,
+                netflow_btc DOUBLE,
+                is_exchange BOOLEAN,
+                ts TIMESTAMP
+            ) timestamp(ts) PARTITION BY DAY;
+            """
+        )
+
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS entity_balance_snapshots_daily (
+                entity_id SYMBOL INDEX,
+                date TIMESTAMP,
+                balance_btc DOUBLE,
                 ts TIMESTAMP
             ) timestamp(ts) PARTITION BY DAY;
             """
