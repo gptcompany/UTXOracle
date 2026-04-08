@@ -68,6 +68,27 @@ def _parse_page_token(page_token: str | None) -> datetime | None:
     return parsed
 
 
+def _normalize_flow_window(
+    window_start: str | None,
+    window_end: str | None,
+) -> tuple[datetime, datetime]:
+    parsed_end = _parse_timestamp(window_end)
+    parsed_start = _parse_timestamp(window_start)
+    if window_end is not None and parsed_end is None:
+        raise HTTPException(status_code=422, detail="Invalid window_end")
+    if window_start is not None and parsed_start is None:
+        raise HTTPException(status_code=422, detail="Invalid window_start")
+
+    parsed_end = parsed_end or datetime.now(timezone.utc)
+    parsed_start = parsed_start or (parsed_end - timedelta(days=30))
+
+    if parsed_end <= parsed_start:
+        raise HTTPException(status_code=422, detail="window_end must be after window_start")
+    if parsed_end - parsed_start > timedelta(days=366):
+        raise HTTPException(status_code=422, detail="Flow window exceeds maximum span of 366 days")
+    return parsed_start, parsed_end
+
+
 def _format_ts(value) -> str | None:
     if value is None:
         return None
@@ -206,12 +227,33 @@ def _derive_flow_service_status(items: list[dict]) -> str:
     return "healthy"
 
 
+def _derive_cluster_ids(entity_id: str) -> list[str]:
+    cluster_prefix = "btc:entity:cluster:"
+    if entity_id.startswith(cluster_prefix):
+        return [entity_id[len(cluster_prefix):]]
+    return []
+
+
+def _build_provenance_ref(row: dict) -> str | None:
+    source_kind = row.get("primary_source_kind")
+    review_status = row.get("review_status")
+    provenance_ts = _format_ts(row.get("provenance_ts"))
+    if not any((source_kind, review_status, provenance_ts)):
+        return None
+    return (
+        "entity_provenance_serving:"
+        f"{source_kind or 'unknown'}:{review_status or 'unknown'}:{provenance_ts or 'unknown'}"
+    )
+
+
 @router.get("/flows")
 async def get_entity_flows(
     request: Request,
     min_value: float = Query(default=0.0, ge=0.0),
     classification: str | None = Query(default=None),
     entity_id: str | None = Query(default=None),
+    window_start: str | None = Query(default=None),
+    window_end: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=500),
     page_token: str | None = Query(default=None),
 ):
@@ -223,12 +265,19 @@ async def get_entity_flows(
         raise HTTPException(status_code=503, detail="QuestDB unavailable")
 
     canonical_entity_id = _canonicalize_entity_id(entity_id) if entity_id else None
+    normalized_window_start, normalized_window_end = _normalize_flow_window(window_start, window_end)
     after_window_start = _parse_page_token(page_token)
+    if after_window_start and (
+        after_window_start < normalized_window_start or after_window_start >= normalized_window_end
+    ):
+        raise HTTPException(status_code=422, detail="page_token must fall within the requested flow window")
     rows = await repo.get_entity_flows(
         min_value=min_value,
         classification=classification,
         entity_id=canonical_entity_id,
         limit=limit + 1,
+        window_start=normalized_window_start,
+        window_end=normalized_window_end,
         after_window_start=after_window_start,
     )
 
@@ -296,11 +345,11 @@ async def get_entity_history(
         {
             "entity_id": canonical_entity_id,
             "as_of": _format_ts(row.get("as_of") or row.get("date")),
-            "event_type": row.get("event_type", "balance_snapshot"),
-            "registry_status": row.get("registry_status", "active"),
-            "cluster_ids": row.get("cluster_ids", []),
+            "event_type": "balance_snapshot",
+            "registry_status": row.get("registry_status"),
+            "cluster_ids": _derive_cluster_ids(canonical_entity_id),
             "confidence_overall": row.get("confidence_overall"),
-            "provenance_ref": row.get("provenance_ref"),
+            "provenance_ref": _build_provenance_ref(row),
         }
         for row in rows
     ]

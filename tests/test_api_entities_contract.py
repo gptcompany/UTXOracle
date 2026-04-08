@@ -84,6 +84,8 @@ class ContractEntityRepo:
         classification: str | None = None,
         entity_id: str | None = None,
         limit: int = 50,
+        window_start: datetime | None = None,
+        window_end: datetime | None = None,
         after_window_start: datetime | None = None,
     ):
         rows = list(self.flow_rows)
@@ -213,3 +215,11 @@ def test_entity_flow_contract_preserves_ambiguous_attribution(api_client):
     assert payload["service_status"] == "ambiguous"
     assert payload["items"][0]["movement_classification"] == "ambiguous"
     assert payload["items"][0]["source_entity_id"] is None
+
+
+def test_main_app_does_not_mount_entity_routes():
+    from api.main import app as main_app
+
+    route_paths = {route.path for route in main_app.router.routes}
+    assert "/api/entities/flows" not in route_paths
+    assert "/api/entities/{entity_id}" not in route_paths

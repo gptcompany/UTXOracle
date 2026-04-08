@@ -19,7 +19,9 @@ class FakeEntityRepo:
     def __init__(self):
         self.metadata_calls: list[str] = []
         self.history_calls: list[tuple[str, int, datetime | None]] = []
-        self.flow_calls: list[tuple[float, str | None, str | None, int, datetime | None]] = []
+        self.flow_calls: list[
+            tuple[float, str | None, str | None, int, datetime | None, datetime | None, datetime | None]
+        ] = []
 
     async def get_entity_metadata(self, entity_id: str):
         self.metadata_calls.append(entity_id)
@@ -69,9 +71,13 @@ class FakeEntityRepo:
         classification: str | None = None,
         entity_id: str | None = None,
         limit: int = 50,
+        window_start: datetime | None = None,
+        window_end: datetime | None = None,
         after_window_start: datetime | None = None,
     ):
-        self.flow_calls.append((min_value, classification, entity_id, limit, after_window_start))
+        self.flow_calls.append(
+            (min_value, classification, entity_id, limit, window_start, window_end, after_window_start)
+        )
         return [
             {
                 "window_start": datetime(2026, 4, 1, tzinfo=timezone.utc),
@@ -191,15 +197,18 @@ def test_entity_flows_route_returns_contract_shape_and_filter(api_client):
     }
     assert payload["items"][0]["movement_classification"] == "internal_entity_reshuffle"
     assert payload["items"][0]["target_entity_id"] == "btc:entity:cluster:cluster_001"
-    assert repo.flow_calls == [
-        (
-            0.0,
-            "internal_entity_reshuffle",
-            "btc:entity:cluster:cluster_001",
-            3,
-            None,
-        )
-    ]
+    assert len(repo.flow_calls) == 1
+    flow_call = repo.flow_calls[0]
+    assert flow_call[:4] == (
+        0.0,
+        "internal_entity_reshuffle",
+        "btc:entity:cluster:cluster_001",
+        3,
+    )
+    assert flow_call[4] is not None
+    assert flow_call[5] is not None
+    assert flow_call[5] - flow_call[4] == timedelta(days=30)
+    assert flow_call[6] is None
 
 
 def test_entity_flows_route_normalizes_known_self_edges_to_internal_reshuffles(api_client):
@@ -212,6 +221,8 @@ def test_entity_flows_route_normalizes_known_self_edges_to_internal_reshuffles(a
                 kwargs.get("classification"),
                 kwargs.get("entity_id"),
                 kwargs.get("limit", 50),
+                kwargs.get("window_start"),
+                kwargs.get("window_end"),
                 kwargs.get("after_window_start"),
             )
         )
@@ -239,6 +250,17 @@ def test_entity_flows_route_normalizes_known_self_edges_to_internal_reshuffles(a
     assert payload["service_status"] == "healthy"
     assert payload["items"][0]["movement_classification"] == "internal_entity_reshuffle"
     assert payload["items"][0]["is_internal"] is True
+
+
+def test_entity_flows_route_rejects_oversized_window(api_client):
+    repo = FakeEntityRepo()
+    with _override_repo(api_client.app, repo):
+        response = api_client.get(
+            "/api/entities/flows?window_start=2024-01-01T00:00:00%2B00:00&window_end=2026-01-05T00:00:00%2B00:00"
+        )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Flow window exceeds maximum span of 366 days"
 
 
 def test_entity_metadata_handles_missing_entity_with_404(api_client):

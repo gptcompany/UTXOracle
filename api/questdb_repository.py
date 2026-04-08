@@ -1409,6 +1409,8 @@ class QuestDBRepository:
         classification: str | None = None,
         entity_id: str | None = None,
         limit: int = 50,
+        window_start: datetime | None = None,
+        window_end: datetime | None = None,
         after_window_start: datetime | None = None,
     ) -> list[dict]:
         filters = ["ABS(btc_amount) >= $1"]
@@ -1424,6 +1426,14 @@ class QuestDBRepository:
                 f"(source_entity_id = ${placeholder} OR target_entity_id = ${placeholder})"
             )
             args.append(entity_id)
+
+        if window_start is not None:
+            filters.append(f"window_start >= ${len(args) + 1}")
+            args.append(window_start)
+
+        if window_end is not None:
+            filters.append(f"window_end <= ${len(args) + 1}")
+            args.append(window_end)
 
         if after_window_start is not None:
             filters.append(f"window_start > ${len(args) + 1}")
@@ -1453,10 +1463,39 @@ class QuestDBRepository:
             args.append(after_date)
         args.append(int(limit))
         query = f"""
-        SELECT *
-        FROM entity_balance_snapshots_daily
-        WHERE {" AND ".join(filters)}
-        ORDER BY date ASC, entity_id ASC
+        WITH latest_registry AS (
+            SELECT
+                registry_status,
+                confidence_overall
+            FROM entity_registry_serving
+            WHERE entity_id = $1
+            ORDER BY ts DESC
+            LIMIT 1
+        ),
+        latest_provenance AS (
+            SELECT
+                primary_source_kind,
+                review_status,
+                ts AS provenance_ts
+            FROM entity_provenance_serving
+            WHERE entity_id = $1
+            ORDER BY ts DESC
+            LIMIT 1
+        )
+        SELECT
+            b.entity_id,
+            b.date AS as_of,
+            b.balance_btc,
+            r.registry_status,
+            r.confidence_overall,
+            p.primary_source_kind,
+            p.review_status,
+            p.provenance_ts
+        FROM entity_balance_snapshots_daily AS b
+        LEFT JOIN latest_registry AS r ON TRUE
+        LEFT JOIN latest_provenance AS p ON TRUE
+        WHERE {" AND ".join(f"b.{f}" if f.startswith('date') else f for f in filters)}
+        ORDER BY b.date ASC, b.entity_id ASC
         LIMIT ${len(args)};
         """
         rows = await self.fetch(query, *args)

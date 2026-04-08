@@ -183,7 +183,15 @@ async def _derive_entity_attribution(
     confidence = WHALE_ENTITY_CLUSTER_CONFIDENCE
     label_source = "questdb.address_clusters.cluster_id"
     
-    entity_row = await repo.get_entity_metadata(f"btc:entity:cluster:{cluster_id}")
+    entity_row = None
+    try:
+        entity_row = await repo.get_entity_metadata(f"btc:entity:cluster:{cluster_id}")
+    except Exception as exc:
+        logging.warning(
+            "Whale entity registry lookup degraded for cluster %s: %s",
+            cluster_id,
+            exc,
+        )
     if entity_row:
         entity_id = entity_row["entity_id"]
         entity_label = entity_row["display_label"]

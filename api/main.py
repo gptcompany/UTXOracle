@@ -268,14 +268,6 @@ app.include_router(questdb_router)
 logging.info("✅ Promoted QuestDB-backed metrics registered (prices, metrics/latest)")
 
 # =============================================================================
-# spec-053: BTC Entity Intelligence
-# =============================================================================
-
-from api.routes.entities import router as entities_router
-app.include_router(entities_router)
-logging.info("✅ spec-053 BTC Entity Intelligence routes registered at /api/entities/*")
-
-# =============================================================================
 # spec-040: Dedicated live API host policy
 # =============================================================================
 

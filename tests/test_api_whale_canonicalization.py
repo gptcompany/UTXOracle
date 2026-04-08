@@ -27,6 +27,7 @@ class _FakeWhaleRepo:
         }
         self.cluster_rows = list(cluster_rows or [])
         self.entity_row = entity_row
+        self.raise_entity_lookup = False
 
     async def fetch(self, query, *args):
         if "FROM mempool_predictions" in query:
@@ -51,6 +52,8 @@ class _FakeWhaleRepo:
         return None
 
     async def get_entity_metadata(self, entity_id: str):
+        if self.raise_entity_lookup:
+            raise RuntimeError("entity registry unavailable")
         return self.entity_row
 
 
@@ -173,6 +176,38 @@ def test_whale_event_enrichment_preserves_ambiguous_attribution_without_entity(
     body = response.json()
     assert body["entity_enrichment_status"] == "ambiguous"
     assert body["entity"] is None
+
+
+def test_whale_event_enrichment_degrades_gracefully_when_registry_lookup_fails(monkeypatch):
+    from api.main import app
+
+    repo = _FakeWhaleRepo(
+        exchange_addresses="1Binance,1BinanceHot",
+        cluster_rows=[
+            {
+                "address": "1Binance",
+                "cluster_id": "cluster_001",
+                "label": "Binance",
+            },
+            {
+                "address": "1BinanceHot",
+                "cluster_id": "cluster_001",
+                "label": "Binance",
+            },
+        ],
+    )
+    repo.raise_entity_lookup = True
+    monkeypatch.setattr(app.state, "questdb_repo", repo, raising=False)
+    client = TestClient(app)
+
+    response = client.get("/api/whale/transaction/tx-001")
+
+    client.close()
+    assert response.status_code == 200
+    body = response.json()
+    assert body["entity_enrichment_status"] == "inferred"
+    assert body["entity"]["entity_id"] == "cluster:cluster_001"
+    assert body["entity"]["label_source"] == "questdb.address_clusters.label"
 
 
 def test_unknown_canonical_whale_transaction_returns_404(whale_client):
