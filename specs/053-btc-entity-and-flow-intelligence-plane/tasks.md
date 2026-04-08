@@ -96,6 +96,11 @@
 
 **Checkpoint**: the serving path is operationally plausible and has a real implementation path.
 
+Note:
+
+- Closing `T028-T033` freezes target serving behavior only.
+- No `/api/entities/*` route family becomes an admitted supported consumer surface until Phase 7 freezes the route contracts and T062-T063 update governance artifacts.
+
 ---
 
 ## Phase 7: API Surface

@@ -9,23 +9,24 @@ Usage:
 - use `Binding For` to name the downstream tasks, phases, or artifacts that inherit the decision
 - use `Source Ref` to point to the spec section, commit, or implementation file that made the decision effective
 
-Expected coverage: 19 binding decision rows.
+Expected coverage: 20 binding decision rows.
 
 | Phase | Task | Topic | Decision | Binding For | Source Ref |
 |-------|------|-------|----------|-------------|------------|
 | Phase 1 | T001 | intelligence-plane boundary | Entity identity, provenance, and flow-of-funds forensics; excluding trading/execution logic and AML/sanctions products | T002-T064, non-goal enforcement, implementation scope | spec.md#problem-statement |
 | Phase 1 | T002 | base vocabulary freeze | address, cluster_id, entity_id, entity_label, mapping_confidence, label_confidence, confidence_overall | T006-T064, serialization, API payloads, docs | spec.md#1-identity-model |
-| Phase 1 | T003 | canonical `entity_id` format and namespace | btc:entity:<namespace>:<stable_id>; namespaces: cluster, curated, external; compatible with cluster:{id} alias | T006-T020, T039-T061, whale compatibility, registry serialization | spec.md#1-identity-model |
+| Phase 1 | T003 | canonical `entity_id` format and namespace | btc:entity:<namespace>:<stable_id>; namespaces: cluster, curated, external; `cluster:{id}` remains a read-only compatibility alias for migration and lookup | T006-T020, T039-T061, whale compatibility, registry serialization | spec.md#1-identity-model |
 | Phase 1 | T004 | deep API namespace | /api/entities/* (research-first); later projection to btc_entity.v1 | T039-T064, route docs, admission/gov artifacts | spec.md#8-api-namespace |
 | Phase 1 | T005 | baseline heuristics inventory | Union-find MIH, CAH, CoinJoin detection, change filtering, DuckDB sync to QuestDB address_clusters | T016-T017 (must not reinvent existing clustering) | spec.md#existing-heuristics-and-infrastructure |
 | Phase 2 | T010 | local-authoritative vs QuestDB artifacts | Authoritative registry & provenance in local DuckDB/curated files; materialized serving copies in QuestDB | T028-T038, T051-T064, serving architecture | spec.md#7-serving-architecture |
-| Phase 2 | T011 | registry and label status vocabulary | Registry: active, candidate, deprecated; Label: verified, provisional, stale | T034-T038, T045-T047, T060-T063 | spec.md#2-registry-model |
+| Phase 2 | T011 | registry and label status vocabulary | Registry status: active, candidate, deprecated; label review status: unreviewed, provisional, reviewed, deprecated; staleness is a derived freshness state, not a persisted label status | T034-T038, T045-T047, T060-T063 | spec.md#2-registry-model |
 | Phase 3 | T012 | separate confidence fields | cluster_confidence, mapping_confidence, label_confidence, confidence_overall | T014-T015, T045, T048, T060-T061 | spec.md#3-confidence-model |
-| Phase 3 | T013 | provenance vocabulary | source_kind: heuristic, curated_csv, manual, external, inherited; review_status: unreviewed, provisional, reviewed, deprecated | T018-T020, T045-T047, T060-T063 | spec.md#4-provenance-model |
+| Phase 3 | T013 | provenance vocabulary | source_kind: heuristic, curated_csv, manual_operator, external_dataset, inherited_cluster_label; review_status: unreviewed, provisional, reviewed, deprecated | T018-T020, T045-T047, T060-T063 | spec.md#4-provenance-model |
 | Phase 5 | T026 | movement classification vocabulary | exchange_inflow, exchange_outflow, entity_to_entity, entity_to_unlabeled, unlabeled_to_entity, internal_entity_reshuffle, ambiguous | T027, T036, T041, T047, T050, T053, T061 | spec.md#6-movement-classification |
-| Phase 6 | T028 | QuestDB materialization scope | Materialize registry, daily flows, and balance snapshots; raw movement events remain local/research only | T029-T038, T051-T064 | design_materialization.md#1-materialization-scope-questdb |
-| Phase 6 | T032 | first-slice host boundary (`:8001` vs serving-grade) | Materialized registry and flows admitted to `:8011`; raw forensics remain on `:8001` | T033, T039-T064, exposure decisions, docs | design_materialization.md#41-host-policy |
-| Phase 6 | T033 | entity and flow API security posture | `:8011` inherits whale GET policy (no auth, standard rate limit); `:8001` requires internal auth | T039-T064, route exposure, input validation, cross-spec security sync | design_materialization.md#42-auth-and-rate-limiting |
+| Phase 6 | T028 | QuestDB materialization scope | Materialize `entity_registry_serving`, `entity_provenance_serving`, `entity_flows_daily`, `entity_balance_snapshots_daily`, and `entity_counterparty_edges_daily`; raw `entity_movement_events` and `entity_transfer_edges` remain local/research only | T029-T038, T051-T064 | design_materialization.md#1-materialization-scope-questdb |
+| Phase 6 | T031 | entity API stale/degraded/ambiguous semantics | Metadata lookup must distinguish `not_found`, `ambiguous`, `stale`, and `degraded`; flow queries must additionally surface `empty` and `partial_materialization`; ambiguity must remain explicit outside whale-compat mode | T039-T053, T060-T063 | design_materialization.md#3-freshness-and-failure-vocabulary |
+| Phase 6 | T032 | first-slice host boundary (`:8001` vs serving-grade) | Materialized metadata and aggregate flow routes are eligible for `:8011` only after Phase 7 route freeze and T062-T063 governance updates; raw movement events and unverified heuristics remain on `:8001` | T033, T039-T064, exposure decisions, docs | design_materialization.md#4-security-posture |
+| Phase 6 | T033 | entity and flow API security posture | `:8011` admitted GET routes inherit whale-style no-auth access with standard rate limiting plus bounded input validation; `:8001` research endpoints require internal auth | T039-T064, route exposure, input validation, cross-spec security sync | design_materialization.md#4-security-posture |
 | Phase 7 | T039 | entity metadata route family |  | T045, T048, T051, T058, contract tests |  |
 | Phase 7 | T040 | entity history route family |  | T046, T049, T052, contract tests |  |
 | Phase 7 | T041 | movement and flow route family |  | T047, T049-T050, T053, T061 |  |

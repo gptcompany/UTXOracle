@@ -171,8 +171,10 @@ Canonical first-slice rule:
 
 Transitional compatibility rule:
 
-- the current `cluster:{cluster_id}` form may remain as a compatibility alias during migration
-- new APIs and registry artifacts should prefer canonical `entity_id`
+- the current `cluster:{cluster_id}` form may remain as a read-only compatibility alias during migration
+- entity lookup routes MUST accept the legacy `cluster:{cluster_id}` alias and normalize responses to canonical `btc:entity:*` identifiers
+- the canonical whale surface may continue emitting the legacy alias until the dedicated whale-compatibility slice is explicitly completed
+- new registry artifacts should prefer canonical `entity_id`
 
 ### 2. Registry Model
 
@@ -191,6 +193,7 @@ Minimum logical tables or artifacts:
 - `cluster_entity_map`
   - `cluster_id`
   - `entity_id`
+  - `cluster_confidence`
   - `mapping_confidence`
   - `mapping_method`
   - `mapping_version`
@@ -249,7 +252,8 @@ First-slice composition rule:
 - it MUST NOT exceed the weakest materially relevant component confidence
 - the default first-slice policy is:
   - `confidence_overall = min(cluster_confidence, mapping_confidence, label_confidence)` when all three are present
-  - if one component is absent, the computation must declare which components participated
+  - if one component is absent, `confidence_overall` MUST be the minimum of the participating components and the API must declare which components participated
+- first-slice v1 MUST NOT use multiplicative or weighted composition
 - future weighted composition is allowed only with an explicit versioned methodology change
 
 ### 4. Provenance Model
@@ -347,6 +351,8 @@ Recommended ownership split:
 
 - DuckDB or versioned local artifacts = compute and registry-authoring source
 - QuestDB = materialized serving copy for API reads
+- serving-grade first-slice materialization should include registry lookup rows, provenance summaries, daily flow aggregates, daily balance snapshots, and aggregate counterparty-edge rows
+- raw event-layer movement artifacts may remain local/research-first until a later slice explicitly admits them for serving use
 
 ### 8. API Namespace
 
@@ -373,6 +379,7 @@ First-slice scope note:
   - entity history
   - entity flow query routes
 - `/api/entities/search` and `/api/entities/top-movers` are explicitly deferred unless a later slice admits them with frozen payloads and serving semantics
+- choosing `:8011` as the target host for serving-grade entity routes does not by itself admit `/api/entities/*` into the supported consumer contract; admission still requires frozen route families plus spec-044/spec-045 governance updates
 
 ### 8a. Minimum API Payload Definitions
 
@@ -423,6 +430,11 @@ Minimum fields:
 - `is_internal`
 - `materialization_status`
 
+Serving note:
+
+- the serving-grade first slice should answer these rows from materialized aggregate flow/counterparty artifacts
+- raw `entity_movement_events` remain a research-first concern unless later admitted explicitly
+
 #### Error and degraded payload rules
 
 All entity and flow APIs MUST explicitly distinguish:
@@ -442,6 +454,7 @@ This spec must:
 - preserve `whale_event.v1` backward compatibility
 - allow whale events to point to richer registry-backed entity objects later
 - avoid making deep entity success a hard dependency for the base whale event
+- preserve current whale omission behavior as the compatibility baseline until the dedicated whale-integration slice is completed
 
 ### 10. Relationship to the Future Bundle Plane
 
@@ -471,6 +484,8 @@ The entity plane must explicitly distinguish:
 - stale registry
 - stale clustering
 - partial aggregate materialization
+
+Outside the whale compatibility layer, ambiguity must be surfaced as a typed state rather than silently collapsed into omission.
 
 The current whale omission semantics should be treated as the minimum baseline, not the full final answer.
 

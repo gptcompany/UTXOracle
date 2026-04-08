@@ -9,7 +9,7 @@ The pipeline transforms raw `address_clusters` into a governed `entity_registry`
 
 ### 1.1 Ingestion Rules
 - **Cluster to Registry**: Every unique `cluster_id` from local union-find becomes a candidate entity `btc:entity:cluster:<cluster_id>`.
-- **Label Propagation**: If a cluster has a label in DuckDB, it populates `entity_labels` with `label_kind='inherited'` and `review_status='unreviewed'`.
+- **Label Propagation**: If a cluster has a label in DuckDB, it may populate `entity_labels` as a non-primary alias while recording provenance with `source_kind='inherited_cluster_label'` and `review_status='unreviewed'`.
 - **Curated Overrides**: Manual CSV/YAML hints (e.g., `exchange_addresses.csv`) override heuristic labels. If a curated label matches multiple clusters, those clusters are mapped to a single `entity_id` (e.g., `btc:entity:curated:binance`).
 - **Reconciliation**:
     - Disagreement between heuristics: Use the one with higher component confidence.
