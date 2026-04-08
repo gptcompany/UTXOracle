@@ -82,12 +82,12 @@
 
 ## Phase 6: Materialization and Serving
 
-- [ ] T028 [E] Decide which entity/flow artifacts must be materialized into QuestDB for serving-grade APIs
-- [ ] T029 [E] Define the writer/backfill jobs for registry and flow artifacts
-- [ ] T030 Define freshness targets for registry and flow aggregates
-- [ ] T031 Define stale, degraded, and ambiguous behavior for entity APIs
-- [ ] T032 Decide whether any first slice remains research-only on `:8001` before later promotion
-- [ ] T033 Record the security posture decision for entity and flow APIs: auth, rate limiting, input validation, and host exposure
+- [x] T028 [E] Decide which entity/flow artifacts must be materialized into QuestDB for serving-grade APIs
+- [x] T029 [E] Define the writer/backfill jobs for registry and flow artifacts
+- [x] T030 Define freshness targets for registry and flow aggregates
+- [x] T031 Define stale, degraded, and ambiguous behavior for entity APIs
+- [x] T032 Decide whether any first slice remains research-only on `:8001` before later promotion
+- [x] T033 Record the security posture decision for entity and flow APIs: auth, rate limiting, input validation, and host exposure
 - [ ] T034 [E] Implement local authoritative storage for `entity_registry`, `cluster_entity_map`, `entity_labels`, and `entity_label_provenance`
 - [ ] T035 [E] Implement registry writer/backfill path from existing `address_clusters` and curated entity hints
 - [ ] T036 [E] Implement movement artifacts for `entity_movement_events`, `entity_transfer_edges`, `entity_flows_daily`, `entity_balance_snapshots_daily`, and `entity_counterparty_edges_daily`

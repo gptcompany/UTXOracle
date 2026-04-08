@@ -23,9 +23,9 @@ Expected coverage: 19 binding decision rows.
 | Phase 3 | T012 | separate confidence fields | cluster_confidence, mapping_confidence, label_confidence, confidence_overall | T014-T015, T045, T048, T060-T061 | spec.md#3-confidence-model |
 | Phase 3 | T013 | provenance vocabulary | source_kind: heuristic, curated_csv, manual, external, inherited; review_status: unreviewed, provisional, reviewed, deprecated | T018-T020, T045-T047, T060-T063 | spec.md#4-provenance-model |
 | Phase 5 | T026 | movement classification vocabulary | exchange_inflow, exchange_outflow, entity_to_entity, entity_to_unlabeled, unlabeled_to_entity, internal_entity_reshuffle, ambiguous | T027, T036, T041, T047, T050, T053, T061 | spec.md#6-movement-classification |
-| Phase 6 | T028 | QuestDB materialization scope |  | T029-T038, T051-T064 |  |
-| Phase 6 | T032 | first-slice host boundary (`:8001` vs serving-grade) |  | T033, T039-T064, exposure decisions, docs |  |
-| Phase 6 | T033 | entity and flow API security posture |  | T039-T064, route exposure, input validation, cross-spec security sync |  |
+| Phase 6 | T028 | QuestDB materialization scope | Materialize registry, daily flows, and balance snapshots; raw movement events remain local/research only | T029-T038, T051-T064 | design_materialization.md#1-materialization-scope-questdb |
+| Phase 6 | T032 | first-slice host boundary (`:8001` vs serving-grade) | Materialized registry and flows admitted to `:8011`; raw forensics remain on `:8001` | T033, T039-T064, exposure decisions, docs | design_materialization.md#41-host-policy |
+| Phase 6 | T033 | entity and flow API security posture | `:8011` inherits whale GET policy (no auth, standard rate limit); `:8001` requires internal auth | T039-T064, route exposure, input validation, cross-spec security sync | design_materialization.md#42-auth-and-rate-limiting |
 | Phase 7 | T039 | entity metadata route family |  | T045, T048, T051, T058, contract tests |  |
 | Phase 7 | T040 | entity history route family |  | T046, T049, T052, contract tests |  |
 | Phase 7 | T041 | movement and flow route family |  | T047, T049-T050, T053, T061 |  |
