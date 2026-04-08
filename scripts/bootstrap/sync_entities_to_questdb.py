@@ -64,6 +64,15 @@ async def sync_entities(repo: QuestDBRepository, conn: duckdb.DuckDBPyConnection
     ).fetchall()
 
     for row in registry_rows:
+        cluster_confidence = float(row[7]) if row[7] is not None else None
+        mapping_confidence = float(row[8]) if row[8] is not None else None
+        label_confidence = float(row[9]) if row[9] is not None else None
+        is_incomplete = (
+            not row[3]
+            or cluster_confidence is None
+            or mapping_confidence is None
+            or label_confidence is None
+        )
         await repo.async_send_row(
             "entity_registry_serving",
             symbols={
@@ -71,17 +80,12 @@ async def sync_entities(repo: QuestDBRepository, conn: duckdb.DuckDBPyConnection
                 "entity_kind": row[1] or "unknown",
                 "registry_status": row[2] or "active",
                 "display_label": row[3] or "unknown",
-                "source_status": (
-                    "stale"
-                    if isinstance(row[6], datetime)
-                    and (now - row[6]).total_seconds() > 172800
-                    else "healthy"
-                ),
+                "source_status": "degraded" if is_incomplete else "healthy",
             },
             columns={
-                "cluster_confidence": float(row[7]) if row[7] is not None else None,
-                "mapping_confidence": float(row[8]) if row[8] is not None else None,
-                "label_confidence": float(row[9]) if row[9] is not None else None,
+                "cluster_confidence": cluster_confidence,
+                "mapping_confidence": mapping_confidence,
+                "label_confidence": label_confidence,
                 "confidence_overall": float(row[4]) if row[4] is not None else 0.0,
                 "first_seen": row[5] if isinstance(row[5], datetime) else now,
                 "last_seen": row[6] if isinstance(row[6], datetime) else now,

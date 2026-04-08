@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -142,7 +142,7 @@ def test_entity_metadata_route_returns_contract_shape(api_client):
         "label_confidence": 0.8,
         "confidence_overall": 0.8,
     }
-    assert isinstance(payload["labels"], list)
+    assert payload["labels"] == ["Binance"]
     assert isinstance(payload["provenance_summary"], list)
     assert payload["source_status"] == "healthy"
 
@@ -202,9 +202,81 @@ def test_entity_flows_route_returns_contract_shape_and_filter(api_client):
     ]
 
 
+def test_entity_flows_route_normalizes_known_self_edges_to_internal_reshuffles(api_client):
+    repo = FakeEntityRepo()
+
+    async def _internal_flow(**kwargs):
+        repo.flow_calls.append(
+            (
+                kwargs.get("min_value", 0.0),
+                kwargs.get("classification"),
+                kwargs.get("entity_id"),
+                kwargs.get("limit", 50),
+                kwargs.get("after_window_start"),
+            )
+        )
+        return [
+            {
+                "window_start": datetime(2026, 4, 4, tzinfo=timezone.utc),
+                "window_end": datetime(2026, 4, 5, tzinfo=timezone.utc),
+                "source_entity_id": "btc:entity:curated:binance",
+                "target_entity_id": "btc:entity:curated:binance",
+                "movement_classification": "entity_to_entity",
+                "btc_amount": 3.25,
+                "attribution_confidence": 0.9,
+                "is_internal": False,
+                "materialization_status": "healthy",
+            }
+        ]
+
+    repo.get_entity_flows = _internal_flow
+
+    with _override_repo(api_client.app, repo):
+        response = api_client.get("/api/entities/flows?entity_id=btc:entity:curated:binance")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["service_status"] == "healthy"
+    assert payload["items"][0]["movement_classification"] == "internal_entity_reshuffle"
+    assert payload["items"][0]["is_internal"] is True
+
+
 def test_entity_metadata_handles_missing_entity_with_404(api_client):
     repo = FakeEntityRepo()
     with _override_repo(api_client.app, repo):
         response = api_client.get("/api/entities/btc:entity:unknown:999")
 
     assert response.status_code == 404
+
+
+def test_entity_metadata_marks_stale_materialization(api_client):
+    repo = FakeEntityRepo()
+
+    async def _stale_metadata(entity_id: str):
+        row = await FakeEntityRepo.get_entity_metadata(repo, entity_id)
+        row["ts"] = datetime.now(timezone.utc) - timedelta(days=3)
+        return row
+
+    repo.get_entity_metadata = _stale_metadata
+
+    with _override_repo(api_client.app, repo):
+        response = api_client.get("/api/entities/btc:entity:curated:binance")
+
+    assert response.status_code == 200
+    assert response.json()["source_status"] == "stale"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/entities/btc:entity:curated:binance/history?page_token=not-a-timestamp",
+        "/api/entities/flows?page_token=not-a-timestamp",
+    ],
+)
+def test_entity_routes_reject_invalid_page_tokens(api_client, path):
+    repo = FakeEntityRepo()
+    with _override_repo(api_client.app, repo):
+        response = api_client.get(path)
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Invalid page_token"

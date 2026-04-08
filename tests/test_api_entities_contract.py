@@ -129,6 +129,7 @@ def test_entity_metadata_contract_serializes_identity_and_provenance(api_client)
     }
     assert payload["entity_id"] == "btc:entity:cluster:cluster_001"
     assert payload["source_status"] == "healthy"
+    assert payload["labels"] == ["Binance"]
     assert set(payload["confidence"].keys()) == {
         "cluster_confidence",
         "mapping_confidence",

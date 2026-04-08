@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
 router = APIRouter(prefix="/api/entities", tags=["entities"])
 MAX_ENTITY_ID_LENGTH = 256
+STALE_MATERIALIZATION_AGE = timedelta(hours=48)
+UNKNOWN_ENTITY_ID = "btc:entity:cluster:unknown"
 
 ALLOWED_CLASSIFICATIONS = {
     "exchange_inflow",
@@ -20,13 +22,50 @@ ALLOWED_CLASSIFICATIONS = {
 
 
 def _canonicalize_entity_id(entity_id: str) -> str:
-    if len(entity_id) > MAX_ENTITY_ID_LENGTH:
+    if not entity_id or len(entity_id) > MAX_ENTITY_ID_LENGTH:
         raise HTTPException(status_code=422, detail="entity_id exceeds maximum length")
+
     if entity_id.startswith("cluster:"):
-        return f"btc:entity:cluster:{entity_id.split(':', 1)[1]}"
-    if entity_id.startswith("btc:entity:"):
-        return entity_id
-    raise HTTPException(status_code=422, detail="Unsupported entity_id format")
+        cluster_id = entity_id.split(":", 1)[1]
+        if not cluster_id:
+            raise HTTPException(status_code=422, detail="Unsupported entity_id format")
+        canonical_entity_id = f"btc:entity:cluster:{cluster_id}"
+    elif entity_id.startswith("btc:entity:"):
+        remainder = entity_id[len("btc:entity:") :]
+        namespace, separator, stable_id = remainder.partition(":")
+        if not separator or not namespace or not stable_id:
+            raise HTTPException(status_code=422, detail="Unsupported entity_id format")
+        canonical_entity_id = entity_id
+    else:
+        raise HTTPException(status_code=422, detail="Unsupported entity_id format")
+
+    if len(canonical_entity_id) > MAX_ENTITY_ID_LENGTH:
+        raise HTTPException(status_code=422, detail="entity_id exceeds maximum length")
+    return canonical_entity_id
+
+
+def _parse_timestamp(value) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+    return None
+
+
+def _parse_page_token(page_token: str | None) -> datetime | None:
+    if page_token is None:
+        return None
+
+    parsed = _parse_timestamp(page_token)
+    if parsed is None:
+        raise HTTPException(status_code=422, detail="Invalid page_token")
+    return parsed
 
 
 def _format_ts(value) -> str | None:
@@ -44,18 +83,125 @@ def _pagination_response(items: list[dict], *, limit: int, token_field: str) -> 
     return visible, {"next_page_token": next_page_token, "has_more": has_more}
 
 
+def _parse_provenance_summary(provenance: dict | None) -> list[dict]:
+    if not provenance or not provenance.get("provenance_summary_json"):
+        return []
+
+    try:
+        parsed = json.loads(provenance["provenance_summary_json"])
+    except (TypeError, json.JSONDecodeError):
+        return []
+
+    return parsed if isinstance(parsed, list) else []
+
+
+def _collect_labels(row: dict, provenance_summary: list[dict]) -> list[str]:
+    labels: list[str] = []
+
+    raw_labels = row.get("labels")
+    if isinstance(raw_labels, list):
+        labels.extend(label for label in raw_labels if isinstance(label, str) and label)
+
+    display_label = row.get("display_label")
+    if isinstance(display_label, str) and display_label:
+        labels.append(display_label)
+
+    for entry in provenance_summary:
+        label = entry.get("label")
+        if isinstance(label, str) and label:
+            labels.append(label)
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for label in labels:
+        if label not in seen:
+            seen.add(label)
+            deduped.append(label)
+    return deduped
+
+
+def _is_stale_materialization(row: dict) -> bool:
+    ts = _parse_timestamp(row.get("ts"))
+    if ts is None:
+        return False
+    return datetime.now(timezone.utc) - ts > STALE_MATERIALIZATION_AGE
+
+
+def _derive_metadata_source_status(row: dict, provenance_summary: list[dict]) -> str:
+    explicit_status = row.get("source_status")
+    if explicit_status == "ambiguous":
+        return "ambiguous"
+    if _is_stale_materialization(row):
+        return "stale"
+    if explicit_status == "stale":
+        return "stale"
+
+    required_confidence_fields = (
+        "cluster_confidence",
+        "mapping_confidence",
+        "label_confidence",
+        "confidence_overall",
+    )
+    missing_confidence = any(row.get(field) is None for field in required_confidence_fields)
+    incomplete_metadata = not row.get("display_label") or not provenance_summary
+    if explicit_status == "degraded" or missing_confidence or incomplete_metadata:
+        return "degraded"
+    return "healthy"
+
+
+def _normalize_flow_row(row: dict) -> dict:
+    source_entity_id = row.get("source_entity_id")
+    target_entity_id = row.get("target_entity_id")
+    same_known_entity = (
+        source_entity_id is not None
+        and source_entity_id == target_entity_id
+        and source_entity_id != UNKNOWN_ENTITY_ID
+    )
+
+    movement_classification = row.get("movement_classification")
+    if same_known_entity:
+        movement_classification = "internal_entity_reshuffle"
+
+    materialization_status = row.get("materialization_status") or "healthy"
+    if materialization_status == "healthy" and _is_stale_materialization(row):
+        materialization_status = "stale"
+
+    is_internal = bool(row.get("is_internal"))
+    if same_known_entity or movement_classification == "internal_entity_reshuffle":
+        is_internal = True
+    elif source_entity_id == target_entity_id == UNKNOWN_ENTITY_ID:
+        is_internal = False
+
+    return {
+        "window_start": _format_ts(row.get("window_start")),
+        "window_end": _format_ts(row.get("window_end")),
+        "source_entity_id": source_entity_id,
+        "target_entity_id": target_entity_id,
+        "movement_classification": movement_classification,
+        "btc_amount": row.get("btc_amount"),
+        "attribution_confidence": row.get("attribution_confidence"),
+        "is_internal": is_internal,
+        "materialization_status": materialization_status,
+    }
+
+
+def _coerce_service_status(value: str) -> str:
+    allowed_statuses = {"healthy", "stale", "degraded", "partial_materialization"}
+    return value if value in allowed_statuses else "healthy"
+
+
 def _derive_flow_service_status(items: list[dict]) -> str:
     if not items:
         return "empty"
 
-    materialization_statuses = {item["materialization_status"] for item in items}
+    materialization_statuses = {_coerce_service_status(item["materialization_status"]) for item in items}
     if "partial_materialization" in materialization_statuses:
         return "partial_materialization"
     if "degraded" in materialization_statuses:
         return "degraded"
     if "stale" in materialization_statuses:
         return "stale"
-    if all(item["movement_classification"] == "ambiguous" for item in items):
+    if any(item["movement_classification"] == "ambiguous" for item in items):
         return "ambiguous"
     return "healthy"
 
@@ -77,7 +223,7 @@ async def get_entity_flows(
         raise HTTPException(status_code=503, detail="QuestDB unavailable")
 
     canonical_entity_id = _canonicalize_entity_id(entity_id) if entity_id else None
-    after_window_start = datetime.fromisoformat(page_token) if page_token else None
+    after_window_start = _parse_page_token(page_token)
     rows = await repo.get_entity_flows(
         min_value=min_value,
         classification=classification,
@@ -86,20 +232,7 @@ async def get_entity_flows(
         after_window_start=after_window_start,
     )
 
-    items = [
-        {
-            "window_start": _format_ts(row.get("window_start")),
-            "window_end": _format_ts(row.get("window_end")),
-            "source_entity_id": row.get("source_entity_id"),
-            "target_entity_id": row.get("target_entity_id"),
-            "movement_classification": row.get("movement_classification"),
-            "btc_amount": row.get("btc_amount"),
-            "attribution_confidence": row.get("attribution_confidence"),
-            "is_internal": bool(row.get("is_internal")),
-            "materialization_status": row.get("materialization_status", "healthy"),
-        }
-        for row in rows
-    ]
+    items = [_normalize_flow_row(row) for row in rows]
     visible, pagination = _pagination_response(items, limit=limit, token_field="window_start")
     service_status = _derive_flow_service_status(visible)
     return {
@@ -121,12 +254,9 @@ async def get_entity_metadata(request: Request, entity_id: str):
         raise HTTPException(status_code=404, detail="Entity not found")
 
     provenance = await repo.get_entity_provenance(canonical_entity_id)
-    provenance_summary = []
-    if provenance and provenance.get("provenance_summary_json"):
-        try:
-            provenance_summary = json.loads(provenance["provenance_summary_json"])
-        except (TypeError, json.JSONDecodeError):
-            provenance_summary = []
+    provenance_summary = _parse_provenance_summary(provenance)
+    labels = _collect_labels(row, provenance_summary)
+    source_status = _derive_metadata_source_status(row, provenance_summary)
 
     return {
         "entity_id": canonical_entity_id,
@@ -141,9 +271,9 @@ async def get_entity_metadata(request: Request, entity_id: str):
             "label_confidence": row.get("label_confidence"),
             "confidence_overall": row.get("confidence_overall"),
         },
-        "labels": [],
+        "labels": labels,
         "provenance_summary": provenance_summary,
-        "source_status": row.get("source_status", "healthy"),
+        "source_status": source_status,
     }
 
 
@@ -159,7 +289,7 @@ async def get_entity_history(
         raise HTTPException(status_code=503, detail="QuestDB unavailable")
 
     canonical_entity_id = _canonicalize_entity_id(entity_id)
-    after_date = datetime.fromisoformat(page_token) if page_token else None
+    after_date = _parse_page_token(page_token)
     rows = await repo.get_entity_history(canonical_entity_id, limit + 1, after_date)
 
     items = [

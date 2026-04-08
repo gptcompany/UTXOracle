@@ -128,3 +128,67 @@ def test_flow_aggregation_populates_counterparty_and_balance_artifacts(tmp_path:
     assert edge_row[1] in {"healthy", "partial_materialization"}
     assert balance_row[0].startswith("btc:entity:cluster:")
     assert balance_row[1] > 0
+
+
+def test_flow_aggregation_marks_known_self_edges_as_internal_reshuffles(tmp_path: Path):
+    db_path = tmp_path / "entity_internal.duckdb"
+    conn = duckdb.connect(str(db_path))
+    create_flow_artifact_tables(conn)
+    conn.execute(
+        """
+        CREATE TABLE utxo_lifecycle (
+            txid VARCHAR,
+            address VARCHAR,
+            ts TIMESTAMP,
+            btc_value DOUBLE,
+            is_spent BOOLEAN
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE address_clusters (
+            address VARCHAR,
+            cluster_id VARCHAR,
+            label VARCHAR,
+            first_seen TIMESTAMP,
+            last_seen TIMESTAMP
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO entity_movement_events VALUES (
+            'tx_internal',
+            TIMESTAMP '2026-04-04 00:00:00',
+            'btc:entity:curated:binance',
+            'btc:entity:curated:binance',
+            3.5,
+            'entity_to_entity',
+            0.9
+        )
+        """
+    )
+    conn.close()
+
+    stats = aggregate_flows(db_path=str(db_path))
+    conn = duckdb.connect(str(db_path))
+    transfer_row = conn.execute(
+        """
+        SELECT movement_classification, is_internal
+        FROM entity_transfer_edges
+        WHERE txid = 'tx_internal'
+        """
+    ).fetchone()
+    counterparty_row = conn.execute(
+        """
+        SELECT movement_classification, is_internal
+        FROM entity_counterparty_edges_daily
+        WHERE source_entity_id = 'btc:entity:curated:binance'
+        """
+    ).fetchone()
+    conn.close()
+
+    assert stats["entity_transfer_edges"] >= 1
+    assert transfer_row == ("internal_entity_reshuffle", True)
+    assert counterparty_row == ("internal_entity_reshuffle", True)

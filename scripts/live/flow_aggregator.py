@@ -85,9 +85,15 @@ def aggregate_flows(db_path: str | None = None, sample_limit: int | None = None)
                 source_entity_id,
                 target_entity_id,
                 btc_amount,
-                classification,
+                CASE
+                    WHEN source_entity_id = target_entity_id
+                        AND source_entity_id <> 'btc:entity:cluster:unknown'
+                        THEN 'internal_entity_reshuffle'
+                    ELSE classification
+                END AS movement_classification,
                 confidence,
-                source_entity_id = target_entity_id AS is_internal
+                source_entity_id = target_entity_id
+                    AND source_entity_id <> 'btc:entity:cluster:unknown' AS is_internal
             FROM entity_movement_events
             """
         )
