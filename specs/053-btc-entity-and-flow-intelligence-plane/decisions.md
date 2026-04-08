@@ -27,9 +27,9 @@ Expected coverage: 20 binding decision rows.
 | Phase 6 | T031 | entity API stale/degraded/ambiguous semantics | Metadata lookup must distinguish `not_found`, `ambiguous`, `stale`, and `degraded`; flow queries must additionally surface `empty` and `partial_materialization`; ambiguity must remain explicit outside whale-compat mode | T039-T053, T060-T063 | design_materialization.md#3-freshness-and-failure-vocabulary |
 | Phase 6 | T032 | first-slice host boundary (`:8001` vs serving-grade) | Materialized metadata and aggregate flow routes are eligible for `:8011` only after Phase 7 route freeze and T062-T063 governance updates; raw movement events and unverified heuristics remain on `:8001` | T033, T039-T064, exposure decisions, docs | design_materialization.md#4-security-posture |
 | Phase 6 | T033 | entity and flow API security posture | `:8011` admitted GET routes inherit whale-style no-auth access with standard rate limiting plus bounded input validation; `:8001` research endpoints require internal auth | T039-T064, route exposure, input validation, cross-spec security sync | design_materialization.md#4-security-posture |
-| Phase 7 | T039 | entity metadata route family |  | T045, T048, T051, T058, contract tests |  |
-| Phase 7 | T040 | entity history route family |  | T046, T049, T052, contract tests |  |
-| Phase 7 | T041 | movement and flow route family |  | T047, T049-T050, T053, T061 |  |
-| Phase 7 | T045 | entity metadata response shape |  | T048, T051, T060 |  |
-| Phase 7 | T046 | entity history response shape |  | T049, T052, T060 |  |
-| Phase 7 | T047 | movement and flow response shape |  | T049-T050, T053, T061 |  |
+| Phase 7 | T039 | entity metadata route family | GET /api/entities/{entity_id} | T045, T048, T051, T058, contract tests | spec.md#8-api-namespace |
+| Phase 7 | T040 | entity history route family | GET /api/entities/{entity_id}/history | T046, T049, T052, contract tests | spec.md#8-api-namespace |
+| Phase 7 | T041 | movement and flow route family | GET /api/entities/flows | T047, T049-T050, T053, T061 | spec.md#8-api-namespace |
+| Phase 7 | T045 | entity metadata response shape | entity_id, kind, status, display_label, confidence_overall, last_seen, labels[], provenance_summary | T048, T051, T060 | spec.md#2-registry-model |
+| Phase 7 | T046 | entity history response shape | { items: EntityRegistry[], pagination: { next_page_token, has_more } } | T049, T052, T060 | spec.md#10-pagination-and-ordering |
+| Phase 7 | T047 | movement and flow response shape | { items: EntityFlow[], pagination, service_status } | T049-T050, T053, T061 | spec.md#6-movement-classification |

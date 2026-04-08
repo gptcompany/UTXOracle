@@ -105,18 +105,18 @@ Note:
 
 ## Phase 7: API Surface
 
-- [ ] T039 Freeze the first route family for entity metadata lookup
-- [ ] T040 Freeze the first route family for entity history
-- [ ] T041 Freeze the first route family for movement and flow queries
-- [ ] T042 Define pagination, filtering, and time-window semantics
-- [ ] T043 Define omission/degraded behavior for partially resolved counterparties
-- [ ] T044 Define compatibility behavior for the canonical whale surface
-- [ ] T045 Freeze minimum response shape for entity metadata routes
-- [ ] T046 Freeze minimum response shape for entity history routes
-- [ ] T047 Freeze minimum response shape for movement and flow routes
-- [ ] T048 Write RED tests for entity metadata lookup routes: response shape, confidence fields, degraded/ambiguous behavior
-- [ ] T049 Write RED tests for entity history and movement/flow query routes: ordering, pagination, empty-state
-- [ ] T050 Write RED tests for internal-reshuffle vs external-flow classification edge cases
+- [x] T039 Freeze the first route family for entity metadata lookup
+- [x] T040 Freeze the first route family for entity history
+- [x] T041 Freeze the first route family for movement and flow queries
+- [x] T042 Define pagination, filtering, and time-window semantics
+- [x] T043 Define omission/degraded behavior for partially resolved counterparties
+- [x] T044 Define compatibility behavior for the canonical whale surface
+- [x] T045 Freeze minimum response shape for entity metadata routes
+- [x] T046 Freeze minimum response shape for entity history routes
+- [x] T047 Freeze minimum response shape for movement and flow routes
+- [x] T048 Write RED tests for entity metadata lookup routes: response shape, confidence fields, degraded/ambiguous behavior
+- [x] T049 Write RED tests for entity history and movement/flow query routes: ordering, pagination, empty-state
+- [x] T050 Write RED tests for internal-reshuffle vs external-flow classification edge cases
 - [ ] T051 [E] Implement entity metadata lookup routes
 - [ ] T052 [E] Implement entity history routes
 - [ ] T053 [E] Implement movement and flow query routes
