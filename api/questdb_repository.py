@@ -282,8 +282,25 @@ async def create_tables_if_not_exist():
                 entity_kind SYMBOL,
                 registry_status SYMBOL,
                 display_label SYMBOL,
+                cluster_confidence DOUBLE,
+                mapping_confidence DOUBLE,
+                label_confidence DOUBLE,
                 confidence_overall DOUBLE,
+                first_seen TIMESTAMP,
                 last_seen TIMESTAMP,
+                source_status SYMBOL,
+                ts TIMESTAMP
+            ) timestamp(ts) PARTITION BY DAY;
+            """
+        )
+
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS entity_provenance_serving (
+                entity_id SYMBOL INDEX,
+                primary_source_kind SYMBOL,
+                review_status SYMBOL,
+                provenance_summary_json STRING,
                 ts TIMESTAMP
             ) timestamp(ts) PARTITION BY DAY;
             """
@@ -309,6 +326,23 @@ async def create_tables_if_not_exist():
                 entity_id SYMBOL INDEX,
                 date TIMESTAMP,
                 balance_btc DOUBLE,
+                ts TIMESTAMP
+            ) timestamp(ts) PARTITION BY DAY;
+            """
+        )
+
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS entity_counterparty_edges_daily (
+                source_entity_id SYMBOL INDEX,
+                target_entity_id SYMBOL INDEX,
+                movement_classification SYMBOL,
+                materialization_status SYMBOL,
+                window_start TIMESTAMP,
+                window_end TIMESTAMP,
+                btc_amount DOUBLE,
+                attribution_confidence DOUBLE,
+                is_internal BOOLEAN,
                 ts TIMESTAMP
             ) timestamp(ts) PARTITION BY DAY;
             """
@@ -1336,35 +1370,94 @@ class QuestDBRepository:
             if after_sequence_id is not None
             else ""
         )
+        query = f"""
+        SELECT * FROM btc_signal_snapshots
+        WHERE schema_version = 'v1'
+        {sequence_filter}
+        ORDER BY sequence_id ASC, produced_at ASC
+        LIMIT {limit};
+        """
         rows = await self.fetch(query)
         return [dict(row) for row in rows]
 
     async def get_entity_metadata(self, entity_id: str) -> dict | None:
-        query = f"""
-        SELECT * FROM entity_registry_serving 
-        WHERE entity_id = '{entity_id}'
+        query = """
+        SELECT *
+        FROM entity_registry_serving
+        WHERE entity_id = $1
         ORDER BY ts DESC
         LIMIT 1;
         """
-        row = await self.fetchrow(query)
+        row = await self.fetchrow(query, entity_id)
         return dict(row) if row else None
 
-    async def get_entity_flows(self, min_value: float = 0.0, limit: int = 50) -> list[dict]:
-        query = f"""
-        SELECT * FROM entity_flows_daily 
-        WHERE netflow_btc >= {min_value} OR netflow_btc <= -{min_value}
-        ORDER BY date DESC
-        LIMIT {limit};
+    async def get_entity_provenance(self, entity_id: str) -> dict | None:
+        query = """
+        SELECT *
+        FROM entity_provenance_serving
+        WHERE entity_id = $1
+        ORDER BY ts DESC
+        LIMIT 1;
         """
-        rows = await self.fetch(query)
+        row = await self.fetchrow(query, entity_id)
+        return dict(row) if row else None
+
+    async def get_entity_flows(
+        self,
+        *,
+        min_value: float = 0.0,
+        classification: str | None = None,
+        entity_id: str | None = None,
+        limit: int = 50,
+        after_window_start: datetime | None = None,
+    ) -> list[dict]:
+        filters = ["ABS(btc_amount) >= $1"]
+        args: list[Any] = [float(min_value)]
+
+        if classification is not None:
+            filters.append(f"movement_classification = ${len(args) + 1}")
+            args.append(classification)
+
+        if entity_id is not None:
+            placeholder = len(args) + 1
+            filters.append(
+                f"(source_entity_id = ${placeholder} OR target_entity_id = ${placeholder})"
+            )
+            args.append(entity_id)
+
+        if after_window_start is not None:
+            filters.append(f"window_start > ${len(args) + 1}")
+            args.append(after_window_start)
+
+        args.append(int(limit))
+        query = f"""
+        SELECT *
+        FROM entity_counterparty_edges_daily
+        WHERE {" AND ".join(filters)}
+        ORDER BY window_start ASC, source_entity_id ASC, target_entity_id ASC
+        LIMIT ${len(args)};
+        """
+        rows = await self.fetch(query, *args)
         return [dict(row) for row in rows]
 
-    async def get_entity_history(self, entity_id: str, limit: int = 50) -> list[dict]:
+    async def get_entity_history(
+        self,
+        entity_id: str,
+        limit: int = 50,
+        after_date: datetime | None = None,
+    ) -> list[dict]:
+        filters = ["entity_id = $1"]
+        args: list[Any] = [entity_id]
+        if after_date is not None:
+            filters.append(f"date > ${len(args) + 1}")
+            args.append(after_date)
+        args.append(int(limit))
         query = f"""
-        SELECT * FROM entity_flows_daily 
-        WHERE entity_id = '{entity_id}'
-        ORDER BY date DESC
-        LIMIT {limit};
+        SELECT *
+        FROM entity_balance_snapshots_daily
+        WHERE {" AND ".join(filters)}
+        ORDER BY date ASC, entity_id ASC
+        LIMIT ${len(args)};
         """
-        rows = await self.fetch(query)
+        rows = await self.fetch(query, *args)
         return [dict(row) for row in rows]

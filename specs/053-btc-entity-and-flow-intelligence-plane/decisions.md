@@ -30,6 +30,6 @@ Expected coverage: 20 binding decision rows.
 | Phase 7 | T039 | entity metadata route family | GET /api/entities/{entity_id} | T045, T048, T051, T058, contract tests | spec.md#8-api-namespace |
 | Phase 7 | T040 | entity history route family | GET /api/entities/{entity_id}/history | T046, T049, T052, contract tests | spec.md#8-api-namespace |
 | Phase 7 | T041 | movement and flow route family | GET /api/entities/flows | T047, T049-T050, T053, T061 | spec.md#8-api-namespace |
-| Phase 7 | T045 | entity metadata response shape | entity_id, kind, status, display_label, confidence_overall, last_seen, labels[], provenance_summary | T048, T051, T060 | spec.md#2-registry-model |
-| Phase 7 | T046 | entity history response shape | { items: EntityRegistry[], pagination: { next_page_token, has_more } } | T049, T052, T060 | spec.md#10-pagination-and-ordering |
-| Phase 7 | T047 | movement and flow response shape | { items: EntityFlow[], pagination, service_status } | T049-T050, T053, T061 | spec.md#6-movement-classification |
+| Phase 7 | T045 | entity metadata response shape | entity_id, display_label, entity_kind, registry_status, first_seen, last_seen, confidence{cluster_confidence,mapping_confidence,label_confidence,confidence_overall}, labels, provenance_summary, source_status | T048, T051, T060 | spec.md#8a-minimum-api-payload-definitions |
+| Phase 7 | T046 | entity history response shape | items of {entity_id, as_of, event_type, registry_status, cluster_ids, confidence_overall, provenance_ref} plus pagination {next_page_token, has_more} | T049, T052, T060 | spec.md#8a-minimum-api-payload-definitions |
+| Phase 7 | T047 | movement and flow response shape | items of {window_start, window_end, source_entity_id, target_entity_id, movement_classification, btc_amount, attribution_confidence, is_internal, materialization_status} plus pagination and service_status | T049-T050, T053, T061 | spec.md#8a-minimum-api-payload-definitions |

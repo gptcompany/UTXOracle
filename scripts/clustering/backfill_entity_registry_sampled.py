@@ -1,5 +1,6 @@
+from __future__ import annotations
+
 import duckdb
-import os
 import sys
 import time
 from pathlib import Path
@@ -7,72 +8,118 @@ from pathlib import Path
 # Add project root to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from api.config import DUCKDB_PATH
+from scripts.clustering.init_entity_registry import create_entity_registry_tables
 
-def backfill():
-    print(f"Sampled Backfilling Entity Registry from {DUCKDB_PATH}...")
-    conn = duckdb.connect(DUCKDB_PATH)
-    
+
+def backfill(sample_limit: int = 1000, db_path: str | None = None) -> dict[str, int]:
+    target_path = db_path or DUCKDB_PATH
+    print(f"Sampled Backfilling Entity Registry from {target_path}...")
     start_time = time.time()
-    
-    # 1. Extract labeled clusters
-    print("Extracting labeled clusters...")
-    conn.execute("""
-    CREATE TEMP TABLE source_clusters AS
-    SELECT 
-        cluster_id, 
-        max(label) as label,
-        min(first_seen) as first_seen,
-        max(last_seen) as last_seen
-    FROM address_clusters
-    WHERE label IS NOT NULL
-    GROUP BY cluster_id
-    """)
-    
-    # 2. Add some unlabeled ones (sample 1000)
-    print("Adding sample of unlabeled clusters...")
-    conn.execute("""
-    INSERT INTO source_clusters
-    SELECT 
-        cluster_id, 
-        NULL as label,
-        min(first_seen) as first_seen,
-        max(last_seen) as last_seen
-    FROM address_clusters
-    WHERE label IS NULL
-    GROUP BY cluster_id
-    LIMIT 1000
-    """)
-    
-    print(f"Source clusters (labeled + 1000 sample) extracted in {time.time() - start_time:.2f}s")
-    
-    # 3. Populate tables
-    conn.execute("""
-    INSERT OR IGNORE INTO entity_registry 
-    SELECT 'btc:entity:cluster:' || cluster_id, 'unknown', 'active', label, 
-           CASE WHEN label IS NOT NULL THEN 0.8 ELSE 0.6 END, first_seen, last_seen
-    FROM source_clusters
-    """)
-    
-    conn.execute("""
-    INSERT OR IGNORE INTO cluster_entity_map
-    SELECT cluster_id, 'btc:entity:cluster:' || cluster_id, 1.0, 'direct_mih_inheritance', 'v1', first_seen, last_seen
-    FROM source_clusters
-    """)
-    
-    conn.execute("""
-    INSERT OR IGNORE INTO entity_labels 
-    SELECT 'btc:entity:cluster:' || cluster_id, label, 'inherited', 0.8, TRUE
-    FROM source_clusters WHERE label IS NOT NULL
-    """)
-    
-    conn.execute("""
-    INSERT OR IGNORE INTO entity_label_provenance 
-    SELECT 'btc:entity:cluster:' || cluster_id, label, 'inherited_cluster_label', 'address_clusters_table', 'spec-013', now(), 'unreviewed', 'v1'
-    FROM source_clusters WHERE label IS NOT NULL
-    """)
-    
+
+    with duckdb.connect(target_path) as conn:
+        create_entity_registry_tables(conn)
+
+        print("Extracting labeled clusters...")
+        conn.execute("DROP TABLE IF EXISTS source_clusters")
+        conn.execute(
+            """
+            CREATE TEMP TABLE source_clusters AS
+            SELECT
+                cluster_id,
+                max(label) AS label,
+                min(first_seen) AS first_seen,
+                max(last_seen) AS last_seen
+            FROM address_clusters
+            WHERE label IS NOT NULL
+            GROUP BY cluster_id
+            """
+        )
+
+        print(f"Adding sample of {sample_limit} unlabeled clusters...")
+        conn.execute(
+            f"""
+            INSERT INTO source_clusters
+            SELECT
+                cluster_id,
+                NULL AS label,
+                min(first_seen) AS first_seen,
+                max(last_seen) AS last_seen
+            FROM address_clusters
+            WHERE label IS NULL
+            GROUP BY cluster_id
+            ORDER BY cluster_id
+            LIMIT {int(sample_limit)}
+            """
+        )
+
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO entity_registry
+            SELECT
+                'btc:entity:cluster:' || cluster_id,
+                'unknown',
+                'active',
+                label,
+                CASE WHEN label IS NOT NULL THEN 0.8 ELSE 0.6 END,
+                first_seen,
+                last_seen
+            FROM source_clusters
+            """
+        )
+
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO cluster_entity_map
+            SELECT
+                cluster_id,
+                'btc:entity:cluster:' || cluster_id,
+                0.8,
+                CASE WHEN label IS NOT NULL THEN 0.8 ELSE 0.6 END,
+                'direct_cluster_backfill',
+                'v1',
+                first_seen,
+                last_seen
+            FROM source_clusters
+            """
+        )
+
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO entity_labels
+            SELECT
+                'btc:entity:cluster:' || cluster_id,
+                label,
+                'primary',
+                0.8,
+                TRUE
+            FROM source_clusters
+            WHERE label IS NOT NULL
+            """
+        )
+
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO entity_label_provenance
+            SELECT
+                'btc:entity:cluster:' || cluster_id,
+                label,
+                'inherited_cluster_label',
+                'address_clusters_table',
+                'spec-013',
+                now(),
+                'unreviewed',
+                'v1'
+            FROM source_clusters
+            WHERE label IS NOT NULL
+            """
+        )
+
+        entity_count = int(conn.execute("SELECT COUNT(*) FROM entity_registry").fetchone()[0])
+        mapping_count = int(conn.execute("SELECT COUNT(*) FROM cluster_entity_map").fetchone()[0])
+
     print(f"✅ Sampled Entity Registry backfill complete in {time.time() - start_time:.2f}s.")
-    conn.close()
+    return {"entity_registry": entity_count, "cluster_entity_map": mapping_count}
+
 
 if __name__ == "__main__":
     backfill()
