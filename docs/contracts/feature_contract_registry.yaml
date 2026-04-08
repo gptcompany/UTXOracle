@@ -1,5 +1,5 @@
 schema_version: '1'
-published_at: '2026-04-07'
+published_at: '2026-04-08'
 contract_version: v1
 source_documents:
 - docs/FEATURE_SERVICE_ROADMAP_PREP_2026-04-01.md
@@ -718,5 +718,28 @@ entries:
   known_caveats:
   - Derived strictly from admitted feature bundles
   owner: scripts.live.signal_writer + api.routes.signals
+  version: v1
+  deprecation_status: none
+- surface_id: entity_intelligence_surface
+  route_family: /api/entities/*
+  routes:
+  - GET /api/entities/{entity_id}
+  - GET /api/entities/{entity_id}/history
+  - GET /api/entities/flows
+  canonical_host: http://127.0.0.1:8011
+  consumer:
+  - research
+  current_label: code implemented
+  admission_tier: tier_3_research
+  source_of_truth: QuestDB entity registry, provenance, balance snapshot, and counterparty-edge serving tables via QuestDBRepository
+  backend_class: questdb
+  freshness_target: <=24h materialization age for registry and aggregate flow artifacts
+  empty_state_policy: Metadata lookup returns HTTP 404 for not_found; history and bounded flow queries return 200 OK with empty items when no rows match.
+  stale_state_policy: Metadata source_status may return stale/degraded; flow queries may return service_status="stale" or "partial_materialization" when serving artifacts lag.
+  known_caveats:
+  - Research-only surface; not admitted to nautilus_dev v1.
+  - Accepts legacy cluster:* aliases as read-only lookup compatibility inputs.
+  - Depends on daily DuckDB backfill plus QuestDB materialization for registry, provenance, balances, and aggregate counterparty edges.
+  owner: scripts.clustering.backfill_entity_registry_sampled + scripts.live.flow_aggregator + scripts.bootstrap.sync_entities_to_questdb + api.routes.entities
   version: v1
   deprecation_status: none

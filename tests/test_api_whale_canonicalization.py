@@ -5,7 +5,13 @@ from fastapi.testclient import TestClient
 
 
 class _FakeWhaleRepo:
-    def __init__(self, *, exchange_addresses: str = "", cluster_rows: list[dict] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        exchange_addresses: str = "",
+        cluster_rows: list[dict] | None = None,
+        entity_row: dict | None = None,
+    ) -> None:
         self.row = {
             "prediction_id": "pred-001",
             "transaction_id": "tx-001",
@@ -20,6 +26,7 @@ class _FakeWhaleRepo:
             "exchange_addresses": exchange_addresses,
         }
         self.cluster_rows = list(cluster_rows or [])
+        self.entity_row = entity_row
 
     async def fetch(self, query, *args):
         if "FROM mempool_predictions" in query:
@@ -42,6 +49,9 @@ class _FakeWhaleRepo:
         if args and args[0] == "tx-001":
             return self.row
         return None
+
+    async def get_entity_metadata(self, entity_id: str):
+        return self.entity_row
 
 
 @pytest.fixture
@@ -70,6 +80,31 @@ def whale_enriched_client(monkeypatch):
                 "address": "1BinanceHot",
                 "cluster_id": "cluster_001",
                 "label": "Binance",
+            },
+        ],
+    )
+    monkeypatch.setattr(app.state, "questdb_repo", repo, raising=False)
+    client = TestClient(app)
+    yield client
+    client.close()
+
+
+@pytest.fixture
+def whale_ambiguous_client(monkeypatch):
+    from api.main import app
+
+    repo = _FakeWhaleRepo(
+        exchange_addresses="1Binance,1Kraken",
+        cluster_rows=[
+            {
+                "address": "1Binance",
+                "cluster_id": "cluster_001",
+                "label": "Binance",
+            },
+            {
+                "address": "1Kraken",
+                "cluster_id": "cluster_777",
+                "label": "Kraken",
             },
         ],
     )
@@ -127,6 +162,17 @@ def test_whale_event_enrichment_uses_cluster_foundation_when_available(
     assert body["entity"]["label_source"] == "questdb.address_clusters.label"
     assert body["entity"]["confidence"] == 0.8
     assert body["entity"]["attribution_kind"] == "inferred"
+
+
+def test_whale_event_enrichment_preserves_ambiguous_attribution_without_entity(
+    whale_ambiguous_client,
+):
+    response = whale_ambiguous_client.get("/api/whale/transaction/tx-001")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["entity_enrichment_status"] == "ambiguous"
+    assert body["entity"] is None
 
 
 def test_unknown_canonical_whale_transaction_returns_404(whale_client):

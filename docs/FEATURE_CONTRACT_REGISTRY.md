@@ -1,8 +1,8 @@
 # UTXOracle Feature Contract Registry
 
-Date: 2026-04-05
+Date: 2026-04-08
 
-Status: Current registry view, updated through `M7`, Wave 1 QuestDB promotion, and the 2026-04-05 service-profile classification
+Status: Current registry view, updated through `M7`, Wave 1 QuestDB promotion, the 2026-04-05 service-profile classification, and spec-053 entity route registration
 
 Machine-readable source of truth:
 
@@ -100,6 +100,7 @@ Explicitly excluded from the supported contract because they are placeholder, sh
 | `rbn_validation_surface` | `/api/v1/validation/rbn/*` | `code implemented` | `tier_3_research` | operators, research | `:8001` | `external_api` | `scripts.integrations.rbn_fetcher` + `api.main` | Requires `RBN_API_TOKEN` and is quota-bound |
 | `btc_feature_bundles_surface` | `/api/features/btc/*` | `runtime verified` | `tier_1_production` | `nautilus_dev` | `:8011` | `questdb` | `scripts.live.worker` + `api.routes.features` | Materialized asynchronously by the background bundle writer |
 | `btc_signal_snapshot_surface` | `/api/signals/btc/*` | `runtime verified` | `tier_1_production` | `nautilus_dev` | `:8011` | `questdb` | `scripts.live.signal_writer` + `api.routes.signals` | Derived strictly from admitted feature bundles |
+| `entity_intelligence_surface` | `/api/entities/*` | `code implemented` | `tier_3_research` | research | `:8011` | `questdb` | `scripts.clustering.backfill_entity_registry_sampled` + `scripts.live.flow_aggregator` + `scripts.bootstrap.sync_entities_to_questdb` + `api.routes.entities` | Research-only entity intelligence surface on `:8011`; accepts legacy `cluster:*` aliases read-only and depends on daily registry/flow materialization |
 | `advanced_research_surface` | `/api/metrics/{advanced,wasserstein*,cointime*,urpd,supply-profit-loss,reserve-risk,sell-side-risk,cdd-vdd,revived-supply}` | `mixed research surface` | `tier_3_research` | research | `:8001` | `hybrid` | `scripts.metrics.*` + `api.main` | `cointime*` is code implemented on `:8001`, but the broader research bucket remains mixed and some members still return `501`; `reserve-risk` is additionally frozen by the metric source-of-truth manifest as a `BRK`-first overlapping metric rather than a default local productization target |
 | `wallet_and_cohort_surface` | `/api/metrics/{address-cohorts,wallet-waves,absorption-rates}` | `runtime verified` | `tier_1_production` | research, `nautilus_dev` | `:8011` | `questdb` | `scripts.metrics.materialize_wave1` + `api.routes.questdb` | Latest snapshots are materialized and served on `:8011`; `wallet-waves/history` remains outside the admitted slice |
 | `power_law_surface` | `/api/v1/models/power-law*` | `code implemented` | `tier_3_research` | research | `:8001` | `duckdb_daily_prices` | `api.main` + `scripts.metrics.power_law` | Dedicated handler now wins deterministically, but the surface remains outside the first `nautilus_dev` contract slice |

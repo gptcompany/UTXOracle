@@ -139,11 +139,11 @@ Note:
 
 ## Phase 9: Verification and Governance
 
-- [ ] T059 Verify RED tests from T048-T050 now pass GREEN
-- [ ] T060 Add contract tests for entity identity and provenance serialization
-- [ ] T061 Add tests for ambiguous and unavailable attribution cases
-- [ ] T062 Update the feature contract registry if any new route family is admitted
-- [ ] T063 Update the provenance manifest for new registry and flow artifacts
-- [ ] T064 Update the address-clusters adoption checklist if any BRK-based entity alternative is proposed
+- [x] T059 Verify RED tests from T048-T050 now pass GREEN
+- [x] T060 Add contract tests for entity identity and provenance serialization
+- [x] T061 Add tests for ambiguous and unavailable attribution cases
+- [x] T062 Update the feature contract registry; `/api/entities/*` recorded as `tier_3_research` on `:8011` and remains outside `nautilus_dev` `v1`
+- [x] T063 Update the provenance manifest for new registry and flow artifacts
+- [x] T064 Update the address-clusters adoption checklist if any BRK-based entity alternative is proposed (N/A - no BRK-based entity alternative was proposed in spec-053)
 
 **Checkpoint**: the entity plane is explicit, testable, and governance-aligned.

@@ -6,6 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Query, Request
 
 router = APIRouter(prefix="/api/entities", tags=["entities"])
+MAX_ENTITY_ID_LENGTH = 256
 
 ALLOWED_CLASSIFICATIONS = {
     "exchange_inflow",
@@ -19,6 +20,8 @@ ALLOWED_CLASSIFICATIONS = {
 
 
 def _canonicalize_entity_id(entity_id: str) -> str:
+    if len(entity_id) > MAX_ENTITY_ID_LENGTH:
+        raise HTTPException(status_code=422, detail="entity_id exceeds maximum length")
     if entity_id.startswith("cluster:"):
         return f"btc:entity:cluster:{entity_id.split(':', 1)[1]}"
     if entity_id.startswith("btc:entity:"):
@@ -39,6 +42,22 @@ def _pagination_response(items: list[dict], *, limit: int, token_field: str) -> 
     visible = items[:limit]
     next_page_token = str(visible[-1][token_field]) if has_more and visible else None
     return visible, {"next_page_token": next_page_token, "has_more": has_more}
+
+
+def _derive_flow_service_status(items: list[dict]) -> str:
+    if not items:
+        return "empty"
+
+    materialization_statuses = {item["materialization_status"] for item in items}
+    if "partial_materialization" in materialization_statuses:
+        return "partial_materialization"
+    if "degraded" in materialization_statuses:
+        return "degraded"
+    if "stale" in materialization_statuses:
+        return "stale"
+    if all(item["movement_classification"] == "ambiguous" for item in items):
+        return "ambiguous"
+    return "healthy"
 
 
 @router.get("/flows")
@@ -82,11 +101,7 @@ async def get_entity_flows(
         for row in rows
     ]
     visible, pagination = _pagination_response(items, limit=limit, token_field="window_start")
-    service_status = (
-        "partial_materialization"
-        if any(item["materialization_status"] == "partial_materialization" for item in visible)
-        else ("healthy" if visible else "empty")
-    )
+    service_status = _derive_flow_service_status(visible)
     return {
         "items": visible,
         "pagination": pagination,
@@ -106,12 +121,12 @@ async def get_entity_metadata(request: Request, entity_id: str):
         raise HTTPException(status_code=404, detail="Entity not found")
 
     provenance = await repo.get_entity_provenance(canonical_entity_id)
-    provenance_summary = {}
+    provenance_summary = []
     if provenance and provenance.get("provenance_summary_json"):
         try:
             provenance_summary = json.loads(provenance["provenance_summary_json"])
         except (TypeError, json.JSONDecodeError):
-            provenance_summary = {}
+            provenance_summary = []
 
     return {
         "entity_id": canonical_entity_id,
@@ -150,12 +165,12 @@ async def get_entity_history(
     items = [
         {
             "entity_id": canonical_entity_id,
-            "as_of": _format_ts(row.get("date")),
-            "event_type": "balance_snapshot",
-            "registry_status": "active",
-            "cluster_ids": [],
-            "confidence_overall": None,
-            "provenance_ref": None,
+            "as_of": _format_ts(row.get("as_of") or row.get("date")),
+            "event_type": row.get("event_type", "balance_snapshot"),
+            "registry_status": row.get("registry_status", "active"),
+            "cluster_ids": row.get("cluster_ids", []),
+            "confidence_overall": row.get("confidence_overall"),
+            "provenance_ref": row.get("provenance_ref"),
         }
         for row in rows
     ]

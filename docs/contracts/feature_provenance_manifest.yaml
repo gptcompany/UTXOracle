@@ -1,5 +1,5 @@
 schema_version: '1'
-published_at: '2026-04-07'
+published_at: '2026-04-08'
 source_documents:
 - docs/FEATURE_SERVICE_ROADMAP_PREP_2026-04-01.md
 - docs/FEATURE_DEPENDENCY_MATRIX.md
@@ -703,3 +703,60 @@ entries:
     placeholder: none
   provenance_notes:
   - Derived strictly from admitted feature bundles
+- surface_id: research_operations_surface
+  route_family: /api/research/*
+  backend_class: questdb
+  primary_tables:
+  - price_analysis
+  upstreams:
+  - daily analysis writer
+  required_env:
+  - QUESTDB_PG_HOST
+  - QUESTDB_PG_PORT
+  - QUESTDB_PG_USER
+  - QUESTDB_PG_PASSWORD
+  - QUESTDB_PG_DATABASE
+  writer_owner: scripts.daily_analysis.py
+  read_path_owner: api.routes.questdb
+  freshness_source: Latest price_analysis telemetry row with fetch_tier populated
+  failure_mode:
+    empty: Returns empty tier stats when no telemetry rows exist for the requested window.
+    stale: No explicit stale marker; observability quality depends on batch execution frequency.
+    degraded: Partial tier distribution is possible when only a subset of price rows carries fetch_tier metadata.
+    misconfigured: Returns 500 when QuestDB connectivity is unavailable.
+    placeholder: none
+  provenance_notes:
+  - Canonical and served host is :8011.
+  - Research-only operator surface for fetch tier fallback observability.
+- surface_id: entity_intelligence_surface
+  route_family: /api/entities/*
+  backend_class: questdb
+  primary_tables:
+  - entity_registry_serving
+  - entity_provenance_serving
+  - entity_balance_snapshots_daily
+  - entity_counterparty_edges_daily
+  upstreams:
+  - address_clusters
+  - entity registry backfill
+  - flow aggregator
+  required_env:
+  - QUESTDB_PG_HOST
+  - QUESTDB_PG_PORT
+  - QUESTDB_PG_USER
+  - QUESTDB_PG_PASSWORD
+  - QUESTDB_PG_DATABASE
+  - DUCKDB_PATH
+  writer_owner: scripts.clustering.backfill_entity_registry_sampled + scripts.live.flow_aggregator + scripts.bootstrap.sync_entities_to_questdb
+  read_path_owner: api.routes.entities
+  freshness_source: Newest ts in entity_registry_serving and entity_counterparty_edges_daily
+  failure_mode:
+    empty: Metadata returns HTTP 404 for missing entity_id; history and bounded flow queries return 200 OK with empty items.
+    stale: Metadata source_status becomes stale when serving materialization age exceeds 48h; flow queries may return service_status="stale".
+    degraded: Metadata may remain readable with incomplete provenance/confidence; flow rows may preserve ambiguous attribution or partial materialization.
+    misconfigured: QuestDB connectivity, local DuckDB inputs, or materialization jobs are missing.
+    placeholder: none
+  provenance_notes:
+  - Canonical and served host is :8011.
+  - The surface is recorded as tier_3_research and is not admitted to nautilus_dev v1.
+  - Legacy cluster:* identifiers remain accepted as read-only lookup aliases and normalize to canonical btc:entity:* identifiers.
