@@ -192,3 +192,53 @@ def test_flow_aggregation_marks_known_self_edges_as_internal_reshuffles(tmp_path
     assert stats["entity_transfer_edges"] >= 1
     assert transfer_row == ("internal_entity_reshuffle", True)
     assert counterparty_row == ("internal_entity_reshuffle", True)
+
+
+def test_flow_aggregation_prefers_canonical_entity_ids_from_cluster_entity_map(tmp_path: Path):
+    db_path = tmp_path / "entity_mapped.duckdb"
+    _build_test_db(db_path)
+    backfill(sample_limit=10, db_path=str(db_path))
+
+    conn = duckdb.connect(str(db_path))
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO entity_registry VALUES (
+            'btc:entity:curated:binance',
+            'exchange',
+            'active',
+            'Binance',
+            0.95,
+            TIMESTAMP '2026-04-01 00:00:00',
+            TIMESTAMP '2026-04-03 00:00:00'
+        )
+        """
+    )
+    conn.execute(
+        """
+        UPDATE cluster_entity_map
+        SET entity_id = 'btc:entity:curated:binance'
+        WHERE cluster_id = 'cluster_001'
+        """
+    )
+    conn.close()
+
+    aggregate_flows(db_path=str(db_path))
+    conn = duckdb.connect(str(db_path))
+    movement_row = conn.execute(
+        """
+        SELECT target_entity_id
+        FROM entity_movement_events
+        WHERE txid = 'tx_1'
+        """
+    ).fetchone()
+    balance_row = conn.execute(
+        """
+        SELECT entity_id
+        FROM entity_balance_snapshots_daily
+        WHERE entity_id = 'btc:entity:curated:binance'
+        """
+    ).fetchone()
+    conn.close()
+
+    assert movement_row == ("btc:entity:curated:binance",)
+    assert balance_row == ("btc:entity:curated:binance",)

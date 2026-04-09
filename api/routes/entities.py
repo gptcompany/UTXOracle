@@ -3,12 +3,15 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+
+from api.rate_limiter import RateLimiter, rate_limit
 
 router = APIRouter(prefix="/api/entities", tags=["entities"])
 MAX_ENTITY_ID_LENGTH = 256
 STALE_MATERIALIZATION_AGE = timedelta(hours=48)
 UNKNOWN_ENTITY_ID = "btc:entity:cluster:unknown"
+ENTITY_ROUTE_LIMITER = RateLimiter(max_requests=100, window_seconds=60)
 
 ALLOWED_CLASSIFICATIONS = {
     "exchange_inflow",
@@ -249,6 +252,7 @@ def _build_provenance_ref(row: dict) -> str | None:
 @router.get("/flows")
 async def get_entity_flows(
     request: Request,
+    _: None = Depends(rate_limit(ENTITY_ROUTE_LIMITER)),
     min_value: float = Query(default=0.0, ge=0.0),
     classification: str | None = Query(default=None),
     entity_id: str | None = Query(default=None),
@@ -292,7 +296,11 @@ async def get_entity_flows(
 
 
 @router.get("/{entity_id}")
-async def get_entity_metadata(request: Request, entity_id: str):
+async def get_entity_metadata(
+    request: Request,
+    entity_id: str,
+    _: None = Depends(rate_limit(ENTITY_ROUTE_LIMITER)),
+):
     repo = getattr(request.app.state, "questdb_repo", None)
     if not repo:
         raise HTTPException(status_code=503, detail="QuestDB unavailable")
@@ -330,6 +338,7 @@ async def get_entity_metadata(request: Request, entity_id: str):
 async def get_entity_history(
     request: Request,
     entity_id: str,
+    _: None = Depends(rate_limit(ENTITY_ROUTE_LIMITER)),
     limit: int = Query(default=50, ge=1, le=500),
     page_token: str | None = Query(default=None),
 ):

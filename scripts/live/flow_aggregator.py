@@ -15,6 +15,11 @@ def _has_column(conn: duckdb.DuckDBPyConnection, table: str, column: str) -> boo
     return any(row[1] == column for row in rows)
 
 
+def _table_exists(conn: duckdb.DuckDBPyConnection, table: str) -> bool:
+    rows = conn.execute("SHOW TABLES").fetchall()
+    return any(row[0] == table for row in rows)
+
+
 def _timestamp_expr(conn: duckdb.DuckDBPyConnection) -> str:
     for candidate in ("ts", "created_at", "spent_timestamp"):
         if _has_column(conn, "utxo_lifecycle", candidate):
@@ -47,6 +52,17 @@ def aggregate_flows(db_path: str | None = None, sample_limit: int | None = None)
         btc_expr = _btc_amount_expr(conn)
         unspent_filter = _unspent_filter(conn)
         limit_clause = f"LIMIT {int(sample_limit)}" if sample_limit is not None else ""
+        has_entity_map = _table_exists(conn, "cluster_entity_map")
+        entity_map_join = (
+            "LEFT JOIN cluster_entity_map m ON c.cluster_id = m.cluster_id"
+            if has_entity_map
+            else ""
+        )
+        mapped_entity_id_expr = (
+            "COALESCE(m.entity_id, 'btc:entity:cluster:' || c.cluster_id)"
+            if has_entity_map
+            else "'btc:entity:cluster:' || c.cluster_id"
+        )
 
         print("Identifying movement events...")
         conn.execute(
@@ -57,7 +73,7 @@ def aggregate_flows(db_path: str | None = None, sample_limit: int | None = None)
                 {ts_expr} AS ts,
                 'btc:entity:cluster:unknown' AS source_entity_id,
                 CASE
-                    WHEN c.cluster_id IS NOT NULL THEN 'btc:entity:cluster:' || c.cluster_id
+                    WHEN c.cluster_id IS NOT NULL THEN {mapped_entity_id_expr}
                     ELSE 'btc:entity:cluster:unknown'
                 END AS target_entity_id,
                 {btc_expr} AS btc_amount,
@@ -71,6 +87,7 @@ def aggregate_flows(db_path: str | None = None, sample_limit: int | None = None)
                 END AS confidence
             FROM utxo_lifecycle u
             LEFT JOIN address_clusters c ON u.address = c.address
+            {entity_map_join}
             WHERE {btc_expr} IS NOT NULL
             {limit_clause}
             """
@@ -139,13 +156,14 @@ def aggregate_flows(db_path: str | None = None, sample_limit: int | None = None)
             f"""
             INSERT OR REPLACE INTO entity_balance_snapshots_daily
             SELECT
-                'btc:entity:cluster:' || c.cluster_id AS entity_id,
+                {mapped_entity_id_expr} AS entity_id,
                 CAST({ts_expr} AS DATE) AS date,
                 SUM({btc_expr}) AS balance_btc
             FROM utxo_lifecycle u
             JOIN address_clusters c ON u.address = c.address
+            {entity_map_join}
             {unspent_filter}
-            GROUP BY entity_id, date
+            GROUP BY {mapped_entity_id_expr}, CAST({ts_expr} AS DATE)
             """
         )
 

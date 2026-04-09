@@ -1,10 +1,12 @@
 from datetime import datetime, timezone
-from typing import Dict, Any
 import json
+import logging
+from typing import Dict, Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
 router = APIRouter(prefix="/api/features/btc", tags=["features-btc"])
+logger = logging.getLogger(__name__)
 
 BUNDLE_CONTRACTS = {
     "core": {
@@ -46,6 +48,23 @@ def _empty_bundle(bundle_type: str) -> Dict[str, Any]:
         payload[key] = {}
     return payload
 
+
+def _misconfigured_bundle(bundle_type: str, reason: str) -> Dict[str, Any]:
+    contract = BUNDLE_CONTRACTS[bundle_type]
+    payload = {
+        "metadata": {
+            "schema_version": "v1",
+            "bundle_id": contract["bundle_id"],
+            "sequence_id": 0,
+            "produced_at": datetime.now(timezone.utc).isoformat(),
+            "bundle_status": "misconfigured",
+            "degraded_reasons": [reason],
+        }
+    }
+    for key in contract["payload_keys"]:
+        payload[key] = {}
+    return payload
+
 @router.get("/{bundle_type}/latest")
 async def get_bundle_latest(request: Request, bundle_type: str):
     if bundle_type not in BUNDLE_CONTRACTS:
@@ -56,8 +75,7 @@ async def get_bundle_latest(request: Request, bundle_type: str):
     repo = getattr(request.app.state, "questdb_repo", None)
     
     if not repo:
-        # Fall back to empty in case the table isn't created yet or connection fails
-        return _empty_bundle(bundle_type) if "latest" in request.url.path else {"items": [], "pagination": {"next_page_token": None, "has_more": False}}
+        return _misconfigured_bundle(bundle_type, "QuestDB repository unavailable")
         
     try:
         row = await repo.get_latest_feature_bundle(bundle_id)
@@ -78,9 +96,9 @@ async def get_bundle_latest(request: Request, bundle_type: str):
             }
             
         return payload
-    except Exception as e:
-        # Fall back to empty in case the table isn't created yet or connection fails
-        return _empty_bundle(bundle_type)
+    except Exception as exc:
+        logger.exception("Failed to fetch latest feature bundle %s: %s", bundle_id, exc)
+        return _misconfigured_bundle(bundle_type, "Failed to fetch bundle from QuestDB")
 
 
 @router.get("/{bundle_type}/history")
@@ -98,8 +116,7 @@ async def get_bundle_history(
     repo = getattr(request.app.state, "questdb_repo", None)
     
     if not repo:
-        # Fall back to empty in case the table isn't created yet or connection fails
-        return _empty_bundle(bundle_type) if "latest" in request.url.path else {"items": [], "pagination": {"next_page_token": None, "has_more": False}}
+        raise HTTPException(status_code=503, detail="QuestDB repository unavailable")
         
     try:
         rows = await repo.get_feature_bundle_history(bundle_id, limit + 1, page_token)
@@ -129,5 +146,6 @@ async def get_bundle_history(
             "items": items,
             "pagination": {"next_page_token": next_page_token, "has_more": has_more},
         }
-    except Exception as e:
-        return {"items": [], "pagination": {"next_page_token": None, "has_more": False}}
+    except Exception as exc:
+        logger.exception("Failed to fetch feature bundle history %s: %s", bundle_id, exc)
+        raise HTTPException(status_code=503, detail="Failed to fetch bundle history")

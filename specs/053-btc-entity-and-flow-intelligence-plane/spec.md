@@ -1,6 +1,6 @@
 # spec-053: BTC Entity and Flow Intelligence Plane
 
-> **Status**: DRAFT
+> **Status**: COMPLETE
 > **Priority**: HIGH
 > **Effort**: Large
 > **Created**: 2026-04-06

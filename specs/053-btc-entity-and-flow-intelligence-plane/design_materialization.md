@@ -70,9 +70,9 @@ Raw `entity_movement_events` and `entity_transfer_edges` remain local-authoritat
     - Triggered daily or after clustering batch.
 - **Flow Aggregator**: `scripts/live/flow_aggregator.py`
     - Computes daily aggregates from local authoritative registry/clustering artifacts and `utxo_lifecycle`.
-    - Writes to QuestDB.
+    - Produces local authoritative movement/aggregate artifacts that are later materialized to QuestDB by `scripts/bootstrap/sync_entities_to_questdb.py`.
 - **Backfill Order**:
-    - Registry and provenance materialization must run before flow aggregation so aggregate rows use stable canonical `entity_id` values.
+    - Local registry/backfill must run before flow aggregation so aggregate rows use stable canonical `entity_id` values; QuestDB materialization can follow after local artifacts are consistent.
 
 ## 3. Freshness and Failure Vocabulary
 

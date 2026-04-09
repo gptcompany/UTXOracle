@@ -62,11 +62,18 @@ class LiveHealthStatus(BaseModel):
 async def lifespan(app: FastAPI):
     logging.info("UTXOracle live production API starting...")
 
-    # Initialize QuestDB for promoted production families
-    questdb_repo = QuestDBRepository()
-    await questdb_repo.initialize()
-    app.state.questdb_repo = questdb_repo
-    logging.info("QuestDB repository initialized for live production app.")
+    # Keep live snapshot surfaces available even if QuestDB startup is unavailable.
+    app.state.questdb_repo = None
+    try:
+        questdb_repo = QuestDBRepository()
+        await questdb_repo.initialize()
+        app.state.questdb_repo = questdb_repo
+        logging.info("QuestDB repository initialized for live production app.")
+    except Exception as exc:
+        logging.warning(
+            "QuestDB repository unavailable during live app startup; derived routes will stay degraded: %s",
+            exc,
+        )
 
     yield
     logging.info("UTXOracle live production API shutting down...")

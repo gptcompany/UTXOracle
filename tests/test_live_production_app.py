@@ -59,7 +59,7 @@ def _build_client(store: InMemorySnapshotStore) -> TestClient:
     return TestClient(app)
 
 
-def test_live_production_app_exposes_health_and_live_routes_only():
+def test_live_production_app_exposes_live_and_derived_routes_with_fallbacks():
     store = InMemorySnapshotStore(
         [_build_snapshot(timestamp=datetime.now(timezone.utc), block_height=941456, price=84211.52)]
     )
@@ -70,8 +70,8 @@ def test_live_production_app_exposes_health_and_live_routes_only():
         assert client.get("/api/v1/live/history", params={"minutes": 60}).status_code == 200
         assert client.get("/charts/live-price-comparison").status_code == 200
 
-        assert client.get("/api/prices/latest").status_code == 404
-        assert client.get("/api/metrics/latest").status_code == 404
+        assert client.get("/api/prices/latest").status_code == 503
+        assert client.get("/api/metrics/latest").status_code == 503
         assert client.get("/api/whale/latest").status_code == 404
 
 

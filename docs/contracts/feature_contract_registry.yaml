@@ -697,7 +697,7 @@ entries:
   stale_state_policy: Return 200 OK with bundle_status="stale"
   known_caveats:
   - Materialized asynchronously by the background bundle writer
-  owner: scripts.live.worker + api.routes.features
+  owner: scripts.live.bundle_writer + api.routes.features
   version: v1
   deprecation_status: none
 - surface_id: btc_signal_snapshot_surface

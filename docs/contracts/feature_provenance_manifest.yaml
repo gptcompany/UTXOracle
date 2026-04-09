@@ -668,14 +668,14 @@ entries:
   - QUESTDB_PG_USER
   - QUESTDB_PG_PASSWORD
   - QUESTDB_PG_DATABASE
-  writer_owner: scripts.live.worker.BundleWriter
+  writer_owner: scripts.live.bundle_writer.BundleWriter
   read_path_owner: api.routes.features
   freshness_source: Newest sequence_id / produced_at in btc_feature_bundles
   failure_mode:
     empty: Returns 200 OK with bundle_status="empty"
     stale: Returns 200 OK with bundle_status="stale"
     degraded: Returns 200 OK with bundle_status="degraded"
-    misconfigured: Returns 500 when DB is completely unreachable
+    misconfigured: Latest returns 200 OK with bundle_status="misconfigured"; history returns 503 when the backing store is unavailable.
     placeholder: none
   provenance_notes:
   - Canonical and served host is :8011
@@ -699,7 +699,7 @@ entries:
     empty: Returns 200 OK with service_status="empty"
     stale: Returns 200 OK with service_status="stale"
     degraded: Returns 200 OK with service_status="degraded"
-    misconfigured: Returns 500 when DB is completely unreachable
+    misconfigured: Latest returns 200 OK with service_status="misconfigured"; history returns 503 when the backing store is unavailable.
     placeholder: none
   provenance_notes:
   - Derived strictly from admitted feature bundles

@@ -6,7 +6,9 @@ import logging
 from datetime import datetime, timedelta
 
 from api.questdb_repository import QuestDBRepository
+from scripts.live.bundle_writer import BundleWriter
 from scripts.live.models import LiveHistoryQuery, LiveSnapshot, utc_now
+from scripts.live.signal_writer import SignalSnapshotWriter
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +28,8 @@ class LiveSnapshotStore:
         self.lock_path = lock_path
         self._initialized = False
         self._recovery_lock = asyncio.Lock()
+        self._bundle_writer = BundleWriter(self.repo)
+        self._signal_writer = SignalSnapshotWriter(self.repo)
 
     def initialize(self, *, for_write: bool = False) -> None:
         del for_write
@@ -76,8 +80,37 @@ class LiveSnapshotStore:
             logger.error("Failed to write live snapshot to QuestDB at %s", snapshot.timestamp)
             return
 
+        await self._write_derived_artifacts(snapshot)
+
         if self.retention_hours > 0:
             await self.aprune(now=snapshot.timestamp)
+
+    async def _write_derived_artifacts(self, snapshot: LiveSnapshot) -> None:
+        if not self._supports_feature_bundle_materialization():
+            return
+
+        try:
+            written_bundle_ids = await self._bundle_writer.write_bundles(snapshot)
+            if written_bundle_ids:
+                await self._signal_writer.write_signal_snapshot()
+                await self.repo.async_flush_ingestion()
+        except Exception as exc:
+            logger.warning("Failed to materialize derived bundle/signal artifacts: %s", exc)
+
+    def _supports_feature_bundle_materialization(self) -> bool:
+        required_methods = (
+            "get_latest_feature_bundle",
+            "get_latest_metrics",
+            "get_address_cohorts_latest",
+            "get_wallet_waves_latest",
+            "get_absorption_rates_latest",
+            "get_cost_basis_latest",
+            "fetch",
+            "fetchrow",
+            "async_flush_ingestion",
+            "async_send_row",
+        )
+        return all(hasattr(self.repo, method_name) for method_name in required_methods)
 
     def get_latest(self) -> LiveSnapshot | None:
         return self._run_async(self.aget_latest())

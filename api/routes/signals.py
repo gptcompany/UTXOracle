@@ -1,10 +1,12 @@
 from datetime import datetime, timezone
-from typing import Dict, Any
 import json
+import logging
+from typing import Dict, Any
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 router = APIRouter(prefix="/api/signals/btc", tags=["signals-btc"])
+logger = logging.getLogger(__name__)
 
 def _empty_signal() -> Dict[str, Any]:
     return {
@@ -29,11 +31,18 @@ def _empty_signal() -> Dict[str, Any]:
         "component_details": {}
     }
 
+
+def _misconfigured_signal(reason: str) -> Dict[str, Any]:
+    payload = _empty_signal()
+    payload["service_status"] = "misconfigured"
+    payload["degraded_reasons"] = [reason]
+    return payload
+
 @router.get("/latest")
 async def get_signal_latest(request: Request):
     repo = getattr(request.app.state, "questdb_repo", None)
     if not repo:
-        return _empty_signal()
+        return _misconfigured_signal("QuestDB repository unavailable")
         
     try:
         row = await repo.get_latest_signal_snapshot()
@@ -49,8 +58,9 @@ async def get_signal_latest(request: Request):
         payload["service_status"] = row["service_status"]
             
         return payload
-    except Exception as e:
-        return _empty_signal()
+    except Exception as exc:
+        logger.exception("Failed to fetch latest signal snapshot: %s", exc)
+        return _misconfigured_signal("Failed to fetch signal snapshot from QuestDB")
 
 @router.get("/history")
 async def get_signal_history(
@@ -60,7 +70,7 @@ async def get_signal_history(
 ):
     repo = getattr(request.app.state, "questdb_repo", None)
     if not repo:
-        return {"items": [], "pagination": {"next_page_token": None, "has_more": False}}
+        raise HTTPException(status_code=503, detail="QuestDB repository unavailable")
         
     try:
         rows = await repo.get_signal_snapshot_history(limit + 1, page_token)
@@ -84,5 +94,6 @@ async def get_signal_history(
         next_page_token = str(items[-1]["sequence_id"]) if has_more and items else None
         
         return {"items": items, "pagination": {"next_page_token": next_page_token, "has_more": has_more}}
-    except Exception as e:
-        return {"items": [], "pagination": {"next_page_token": None, "has_more": False}}
+    except Exception as exc:
+        logger.exception("Failed to fetch signal snapshot history: %s", exc)
+        raise HTTPException(status_code=503, detail="Failed to fetch signal history")

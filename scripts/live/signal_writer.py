@@ -7,6 +7,12 @@ from api.questdb_repository import QuestDBRepository
 
 logger = logging.getLogger(__name__)
 
+BIAS_THRESHOLD = 0.5
+FLOW_SCALE_BTC = 5000.0
+RESERVE_RISK_CENTER = 0.003
+RESERVE_RISK_SCALE = 100.0
+VALUATION_CENTER = 1.0
+
 class SignalSnapshotWriter:
     def __init__(self, repo: QuestDBRepository):
         self.repo = repo
@@ -39,7 +45,7 @@ class SignalSnapshotWriter:
         if reserve_risk is not None:
             # high reserve risk = high price vs hodl = bearish regime (maybe)
             # normalize RR: e.g. 0.001 to 0.01 is common, so we just use an arbitrary safe mapping for now to satisfy [-1, 1] bounds
-            rr_mapped = max(-1.0, min(1.0, (reserve_risk - 0.003) * 100))
+            rr_mapped = max(-1.0, min(1.0, (reserve_risk - RESERVE_RISK_CENTER) * RESERVE_RISK_SCALE))
             score -= rr_mapped # Inverse mapping
             inputs += 1
 
@@ -56,7 +62,7 @@ class SignalSnapshotWriter:
             absorption = 1.0
         
         # normalize to [-1, 1]
-        flow_mapped = max(-1.0, min(1.0, net_flow_btc / 5000.0))
+        flow_mapped = max(-1.0, min(1.0, net_flow_btc / FLOW_SCALE_BTC))
         abs_mapped = max(-1.0, min(1.0, (absorption - 1.0)))
         
         return (flow_mapped + abs_mapped) / 2.0
@@ -127,7 +133,7 @@ class SignalSnapshotWriter:
         # MVRV typical range: 0.5 to 4.0. 1.0 is fair value.
         # Below 1 = undervalued (bullish, positive score)
         # Above 2 = overvalued (bearish, negative score)
-        val = 1.0 - mvrv
+        val = VALUATION_CENTER - mvrv
         return max(-1.0, min(1.0, val))
 
     def extract_valuation_inputs(self, cohort_bundle: Dict[str, Any]) -> Dict[str, Any]:
@@ -153,11 +159,28 @@ class SignalSnapshotWriter:
 
     def evaluate_bias(self, regime: float, flow: float, valuation: float) -> str:
         total = regime + flow + valuation
-        if total > 0.5:
+        if total > BIAS_THRESHOLD:
             return "bullish"
-        elif total < -0.5:
+        elif total < -BIAS_THRESHOLD:
             return "bearish"
         return "neutral"
+
+    @staticmethod
+    def _derive_service_status(bundle_statuses: list[str]) -> str:
+        non_empty_statuses = [status for status in bundle_statuses if status]
+        if not non_empty_statuses:
+            return "empty"
+        if all(status == "empty" for status in non_empty_statuses):
+            return "empty"
+        if any(status == "misconfigured" for status in non_empty_statuses):
+            return "misconfigured"
+        if any(status == "stale" for status in non_empty_statuses):
+            return "stale"
+        if any(status == "degraded" for status in non_empty_statuses):
+            return "degraded"
+        if any(status == "empty" for status in non_empty_statuses):
+            return "degraded"
+        return "healthy"
 
     async def write_signal_snapshot(self) -> None:
         try:
@@ -180,19 +203,18 @@ class SignalSnapshotWriter:
             expected_inputs = 4
             valid_inputs = 0
             degraded_reasons = []
+            bundle_statuses = []
 
             for meta in [core_meta, flow_meta, macro_meta, cohort_meta]:
-                if meta.get("bundle_status") == "healthy":
+                bundle_status = meta.get("bundle_status")
+                if bundle_status:
+                    bundle_statuses.append(bundle_status)
+                if bundle_status == "healthy":
                     valid_inputs += 1
-                elif meta.get("bundle_status"):
-                    degraded_reasons.append(f"{meta.get('bundle_id')} is {meta.get('bundle_status')}")
+                elif bundle_status:
+                    degraded_reasons.append(f"{meta.get('bundle_id')} is {bundle_status}")
 
-            if valid_inputs == 0:
-                service_status = "empty" if not degraded_reasons else "degraded"
-            elif valid_inputs == expected_inputs:
-                service_status = "healthy"
-            else:
-                service_status = "degraded"
+            service_status = self._derive_service_status(bundle_statuses)
 
             quality_score = valid_inputs / expected_inputs if expected_inputs > 0 else 0.0
 
@@ -211,15 +233,21 @@ class SignalSnapshotWriter:
 
             bias = self.evaluate_bias(regime, flow_score, valuation)
             
-            # Conviction: ratio of agreeing inputs. Rough approximation:
-            scores = [regime, flow_score, valuation]
-            if valid_inputs == 0:
+            participating_scores = []
+            if macro_meta.get("bundle_status") == "healthy":
+                participating_scores.append(regime)
+            if flow_meta.get("bundle_status") == "healthy":
+                participating_scores.append(flow_score)
+            if cohort_meta.get("bundle_status") == "healthy":
+                participating_scores.append(valuation)
+
+            if not participating_scores:
                 conviction = 0.0
             else:
-                signs = [1 if s > 0 else -1 if s < 0 else 0 for s in scores]
+                signs = [1 if s > 0 else -1 if s < 0 else 0 for s in participating_scores]
                 pos = signs.count(1)
                 neg = signs.count(-1)
-                conviction = max(pos, neg) / len(scores) if scores else 0.0
+                conviction = max(pos, neg) / len(participating_scores)
 
             produced_at = datetime.now(timezone.utc)
             
@@ -245,31 +273,25 @@ class SignalSnapshotWriter:
                 "quality_score": quality_score,
                 "degraded_reasons": degraded_reasons,
                 "input_refs": {
-                    "core_sequence_id": core_meta.get("sequence_id", 0),
-                    "flow_sequence_id": flow_meta.get("sequence_id", 0),
-                    "macro_sequence_id": macro_meta.get("sequence_id", 0),
-                    "cohort_sequence_id": cohort_meta.get("sequence_id", 0),
+                    "core_sequence_id": core_meta.get("sequence_id"),
+                    "flow_sequence_id": flow_meta.get("sequence_id"),
+                    "macro_sequence_id": macro_meta.get("sequence_id"),
+                    "cohort_sequence_id": cohort_meta.get("sequence_id"),
                 },
                 "component_details": {
+                    "constants": {
+                        "bias_threshold": BIAS_THRESHOLD,
+                        "flow_scale_btc": FLOW_SCALE_BTC,
+                        "reserve_risk_center": RESERVE_RISK_CENTER,
+                        "reserve_risk_scale": RESERVE_RISK_SCALE,
+                        "valuation_center": VALUATION_CENTER,
+                    },
                     "regime_components": {"nupl": macro_metrics.get("nupl"), "reserve_risk": macro_metrics.get("reserve_risk")},
                     "flow_components": flow_metrics,
                     "valuation_components": valuation_inputs
                 }
             }
 
-            query = """
-            INSERT INTO btc_signal_snapshots (
-                schema_version,
-                sequence_id,
-                produced_at,
-                service_status,
-                payload_json,
-                ts
-            ) VALUES (
-                $1, $2, $3, $4, $5, $6
-            );
-            """
-            
             symbols = {
                 "schema_version": "v1",
                 "service_status": service_status,

@@ -14,7 +14,16 @@ from api.main import app as main_app
 
 @pytest.fixture
 def api_client():
-    return TestClient(live_app, raise_server_exceptions=False)
+    client = TestClient(live_app, raise_server_exceptions=False)
+    previous_repo = getattr(client.app.state, "questdb_repo", None)
+    client.app.state.questdb_repo = FakeSignalRepo(latest=None, history=[])
+    try:
+        yield client
+    finally:
+        if previous_repo is None and hasattr(client.app.state, "questdb_repo"):
+            delattr(client.app.state, "questdb_repo")
+        elif previous_repo is not None:
+            client.app.state.questdb_repo = previous_repo
 
 
 def _signal_payload(
@@ -202,6 +211,22 @@ def test_signal_routes_handle_empty_state_gracefully(api_client):
     assert payload["regime_score"] == 0.0
     assert payload["flow_score"] == 0.0
     assert payload["valuation_score"] == 0.0
+
+
+def test_signal_latest_returns_misconfigured_when_repo_is_missing():
+    previous_repo = getattr(live_app.state, "questdb_repo", None)
+    if hasattr(live_app.state, "questdb_repo"):
+        delattr(live_app.state, "questdb_repo")
+
+    try:
+        client = TestClient(live_app, raise_server_exceptions=False)
+        response = client.get("/api/signals/btc/latest")
+    finally:
+        if previous_repo is not None:
+            live_app.state.questdb_repo = previous_repo
+
+    assert response.status_code == 200
+    assert response.json()["service_status"] == "misconfigured"
 
 
 def test_signal_routes_propagate_degraded_bundle_inputs(api_client):

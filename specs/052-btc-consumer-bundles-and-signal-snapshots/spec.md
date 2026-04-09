@@ -1,6 +1,6 @@
 # spec-052: BTC Consumer Bundles and Signal Snapshots
 
-> **Status**: DRAFT
+> **Status**: COMPLETE
 > **Priority**: HIGH
 > **Effort**: Large
 > **Created**: 2026-04-06

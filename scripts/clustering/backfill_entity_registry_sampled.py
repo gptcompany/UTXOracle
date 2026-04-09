@@ -11,9 +11,10 @@ from api.config import DUCKDB_PATH
 from scripts.clustering.init_entity_registry import create_entity_registry_tables
 
 
-def backfill(sample_limit: int = 1000, db_path: str | None = None) -> dict[str, int]:
+def backfill(sample_limit: int | None = None, db_path: str | None = None) -> dict[str, int]:
     target_path = db_path or DUCKDB_PATH
-    print(f"Sampled Backfilling Entity Registry from {target_path}...")
+    mode = "full" if sample_limit is None else f"sampled({sample_limit})"
+    print(f"Backfilling Entity Registry from {target_path} [{mode}]...")
     start_time = time.time()
 
     with duckdb.connect(target_path) as conn:
@@ -35,7 +36,12 @@ def backfill(sample_limit: int = 1000, db_path: str | None = None) -> dict[str, 
             """
         )
 
-        print(f"Adding sample of {sample_limit} unlabeled clusters...")
+        if sample_limit is None:
+            print("Adding all unlabeled clusters...")
+            unlabeled_limit_clause = ""
+        else:
+            print(f"Adding sample of {sample_limit} unlabeled clusters...")
+            unlabeled_limit_clause = f"LIMIT {int(sample_limit)}"
         conn.execute(
             f"""
             INSERT INTO source_clusters
@@ -48,7 +54,7 @@ def backfill(sample_limit: int = 1000, db_path: str | None = None) -> dict[str, 
             WHERE label IS NULL
             GROUP BY cluster_id
             ORDER BY cluster_id
-            LIMIT {int(sample_limit)}
+            {unlabeled_limit_clause}
             """
         )
 
