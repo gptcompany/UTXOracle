@@ -13,11 +13,11 @@
 
 ## Phase 1: Telemetry Scope Freeze
 
-- [ ] T001 Freeze the scope: tier-1 execution observability and incident handling only
-- [ ] T002 Freeze the canonical metric families required for tier-1 surfaces, including execution-state telemetry
-- [ ] T003 Freeze the alert severity vocabulary to `warning`, `critical`, `fatal`
-- [ ] T004 Define which failure modes qualify as incidents in the first slice
-- [ ] T005 Freeze the rule that execution observability must remain narrower than general dashboard curiosity and generic app `/health` or `/metrics` comfort signals
+- [x] T001 Freeze the scope: tier-1 execution observability and incident handling only
+- [x] T002 Freeze the canonical metric families required for tier-1 surfaces, including execution-state telemetry
+- [x] T003 Freeze the alert severity vocabulary to `warning`, `critical`, `fatal`
+- [x] T004 Define which failure modes qualify as incidents in the first slice
+- [x] T005 Freeze the rule that execution observability must remain narrower than general dashboard curiosity and generic app `/health` or `/metrics` comfort signals
 
 **Checkpoint**: the telemetry model is bounded before implementation expands.
 
@@ -25,11 +25,11 @@
 
 ## Phase 2: Alert and Severity Model
 
-- [ ] T006 Define alert conditions for tier-1 latency and error rate
-- [ ] T007 Define alert conditions for live snapshot, bundle, and signal freshness
-- [ ] T008 Define alert conditions for sequence monotonicity and gap detection
-- [ ] T009 Define alert conditions for divergence, quarantine, and restatement events
-- [ ] T010 Define how `warning`, `critical`, and `fatal` map into execution consequences and alert-clearance rules
+- [x] T006 Define alert conditions for tier-1 latency and error rate
+- [x] T007 Define alert conditions for live snapshot, bundle, and signal freshness
+- [x] T008 Define alert conditions for sequence monotonicity and gap detection
+- [x] T009 Define alert conditions for divergence, quarantine, and restatement events
+- [x] T010 Define how `warning`, `critical`, and `fatal` map into execution consequences and alert-clearance rules
 
 **Checkpoint**: alerting is tied to action, not just visibility.
 
