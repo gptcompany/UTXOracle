@@ -37,11 +37,11 @@
 
 ## Phase 3: Compatibility Gates
 
-- [ ] T011 Define route-contract verification requirements before promotion of schema-affecting or `behavioral_tightening` changes
-- [ ] T012 Define replay compatibility verification requirements before promotion of schema-affecting or `behavioral_tightening` changes
-- [ ] T013 Define `NT` adapter compatibility verification requirements before promotion of schema-affecting or `behavioral_tightening` changes
-- [ ] T014 Define which change classes require explicit compatibility signoff versus registry/docs-only updates
-- [ ] T015 Define how compatibility evidence is recorded
+- [x] T011 Define route-contract verification requirements before promotion of schema-affecting or `behavioral_tightening` changes
+- [x] T012 Define replay compatibility verification requirements before promotion of schema-affecting or `behavioral_tightening` changes
+- [x] T013 Define `NT` adapter compatibility verification requirements before promotion of schema-affecting or `behavioral_tightening` changes
+- [x] T014 Define which change classes require explicit compatibility signoff versus registry/docs-only updates
+- [x] T015 Define how compatibility evidence is recorded
 
 **Checkpoint**: schema-affecting changes now have a real gate.
 
