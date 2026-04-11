@@ -1,0 +1,33 @@
+# Execution Safety Contract - Operator State
+# Defines the current operator stage and allowable modes.
+
+operator_stage: shadow
+
+operator_stages:
+  shadow:
+    description: "System reads data, generates signals, but NT does not execute trades."
+    max_execution_mode: observe_only
+    promotion_criteria:
+      - "7 days continuous error-free operation"
+      - "Replay continuity confirmed"
+  paper_live:
+    description: "Trading logic runs with fake capital or purely in dry-run mode."
+    max_execution_mode: trade_enabled
+    promotion_criteria:
+      - "No sequence gaps for 72 hours"
+      - "Operator approval of paper execution logs"
+  canary_capital:
+    description: "Trading with minimal live capital to prove full path."
+    max_execution_mode: trade_enabled
+    promotion_criteria:
+      - "No fail-closed events unexpectedly for 72 hours"
+      - "Reconciliation confirmed with exchange"
+  full_capital:
+    description: "Full size production trading."
+    max_execution_mode: trade_enabled
+    promotion_criteria: []
+
+stage_transition_rules:
+  - "Progression requires explicit operator action (updating 'operator_stage' in this file)."
+  - "Transitions must never be implicit."
+  - "Rollback to a safer stage requires explicit action or falling back to safe non-trading mode."

@@ -62,9 +62,9 @@
 
 ## Phase 5: Execution Status Surface
 
-- [ ] T022 Freeze the first route family for execution status, likely `GET /api/execution/btc/status`
-- [ ] T023 Freeze the minimum response payload shape, including compatibility mapping fields if retained
-- [ ] T024 Freeze how `input_refs`, freshness summary, and sequence summary are represented
+- [x] T022 Freeze the first route family for execution status, likely `GET /api/execution/btc/status`
+- [x] T023 Freeze the minimum response payload shape, including compatibility mapping fields if retained
+- [x] T024 Freeze how `input_refs`, freshness summary, and sequence summary are represented
 - [ ] T025 Write RED tests for execution status: response shape, mode transitions, fail-closed behavior
 - [ ] T026 [E] Implement execution-state derivation using only tier-1 inputs
 - [ ] T027 [E] Implement the execution status route
