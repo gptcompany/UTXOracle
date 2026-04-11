@@ -1,6 +1,8 @@
 schema_version: '1'
 published_at: '2026-04-11'
 boundary_host: http://127.0.0.1:8011
+promotion_policy:
+  description: "Promoting a family from tier_2_operator to tier_1_execution requires: (1) demonstrated NT consumption need, (2) Gate A admission criteria met, (3) update to this artifact + registry + service profile"
 families:
   - route_family: /health
     host: :8011

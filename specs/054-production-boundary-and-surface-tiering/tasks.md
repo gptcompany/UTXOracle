@@ -64,11 +64,11 @@
 
 ## Phase 5: Runtime and Policy Alignment
 
-- [ ] T024 [E] Decide whether any currently exposed `tier_2_operator` or `tier_3_research` families should be removed from `:8011` immediately
-- [ ] T025 [E] If non-execution families remain exposed on `:8011`, add explicit non-execution documentation and/or tags
-- [ ] T026 [E] Ensure no execution-facing doc instructs `NT` to read `tier_2_operator` or `tier_3_research` routes
-- [ ] T027 Define the change-control rule for promoting a family from `tier_2_operator` to `tier_1_execution`
-- [ ] T028 Record the boundary decision as the required dependency for `spec-055`
+- [x] T024 [E] Decide whether any currently exposed `tier_2_operator` or `tier_3_research` families should be removed from `:8011` immediately
+- [x] T025 [E] If non-execution families remain exposed on `:8011`, add explicit non-execution documentation and/or tags
+- [x] T026 [E] Ensure no execution-facing doc instructs `NT` to read `tier_2_operator` or `tier_3_research` routes
+- [x] T027 Define the change-control rule for promoting a family from `tier_2_operator` to `tier_1_execution`
+- [x] T028 Record the boundary decision as the required dependency for `spec-055`
 
 **Checkpoint**: the service boundary is now explicit enough to support an execution contract.
 
@@ -76,10 +76,10 @@
 
 ## Phase 6: Verification
 
-- [ ] T029 Verify every `:8011` route family is classified exactly once
-- [ ] T030 Verify README, service profile, and registry no longer contradict runtime exposure
-- [ ] T031 Verify `NT` guidance references only `tier_1_execution`
-- [ ] T032 Verify no unclassified family remains implied as production-consumable
-- [ ] T033 Verify the boundary artifact is small, reviewable, and future-proof enough to stay maintained
+- [x] T029 Verify every `:8011` route family is classified exactly once
+- [x] T030 Verify README, service profile, and registry no longer contradict runtime exposure
+- [x] T031 Verify `NT` guidance references only `tier_1_execution`
+- [x] T032 Verify no unclassified family remains implied as production-consumable
+- [x] T033 Verify the boundary artifact is small, reviewable, and future-proof enough to stay maintained
 
 **Checkpoint**: the production boundary is frozen and reviewable.

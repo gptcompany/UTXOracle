@@ -127,13 +127,24 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(live_router, prefix="/api/v1")
+    
+    # tier_2_operator — NOT execution-eligible, see docs/contracts/surface_boundary.yaml
     app.include_router(charts_router, prefix="/api/v1")
+    
+    # tier_2_operator — NOT execution-eligible, see docs/contracts/surface_boundary.yaml
     app.include_router(questdb_router)
+    
     app.include_router(features_router)
     app.include_router(signals_router)
     from api.routes.entities import router as entities_router
+    
+    # tier_2_operator — NOT execution-eligible, see docs/contracts/surface_boundary.yaml
     app.include_router(entities_router)
+    
+    # tier_2_operator — NOT execution-eligible, see docs/contracts/surface_boundary.yaml
     app.include_router(whale_router)
+    
+    # tier_2_operator — NOT execution-eligible, see docs/contracts/surface_boundary.yaml
     app.include_router(meta_router)
 
     @app.get("/charts/{chart_id}", include_in_schema=False)
