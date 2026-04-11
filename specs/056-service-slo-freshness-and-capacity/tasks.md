@@ -13,11 +13,11 @@
 
 ## Phase 1: SLO Scope Freeze
 
-- [ ] T001 Freeze the scope: this spec covers tier-1 execution-grade targets, not commercial public-API SLA promises
-- [ ] T002 Freeze the rule that strict SLOs apply only to `tier_1_execution` surfaces in the first slice
-- [ ] T003 Freeze the local single-host deployment assumption
-- [ ] T004 Record which tier-1 routes require explicit latency, freshness, and availability targets, including the future execution-status route from `spec-055`
-- [ ] T005 Decide which route families remain best-effort operator surfaces outside the strict SLO set
+- [x] T001 Freeze the scope: this spec covers tier-1 execution-grade targets, not commercial public-API SLA promises
+- [x] T002 Freeze the rule that strict SLOs apply only to `tier_1_execution` surfaces in the first slice
+- [x] T003 Freeze the local single-host deployment assumption
+- [x] T004 Record which tier-1 routes require explicit latency, freshness, and availability targets, including the future execution-status route from `spec-055`
+- [x] T005 Decide which route families remain best-effort operator surfaces outside the strict SLO set
 
 **Checkpoint**: the scope of strict service guarantees is narrow and credible.
 
@@ -25,12 +25,12 @@
 
 ## Phase 2: Freshness Model
 
-- [ ] T006 Freeze the freshness vocabulary to `healthy`, `degraded`, `stale`
-- [ ] T007 Freeze the healthy freshness target for live snapshots
-- [ ] T008 Freeze the healthy freshness target for feature bundles
-- [ ] T009 Freeze the healthy freshness target for signal snapshots
-- [ ] T010 Freeze the maximum tolerated stale threshold for each tier-1 input class
-- [ ] T011 Align route semantics so the same freshness classes mean the same thing across tier-1 surfaces
+- [x] T006 Freeze the freshness vocabulary to `healthy`, `degraded`, `stale`
+- [x] T007 Freeze the healthy freshness target for live snapshots
+- [x] T008 Freeze the healthy freshness target for feature bundles
+- [x] T009 Freeze the healthy freshness target for signal snapshots
+- [x] T010 Freeze the maximum tolerated stale threshold for each tier-1 input class
+- [x] T011 Align route semantics so the same freshness classes mean the same thing across tier-1 surfaces
 
 **Checkpoint**: freshness semantics are numeric and uniform.
 
@@ -38,11 +38,11 @@
 
 ## Phase 3: Latency and Availability Targets
 
-- [ ] T012 Freeze p95 latency target for `GET /health`
-- [ ] T013 Freeze p95 latency target for tier-1 `latest` reads
-- [ ] T014 Freeze p95 latency target for bounded tier-1 `history` reads
-- [ ] T015 Freeze the monthly availability target for `tier_1_execution`
-- [ ] T016 Define which target violations are warning-only and which are execution-relevant
+- [x] T012 Freeze p95 latency target for `GET /health`
+- [x] T013 Freeze p95 latency target for tier-1 `latest` reads
+- [x] T014 Freeze p95 latency target for bounded tier-1 `history` reads
+- [x] T015 Freeze the monthly availability target for `tier_1_execution`
+- [x] T016 Define which target violations are warning-only and which are execution-relevant
 
 **Checkpoint**: service performance expectations are explicit.
 
@@ -50,10 +50,10 @@
 
 ## Phase 4: Capacity Assumption
 
-- [ ] T017 Freeze the intended consumer model: one serious `NT` consumer plus light operator load
-- [ ] T018 Define burst, retry, and polling-cadence assumptions for the first slice
-- [ ] T019 Define what load model is explicitly out of scope
-- [ ] T020 Decide what simple local measurements are sufficient to verify the capacity assumptions
+- [x] T017 Freeze the intended consumer model: one serious `NT` consumer plus light operator load
+- [x] T018 Define burst, retry, and polling-cadence assumptions for the first slice
+- [x] T019 Define what load model is explicitly out of scope
+- [x] T020 Decide what simple local measurements are sufficient to verify the capacity assumptions
 
 **Checkpoint**: capacity promises match the real intended deployment.
 
