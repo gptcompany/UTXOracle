@@ -60,10 +60,10 @@
 
 ## Phase 5: Governance and Service Wiring
 
-- [ ] T020 [E] Connect canonical telemetry requirements to real tier-1 service surfaces
-- [ ] T021 [E] Connect severity thresholds and clearance rules to `spec-055` execution modes
-- [ ] T022 Align observability docs with the SLO thresholds from `spec-056`
-- [ ] T023 Align incident consequences with data-quality and restatement events from `spec-057`
+- [x] T020 [E] Connect canonical telemetry requirements to real tier-1 service surfaces
+- [x] T021 [E] Connect severity thresholds and clearance rules to `spec-055` execution modes
+- [x] T022 Align observability docs with the SLO thresholds from `spec-056`
+- [x] T023 Align incident consequences with data-quality and restatement events from `spec-057`
 - [ ] T024 Update operator docs with the frozen telemetry, severity, runbook, and incident artifact model
 
 **Checkpoint**: observability becomes an execution support layer, not a side system.

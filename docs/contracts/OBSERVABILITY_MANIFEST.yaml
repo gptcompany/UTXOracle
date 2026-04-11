@@ -1,0 +1,142 @@
+# OBSERVABILITY_MANIFEST.yaml
+# Defines the canonical metrics and alert thresholds for tier-1 execution surfaces.
+# Frozen per spec-059.
+
+version: "1.0.0"
+updated_at: "2026-04-11"
+
+surfaces:
+  live_snapshot_surface:
+    route: "/api/v1/live/snapshot"
+    metrics:
+      - name: "live_snapshot_freshness"
+        unit: "seconds"
+        description: "Time since the latest block or capture timestamp in the snapshot."
+        thresholds:
+          warning:
+            condition: ">= 15s"
+            execution_impact: "none"
+          critical:
+            condition: ">= 30s"
+            execution_impact: "manage_only"
+          fatal:
+            condition: ">= 60s"
+            execution_impact: "halted"
+
+  btc_feature_bundles_surface:
+    routes:
+      - "/api/features/btc/core/latest"
+      - "/api/features/btc/flow/latest"
+      - "/api/features/btc/macro/latest"
+      - "/api/features/btc/cohort/latest"
+    metrics:
+      - name: "bundle_freshness"
+        unit: "seconds"
+        description: "Time since the latest data point in the feature bundle."
+        thresholds:
+          warning:
+            condition: ">= 30s"
+            execution_impact: "none"
+          critical:
+            condition: ">= 60s"
+            execution_impact: "manage_only"
+          fatal:
+            condition: ">= 120s"
+            execution_impact: "halted"
+      - name: "bundle_sequence_integrity"
+        unit: "boolean"
+        description: "Whether the bundle sequence_id is monotonic and without gaps > 1."
+        thresholds:
+          fatal:
+            condition: "false"
+            execution_impact: "halted"
+
+  btc_signal_snapshots_surface:
+    route: "/api/signals/btc/latest"
+    metrics:
+      - name: "signal_freshness"
+        unit: "seconds"
+        description: "Time since the latest signal calculation."
+        thresholds:
+          warning:
+            condition: ">= 30s"
+            execution_impact: "none"
+          critical:
+            condition: ">= 60s"
+            execution_impact: "manage_only"
+          fatal:
+            condition: ">= 120s"
+            execution_impact: "halted"
+      - name: "signal_sequence_integrity"
+        unit: "boolean"
+        description: "Whether the signal sequence_id is monotonic and without gaps > 1."
+        thresholds:
+          fatal:
+            condition: "false"
+            execution_impact: "halted"
+
+  execution_status_surface:
+    route: "/api/execution/btc/status"
+    metrics:
+      - name: "execution_status_availability"
+        unit: "boolean"
+        description: "Whether the execution status endpoint is reachable."
+        thresholds:
+          fatal:
+            condition: "false"
+            duration: ">= 30s"
+            execution_impact: "halted"
+      - name: "execution_status_consistency"
+        unit: "boolean"
+        description: "Whether the reported execution_mode is consistent with input evidence."
+        thresholds:
+          fatal:
+            condition: "false"
+            execution_impact: "halted"
+
+global_tier_1_metrics:
+  read_latency_p95:
+    unit: "milliseconds"
+    thresholds:
+      warning:
+        condition: "> 250ms"
+        duration: "2 min"
+      critical:
+        condition: "> 1000ms"
+        duration: "2 min"
+        execution_impact: "manage_only"
+  
+  error_rate:
+    unit: "percentage"
+    thresholds:
+      critical:
+        condition: "> 5%"
+        duration: "2 min"
+        execution_impact: "manage_only"
+
+data_quality_alerts:
+  divergence_spike:
+    description: "Local vs upstream disagreement exceeds allowed threshold."
+    thresholds:
+      critical:
+        condition: "true"
+        execution_impact: "manage_only"
+  
+  quarantined_data:
+    description: "Tier-1 data has been quarantined per spec-057."
+    thresholds:
+      critical:
+        condition: "true"
+        execution_impact: "halted"
+
+  critical_restatement:
+    description: "Unresolved critical restatement affecting tier-1 surfaces."
+    thresholds:
+      critical:
+        condition: "true"
+        execution_impact: "manage_only"
+
+clearance_rules:
+  default:
+    condition: "metric returns within healthy range"
+    duration: "2 consecutive check intervals"
