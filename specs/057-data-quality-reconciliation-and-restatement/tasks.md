@@ -26,12 +26,12 @@
 
 ## Phase 2: Validation Layers
 
-- [ ] T007 Define ingest validation checks for tier-1 inputs
-- [ ] T008 Define materialization validation checks for persisted bundles and signals
-- [ ] T009 Define serve-time validation checks for latest and history reads
-- [ ] T010 Define continuity checks for timestamps, freshness, and sequence monotonicity
-- [ ] T011 Define cross-source reconciliation checks where comparison is meaningful
-- [ ] T012 Define how reconciliation follows the metric source-of-truth manifest instead of treating all upstream disagreement equally
+- [x] T007 Define ingest validation checks for tier-1 inputs
+- [x] T008 Define materialization validation checks for persisted bundles and signals
+- [x] T009 Define serve-time validation checks for latest and history reads
+- [x] T010 Define continuity checks for timestamps, freshness, and sequence monotonicity
+- [x] T011 Define cross-source reconciliation checks where comparison is meaningful
+- [x] T012 Define how reconciliation follows the metric source-of-truth manifest instead of treating all upstream disagreement equally
 
 **Checkpoint**: validation happens at the right layers, not only at the end.
 
