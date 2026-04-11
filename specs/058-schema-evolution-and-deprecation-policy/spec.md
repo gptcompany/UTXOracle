@@ -1,6 +1,6 @@
 # spec-058: Schema Evolution and Deprecation Policy
 
-> **Status**: DRAFT
+> **Status**: IMPLEMENTED
 > **Priority**: HIGH
 > **Effort**: Medium
 > **Created**: 2026-04-10

@@ -60,10 +60,10 @@
 
 ## Phase 5: Verification
 
-- [ ] T020 Verify all current execution-grade `v1` surfaces are covered by the additive-only rule
-- [ ] T021 Verify breaking or `behavioral_tightening` changes cannot be introduced silently under this policy
-- [ ] T022 Verify deprecation windows and emergency exceptions are both explicit
-- [ ] T023 Verify the compatibility gate is practical enough to enforce in normal review
-- [ ] T024 Verify the policy remains small enough for long-term use
+- [x] T020 Verify all current execution-grade `v1` surfaces are covered by the additive-only rule
+- [x] T021 Verify breaking or `behavioral_tightening` changes cannot be introduced silently under this policy
+- [x] T022 Verify deprecation windows and emergency exceptions are both explicit
+- [x] T023 Verify the compatibility gate is practical enough to enforce in normal review
+- [x] T024 Verify the policy remains small enough for long-term use
 
 **Checkpoint**: schema discipline is enforceable rather than aspirational.
