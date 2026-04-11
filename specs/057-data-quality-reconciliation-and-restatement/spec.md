@@ -1,6 +1,6 @@
 # spec-057: Data Quality, Reconciliation, and Restatement
 
-> **Status**: DRAFT
+> **Status**: IMPLEMENTED
 > **Priority**: CRITICAL
 > **Effort**: Large
 > **Created**: 2026-04-10

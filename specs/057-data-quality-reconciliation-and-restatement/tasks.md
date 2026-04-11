@@ -86,10 +86,10 @@
 
 ## Phase 7: Verification
 
-- [ ] T032 Verify tier-1 surfaces have a bounded quality-state model
-- [ ] T033 Verify suspected data cannot silently remain execution-safe without explicit rule support
-- [ ] T034 Verify quarantined and critical restated data fail closed for execution
-- [ ] T035 Verify historical corrections produce explicit audit artifacts
-- [ ] T036 Verify the whole quality model stays small enough for operators to reason about
+- [x] T032 Verify tier-1 surfaces have a bounded quality-state model
+- [x] T033 Verify suspected data cannot silently remain execution-safe without explicit rule support
+- [x] T034 Verify quarantined and critical restated data fail closed for execution
+- [x] T035 Verify historical corrections produce explicit audit artifacts
+- [x] T036 Verify the whole quality model stays small enough for operators to reason about
 
 **Checkpoint**: data quality is now operational, not implied.
