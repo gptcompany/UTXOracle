@@ -13,12 +13,12 @@
 
 ## Phase 1: Execution-State Vocabulary Freeze
 
-- [ ] T001 Freeze the scope: this spec governs execution safety state, not alpha or exchange execution details
-- [ ] T002 Freeze the execution mode vocabulary to exactly `halted`, `warming_up`, `observe_only`, `manage_only`, `trade_enabled`
-- [ ] T003 Freeze the fail-closed rule for unknown or ambiguous safety state
-- [ ] T004 Freeze the rule that only `tier_1_execution` inputs may influence `trade_enabled`
-- [ ] T005 Freeze the difference between new-risk permission and risk-reduction permission
-- [ ] T006 Define the compatibility relationship between the older `spec-043` adapter statuses and the new service-side execution modes
+- [x] T001 Freeze the scope: this spec governs execution safety state, not alpha or exchange execution details
+- [x] T002 Freeze the execution mode vocabulary to exactly `halted`, `warming_up`, `observe_only`, `manage_only`, `trade_enabled`
+- [x] T003 Freeze the fail-closed rule for unknown or ambiguous safety state
+- [x] T004 Freeze the rule that only `tier_1_execution` inputs may influence `trade_enabled`
+- [x] T005 Freeze the difference between new-risk permission and risk-reduction permission
+- [x] T006 Define the compatibility relationship between the older `spec-043` adapter statuses and the new service-side execution modes
 
 **Checkpoint**: the state machine boundary is explicit before any endpoint is designed.
 
@@ -26,11 +26,11 @@
 
 ## Phase 2: Input and Gating Model
 
-- [ ] T007 Freeze the minimum execution input set from `tier_1_execution`
-- [ ] T008 Define how `/health` participates in the execution decision versus pure liveness only
-- [ ] T009 Define how bundle and signal freshness affect the execution state
-- [ ] T010 Define how monotonic `sequence_id` behavior affects the execution state
-- [ ] T011 Define how misconfigured, empty, degraded, stale, low-confidence, and anomaly-bearing tier-1 inputs map into execution modes
+- [x] T007 Freeze the minimum execution input set from `tier_1_execution`
+- [x] T008 Define how `/health` participates in the execution decision versus pure liveness only
+- [x] T009 Define how bundle and signal freshness affect the execution state
+- [x] T010 Define how monotonic `sequence_id` behavior affects the execution state
+- [x] T011 Define how misconfigured, empty, degraded, stale, low-confidence, and anomaly-bearing tier-1 inputs map into execution modes
 
 **Checkpoint**: the gating model is deterministic and bounded.
 
@@ -38,11 +38,11 @@
 
 ## Phase 3: Startup, Restart, and Recovery
 
-- [ ] T012 Freeze warmup behavior on cold start
-- [ ] T013 Freeze restart behavior after process crash or service restart
-- [ ] T014 Freeze minimum consecutive-valid-read criteria before `trade_enabled`
-- [ ] T015 Freeze the behavior when history or replay continuity cannot be verified
-- [ ] T016 Freeze the consequence of unresolved stale or sequence-gap conditions during runtime
+- [x] T012 Freeze warmup behavior on cold start
+- [x] T013 Freeze restart behavior after process crash or service restart
+- [x] T014 Freeze minimum consecutive-valid-read criteria before `trade_enabled`
+- [x] T015 Freeze the behavior when history or replay continuity cannot be verified
+- [x] T016 Freeze the consequence of unresolved stale or sequence-gap conditions during runtime
 
 **Checkpoint**: startup and recovery no longer rely on operator intuition.
 
@@ -50,11 +50,11 @@
 
 ## Phase 4: Operator Stage and Capital Rollout
 
-- [ ] T017 Freeze the operator-stage vocabulary to exactly `shadow`, `paper_live`, `canary_capital`, `full_capital`
-- [ ] T018 Define the allowed execution modes under each operator stage
-- [ ] T019 Define the promotion criteria between operator stages
-- [ ] T020 Define rollback behavior to a safer operator stage
-- [ ] T021 Define the minimum artifact or acknowledgment needed for a stage change
+- [x] T017 Freeze the operator-stage vocabulary to exactly `shadow`, `paper_live`, `canary_capital`, `full_capital`
+- [x] T018 Define the allowed execution modes under each operator stage
+- [x] T019 Define the promotion criteria between operator stages
+- [x] T020 Define rollback behavior to a safer operator stage
+- [x] T021 Define the minimum artifact or acknowledgment needed for a stage change
 
 **Checkpoint**: capital rollout is explicit and non-automatic.
 
