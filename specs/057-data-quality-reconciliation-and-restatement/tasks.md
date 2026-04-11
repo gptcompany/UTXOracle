@@ -13,12 +13,12 @@
 
 ## Phase 1: Quality-State Model Freeze
 
-- [ ] T001 Freeze the scope: this spec governs data quality state, reconciliation, quarantine, and restatement for execution-relevant surfaces
-- [ ] T002 Freeze the bounded quality vocabulary to exactly `valid`, `suspect`, `quarantined`, `restated`, with `restated` treated as a historical correction overlay
-- [ ] T003 Define where the quality state applies in the first slice: live snapshot, bundles, signals, and execution inputs
-- [ ] T004 Freeze the rule that visibility and execution eligibility are separate concepts
-- [ ] T005 Define the relationship between current runtime quality state and historical `restated` corrections
-- [ ] T006 Freeze what kinds of corrections require explicit restatement artifacts
+- [x] T001 Freeze the scope: this spec governs data quality state, reconciliation, quarantine, and restatement for execution-relevant surfaces
+- [x] T002 Freeze the bounded quality vocabulary to exactly `valid`, `suspect`, `quarantined`, `restated`, with `restated` treated as a historical correction overlay
+- [x] T003 Define where the quality state applies in the first slice: live snapshot, bundles, signals, and execution inputs
+- [x] T004 Freeze the rule that visibility and execution eligibility are separate concepts
+- [x] T005 Define the relationship between current runtime quality state and historical `restated` corrections
+- [x] T006 Freeze what kinds of corrections require explicit restatement artifacts
 
 **Checkpoint**: data-quality vocabulary is bounded before detailed rules begin.
 
