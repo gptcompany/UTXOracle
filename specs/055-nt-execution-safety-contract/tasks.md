@@ -76,12 +76,12 @@
 
 ## Phase 6: NT Alignment and Governance
 
-- [ ] T029 Define the minimum NT consumer rulebook for interpreting the execution surface
-- [ ] T030 Define the fallback behavior if the execution endpoint itself is unavailable
-- [ ] T031 Define replay/live parity expectations for the execution state
-- [ ] T032 Define the explicit compatibility mapping if an older adapter still uses `STATUS_OK`, `STATUS_LIQUIDATE_ONLY`, `STATUS_HALT`
-- [ ] T033 Update service docs and consumer docs to reference the execution status route as the only execution safety source
-- [ ] T034 Record the dependency this spec has on `spec-056`, `spec-057`, `spec-058`, and `spec-059`
+- [x] T029 Define the minimum NT consumer rulebook for interpreting the execution surface
+- [x] T030 Define the fallback behavior if the execution endpoint itself is unavailable
+- [x] T031 Define replay/live parity expectations for the execution state
+- [x] T032 Define the explicit compatibility mapping if an older adapter still uses `STATUS_OK`, `STATUS_LIQUIDATE_ONLY`, `STATUS_HALT`
+- [x] T033 Update service docs and consumer docs to reference the execution status route as the only execution safety source
+- [x] T034 Record the dependency this spec has on `spec-056`, `spec-057`, `spec-058`, and `spec-059`
 
 **Checkpoint**: the execution contract is operationally usable, not just implemented.
 
@@ -89,10 +89,10 @@
 
 ## Phase 7: Verification
 
-- [ ] T035 Verify no `tier_2_operator` or `tier_3_research` route is required for `trade_enabled`
-- [ ] T036 Verify ambiguous conditions always downgrade to a safe non-trading mode
-- [ ] T037 Verify startup and restart transitions are deterministic
-- [ ] T038 Verify operator-stage changes do not happen implicitly
-- [ ] T039 Verify the execution safety contract is narrow enough for long-term maintenance
+- [x] T035 Verify no `tier_2_operator` or `tier_3_research` route is required for `trade_enabled`
+- [x] T036 Verify ambiguous conditions always downgrade to a safe non-trading mode
+- [x] T037 Verify startup and restart transitions are deterministic
+- [x] T038 Verify operator-stage changes do not happen implicitly
+- [x] T039 Verify the execution safety contract is narrow enough for long-term maintenance
 
 **Checkpoint**: the execution state machine is safe enough to become a hard dependency for NT.

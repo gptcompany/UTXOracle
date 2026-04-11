@@ -51,6 +51,15 @@ These surfaces are admitted for direct production consumption in `v1`.
 | `metrics_latest_surface` | `/api/metrics/latest` | compact admitted bundle already exposed for downstream feature use | newest `metrics` row | `404` when no rows; `500` on QuestDB failures |
 | `btc_feature_bundles_surface` | `/api/features/btc/*` on `:8011` | admitted consumer feature bundles | newest bundle | `200 OK` with `empty`/`stale` status in payload |
 | `btc_signal_snapshot_surface` | `/api/signals/btc/*` on `:8011` | canonical deterministic signal layer | newest signal | `200 OK` with `empty`/`stale` status in payload |
+| `execution_safety_surface` | `/api/execution/btc/status` on `:8011` | single authoritative source of execution safety | newest state | resolves to `halted` if dependencies missing or stale |
+
+## 3.1 Operator Guidance for Execution Safety
+
+The `execution_safety_surface` is the only trusted contract for live capital trading. `nautilus_dev` must:
+- Consume `/api/execution/btc/status` before placing any new orders.
+- Fallback behavior: If the execution endpoint is unavailable (e.g. `503` or timeout), the consumer must assume the system is `halted` and stop trading.
+- Replay/Live parity: The execution state is deterministic and applies identically during historical replay or live trading.
+- Compatibility mapping: For older adapters still relying on `spec-043` statuses, use the `compatibility_status` field where `trade_enabled` maps to `STATUS_OK`, `manage_only` maps to `STATUS_LIQUIDATE_ONLY`, and all others map to `STATUS_HALT`.
 
 
 ## 4. Tier 2 Production With Caveats
