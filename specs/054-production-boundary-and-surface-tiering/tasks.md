@@ -25,12 +25,12 @@
 
 ## Phase 2: Tier Model Freeze
 
-- [ ] T006 Freeze the tier vocabulary to exactly `tier_1_execution`, `tier_2_operator`, and `tier_3_research`
-- [ ] T007 Freeze the semantic definition of each tier
-- [ ] T008 Freeze the rule that `NT` may consume only `tier_1_execution`
-- [ ] T009 Decide how `:8001` is classified in the tier model
-- [ ] T010 Decide the first-slice treatment of `tier_2_operator` and exceptional `tier_3_research` routes that remain exposed on `:8011`
-- [ ] T011 Freeze the approval rule for future tier changes
+- [x] T006 Freeze the tier vocabulary to exactly `tier_1_execution`, `tier_2_operator`, and `tier_3_research`
+- [x] T007 Freeze the semantic definition of each tier
+- [x] T008 Freeze the rule that `NT` may consume only `tier_1_execution`
+- [x] T009 Decide how `:8001` is classified in the tier model
+- [x] T010 Decide the first-slice treatment of `tier_2_operator` and exceptional `tier_3_research` routes that remain exposed on `:8011`
+- [x] T011 Freeze the approval rule for future tier changes
 
 **Checkpoint**: the tier system is narrow and binding.
 
@@ -38,13 +38,13 @@
 
 ## Phase 3: Route-Family Assignment
 
-- [ ] T012 [E] Classify `/health` and `/api/v1/live/*`
-- [ ] T013 [E] Classify `/api/features/btc/*` and `/api/signals/btc/*`
-- [ ] T014 [E] Classify `/api/prices/*` and `/api/metrics/latest`
-- [ ] T015 [E] Classify `/api/metrics/address-cohorts`, `/cost-basis`, `/wallet-waves`, and `/absorption-rates`
-- [ ] T016 [E] Classify `/api/whale/*` and `/api/entities/*`
-- [ ] T017 [E] Classify `/api/v1/charts/*`, `/charts/*`, `/api/meta/features`, and `/api/research/tier-stats`
-- [ ] T018 Record allowed consumers for each classified family: `NT`, operator, research, or mixed non-execution
+- [x] T012 [E] Classify `/health` and `/api/v1/live/*`
+- [x] T013 [E] Classify `/api/features/btc/*` and `/api/signals/btc/*`
+- [x] T014 [E] Classify `/api/prices/*` and `/api/metrics/latest`
+- [x] T015 [E] Classify `/api/metrics/address-cohorts`, `/cost-basis`, `/wallet-waves`, and `/absorption-rates`
+- [x] T016 [E] Classify `/api/whale/*` and `/api/entities/*`
+- [x] T017 [E] Classify `/api/v1/charts/*`, `/charts/*`, `/api/meta/features`, and `/api/research/tier-stats`
+- [x] T018 Record allowed consumers for each classified family: `NT`, operator, research, or mixed non-execution
 
 **Checkpoint**: every exposed family belongs to exactly one tier.
 

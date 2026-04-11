@@ -2,744 +2,821 @@ schema_version: '1'
 published_at: '2026-04-08'
 contract_version: v1
 source_documents:
-- docs/FEATURE_SERVICE_ROADMAP_PREP_2026-04-01.md
-- docs/FEATURE_SERVICE_ROADMAP_2026-04-01.md
-- docs/FEATURE_SERVICE_WAVE2_DECISION_2026-04-02.md
-- docs/METRIC_SOURCE_OF_TRUTH_MANIFEST.md
-- docs/FEATURE_CONTRACT_REGISTRY.md
+  - docs/FEATURE_SERVICE_ROADMAP_PREP_2026-04-01.md
+  - docs/FEATURE_SERVICE_ROADMAP_2026-04-01.md
+  - docs/FEATURE_SERVICE_WAVE2_DECISION_2026-04-02.md
+  - docs/METRIC_SOURCE_OF_TRUTH_MANIFEST.md
+  - docs/FEATURE_CONTRACT_REGISTRY.md
 admission_tiers:
-  tier_1_production:
-    description: Admitted for production use on the declared canonical host and dependency
-      footprint.
-  tier_2_production_with_caveats:
-    description: Admitted for production only when declared caveats and backend requirements
-      are explicitly accepted.
+  tier_1_execution:
+    description: NT may consume; fail-closed; SLO-bound
+  tier_2_operator:
+    description: visibility/debug/validation; NOT an execution dependency
   tier_3_research:
-    description: Available for research, validation, or internal tools, but not part
-      of the frozen production contract.
-  tier_4_not_admitted:
-    description: Explicitly excluded because the route is placeholder, mocked, shadowed,
-      or otherwise materially misleading.
+    description: not allowed in trading decisions
 entries:
-- surface_id: live_snapshot_surface
-  route_family: /api/v1/live/*
-  routes:
-  - GET /api/v1/live/snapshot
-  - GET /api/v1/live/history
-  - GET /api/v1/live/comparison/latest
-  - GET /api/v1/live/ready
-  canonical_host: http://127.0.0.1:8011
-  consumer:
-  - nautilus_dev
-  - operators
-  current_label: runtime verified
-  admission_tier: tier_1_production
-  source_of_truth: Dedicated live app and LiveSnapshotStore-backed live worker
-  backend_class: hybrid
-  freshness_target: <=60s snapshot age
-  empty_state_policy: Return HTTP 503 when no live snapshot is available.
-  stale_state_policy: Treat snapshot age >60s as stale; /api/v1/live/ready returns
-    HTTP 503 when stale.
-  known_caveats: []
-  owner: scripts.live.worker + api.routes.live
-  version: v1
-  deprecation_status: none
-- surface_id: live_chart_surface
-  route_family: /api/v1/charts/*
-  routes:
-  - GET /api/v1/charts/catalog
-  - GET /api/v1/charts/{chart_id}/latest
-  - GET /api/v1/charts/{chart_id}/history
-  - GET /api/v1/charts/{chart_id}/compare
-  canonical_host: http://127.0.0.1:8011
-  consumer:
-  - nautilus_dev
-  - research
-  current_label: runtime verified
-  admission_tier: tier_1_production
-  source_of_truth: Dedicated live app charts derived from LiveSnapshotStore
-  backend_class: hybrid
-  freshness_target: <=60s latest snapshot age
-  empty_state_policy: Return HTTP 503 when no chart snapshots are available.
-  stale_state_policy: Return payload metadata with stale/degraded status when snapshot
-    age exceeds threshold.
-  known_caveats:
-  - Chart quality inherits the health of live snapshot storage and its upstream sources.
-  owner: scripts.live.worker + api.routes.charts
-  version: v1
-  deprecation_status: none
-- surface_id: prices_surface
-  route_family: /api/prices/*
-  routes:
-  - GET /api/prices/latest
-  - GET /api/prices/historical
-  - GET /api/prices/comparison
-  canonical_host: http://127.0.0.1:8011
-  consumer:
-  - nautilus_dev
-  - research
-  current_label: runtime verified
-  admission_tier: tier_1_production
-  source_of_truth: QuestDB price_analysis table via QuestDBRepository
-  backend_class: questdb
-  freshness_target: Newest price_analysis row
-  empty_state_policy: Return HTTP 404 when price_analysis has no rows.
-  stale_state_policy: No dedicated stale marker today; operators must monitor row
-    recency.
-  known_caveats:
-  - Port 8001 remains active but serves these routes with a migration hint header.
-  owner: scripts.daily_analysis.py + api.routes.questdb
-  version: v1
-  deprecation_status: secondary_on_8001
-- surface_id: metrics_latest_surface
-  route_family: /api/metrics/latest
-  routes:
-  - GET /api/metrics/latest
-  canonical_host: http://127.0.0.1:8011
-  consumer:
-  - nautilus_dev
-  - research
-  current_label: runtime verified
-  admission_tier: tier_1_production
-  source_of_truth: QuestDB metrics table via QuestDBRepository
-  backend_class: questdb
-  freshness_target: Newest metrics row
-  empty_state_policy: Return HTTP 404 when metrics has no rows.
-  stale_state_policy: No dedicated stale marker today; operators must monitor row
-    recency.
-  known_caveats:
-  - Port 8001 remains active but serves this route with a migration hint header.
-  owner: scripts.daily_analysis.py + scripts.metrics.save_metrics_to_db + api.routes.questdb
-  version: v1
-  deprecation_status: secondary_on_8001
-- surface_id: whale_query_surface
-  route_family: /api/whale/{transactions,summary,transaction/{txid}}
-  routes:
-  - GET /api/whale/transactions
-  - GET /api/whale/summary
-  - GET /api/whale/transaction/{txid}
-  canonical_host: http://127.0.0.1:8011
-  consumer:
-  - research
-  - nautilus_dev
-  current_label: runtime verified
-  admission_tier: tier_2_production_with_caveats
-  source_of_truth: QuestDB mempool_predictions table with additive whale_event.v1
-    entity foundation fields
-  backend_class: questdb
-  freshness_target: Newest mempool_predictions row; optional entity enrichment reads
-    current address_clusters state.
-  empty_state_policy: Return empty arrays or 404 for missing transaction lookup; keep
-    entity null when optional enrichment is unavailable.
-  stale_state_policy: No explicit stale marker; consumers depend on table recency
-    and best-effort enrichment freshness.
-  known_caveats:
-  - The canonical whale surface now serves additive whale_event.v1 fields.
-  - Port 8001 remains active but serves these routes with a migration hint header.
-  owner: mempool whale monitor + address cluster bootstrap + api.mempool_whale_endpoints
-  version: v1
-  deprecation_status: secondary_on_8001
-- surface_id: exchange_netflow_surface
-  route_family: /api/metrics/exchange-netflow*
-  routes:
-  - GET /api/metrics/exchange-netflow
-  - GET /api/metrics/exchange-netflow/history
-  canonical_host: http://127.0.0.1:8001
-  consumer:
-  - nautilus_dev
-  - research
-  current_label: code implemented
-  admission_tier: tier_2_production_with_caveats
-  source_of_truth: DuckDB utxo_lifecycle_full plus exchange_addresses.csv
-  backend_class: duckdb_utxo_lifecycle
-  freshness_target: Latest available UTXO lifecycle state and exchange address CSV
-    mtime
-  empty_state_policy: Return HTTP 503 when DB file is absent.
-  stale_state_policy: No stale flag today; consumers must treat delayed DuckDB sync
-    as stale data.
-  known_caveats:
-  - Depends on local DuckDB population and exchange address scraping coverage.
-  owner: scripts.metrics.exchange_netflow + api.main
-  version: v1
-  deprecation_status: none
-- surface_id: binary_cdd_surface
-  route_family: /api/metrics/binary-cdd
-  routes:
-  - GET /api/metrics/binary-cdd
-  canonical_host: http://127.0.0.1:8001
-  consumer:
-  - nautilus_dev
-  - research
-  current_label: code implemented
-  admission_tier: tier_2_production_with_caveats
-  source_of_truth: DuckDB utxo_lifecycle_full
-  backend_class: duckdb_utxo_lifecycle
-  freshness_target: Latest available UTXO lifecycle state
-  empty_state_policy: Return HTTP 503 when DB file is absent.
-  stale_state_policy: No stale flag today; delayed DuckDB sync reduces confidence.
-  known_caveats:
-  - Schema absence or missing views surface as 404/503 instead of a typed degraded
-    mode.
-  owner: scripts.metrics.binary_cdd + api.main
-  version: v1
-  deprecation_status: none
-- surface_id: net_realized_pnl_surface
-  route_family: /api/metrics/net-realized-pnl*
-  routes:
-  - GET /api/metrics/net-realized-pnl
-  - GET /api/metrics/net-realized-pnl/history
-  canonical_host: http://127.0.0.1:8001
-  consumer:
-  - nautilus_dev
-  - research
-  current_label: code implemented
-  admission_tier: tier_2_production_with_caveats
-  source_of_truth: DuckDB utxo_lifecycle_full
-  backend_class: duckdb_utxo_lifecycle
-  freshness_target: Latest available spent UTXO history
-  empty_state_policy: Return HTTP 503 when DB file is absent.
-  stale_state_policy: No stale flag today; delayed DuckDB sync reduces confidence.
-  known_caveats:
-  - Requires populated spent UTXO history, not just unspent state.
-  owner: scripts.metrics.net_realized_pnl + api.main
-  version: v1
-  deprecation_status: none
-- surface_id: pl_ratio_surface
-  route_family: /api/metrics/pl-ratio*
-  routes:
-  - GET /api/metrics/pl-ratio
-  - GET /api/metrics/pl-ratio/history
-  canonical_host: http://127.0.0.1:8001
-  consumer:
-  - nautilus_dev
-  - research
-  current_label: code implemented
-  admission_tier: tier_2_production_with_caveats
-  source_of_truth: DuckDB utxo_lifecycle_full
-  backend_class: duckdb_utxo_lifecycle
-  freshness_target: Latest available spent UTXO history
-  empty_state_policy: Return HTTP 503 when DB file is absent.
-  stale_state_policy: No stale flag today; delayed DuckDB sync reduces confidence.
-  known_caveats:
-  - Requires populated spent UTXO history and stable schema.
-  owner: scripts.metrics.pl_ratio + api.main
-  version: v1
-  deprecation_status: none
-- surface_id: sopr_surface
-  route_family: /api/metrics/sopr
-  routes:
-  - GET /api/metrics/sopr
-  canonical_host: http://127.0.0.1:8001
-  consumer:
-  - nautilus_dev
-  - research
-  current_label: code implemented
-  admission_tier: tier_2_production_with_caveats
-  source_of_truth: DuckDB utxo_lifecycle and utxo_lifecycle_full
-  backend_class: duckdb_utxo_lifecycle
-  freshness_target: Latest available spent UTXO history
-  empty_state_policy: Return HTTP 503 when DB file is absent.
-  stale_state_policy: No stale flag today; delayed DuckDB sync reduces confidence.
-  known_caveats:
-  - Output quality depends on recent spent UTXO coverage.
-  owner: scripts.metrics.utxo_lifecycle + api.main
-  version: v1
-  deprecation_status: none
-- surface_id: nvt_surface
-  route_family: /api/metrics/nvt
-  routes:
-  - GET /api/metrics/nvt
-  canonical_host: http://127.0.0.1:8001
-  consumer:
-  - nautilus_dev
-  - research
-  current_label: code implemented
-  admission_tier: tier_2_production_with_caveats
-  source_of_truth: DuckDB utxo_lifecycle_full plus block_heights
-  backend_class: duckdb_utxo_lifecycle
-  freshness_target: Latest available UTXO lifecycle state and block_heights tip
-  empty_state_policy: Return HTTP 503 when insufficient data or DB is absent.
-  stale_state_policy: No stale flag today; delayed DuckDB or block_heights sync reduces
-    confidence.
-  known_caveats:
-  - Route accepts a current_price query parameter, so consumers must freeze that input
-    for reproducibility.
-  owner: scripts.metrics.nvt + api.main
-  version: v1
-  deprecation_status: none
-- surface_id: volatility_surface
-  route_family: /api/metrics/volatility
-  routes:
-  - GET /api/metrics/volatility
-  canonical_host: http://127.0.0.1:8001
-  consumer:
-  - nautilus_dev
-  - research
-  current_label: code implemented
-  admission_tier: tier_2_production_with_caveats
-  source_of_truth: DuckDB daily_prices
-  backend_class: duckdb_daily_prices
-  freshness_target: Newest daily_prices.date
-  empty_state_policy: Return HTTP 503 when insufficient price history or DB is absent.
-  stale_state_policy: No stale flag today; delayed price table refresh reduces confidence.
-  known_caveats:
-  - Requires at least 3 days of price history for a meaningful result.
-  owner: scripts.bootstrap.build_price_table + api.main
-  version: v1
-  deprecation_status: none
-- surface_id: mining_pulse_surface
-  route_family: /api/metrics/mining-pulse
-  routes:
-  - GET /api/metrics/mining-pulse
-  canonical_host: http://127.0.0.1:8001
-  consumer:
-  - nautilus_dev
-  - research
-  current_label: code implemented
-  admission_tier: tier_2_production_with_caveats
-  source_of_truth: Bitcoin Core RPC block interval observations
-  backend_class: bitcoin_core_rpc
-  freshness_target: Live RPC tip and recent block interval window
-  empty_state_policy: Return HTTP 503 when RPC is unavailable.
-  stale_state_policy: No stale flag today; consumers infer staleness from RPC availability
-    and timestamps.
-  known_caveats:
-  - Hard dependency on RPC credentials and reachable node.
-  owner: scripts.metrics.mining_economics + api.main
-  version: v1
-  deprecation_status: none
-- surface_id: hash_ribbons_surface
-  route_family: /api/metrics/hash-ribbons
-  routes:
-  - GET /api/metrics/hash-ribbons
-  canonical_host: http://127.0.0.1:8001
-  consumer:
-  - nautilus_dev
-  - research
-  current_label: code implemented
-  admission_tier: tier_2_production_with_caveats
-  source_of_truth: External hashrate API data processed inline
-  backend_class: external_api
-  freshness_target: Latest successful upstream hashrate fetch
-  empty_state_policy: Return HTTP 503 when upstream data cannot be fetched.
-  stale_state_policy: No stale flag today; upstream recency must be inferred from
-    returned timestamp.
-  known_caveats:
-  - No repo-local persistence exists for the core hashrate series in this path.
-  owner: scripts.data.hashrate_fetcher + api.main
-  version: v1
-  deprecation_status: none
-- surface_id: mining_economics_surface
-  route_family: /api/metrics/mining-economics*
-  routes:
-  - GET /api/metrics/mining-economics
-  - GET /api/metrics/mining-economics/history
-  canonical_host: http://127.0.0.1:8001
-  consumer:
-  - nautilus_dev
-  - research
-  current_label: code implemented
-  admission_tier: tier_2_production_with_caveats
-  source_of_truth: Hybrid of Bitcoin Core RPC and external hashrate history
-  backend_class: hybrid
-  freshness_target: Realtime path uses RPC tip; history path uses latest upstream
-    hashrate history
-  empty_state_policy: Realtime path returns HTTP 503 when RPC is unavailable; history
-    path may return an empty entries list.
-  stale_state_policy: No explicit stale marker today.
-  known_caveats:
-  - Historical entries hardcode pulse_zone=NORMAL because historical pulse is not
-    available.
-  owner: scripts.metrics.mining_economics + api.main
-  version: v1
-  deprecation_status: none
-- surface_id: exchange_addresses_stats_surface
-  route_family: /api/exchange-addresses/stats
-  routes:
-  - GET /api/exchange-addresses/stats
-  canonical_host: http://127.0.0.1:8001
-  consumer:
-  - operators
-  - research
-  current_label: code implemented
-  admission_tier: tier_3_research
-  source_of_truth: Local exchange_addresses.csv metadata
-  backend_class: computed_inline
-  freshness_target: CSV file modification time
-  empty_state_policy: Return HTTP 404 when the CSV is absent.
-  stale_state_policy: No stale semantics beyond file mtime.
-  known_caveats:
-  - Operational coverage route, not part of the first downstream production bundle.
-  owner: api.main
-  version: v1
-  deprecation_status: none
-- surface_id: nupl_surface
-  route_family: /api/metrics/nupl
-  routes:
-  - GET /api/metrics/nupl
-  canonical_host: http://127.0.0.1:8001
-  consumer:
-  - research
-  current_label: code implemented
-  admission_tier: tier_3_research
-  source_of_truth: DuckDB realized metrics helpers wired through api.main
-  backend_class: duckdb_utxo_lifecycle
-  freshness_target: Latest visible utxo_lifecycle_full snapshot at request time
-  empty_state_policy: Return HTTP 404 when the current DuckDB snapshot does not contain
-    usable unspent supply and realized-cap data.
-  stale_state_policy: No explicit stale marker; output depends on DuckDB recency.
-  known_caveats:
-  - pct_supply_in_profit is served with explicit estimate metadata and uses method=nupl_linear_proxy.
-  - The route is implemented, but remains outside the first nautilus production bundle.
-  owner: scripts.metrics.nupl + scripts.metrics.realized_metrics + api.main
-  version: v1
-  deprecation_status: none
-- surface_id: cost_basis_surface
-  route_family: /api/metrics/cost-basis
-  routes:
-  - GET /api/metrics/cost-basis
-  canonical_host: http://127.0.0.1:8001
-  consumer:
-  - research
-  current_label: code implemented
-  admission_tier: tier_3_research
-  source_of_truth: DuckDB-backed STH/LTH cohort cost basis calculation wired through
-    api.main
-  backend_class: duckdb_utxo_lifecycle
-  freshness_target: Latest visible utxo_lifecycle_full snapshot at request time
-  empty_state_policy: Return HTTP 404 when the current DuckDB snapshot has no usable
-    cost-basis data.
-  stale_state_policy: No explicit stale marker; output depends on DuckDB recency.
-  known_caveats:
-  - The route is implemented, but remains outside the first nautilus production bundle.
-  - Partial cohort coverage is allowed and is reflected through confidence rather
-    than route demotion.
-  owner: scripts.metrics.cost_basis + api.main
-  version: v1
-  deprecation_status: none
-- surface_id: models_core_surface
-  route_family: /api/v1/models*
-  routes:
-  - GET /api/v1/models
-  - GET /api/v1/models/{name}/predict
-  - GET /api/v1/models/backtest/{name}
-  - GET /api/v1/models/compare
-  - POST /api/v1/models/ensemble
-  canonical_host: http://127.0.0.1:8001
-  consumer:
-  - research
-  current_label: code implemented
-  admission_tier: tier_3_research
-  source_of_truth: In-process model router and registry
-  backend_class: computed_inline
-  freshness_target: Request-time computation
-  empty_state_policy: Return HTTP 404 when model names are unsupported.
-  stale_state_policy: Not applicable to the current inline serving path.
-  known_caveats:
-  - Research surface only; not frozen for nautilus production consumption.
-  owner: api.routes.models + api.main
-  version: v1
-  deprecation_status: none
-- surface_id: power_law_surface
-  route_family: /api/v1/models/power-law*
-  routes:
-  - GET /api/v1/models/power-law
-  - GET /api/v1/models/power-law/predict
-  - GET /api/v1/models/power-law/history
-  - POST /api/v1/models/power-law/recalibrate
-  canonical_host: http://127.0.0.1:8001
-  consumer:
-  - research
-  current_label: code implemented
-  admission_tier: tier_3_research
-  source_of_truth: DuckDB daily_prices plus power law handlers in api.main
-  backend_class: duckdb_daily_prices
-  freshness_target: Newest daily_prices.date
-  empty_state_policy: Return HTTP 503 when DuckDB data is absent or insufficient.
-  stale_state_policy: No stale semantics beyond DuckDB recency.
-  known_caveats:
-  - Dedicated power-law handlers now win deterministically, but the surface remains
-    research-only in v1.
-  owner: api.main + scripts.metrics.power_law
-  version: v1
-  deprecation_status: none
-- surface_id: rbn_validation_surface
-  route_family: /api/v1/validation/rbn/*
-  routes:
-  - GET /api/v1/validation/rbn/metrics
-  - GET /api/v1/validation/rbn/quota
-  - GET /api/v1/validation/rbn/{metric_id}
-  - GET /api/v1/validation/rbn/report
-  - DELETE /api/v1/validation/rbn/cache
-  canonical_host: http://127.0.0.1:8001
-  consumer:
-  - operators
-  - research
-  current_label: code implemented
-  admission_tier: tier_3_research
-  source_of_truth: RBN API plus local cache under cache/rbn
-  backend_class: external_api
-  freshness_target: Cache TTL or latest successful upstream fetch
-  empty_state_policy: Return HTTP 404 when comparison data does not exist for the
-    requested range.
-  stale_state_policy: Cached results may be within TTL without re-fetching upstream.
-  known_caveats:
-  - Requires RBN_API_TOKEN and is bounded by upstream quota.
-  owner: scripts.integrations.rbn_fetcher + api.main
-  version: v1
-  deprecation_status: none
-- surface_id: advanced_research_surface
-  route_family: /api/metrics/{advanced,wasserstein*,cointime*,urpd,supply-profit-loss,reserve-risk,sell-side-risk,cdd-vdd,revived-supply}
-  routes:
-  - GET /api/metrics/advanced
-  - GET /api/metrics/wasserstein
-  - GET /api/metrics/wasserstein/history
-  - GET /api/metrics/wasserstein/regime
-  - GET /api/metrics/cointime
-  - GET /api/metrics/cointime/history
-  - GET /api/metrics/cointime/signal
-  - GET /api/metrics/urpd
-  - GET /api/metrics/supply-profit-loss
-  - GET /api/metrics/reserve-risk
-  - GET /api/metrics/sell-side-risk
-  - GET /api/metrics/cdd-vdd
-  - GET /api/metrics/revived-supply
-  canonical_host: http://127.0.0.1:8001
-  consumer:
-  - research
-  current_label: mixed research surface
-  admission_tier: tier_3_research
-  source_of_truth: Mixed local analytical modules and inline API handlers on api.main
-  backend_class: hybrid
-  freshness_target: Varies by route; implemented routes use the latest local calculation
-    path available on the research host.
-  empty_state_policy: Implemented routes may return 404/503 on missing local data;
-    unimplemented members of the bucket may still return 501.
-  stale_state_policy: No unified stale contract; behavior depends on each research
-    metric's local data dependencies.
-  known_caveats:
-  - 'The bucket is mixed: cointime routes are code implemented, while other members
-    remain partial or placeholder.'
-  - Reserve-risk remains blocked because its calculator still contains placeholder/default
-    internals.
-  - Reserve-risk is also frozen by the metric source-of-truth manifest as a BRK-first
-    overlapping metric rather than a default local productization target.
-  owner: scripts.metrics.* + api.main
-  version: v1
-  deprecation_status: none
-- surface_id: wallet_and_cohort_surface
-  route_family: /api/metrics/{address-cohorts,wallet-waves,absorption-rates}
-  routes:
-  - GET /api/metrics/address-cohorts
-  - GET /api/metrics/wallet-waves
-  - GET /api/metrics/absorption-rates
-  canonical_host: http://127.0.0.1:8011
-  consumer:
-  - research
-  - nautilus_dev
-  current_label: runtime verified
-  admission_tier: tier_1_production
-  source_of_truth: QuestDB materialized daily metrics
-  backend_class: questdb
-  freshness_target: Daily materialization job
-  empty_state_policy: Return HTTP 404 when no materialized data exists for the family.
-  stale_state_policy: Monitor created_at in QuestDB for materialization lag.
-  known_caveats:
-  - Port 8001 remains active but serves these routes with a migration hint header.
-  owner: scripts.metrics.materialize_wave1 + api.routes.questdb
-  version: v1
-  deprecation_status: secondary_on_8001
-- surface_id: pro_risk_surface
-  route_family: /api/risk/pro*
-  routes:
-  - GET /api/risk/pro
-  - GET /api/risk/pro/history
-  - GET /api/risk/pro/zones
-  canonical_host: http://127.0.0.1:8001
-  consumer:
-  - research
-  current_label: placeholder
-  admission_tier: tier_4_not_admitted
-  source_of_truth: Runtime-demoted serving path around scripts.metrics.pro_risk; /zones
-    remains static metadata
-  backend_class: computed_inline
-  freshness_target: Not applicable while runtime-demoted
-  empty_state_policy: Return HTTP 501 Not Implemented for /api/risk/pro and /api/risk/pro/history.
-  stale_state_policy: Not applicable while runtime-demoted.
-  known_caveats:
-  - Static /api/risk/pro/zones metadata remains available.
-  - Analytical serving path is demoted until real component inputs and history exist.
-  owner: api.main + scripts.metrics.pro_risk
-  version: v1
-  deprecation_status: candidate_for_demotion_or_reimplementation
-- surface_id: puell_multiple_surface
-  route_family: /api/metrics/puell-multiple
-  routes:
-  - GET /api/metrics/puell-multiple
-  canonical_host: http://127.0.0.1:8001
-  consumer:
-  - research
-  current_label: placeholder
-  admission_tier: tier_4_not_admitted
-  source_of_truth: Runtime-demoted serving path pending real miner revenue history
-  backend_class: computed_inline
-  freshness_target: Not applicable while runtime-demoted
-  empty_state_policy: Return HTTP 501 Not Implemented.
-  stale_state_policy: Not applicable while runtime-demoted.
-  known_caveats:
-  - Core analytical route is demoted until the 365-day denominator uses real miner
-    revenue history.
-  owner: api.main
-  version: v1
-  deprecation_status: candidate_for_demotion_or_reimplementation
-- surface_id: legacy_whale_placeholder_surface
-  route_family: /api/whale/{latest,historical,history}
-  routes:
-  - GET /api/whale/latest
-  - GET /api/whale/historical
-  - GET /api/whale/history
-  canonical_host: http://127.0.0.1:8001
-  consumer:
-  - none
-  current_label: code implemented
-  admission_tier: tier_4_not_admitted
-  source_of_truth: Deprecated compatibility handlers in api.main
-  backend_class: computed_inline
-  freshness_target: None; routes do not serve whale data anymore.
-  empty_state_policy: Return HTTP 410 Gone with explicit migration metadata.
-  stale_state_policy: Not applicable while routes act as deprecation stubs.
-  known_caveats:
-  - These routes no longer serve whale data; they remain only as explicit migration
-    stubs.
-  - Callers must migrate to /api/whale/transactions, /api/whale/summary, or /api/whale/transaction/{txid}.
-  owner: api.main
-  version: v1
-  deprecation_status: deprecated_alias_active
-- surface_id: wallet_waves_history_placeholder_surface
-  route_family: /api/metrics/wallet-waves/history
-  routes:
-  - GET /api/metrics/wallet-waves/history
-  canonical_host: http://127.0.0.1:8001
-  consumer:
-  - none
-  current_label: placeholder
-  admission_tier: tier_4_not_admitted
-  source_of_truth: Placeholder handler in api.main
-  backend_class: computed_inline
-  freshness_target: None
-  empty_state_policy: Return HTTP 503 until historical wallet-wave snapshots are materialized.
-  stale_state_policy: Not applicable while the route is unavailable pending materialization.
-  known_caveats:
-  - Historical wallet-wave snapshots are not yet materialized.
-  owner: api.main
-  version: v1
-  deprecation_status: legacy_placeholder_candidate
-- surface_id: main_operational_pages_surface
-  route_family: /{,health,metrics,whale,dashboard,monitor,power-law,power_law}
-  routes:
-  - GET /
-  - GET /health
-  - GET /metrics
-  - GET /whale
-  - GET /dashboard
-  - GET /monitor
-  - GET /power-law
-  - GET /power_law
-  canonical_host: http://127.0.0.1:8001
-  consumer:
-  - operators
-  current_label: code implemented
-  admission_tier: tier_4_not_admitted
-  source_of_truth: Main app operational pages
-  backend_class: computed_inline
-  freshness_target: Not applicable
-  empty_state_policy: Route-specific behavior only.
-  stale_state_policy: Not applicable.
-  known_caveats:
-  - Operational UI and HTML routes are intentionally outside the feature-service contract.
-  owner: api.main
-  version: v1
-  deprecation_status: none
-- surface_id: research_operations_surface
-  route_family: /api/research/*
-  routes:
-  - GET /api/research/tier-stats
-  canonical_host: http://127.0.0.1:8011
-  consumer:
-  - operators
-  - research
-  current_label: code implemented
-  admission_tier: tier_3_research
-  source_of_truth: QuestDB price_analysis table telemetry
-  backend_class: questdb
-  freshness_target: Latest batch execution telemetry
-  empty_state_policy: Return empty stats if no telemetry rows exist.
-  stale_state_policy: No stale flag; depends on batch analysis frequency.
-  known_caveats:
-  - Operational monitoring for fetch tier fallbacks (T140).
-  owner: api.routes.questdb
-  version: v1
-  deprecation_status: none
-- surface_id: btc_feature_bundles_surface
-  route_family: /api/features/btc/*
-  routes:
-  - GET /api/features/btc/{bundle_type}/latest
-  - GET /api/features/btc/{bundle_type}/history
-  canonical_host: http://127.0.0.1:8011
-  consumer:
-  - nautilus_dev
-  current_label: runtime verified
-  admission_tier: tier_1_production
-  source_of_truth: QuestDB btc_feature_bundles table
-  backend_class: questdb
-  freshness_target: Newest bundle row
-  empty_state_policy: Return 200 OK with bundle_status="empty"
-  stale_state_policy: Return 200 OK with bundle_status="stale"
-  known_caveats:
-  - Materialized asynchronously by the background bundle writer
-  owner: scripts.live.bundle_writer + api.routes.features
-  version: v1
-  deprecation_status: none
-- surface_id: btc_signal_snapshot_surface
-  route_family: /api/signals/btc/*
-  routes:
-  - GET /api/signals/btc/latest
-  - GET /api/signals/btc/history
-  canonical_host: http://127.0.0.1:8011
-  consumer:
-  - nautilus_dev
-  current_label: runtime verified
-  admission_tier: tier_1_production
-  source_of_truth: QuestDB btc_signal_snapshots table
-  backend_class: questdb
-  freshness_target: Newest signal snapshot row
-  empty_state_policy: Return 200 OK with service_status="empty"
-  stale_state_policy: Return 200 OK with service_status="stale" or "degraded"
-  known_caveats:
-  - Derived strictly from admitted feature bundles
-  owner: scripts.live.signal_writer + api.routes.signals
-  version: v1
-  deprecation_status: none
-- surface_id: entity_intelligence_surface
-  route_family: /api/entities/*
-  routes:
-  - GET /api/entities/{entity_id}
-  - GET /api/entities/{entity_id}/history
-  - GET /api/entities/flows
-  canonical_host: http://127.0.0.1:8011
-  consumer:
-  - research
-  current_label: code implemented
-  admission_tier: tier_3_research
-  source_of_truth: QuestDB entity registry, provenance, balance snapshot, and counterparty-edge serving tables via QuestDBRepository
-  backend_class: questdb
-  freshness_target: <=24h materialization age for registry and aggregate flow artifacts
-  empty_state_policy: Metadata lookup returns HTTP 404 for not_found; history and bounded flow queries return 200 OK with empty items when no rows match.
-  stale_state_policy: Metadata source_status may return stale/degraded; flow queries may return service_status="stale" or "partial_materialization" when serving artifacts lag.
-  known_caveats:
-  - Research-only surface; not admitted to nautilus_dev v1.
-  - Accepts legacy cluster:* aliases as read-only lookup compatibility inputs.
-  - Depends on daily DuckDB backfill plus QuestDB materialization for registry, provenance, balances, and aggregate counterparty edges.
-  owner: scripts.clustering.backfill_entity_registry_sampled + scripts.live.flow_aggregator + scripts.bootstrap.sync_entities_to_questdb + api.routes.entities
-  version: v1
-  deprecation_status: none
+  - surface_id: live_health_surface
+    route_family: /health
+    routes:
+      - GET /health
+    canonical_host: http://127.0.0.1:8011
+    current_label: runtime verified
+    admission_tier: tier_1_execution
+    allowed_consumers:
+      - NT
+      - operators
+    source_of_truth: Live app health check endpoint
+    backend_class: computed_inline
+    freshness_target: real-time
+    empty_state_policy: N/A
+    stale_state_policy: N/A
+    known_caveats: []
+    owner: api.apps.live
+    version: v1
+    deprecation_status: none
+    execution_eligible: true
+  - surface_id: live_snapshot_surface
+    route_family: /api/v1/live/*
+    routes:
+      - GET /api/v1/live/snapshot
+      - GET /api/v1/live/history
+      - GET /api/v1/live/comparison/latest
+      - GET /api/v1/live/ready
+    canonical_host: http://127.0.0.1:8011
+    current_label: runtime verified
+    admission_tier: tier_1_execution
+    allowed_consumers:
+      - NT
+      - operators
+    source_of_truth: Dedicated live app and LiveSnapshotStore-backed live worker
+    backend_class: hybrid
+    freshness_target: <=60s snapshot age
+    empty_state_policy: Return HTTP 503 when no live snapshot is available.
+    stale_state_policy: Treat snapshot age >60s as stale; /api/v1/live/ready 
+      returns HTTP 503 when stale.
+    known_caveats: []
+    owner: scripts.live.worker + api.routes.live
+    version: v1
+    deprecation_status: none
+    execution_eligible: true
+  - surface_id: live_chart_surface
+    route_family: /api/v1/charts/*
+    routes:
+      - GET /api/v1/charts/catalog
+      - GET /api/v1/charts/{chart_id}/latest
+      - GET /api/v1/charts/{chart_id}/history
+      - GET /api/v1/charts/{chart_id}/compare
+    canonical_host: http://127.0.0.1:8011
+    current_label: runtime verified
+    admission_tier: tier_2_operator
+    allowed_consumers:
+      - operators
+    source_of_truth: Dedicated live app charts derived from LiveSnapshotStore
+    backend_class: hybrid
+    freshness_target: <=60s latest snapshot age
+    empty_state_policy: Return HTTP 503 when no chart snapshots are available.
+    stale_state_policy: Return payload metadata with stale/degraded status when 
+      snapshot age exceeds threshold.
+    known_caveats:
+      - Chart quality inherits the health of live snapshot storage and its 
+        upstream sources.
+    owner: scripts.live.worker + api.routes.charts
+    version: v1
+    deprecation_status: none
+    execution_eligible: false
+  - surface_id: prices_surface
+    route_family: /api/prices/*
+    routes:
+      - GET /api/prices/latest
+      - GET /api/prices/historical
+      - GET /api/prices/comparison
+    canonical_host: http://127.0.0.1:8011
+    current_label: runtime verified
+    admission_tier: tier_2_operator
+    allowed_consumers:
+      - operators
+    source_of_truth: QuestDB price_analysis table via QuestDBRepository
+    backend_class: questdb
+    freshness_target: Newest price_analysis row
+    empty_state_policy: Return HTTP 404 when price_analysis has no rows.
+    stale_state_policy: No dedicated stale marker today; operators must monitor 
+      row recency.
+    known_caveats:
+      - Port 8001 remains active but serves these routes with a migration hint 
+        header.
+    owner: scripts.daily_analysis.py + api.routes.questdb
+    version: v1
+    deprecation_status: secondary_on_8001
+    execution_eligible: false
+  - surface_id: metrics_latest_surface
+    route_family: /api/metrics/latest
+    routes:
+      - GET /api/metrics/latest
+    canonical_host: http://127.0.0.1:8011
+    current_label: runtime verified
+    admission_tier: tier_2_operator
+    allowed_consumers:
+      - operators
+    source_of_truth: QuestDB metrics table via QuestDBRepository
+    backend_class: questdb
+    freshness_target: Newest metrics row
+    empty_state_policy: Return HTTP 404 when metrics has no rows.
+    stale_state_policy: No dedicated stale marker today; operators must monitor 
+      row recency.
+    known_caveats:
+      - Port 8001 remains active but serves this route with a migration hint 
+        header.
+    owner: scripts.daily_analysis.py + scripts.metrics.save_metrics_to_db + 
+      api.routes.questdb
+    version: v1
+    deprecation_status: secondary_on_8001
+    execution_eligible: false
+  - surface_id: whale_query_surface
+    route_family: /api/whale/{transactions,summary,transaction/{txid}}
+    routes:
+      - GET /api/whale/transactions
+      - GET /api/whale/summary
+      - GET /api/whale/transaction/{txid}
+    canonical_host: http://127.0.0.1:8011
+    current_label: runtime verified
+    admission_tier: tier_2_operator
+    allowed_consumers:
+      - operators
+    source_of_truth: QuestDB mempool_predictions table with additive 
+      whale_event.v1 entity foundation fields
+    backend_class: questdb
+    freshness_target: Newest mempool_predictions row; optional entity enrichment
+      reads current address_clusters state.
+    empty_state_policy: Return empty arrays or 404 for missing transaction 
+      lookup; keep entity null when optional enrichment is unavailable.
+    stale_state_policy: No explicit stale marker; consumers depend on table 
+      recency and best-effort enrichment freshness.
+    known_caveats:
+      - The canonical whale surface now serves additive whale_event.v1 fields.
+      - Port 8001 remains active but serves these routes with a migration hint 
+        header.
+    owner: mempool whale monitor + address cluster bootstrap + 
+      api.mempool_whale_endpoints
+    version: v1
+    deprecation_status: secondary_on_8001
+    execution_eligible: false
+  - surface_id: exchange_netflow_surface
+    route_family: /api/metrics/exchange-netflow*
+    routes:
+      - GET /api/metrics/exchange-netflow
+      - GET /api/metrics/exchange-netflow/history
+    canonical_host: http://127.0.0.1:8001
+    current_label: code implemented
+    admission_tier: tier_3_research
+    allowed_consumers:
+      - research
+    source_of_truth: DuckDB utxo_lifecycle_full plus exchange_addresses.csv
+    backend_class: duckdb_utxo_lifecycle
+    freshness_target: Latest available UTXO lifecycle state and exchange address
+      CSV mtime
+    empty_state_policy: Return HTTP 503 when DB file is absent.
+    stale_state_policy: No stale flag today; consumers must treat delayed DuckDB
+      sync as stale data.
+    known_caveats:
+      - Depends on local DuckDB population and exchange address scraping 
+        coverage.
+    owner: scripts.metrics.exchange_netflow + api.main
+    version: v1
+    deprecation_status: none
+    execution_eligible: false
+  - surface_id: binary_cdd_surface
+    route_family: /api/metrics/binary-cdd
+    routes:
+      - GET /api/metrics/binary-cdd
+    canonical_host: http://127.0.0.1:8001
+    current_label: code implemented
+    admission_tier: tier_3_research
+    allowed_consumers:
+      - research
+    source_of_truth: DuckDB utxo_lifecycle_full
+    backend_class: duckdb_utxo_lifecycle
+    freshness_target: Latest available UTXO lifecycle state
+    empty_state_policy: Return HTTP 503 when DB file is absent.
+    stale_state_policy: No stale flag today; delayed DuckDB sync reduces 
+      confidence.
+    known_caveats:
+      - Schema absence or missing views surface as 404/503 instead of a typed 
+        degraded mode.
+    owner: scripts.metrics.binary_cdd + api.main
+    version: v1
+    deprecation_status: none
+    execution_eligible: false
+  - surface_id: net_realized_pnl_surface
+    route_family: /api/metrics/net-realized-pnl*
+    routes:
+      - GET /api/metrics/net-realized-pnl
+      - GET /api/metrics/net-realized-pnl/history
+    canonical_host: http://127.0.0.1:8001
+    current_label: code implemented
+    admission_tier: tier_3_research
+    allowed_consumers:
+      - research
+    source_of_truth: DuckDB utxo_lifecycle_full
+    backend_class: duckdb_utxo_lifecycle
+    freshness_target: Latest available spent UTXO history
+    empty_state_policy: Return HTTP 503 when DB file is absent.
+    stale_state_policy: No stale flag today; delayed DuckDB sync reduces 
+      confidence.
+    known_caveats:
+      - Requires populated spent UTXO history, not just unspent state.
+    owner: scripts.metrics.net_realized_pnl + api.main
+    version: v1
+    deprecation_status: none
+    execution_eligible: false
+  - surface_id: pl_ratio_surface
+    route_family: /api/metrics/pl-ratio*
+    routes:
+      - GET /api/metrics/pl-ratio
+      - GET /api/metrics/pl-ratio/history
+    canonical_host: http://127.0.0.1:8001
+    current_label: code implemented
+    admission_tier: tier_3_research
+    allowed_consumers:
+      - research
+    source_of_truth: DuckDB utxo_lifecycle_full
+    backend_class: duckdb_utxo_lifecycle
+    freshness_target: Latest available spent UTXO history
+    empty_state_policy: Return HTTP 503 when DB file is absent.
+    stale_state_policy: No stale flag today; delayed DuckDB sync reduces 
+      confidence.
+    known_caveats:
+      - Requires populated spent UTXO history and stable schema.
+    owner: scripts.metrics.pl_ratio + api.main
+    version: v1
+    deprecation_status: none
+    execution_eligible: false
+  - surface_id: sopr_surface
+    route_family: /api/metrics/sopr
+    routes:
+      - GET /api/metrics/sopr
+    canonical_host: http://127.0.0.1:8001
+    current_label: code implemented
+    admission_tier: tier_3_research
+    allowed_consumers:
+      - research
+    source_of_truth: DuckDB utxo_lifecycle and utxo_lifecycle_full
+    backend_class: duckdb_utxo_lifecycle
+    freshness_target: Latest available spent UTXO history
+    empty_state_policy: Return HTTP 503 when DB file is absent.
+    stale_state_policy: No stale flag today; delayed DuckDB sync reduces 
+      confidence.
+    known_caveats:
+      - Output quality depends on recent spent UTXO coverage.
+    owner: scripts.metrics.utxo_lifecycle + api.main
+    version: v1
+    deprecation_status: none
+    execution_eligible: false
+  - surface_id: nvt_surface
+    route_family: /api/metrics/nvt
+    routes:
+      - GET /api/metrics/nvt
+    canonical_host: http://127.0.0.1:8001
+    current_label: code implemented
+    admission_tier: tier_3_research
+    allowed_consumers:
+      - research
+    source_of_truth: DuckDB utxo_lifecycle_full plus block_heights
+    backend_class: duckdb_utxo_lifecycle
+    freshness_target: Latest available UTXO lifecycle state and block_heights 
+      tip
+    empty_state_policy: Return HTTP 503 when insufficient data or DB is absent.
+    stale_state_policy: No stale flag today; delayed DuckDB or block_heights 
+      sync reduces confidence.
+    known_caveats:
+      - Route accepts a current_price query parameter, so consumers must freeze 
+        that input for reproducibility.
+    owner: scripts.metrics.nvt + api.main
+    version: v1
+    deprecation_status: none
+    execution_eligible: false
+  - surface_id: volatility_surface
+    route_family: /api/metrics/volatility
+    routes:
+      - GET /api/metrics/volatility
+    canonical_host: http://127.0.0.1:8001
+    current_label: code implemented
+    admission_tier: tier_3_research
+    allowed_consumers:
+      - research
+    source_of_truth: DuckDB daily_prices
+    backend_class: duckdb_daily_prices
+    freshness_target: Newest daily_prices.date
+    empty_state_policy: Return HTTP 503 when insufficient price history or DB is
+      absent.
+    stale_state_policy: No stale flag today; delayed price table refresh reduces
+      confidence.
+    known_caveats:
+      - Requires at least 3 days of price history for a meaningful result.
+    owner: scripts.bootstrap.build_price_table + api.main
+    version: v1
+    deprecation_status: none
+    execution_eligible: false
+  - surface_id: mining_pulse_surface
+    route_family: /api/metrics/mining-pulse
+    routes:
+      - GET /api/metrics/mining-pulse
+    canonical_host: http://127.0.0.1:8001
+    current_label: code implemented
+    admission_tier: tier_3_research
+    allowed_consumers:
+      - research
+    source_of_truth: Bitcoin Core RPC block interval observations
+    backend_class: bitcoin_core_rpc
+    freshness_target: Live RPC tip and recent block interval window
+    empty_state_policy: Return HTTP 503 when RPC is unavailable.
+    stale_state_policy: No stale flag today; consumers infer staleness from RPC 
+      availability and timestamps.
+    known_caveats:
+      - Hard dependency on RPC credentials and reachable node.
+    owner: scripts.metrics.mining_economics + api.main
+    version: v1
+    deprecation_status: none
+    execution_eligible: false
+  - surface_id: hash_ribbons_surface
+    route_family: /api/metrics/hash-ribbons
+    routes:
+      - GET /api/metrics/hash-ribbons
+    canonical_host: http://127.0.0.1:8001
+    current_label: code implemented
+    admission_tier: tier_3_research
+    allowed_consumers:
+      - research
+    source_of_truth: External hashrate API data processed inline
+    backend_class: external_api
+    freshness_target: Latest successful upstream hashrate fetch
+    empty_state_policy: Return HTTP 503 when upstream data cannot be fetched.
+    stale_state_policy: No stale flag today; upstream recency must be inferred 
+      from returned timestamp.
+    known_caveats:
+      - No repo-local persistence exists for the core hashrate series in this 
+        path.
+    owner: scripts.data.hashrate_fetcher + api.main
+    version: v1
+    deprecation_status: none
+    execution_eligible: false
+  - surface_id: mining_economics_surface
+    route_family: /api/metrics/mining-economics*
+    routes:
+      - GET /api/metrics/mining-economics
+      - GET /api/metrics/mining-economics/history
+    canonical_host: http://127.0.0.1:8001
+    current_label: code implemented
+    admission_tier: tier_3_research
+    allowed_consumers:
+      - research
+    source_of_truth: Hybrid of Bitcoin Core RPC and external hashrate history
+    backend_class: hybrid
+    freshness_target: Realtime path uses RPC tip; history path uses latest 
+      upstream hashrate history
+    empty_state_policy: Realtime path returns HTTP 503 when RPC is unavailable; 
+      history path may return an empty entries list.
+    stale_state_policy: No explicit stale marker today.
+    known_caveats:
+      - Historical entries hardcode pulse_zone=NORMAL because historical pulse 
+        is not available.
+    owner: scripts.metrics.mining_economics + api.main
+    version: v1
+    deprecation_status: none
+    execution_eligible: false
+  - surface_id: exchange_addresses_stats_surface
+    route_family: /api/exchange-addresses/stats
+    routes:
+      - GET /api/exchange-addresses/stats
+    canonical_host: http://127.0.0.1:8001
+    current_label: code implemented
+    admission_tier: tier_3_research
+    allowed_consumers:
+      - research
+    source_of_truth: Local exchange_addresses.csv metadata
+    backend_class: computed_inline
+    freshness_target: CSV file modification time
+    empty_state_policy: Return HTTP 404 when the CSV is absent.
+    stale_state_policy: No stale semantics beyond file mtime.
+    known_caveats:
+      - Operational coverage route, not part of the first downstream production 
+        bundle.
+    owner: api.main
+    version: v1
+    deprecation_status: none
+    execution_eligible: false
+  - surface_id: nupl_surface
+    route_family: /api/metrics/nupl
+    routes:
+      - GET /api/metrics/nupl
+    canonical_host: http://127.0.0.1:8001
+    current_label: code implemented
+    admission_tier: tier_3_research
+    allowed_consumers:
+      - research
+    source_of_truth: DuckDB realized metrics helpers wired through api.main
+    backend_class: duckdb_utxo_lifecycle
+    freshness_target: Latest visible utxo_lifecycle_full snapshot at request 
+      time
+    empty_state_policy: Return HTTP 404 when the current DuckDB snapshot does 
+      not contain usable unspent supply and realized-cap data.
+    stale_state_policy: No explicit stale marker; output depends on DuckDB 
+      recency.
+    known_caveats:
+      - pct_supply_in_profit is served with explicit estimate metadata and uses 
+        method=nupl_linear_proxy.
+      - The route is implemented, but remains outside the first nautilus 
+        production bundle.
+    owner: scripts.metrics.nupl + scripts.metrics.realized_metrics + api.main
+    version: v1
+    deprecation_status: none
+    execution_eligible: false
+  - surface_id: cost_basis_surface
+    route_family: /api/metrics/cost-basis
+    routes:
+      - GET /api/metrics/cost-basis
+    canonical_host: http://127.0.0.1:8001
+    current_label: code implemented
+    admission_tier: tier_2_operator
+    allowed_consumers:
+      - operators
+    source_of_truth: DuckDB-backed STH/LTH cohort cost basis calculation wired 
+      through api.main
+    backend_class: duckdb_utxo_lifecycle
+    freshness_target: Latest visible utxo_lifecycle_full snapshot at request 
+      time
+    empty_state_policy: Return HTTP 404 when the current DuckDB snapshot has no 
+      usable cost-basis data.
+    stale_state_policy: No explicit stale marker; output depends on DuckDB 
+      recency.
+    known_caveats:
+      - The route is implemented, but remains outside the first nautilus 
+        production bundle.
+      - Partial cohort coverage is allowed and is reflected through confidence 
+        rather than route demotion.
+    owner: scripts.metrics.cost_basis + api.main
+    version: v1
+    deprecation_status: none
+    execution_eligible: false
+  - surface_id: models_core_surface
+    route_family: /api/v1/models*
+    routes:
+      - GET /api/v1/models
+      - GET /api/v1/models/{name}/predict
+      - GET /api/v1/models/backtest/{name}
+      - GET /api/v1/models/compare
+      - POST /api/v1/models/ensemble
+    canonical_host: http://127.0.0.1:8001
+    current_label: code implemented
+    admission_tier: tier_3_research
+    allowed_consumers:
+      - research
+    source_of_truth: In-process model router and registry
+    backend_class: computed_inline
+    freshness_target: Request-time computation
+    empty_state_policy: Return HTTP 404 when model names are unsupported.
+    stale_state_policy: Not applicable to the current inline serving path.
+    known_caveats:
+      - Research surface only; not frozen for nautilus production consumption.
+    owner: api.routes.models + api.main
+    version: v1
+    deprecation_status: none
+    execution_eligible: false
+  - surface_id: power_law_surface
+    route_family: /api/v1/models/power-law*
+    routes:
+      - GET /api/v1/models/power-law
+      - GET /api/v1/models/power-law/predict
+      - GET /api/v1/models/power-law/history
+      - POST /api/v1/models/power-law/recalibrate
+    canonical_host: http://127.0.0.1:8001
+    current_label: code implemented
+    admission_tier: tier_3_research
+    allowed_consumers:
+      - research
+    source_of_truth: DuckDB daily_prices plus power law handlers in api.main
+    backend_class: duckdb_daily_prices
+    freshness_target: Newest daily_prices.date
+    empty_state_policy: Return HTTP 503 when DuckDB data is absent or 
+      insufficient.
+    stale_state_policy: No stale semantics beyond DuckDB recency.
+    known_caveats:
+      - Dedicated power-law handlers now win deterministically, but the surface 
+        remains research-only in v1.
+    owner: api.main + scripts.metrics.power_law
+    version: v1
+    deprecation_status: none
+    execution_eligible: false
+  - surface_id: rbn_validation_surface
+    route_family: /api/v1/validation/rbn/*
+    routes:
+      - GET /api/v1/validation/rbn/metrics
+      - GET /api/v1/validation/rbn/quota
+      - GET /api/v1/validation/rbn/{metric_id}
+      - GET /api/v1/validation/rbn/report
+      - DELETE /api/v1/validation/rbn/cache
+    canonical_host: http://127.0.0.1:8001
+    current_label: code implemented
+    admission_tier: tier_3_research
+    allowed_consumers:
+      - research
+    source_of_truth: RBN API plus local cache under cache/rbn
+    backend_class: external_api
+    freshness_target: Cache TTL or latest successful upstream fetch
+    empty_state_policy: Return HTTP 404 when comparison data does not exist for 
+      the requested range.
+    stale_state_policy: Cached results may be within TTL without re-fetching 
+      upstream.
+    known_caveats:
+      - Requires RBN_API_TOKEN and is bounded by upstream quota.
+    owner: scripts.integrations.rbn_fetcher + api.main
+    version: v1
+    deprecation_status: none
+    execution_eligible: false
+  - surface_id: advanced_research_surface
+    route_family: 
+      /api/metrics/{advanced,wasserstein*,cointime*,urpd,supply-profit-loss,reserve-risk,sell-side-risk,cdd-vdd,revived-supply}
+    routes:
+      - GET /api/metrics/advanced
+      - GET /api/metrics/wasserstein
+      - GET /api/metrics/wasserstein/history
+      - GET /api/metrics/wasserstein/regime
+      - GET /api/metrics/cointime
+      - GET /api/metrics/cointime/history
+      - GET /api/metrics/cointime/signal
+      - GET /api/metrics/urpd
+      - GET /api/metrics/supply-profit-loss
+      - GET /api/metrics/reserve-risk
+      - GET /api/metrics/sell-side-risk
+      - GET /api/metrics/cdd-vdd
+      - GET /api/metrics/revived-supply
+    canonical_host: http://127.0.0.1:8001
+    current_label: mixed research surface
+    admission_tier: tier_3_research
+    allowed_consumers:
+      - research
+    source_of_truth: Mixed local analytical modules and inline API handlers on 
+      api.main
+    backend_class: hybrid
+    freshness_target: Varies by route; implemented routes use the latest local 
+      calculation path available on the research host.
+    empty_state_policy: Implemented routes may return 404/503 on missing local 
+      data; unimplemented members of the bucket may still return 501.
+    stale_state_policy: No unified stale contract; behavior depends on each 
+      research metric's local data dependencies.
+    known_caveats:
+      - 'The bucket is mixed: cointime routes are code implemented, while other members
+        remain partial or placeholder.'
+      - Reserve-risk remains blocked because its calculator still contains 
+        placeholder/default internals.
+      - Reserve-risk is also frozen by the metric source-of-truth manifest as a 
+        BRK-first overlapping metric rather than a default local productization 
+        target.
+    owner: scripts.metrics.* + api.main
+    version: v1
+    deprecation_status: none
+    execution_eligible: false
+  - surface_id: wallet_and_cohort_surface
+    route_family: /api/metrics/{address-cohorts,wallet-waves,absorption-rates}
+    routes:
+      - GET /api/metrics/address-cohorts
+      - GET /api/metrics/wallet-waves
+      - GET /api/metrics/absorption-rates
+    canonical_host: http://127.0.0.1:8011
+    current_label: runtime verified
+    admission_tier: tier_2_operator
+    allowed_consumers:
+      - operators
+    source_of_truth: QuestDB materialized daily metrics
+    backend_class: questdb
+    freshness_target: Daily materialization job
+    empty_state_policy: Return HTTP 404 when no materialized data exists for the
+      family.
+    stale_state_policy: Monitor created_at in QuestDB for materialization lag.
+    known_caveats:
+      - Port 8001 remains active but serves these routes with a migration hint 
+        header.
+    owner: scripts.metrics.materialize_wave1 + api.routes.questdb
+    version: v1
+    deprecation_status: secondary_on_8001
+    execution_eligible: false
+  - surface_id: pro_risk_surface
+    route_family: /api/risk/pro*
+    routes:
+      - GET /api/risk/pro
+      - GET /api/risk/pro/history
+      - GET /api/risk/pro/zones
+    canonical_host: http://127.0.0.1:8001
+    current_label: placeholder
+    admission_tier: tier_3_research  # previously tier_4_not_admitted
+    allowed_consumers:
+      - research
+    source_of_truth: Runtime-demoted serving path around 
+      scripts.metrics.pro_risk; /zones remains static metadata
+    backend_class: computed_inline
+    freshness_target: Not applicable while runtime-demoted
+    empty_state_policy: Return HTTP 501 Not Implemented for /api/risk/pro and 
+      /api/risk/pro/history.
+    stale_state_policy: Not applicable while runtime-demoted.
+    known_caveats:
+      - Static /api/risk/pro/zones metadata remains available.
+      - Analytical serving path is demoted until real component inputs and 
+        history exist.
+    owner: api.main + scripts.metrics.pro_risk
+    version: v1
+    deprecation_status: candidate_for_demotion_or_reimplementation
+    execution_eligible: false
+  - surface_id: puell_multiple_surface
+    route_family: /api/metrics/puell-multiple
+    routes:
+      - GET /api/metrics/puell-multiple
+    canonical_host: http://127.0.0.1:8001
+    current_label: placeholder
+    admission_tier: tier_3_research  # previously tier_4_not_admitted
+    allowed_consumers:
+      - research
+    source_of_truth: Runtime-demoted serving path pending real miner revenue 
+      history
+    backend_class: computed_inline
+    freshness_target: Not applicable while runtime-demoted
+    empty_state_policy: Return HTTP 501 Not Implemented.
+    stale_state_policy: Not applicable while runtime-demoted.
+    known_caveats:
+      - Core analytical route is demoted until the 365-day denominator uses real
+        miner revenue history.
+    owner: api.main
+    version: v1
+    deprecation_status: candidate_for_demotion_or_reimplementation
+    execution_eligible: false
+  - surface_id: legacy_whale_placeholder_surface
+    route_family: /api/whale/{latest,historical,history}
+    routes:
+      - GET /api/whale/latest
+      - GET /api/whale/historical
+      - GET /api/whale/history
+    canonical_host: http://127.0.0.1:8001
+    current_label: code implemented
+    admission_tier: tier_3_research  # previously tier_4_not_admitted
+    allowed_consumers:
+      - research
+    source_of_truth: Deprecated compatibility handlers in api.main
+    backend_class: computed_inline
+    freshness_target: None; routes do not serve whale data anymore.
+    empty_state_policy: Return HTTP 410 Gone with explicit migration metadata.
+    stale_state_policy: Not applicable while routes act as deprecation stubs.
+    known_caveats:
+      - These routes no longer serve whale data; they remain only as explicit 
+        migration stubs.
+      - Callers must migrate to /api/whale/transactions, /api/whale/summary, or 
+        /api/whale/transaction/{txid}.
+    owner: api.main
+    version: v1
+    deprecation_status: deprecated_alias_active
+    execution_eligible: false
+  - surface_id: wallet_waves_history_placeholder_surface
+    route_family: /api/metrics/wallet-waves/history
+    routes:
+      - GET /api/metrics/wallet-waves/history
+    canonical_host: http://127.0.0.1:8001
+    current_label: placeholder
+    admission_tier: tier_3_research  # previously tier_4_not_admitted
+    allowed_consumers:
+      - research
+    source_of_truth: Placeholder handler in api.main
+    backend_class: computed_inline
+    freshness_target: None
+    empty_state_policy: Return HTTP 503 until historical wallet-wave snapshots 
+      are materialized.
+    stale_state_policy: Not applicable while the route is unavailable pending 
+      materialization.
+    known_caveats:
+      - Historical wallet-wave snapshots are not yet materialized.
+    owner: api.main
+    version: v1
+    deprecation_status: legacy_placeholder_candidate
+    execution_eligible: false
+  - surface_id: main_operational_pages_surface
+    route_family: /{,health,metrics,whale,dashboard,monitor,power-law,power_law}
+    routes:
+      - GET /
+      - GET /health
+      - GET /metrics
+      - GET /whale
+      - GET /dashboard
+      - GET /monitor
+      - GET /power-law
+      - GET /power_law
+    canonical_host: http://127.0.0.1:8001
+    current_label: code implemented
+    admission_tier: tier_3_research  # previously tier_4_not_admitted
+    allowed_consumers:
+      - research
+    source_of_truth: Main app operational pages
+    backend_class: computed_inline
+    freshness_target: Not applicable
+    empty_state_policy: Route-specific behavior only.
+    stale_state_policy: Not applicable.
+    known_caveats:
+      - Operational UI and HTML routes are intentionally outside the 
+        feature-service contract.
+    owner: api.main
+    version: v1
+    deprecation_status: none
+    execution_eligible: false
+  - surface_id: research_operations_surface
+    route_family: /api/research/*
+    routes:
+      - GET /api/research/tier-stats
+    canonical_host: http://127.0.0.1:8011
+    current_label: code implemented
+    admission_tier: tier_3_research
+    allowed_consumers:
+      - research
+    source_of_truth: QuestDB price_analysis table telemetry
+    backend_class: questdb
+    freshness_target: Latest batch execution telemetry
+    empty_state_policy: Return empty stats if no telemetry rows exist.
+    stale_state_policy: No stale flag; depends on batch analysis frequency.
+    known_caveats:
+      - Operational monitoring for fetch tier fallbacks (T140).
+    owner: api.routes.questdb
+    version: v1
+    deprecation_status: none
+    execution_eligible: false
+  - surface_id: btc_feature_bundles_surface
+    route_family: /api/features/btc/*
+    routes:
+      - GET /api/features/btc/{bundle_type}/latest
+      - GET /api/features/btc/{bundle_type}/history
+    canonical_host: http://127.0.0.1:8011
+    current_label: runtime verified
+    admission_tier: tier_1_execution
+    allowed_consumers:
+      - NT
+      - operators
+    source_of_truth: QuestDB btc_feature_bundles table
+    backend_class: questdb
+    freshness_target: Newest bundle row
+    empty_state_policy: Return 200 OK with bundle_status="empty"
+    stale_state_policy: Return 200 OK with bundle_status="stale"
+    known_caveats:
+      - Materialized asynchronously by the background bundle writer
+    owner: scripts.live.bundle_writer + api.routes.features
+    version: v1
+    deprecation_status: none
+    execution_eligible: true
+  - surface_id: btc_signal_snapshot_surface
+    route_family: /api/signals/btc/*
+    routes:
+      - GET /api/signals/btc/latest
+      - GET /api/signals/btc/history
+    canonical_host: http://127.0.0.1:8011
+    current_label: runtime verified
+    admission_tier: tier_1_execution
+    allowed_consumers:
+      - NT
+      - operators
+    source_of_truth: QuestDB btc_signal_snapshots table
+    backend_class: questdb
+    freshness_target: Newest signal snapshot row
+    empty_state_policy: Return 200 OK with service_status="empty"
+    stale_state_policy: Return 200 OK with service_status="stale" or "degraded"
+    known_caveats:
+      - Derived strictly from admitted feature bundles
+    owner: scripts.live.signal_writer + api.routes.signals
+    version: v1
+    deprecation_status: none
+    execution_eligible: true
+  - surface_id: entity_intelligence_surface
+    route_family: /api/entities/*
+    routes:
+      - GET /api/entities/{entity_id}
+      - GET /api/entities/{entity_id}/history
+      - GET /api/entities/flows
+    canonical_host: http://127.0.0.1:8011
+    current_label: code implemented
+    admission_tier: tier_2_operator
+    allowed_consumers:
+      - operators
+    source_of_truth: QuestDB entity registry, provenance, balance snapshot, and 
+      counterparty-edge serving tables via QuestDBRepository
+    backend_class: questdb
+    freshness_target: <=24h materialization age for registry and aggregate flow 
+      artifacts
+    empty_state_policy: Metadata lookup returns HTTP 404 for not_found; history 
+      and bounded flow queries return 200 OK with empty items when no rows 
+      match.
+    stale_state_policy: Metadata source_status may return stale/degraded; flow 
+      queries may return service_status="stale" or "partial_materialization" 
+      when serving artifacts lag.
+    known_caveats:
+      - Research-only surface; not admitted to nautilus_dev v1.
+      - Accepts legacy cluster:* aliases as read-only lookup compatibility 
+        inputs.
+      - Depends on daily DuckDB backfill plus QuestDB materialization for 
+        registry, provenance, balances, and aggregate counterparty edges.
+    owner: scripts.clustering.backfill_entity_registry_sampled + 
+      scripts.live.flow_aggregator + scripts.bootstrap.sync_entities_to_questdb 
+      + api.routes.entities
+    version: v1
+    deprecation_status: none
+    execution_eligible: false
