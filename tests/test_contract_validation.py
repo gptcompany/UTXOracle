@@ -30,7 +30,7 @@ def test_registry_mandatory_fields(registry):
     assert "entries" in registry
     required_fields = {
         "surface_id", "route_family", "routes", "canonical_host",
-        "consumer", "current_label", "admission_tier", "source_of_truth",
+        "allowed_consumers", "current_label", "admission_tier", "source_of_truth",
         "backend_class", "freshness_target", "empty_state_policy",
         "stale_state_policy", "known_caveats", "owner", "version",
         "deprecation_status"
@@ -39,6 +39,8 @@ def test_registry_mandatory_fields(registry):
     for entry in registry["entries"]:
         missing = required_fields - set(entry.keys())
         assert not missing, f"Registry entry {entry.get('surface_id', 'UNKNOWN')} is missing fields: {missing}"
+        assert isinstance(entry["allowed_consumers"], list), f"Registry entry {entry['surface_id']} allowed_consumers must be a list"
+        assert entry["allowed_consumers"], f"Registry entry {entry['surface_id']} allowed_consumers must not be empty"
 
 def test_provenance_mandatory_fields(provenance):
     """T017: Add validation checks for missing backend class, owner, or failure mode."""

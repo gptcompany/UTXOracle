@@ -21,7 +21,7 @@ Expected coverage: >20 binding decision rows.
 | Phase 1 | T006 | legacy adapter compatibility | older `STATUS_OK` / `STATUS_LIQUIDATE_ONLY` / `STATUS_HALT` states remain compatibility aliases only; the new execution-mode surface is authoritative | T007-T039, NT transition docs | spec.md#current-baseline |
 | Phase 2 | T007 | minimum execution input set | `/health`, `/api/v1/live/snapshot`, the four `/api/features/btc/*/latest`, and `/api/signals/btc/latest` | T008-T039, execution route implementation | spec.md#3-minimum-inputs |
 | Phase 2 | T008 | `/health` role | `/health` is a blocking corroboration input only; healthy `/health` alone cannot promote `trade_enabled` | T009-T039, state derivation, tests | spec.md#3-minimum-inputs |
-| Phase 2 | T009 | bundle and signal freshness | stale >= 30s for snapshot, >= 60s for bundle/signal downgrades execution | T010-T039, execution route logic | spec.md#2-fail-closed-rule |
+| Phase 2 | T009 | bundle and signal freshness | stale >= 30s for snapshot, >= 60s for bundle/signal halts execution | T010-T039, execution route logic | spec.md#2-fail-closed-rule |
 | Phase 2 | T010 | monotonic sequence | violated sequence guarantee triggers downgrade or halt | T011-T039, execution route logic | spec.md#2-fail-closed-rule |
 | Phase 2 | T011 | confidence and anomaly mapping | low-confidence and anomaly-bearing tier-1 inputs must downgrade execution explicitly rather than remaining implicit adapter-side concerns | T012-T039, execution route logic, NT transition docs | spec.md#3-minimum-inputs |
 | Phase 3 | T012 | startup behavior | default to `warming_up` after process start until explicit warmup criteria pass | T013-T039, state-machine tests | spec.md#4-startup-and-recovery-rules |

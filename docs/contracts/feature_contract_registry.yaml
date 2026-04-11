@@ -44,6 +44,28 @@ entries:
     version: v1
     deprecation_status: none
     execution_eligible: true
+  - surface_id: fastapi_docs_surface
+    route_family: /{docs,redoc,openapi.json}
+    routes:
+      - GET /docs
+      - GET /redoc
+      - GET /openapi.json
+    canonical_host: http://127.0.0.1:8011
+    current_label: code implemented
+    admission_tier: tier_2_operator
+    allowed_consumers:
+      - operators
+    source_of_truth: FastAPI generated documentation and OpenAPI schema
+    backend_class: computed_inline
+    freshness_target: Not applicable
+    empty_state_policy: Not applicable; generated route returns app documentation.
+    stale_state_policy: Not applicable; schema is generated from mounted routes.
+    known_caveats:
+      - Documentation and schema routes are operational surfaces, not execution inputs.
+    owner: api.apps.live
+    version: v1
+    deprecation_status: none
+    execution_eligible: false
   - surface_id: live_snapshot_surface
     route_family: /api/v1/live/*
     routes:
@@ -59,9 +81,9 @@ entries:
       - operators
     source_of_truth: Dedicated live app and LiveSnapshotStore-backed live worker
     backend_class: hybrid
-    freshness_target: <=60s snapshot age
+    freshness_target: healthy <=15s snapshot age; stale >=30s
     empty_state_policy: Return HTTP 503 when no live snapshot is available.
-    stale_state_policy: Treat snapshot age >60s as stale; /api/v1/live/ready 
+    stale_state_policy: Treat snapshot age >=30s as stale; /api/v1/live/ready
       returns HTTP 503 when stale.
     known_caveats: []
     owner: scripts.live.worker + api.routes.live
@@ -82,7 +104,7 @@ entries:
       - operators
     source_of_truth: Dedicated live app charts derived from LiveSnapshotStore
     backend_class: hybrid
-    freshness_target: <=60s latest snapshot age
+    freshness_target: healthy <=15s latest snapshot age; stale >=30s
     empty_state_policy: Return HTTP 503 when no chart snapshots are available.
     stale_state_policy: Return payload metadata with stale/degraded status when 
       snapshot age exceeds threshold.
@@ -90,6 +112,26 @@ entries:
       - Chart quality inherits the health of live snapshot storage and its 
         upstream sources.
     owner: scripts.live.worker + api.routes.charts
+    version: v1
+    deprecation_status: none
+    execution_eligible: false
+  - surface_id: live_chart_page_surface
+    route_family: /charts/{chart_id}
+    routes:
+      - GET /charts/{chart_id}
+    canonical_host: http://127.0.0.1:8011
+    current_label: code implemented
+    admission_tier: tier_2_operator
+    allowed_consumers:
+      - operators
+    source_of_truth: Live app chart HTML entrypoint
+    backend_class: computed_inline
+    freshness_target: Not applicable
+    empty_state_policy: Return HTTP 404 for unsupported chart_id.
+    stale_state_policy: Not applicable; page data is loaded from chart API routes.
+    known_caveats:
+      - HTML entrypoint only; chart data semantics are owned by live_chart_surface.
+    owner: api.apps.live
     version: v1
     deprecation_status: none
     execution_eligible: false
@@ -748,6 +790,26 @@ entries:
     known_caveats:
       - Operational monitoring for fetch tier fallbacks (T140).
     owner: api.routes.questdb
+    version: v1
+    deprecation_status: none
+    execution_eligible: false
+  - surface_id: feature_meta_surface
+    route_family: /api/meta/features
+    routes:
+      - GET /api/meta/features
+    canonical_host: http://127.0.0.1:8011
+    current_label: code implemented
+    admission_tier: tier_2_operator
+    allowed_consumers:
+      - operators
+    source_of_truth: docs/contracts/feature_provenance_manifest.yaml
+    backend_class: computed_inline
+    freshness_target: Manifest published_at timestamp
+    empty_state_policy: Return HTTP 503 when the provenance manifest is missing.
+    stale_state_policy: Manifest can lag registry changes until the paired contract artifacts are updated.
+    known_caveats:
+      - Metadata route only; not an execution input.
+    owner: api.routes.meta
     version: v1
     deprecation_status: none
     execution_eligible: false

@@ -4,7 +4,7 @@
 
 scope:
   applies_to:
-    - tier_1_execution (latest live snapshots, feature bundles, signal snapshots, execution-status)
+    - tier_1_execution (health_check, latest live snapshots, bounded live history, feature bundles, signal snapshots, execution-status)
   excluded:
     - tier_2_operator
     - historical_research
@@ -54,8 +54,8 @@ governance_and_execution_coupling:
   stale_state:
     description: "At or outside the maximum stale threshold (e.g., >= 30s for live snapshots)."
     consequence: "Hard execution blocker. Cannot coexist with trade_enabled."
-    spec_055_execution_mode: "fail_closed or observe_only"
-    spec_059_alerting: "High severity incident / page operator"
+    spec_055_execution_mode: "halted"
+    spec_059_alerting: "fatal incident / page operator"
     
   availability_failure:
     description: "Failing to meet the 99.5% availability target or service down."

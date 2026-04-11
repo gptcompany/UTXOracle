@@ -214,3 +214,32 @@ def test_get_feature_bundle_history_pages_oldest_first():
     assert "AND sequence_id > 100" in query
     assert "ORDER BY sequence_id ASC, produced_at ASC" in query
     assert "LIMIT 51" in query
+
+
+def test_get_recent_feature_bundle_sequence_pages_newest_first():
+    repo = QuestDBRepository()
+    repo.fetch = AsyncMock(return_value=[{"sequence_id": 102}, {"sequence_id": 101}])  # type: ignore[method-assign]
+
+    rows = asyncio.run(repo.get_recent_feature_bundle_sequence("btc_core_live.v1", limit=2))
+
+    assert rows == [{"sequence_id": 102}, {"sequence_id": 101}]
+    repo.fetch.assert_awaited_once()
+    query = repo.fetch.await_args.args[0]
+    assert "bundle_id = 'btc_core_live.v1'" in query
+    assert "ORDER BY sequence_id DESC, produced_at DESC" in query
+    assert "LIMIT 2" in query
+
+
+def test_get_recent_signal_sequence_pages_newest_first():
+    repo = QuestDBRepository()
+    repo.fetch = AsyncMock(return_value=[{"sequence_id": 8}, {"sequence_id": 7}])  # type: ignore[method-assign]
+
+    rows = asyncio.run(repo.get_recent_signal_sequence(limit=2))
+
+    assert rows == [{"sequence_id": 8}, {"sequence_id": 7}]
+    repo.fetch.assert_awaited_once()
+    query = repo.fetch.await_args.args[0]
+    assert "FROM btc_signal_snapshots" in query
+    assert "WHERE schema_version = 'v1'" in query
+    assert "ORDER BY sequence_id DESC, produced_at DESC" in query
+    assert "LIMIT 2" in query

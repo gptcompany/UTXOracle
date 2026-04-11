@@ -30,6 +30,55 @@ quality_state_vocabulary:
   quarantined: Not valid for execution use; forces fail-closed.
   restated: Previously published data was corrected via an explicit restatement artifact.
 entries:
+- surface_id: live_health_surface
+  route_family: /health
+  backend_class: hybrid
+  primary_tables:
+  - live_snapshot_store
+  upstreams:
+  - electrs
+  - mempool_api
+  - BRK
+  - Hyperliquid
+  - UTXOracle block oracle
+  required_env:
+  - ELECTRS_HTTP_URL
+  - MEMPOOL_API_URL
+  - MEMPOOL_API_V1_URL
+  - BRK_BASE_URL
+  - HYPERLIQUID_NODE_API_URL
+  - LIVE_SOURCE_TIMEOUT_SECONDS
+  - LIVE_RETENTION_HOURS
+  writer_owner: scripts.live.worker.LiveWorker
+  read_path_owner: api.apps.live
+  freshness_source: Latest live health summary timestamp
+  failure_mode:
+    empty: Returns unavailable/degraded status when no live summary can be built.
+    stale: Live summary reports stale source state through the health payload.
+    degraded: Source-specific live health can degrade while the endpoint still responds.
+    misconfigured: Missing live upstreams or worker bootstrap issues prevent healthy status.
+    placeholder: none
+  provenance_notes:
+  - Canonical and served host is :8011.
+  - Blocking corroboration input for execution health; healthy alone is not sufficient to trade.
+- surface_id: fastapi_docs_surface
+  route_family: /{docs,redoc,openapi.json}
+  backend_class: computed_inline
+  primary_tables: []
+  upstreams: []
+  required_env: []
+  writer_owner: api.apps.live.create_app
+  read_path_owner: FastAPI generated documentation routes
+  freshness_source: OpenAPI schema generated from mounted app routes
+  failure_mode:
+    empty: Not applicable; generated docs routes return app documentation.
+    stale: Not applicable; schema is generated from mounted routes at runtime.
+    degraded: none
+    misconfigured: none
+    placeholder: none
+  provenance_notes:
+  - Operational documentation surface on :8011.
+  - Not execution-eligible.
 - surface_id: live_snapshot_surface
   route_family: /api/v1/live/*
   backend_class: hybrid
@@ -57,7 +106,7 @@ entries:
   freshness_source: Latest snapshot timestamp stored in LiveSnapshotStore
   failure_mode:
     empty: HTTP 503 when no snapshot is available.
-    stale: Snapshot age >60s is stale; /api/v1/live/ready returns HTTP 503.
+    stale: Snapshot age >=30s is stale; /api/v1/live/ready returns HTTP 503.
     degraded: Source-specific health can degrade while snapshots still exist.
     misconfigured: Any missing live upstream or worker bootstrap issue can prevent
       fresh snapshots.
@@ -96,6 +145,25 @@ entries:
     placeholder: none
   provenance_notes:
   - Charts are not an independent data plane; they derive from live snapshot storage.
+- surface_id: live_chart_page_surface
+  route_family: /charts/{chart_id}
+  backend_class: computed_inline
+  primary_tables: []
+  upstreams:
+  - live_chart_surface
+  required_env: []
+  writer_owner: api.apps.live
+  read_path_owner: api.apps.live
+  freshness_source: Not applicable; page loads chart data from live chart APIs.
+  failure_mode:
+    empty: HTTP 404 for unsupported chart_id.
+    stale: Not applicable to the HTML entrypoint; chart data freshness is owned by live_chart_surface.
+    degraded: Page data can degrade if live_chart_surface is degraded.
+    misconfigured: Missing chart HTML asset causes route failure.
+    placeholder: none
+  provenance_notes:
+  - HTML entrypoint only; not an independent data plane.
+  - Not execution-eligible.
 - surface_id: prices_surface
   route_family: /api/prices/*
   backend_class: questdb
@@ -738,6 +806,26 @@ entries:
   provenance_notes:
   - Canonical and served host is :8011.
   - Research-only operator surface for fetch tier fallback observability.
+- surface_id: feature_meta_surface
+  route_family: /api/meta/features
+  backend_class: computed_inline
+  primary_tables:
+  - docs/contracts/feature_provenance_manifest.yaml
+  upstreams:
+  - feature_provenance_manifest.yaml
+  required_env: []
+  writer_owner: docs/contracts/feature_provenance_manifest.yaml
+  read_path_owner: api.routes.meta
+  freshness_source: feature_provenance_manifest.yaml published_at
+  failure_mode:
+    empty: HTTP 503 when the provenance manifest is missing.
+    stale: Manifest may lag registry changes until paired contract artifacts are updated.
+    degraded: none
+    misconfigured: HTTP 500 when the manifest cannot be parsed.
+    placeholder: none
+  provenance_notes:
+  - Metadata route describing feature provenance and failure semantics.
+  - Not execution-eligible.
 - surface_id: entity_intelligence_surface
   route_family: /api/entities/*
   backend_class: questdb
@@ -768,5 +856,5 @@ entries:
     placeholder: none
   provenance_notes:
   - Canonical and served host is :8011.
-  - The surface is recorded as tier_3_research and is not admitted to nautilus_dev v1.
+  - The surface is recorded as tier_2_operator and is not admitted to nautilus_dev v1.
   - Legacy cluster:* identifiers remain accepted as read-only lookup aliases and normalize to canonical btc:entity:* identifiers.

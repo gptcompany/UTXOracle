@@ -6,8 +6,23 @@ version: "1.0.0"
 updated_at: "2026-04-11"
 
 surfaces:
+  live_health_surface:
+    route: "/health"
+    metrics:
+      - name: "live_health_status"
+        unit: "enum"
+        description: "Whether the live app health endpoint reports healthy status."
+        thresholds:
+          fatal:
+            condition: "status != healthy"
+            execution_impact: "halted"
+
   live_snapshot_surface:
-    route: "/api/v1/live/snapshot"
+    routes:
+      - "/api/v1/live/snapshot"
+      - "/api/v1/live/history"
+      - "/api/v1/live/comparison/latest"
+      - "/api/v1/live/ready"
     metrics:
       - name: "live_snapshot_freshness"
         unit: "seconds"
@@ -16,11 +31,16 @@ surfaces:
           warning:
             condition: ">= 15s"
             execution_impact: "none"
-          critical:
-            condition: ">= 30s"
-            execution_impact: "manage_only"
           fatal:
-            condition: ">= 60s"
+            condition: ">= 30s"
+            execution_impact: "halted"
+      - name: "live_history_availability"
+        unit: "boolean"
+        description: "Whether the bounded live history route is reachable for startup and recovery verification."
+        thresholds:
+          fatal:
+            condition: "false"
+            duration: ">= 30s"
             execution_impact: "halted"
 
   btc_feature_bundles_surface:
@@ -37,11 +57,8 @@ surfaces:
           warning:
             condition: ">= 30s"
             execution_impact: "none"
-          critical:
-            condition: ">= 60s"
-            execution_impact: "manage_only"
           fatal:
-            condition: ">= 120s"
+            condition: ">= 60s"
             execution_impact: "halted"
       - name: "bundle_sequence_integrity"
         unit: "boolean"
@@ -61,11 +78,8 @@ surfaces:
           warning:
             condition: ">= 30s"
             execution_impact: "none"
-          critical:
-            condition: ">= 60s"
-            execution_impact: "manage_only"
           fatal:
-            condition: ">= 120s"
+            condition: ">= 60s"
             execution_impact: "halted"
       - name: "signal_sequence_integrity"
         unit: "boolean"

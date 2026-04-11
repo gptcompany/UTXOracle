@@ -9,13 +9,13 @@ This document defines how to respond to critical and fatal alerts affecting tier
 
 ### 1. Stale Live Snapshot
 - **Trigger**: `live_snapshot_freshness` >= 30s
-- **Severity**: `critical`
+- **Severity**: `fatal`
 - **Immediate Action**:
     1. Check `utxoracle-live-compose.service` logs.
     2. Verify Bitcoin Core RPC responsiveness (`bitcoin-cli getblockchaininfo`).
     3. Check `source_clients.py` status for connectivity issues to Electrum servers.
 - **Recovery Confirmation**: `live_snapshot_freshness` < 15s for 2 consecutive reads.
-- **Execution Consequence**: System remains in `manage_only` while stale; transitions to `halted` if freshness >= 60s.
+- **Execution Consequence**: Immediate transition to `halted`.
 
 ### 2. Tier-1 Endpoint Failure
 - **Trigger**: Any tier-1 endpoint returns 5xx or is unreachable for > 30s.

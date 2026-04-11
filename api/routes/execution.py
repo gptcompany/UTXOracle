@@ -2,7 +2,7 @@ import yaml
 from pathlib import Path
 from datetime import datetime, timezone
 import logging
-from typing import Dict, Tuple, List
+from typing import Any, Dict, Tuple, List
 
 from fastapi import APIRouter, Request, Depends
 
@@ -26,6 +26,79 @@ logger = logging.getLogger(__name__)
 
 DOCS_DIR = Path(__file__).resolve().parents[3] / "docs"
 EXECUTION_SAFETY_PATH = DOCS_DIR / "contracts" / "execution_safety.yaml"
+HEALTHY_INPUT_STATUSES = {"healthy", "ok"}
+
+
+def _coerce_datetime(value: Any, fallback: datetime) -> datetime:
+    if isinstance(value, datetime):
+        produced_at = value
+    else:
+        try:
+            produced_at = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return fallback
+
+    if produced_at.tzinfo is None:
+        produced_at = produced_at.replace(tzinfo=timezone.utc)
+    return produced_at
+
+
+def _is_healthy_status(value: Any) -> bool:
+    return str(value).lower() in HEALTHY_INPUT_STATUSES
+
+
+def _coerce_sequence_id(
+    row: dict[str, Any],
+    key: str,
+    gaps_detected: List[str],
+) -> int | None:
+    value = row.get("sequence_id")
+    if value is None:
+        gaps_detected.append(f"{key}_sequence_missing")
+        return None
+
+    try:
+        sequence_id = int(value)
+    except (TypeError, ValueError):
+        gaps_detected.append(f"{key}_sequence_invalid")
+        return None
+
+    if sequence_id < 1:
+        gaps_detected.append(f"{key}_sequence_invalid")
+        return None
+
+    return sequence_id
+
+
+def _check_recent_sequence_rows(
+    key: str,
+    rows: list[dict[str, Any]],
+    gaps_detected: List[str],
+) -> bool:
+    if not rows:
+        gaps_detected.append(f"{key}_sequence_missing")
+        return False
+
+    latest_sequence_id = _coerce_sequence_id(rows[0], key, gaps_detected)
+    if latest_sequence_id is None:
+        return False
+
+    if len(rows) < 2:
+        return True
+
+    previous_sequence_id = _coerce_sequence_id(rows[1], key, gaps_detected)
+    if previous_sequence_id is None:
+        return False
+
+    if latest_sequence_id <= previous_sequence_id:
+        gaps_detected.append(f"{key}_sequence_non_monotonic")
+        return False
+
+    if latest_sequence_id - previous_sequence_id > 1:
+        gaps_detected.append(f"{key}_sequence_gap")
+        return False
+
+    return True
 
 
 def _get_operator_stage() -> Tuple[OperatorStage, ExecutionMode]:
@@ -113,16 +186,7 @@ async def get_execution_status(
                     is_fresh = False
                     continue
 
-                produced_at = row["produced_at"]
-                if not isinstance(produced_at, datetime):
-                    try:
-                        produced_at = datetime.fromisoformat(
-                            str(produced_at).replace("Z", "+00:00")
-                        )
-                        if produced_at.tzinfo is None:
-                            produced_at = produced_at.replace(tzinfo=timezone.utc)
-                    except ValueError:
-                        produced_at = now
+                produced_at = _coerce_datetime(row["produced_at"], now)
 
                 bundle_age = (now - produced_at).total_seconds()
                 input_refs[key] = produced_at.isoformat()
@@ -131,9 +195,17 @@ async def get_execution_status(
                     stale_inputs.append(key)
                     is_fresh = False
 
-                if row["bundle_status"] != "ok":
+                if not _is_healthy_status(row.get("bundle_status")):
                     stale_inputs.append(f"{key}_status_not_ok")
                     is_fresh = False
+
+                recent_rows = await repo.get_recent_feature_bundle_sequence(bundle_id, 2)
+                if not _check_recent_sequence_rows(key, recent_rows or [row], gaps_detected):
+                    is_monotonic = False
+                else:
+                    input_refs[f"{key}_sequence_id"] = str(
+                        recent_rows[0]["sequence_id"] if recent_rows else row["sequence_id"]
+                    )
 
             # Check signals
             sig_row = await repo.get_latest_signal_snapshot()
@@ -141,18 +213,7 @@ async def get_execution_status(
                 stale_inputs.append("signal")
                 is_fresh = False
             else:
-                sig_produced_at = sig_row["produced_at"]
-                if not isinstance(sig_produced_at, datetime):
-                    try:
-                        sig_produced_at = datetime.fromisoformat(
-                            str(sig_produced_at).replace("Z", "+00:00")
-                        )
-                        if sig_produced_at.tzinfo is None:
-                            sig_produced_at = sig_produced_at.replace(
-                                tzinfo=timezone.utc
-                            )
-                    except ValueError:
-                        sig_produced_at = now
+                sig_produced_at = _coerce_datetime(sig_row["produced_at"], now)
 
                 sig_age = (now - sig_produced_at).total_seconds()
                 input_refs["signal"] = sig_produced_at.isoformat()
@@ -161,9 +222,17 @@ async def get_execution_status(
                     stale_inputs.append("signal")
                     is_fresh = False
 
-                if sig_row["service_status"] != "ok":
+                if not _is_healthy_status(sig_row.get("service_status")):
                     stale_inputs.append("signal_status_not_ok")
                     is_fresh = False
+
+                recent_signal_rows = await repo.get_recent_signal_sequence(2)
+                if not _check_recent_sequence_rows("signal", recent_signal_rows or [sig_row], gaps_detected):
+                    is_monotonic = False
+                else:
+                    input_refs["signal_sequence_id"] = str(
+                        recent_signal_rows[0]["sequence_id"] if recent_signal_rows else sig_row["sequence_id"]
+                    )
 
         # Compute Mode
         if not is_fresh or not is_monotonic:

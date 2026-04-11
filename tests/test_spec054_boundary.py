@@ -41,3 +41,32 @@ def test_registry_tiers_match_boundary():
         rf = entry["route_family"]
         if rf in boundary_map:
             assert entry["admission_tier"] == boundary_map[rf], f"Mismatch for {rf}: registry={entry['admission_tier']} boundary={boundary_map[rf]}"
+
+def test_tier1_boundary_families_have_observability_manifest_coverage():
+    with open("docs/contracts/surface_boundary.yaml") as f:
+        boundary = yaml.safe_load(f)
+    with open("docs/contracts/OBSERVABILITY_MANIFEST.yaml") as f:
+        manifest = yaml.safe_load(f)
+
+    observed_routes = set()
+    for surface in manifest["surfaces"].values():
+        if "route" in surface:
+            observed_routes.add(surface["route"])
+        observed_routes.update(surface.get("routes", []))
+
+    tier1_families = {
+        family["route_family"]
+        for family in boundary["families"]
+        if family["tier"] == "tier_1_execution"
+    }
+
+    assert "/health" in observed_routes
+    assert "/api/v1/live/history" in observed_routes
+    assert any(route.startswith("/api/features/btc/") for route in observed_routes)
+    assert any(route.startswith("/api/signals/btc/") for route in observed_routes)
+    assert tier1_families == {
+        "/health",
+        "/api/v1/live/*",
+        "/api/features/btc/*",
+        "/api/signals/btc/*",
+    }

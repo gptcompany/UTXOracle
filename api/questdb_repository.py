@@ -1349,6 +1349,20 @@ class QuestDBRepository:
         rows = await self.fetch(query)
         return [dict(row) for row in rows]
 
+    async def get_recent_feature_bundle_sequence(
+        self,
+        bundle_id: str,
+        limit: int = 2,
+    ) -> list[dict]:
+        query = f"""
+        SELECT sequence_id, produced_at, bundle_status FROM btc_feature_bundles
+        WHERE bundle_id = '{bundle_id}'
+        ORDER BY sequence_id DESC, produced_at DESC
+        LIMIT {limit};
+        """
+        rows = await self.fetch(query)
+        return [dict(row) for row in rows]
+
     async def get_latest_signal_snapshot(self) -> dict | None:
         query = """
         SELECT * FROM btc_signal_snapshots 
@@ -1375,6 +1389,16 @@ class QuestDBRepository:
         WHERE schema_version = 'v1'
         {sequence_filter}
         ORDER BY sequence_id ASC, produced_at ASC
+        LIMIT {limit};
+        """
+        rows = await self.fetch(query)
+        return [dict(row) for row in rows]
+
+    async def get_recent_signal_sequence(self, limit: int = 2) -> list[dict]:
+        query = f"""
+        SELECT sequence_id, produced_at, service_status FROM btc_signal_snapshots
+        WHERE schema_version = 'v1'
+        ORDER BY sequence_id DESC, produced_at DESC
         LIMIT {limit};
         """
         rows = await self.fetch(query)

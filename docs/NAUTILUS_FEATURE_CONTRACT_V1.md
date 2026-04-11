@@ -45,8 +45,8 @@ These surfaces are admitted for direct production consumption in `v1`.
 
 | Surface ID | Route family | Why admitted | Freshness target | Empty/stale policy |
 |------|------|------|------|------|
-| `live_snapshot_surface` | `/api/v1/live/*` on `:8011` | strongest runtime-verified live surface | `<= 60s` | `503` when snapshot missing; stale after `60s`; `/ready` returns `503` when stale |
-| `live_chart_surface` | `/api/v1/charts/*` on `:8011` | strongest runtime-verified chart surface | `<= 60s` | `503` when snapshot history unavailable; stale shown in chart metadata |
+| `live_snapshot_surface` | `/api/v1/live/*` on `:8011` | strongest runtime-verified live surface | healthy `<= 15s`; stale `>= 30s` | `503` when snapshot missing; stale at `>= 30s`; `/ready` returns `503` when stale |
+| `live_chart_surface` | `/api/v1/charts/*` on `:8011` | strongest runtime-verified chart surface | healthy `<= 15s`; stale `>= 30s` | `503` when snapshot history unavailable; stale shown in chart metadata |
 | `prices_surface` | `/api/prices/*` | canonical price comparison family for main app | newest `price_analysis` row | `404` when no rows; `500` on QuestDB failures |
 | `metrics_latest_surface` | `/api/metrics/latest` | compact admitted bundle already exposed for downstream feature use | newest `metrics` row | `404` when no rows; `500` on QuestDB failures |
 | `btc_feature_bundles_surface` | `/api/features/btc/*` on `:8011` | admitted consumer feature bundles | newest bundle | `200 OK` with `empty`/`stale` status in payload |

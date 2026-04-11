@@ -117,9 +117,9 @@ Severity threshold table (reuses spec-056 numeric targets):
 | Condition | Threshold | Duration | Severity | Execution Mode |
 |-----------|-----------|----------|----------|----------------|
 | live snapshot freshness | ≥ 15s, < 30s | any | `warning` | no change |
-| live snapshot freshness | ≥ 30s | any | `critical` | `manage_only` → `halted` if > 60s |
+| live snapshot freshness | ≥ 30s | any | `fatal` | `halted` |
 | bundle/signal freshness | ≥ 30s, < 60s | any | `warning` | no change |
-| bundle/signal freshness | ≥ 60s | any | `critical` | `manage_only` → `halted` if > 120s |
+| bundle/signal freshness | ≥ 60s | any | `fatal` | `halted` |
 | tier-1 read latency p95 | > 250ms | 2 min | `warning` | no change |
 | tier-1 read latency p95 | > 1000ms | 2 min | `critical` | `manage_only` |
 | tier-1 endpoint error rate | > 5% | 2 min | `critical` | `manage_only` |
@@ -139,10 +139,10 @@ The first slice should require runbooks for at least the following scenarios. Ea
 
 - stale live snapshot
   - trigger: live snapshot freshness ≥ 30s
-  - severity: `critical`
+  - severity: `fatal`
   - action: check live worker health, verify Bitcoin Core RPC, check source_clients status
   - recovery: freshness returns to < 15s for 2 consecutive reads
-  - execution: `manage_only` while stale; `halted` if > 60s
+  - execution: immediate `halted`
 - tier-1 endpoint failure
   - trigger: any tier-1 endpoint returns 5xx or is unreachable for > 30s
   - severity: `fatal`

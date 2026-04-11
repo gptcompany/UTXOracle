@@ -13,6 +13,14 @@ families:
     source_of_truth: Live app health check endpoint
     fail_mode: fail-closed
     execution_eligible: true
+  - route_family: /{docs,redoc,openapi.json}
+    host: :8011
+    tier: tier_2_operator
+    allowed_consumers:
+      - operators
+    source_of_truth: FastAPI generated documentation and OpenAPI schema
+    fail_mode: degraded
+    execution_eligible: false
   - route_family: /api/v1/live/*
     host: :8011
     tier: tier_1_execution

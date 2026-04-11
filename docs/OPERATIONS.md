@@ -688,7 +688,7 @@ CRITICAL FATAL: Both primary and backup DB writes failed
 The system defines explicit thresholds for tier-1 surfaces that directly influence the `execution_mode` in Nautilus Trader. These are formalized in the [Observability Manifest](contracts/OBSERVABILITY_MANIFEST.yaml).
 
 - **Fatal Alerts**: Immediate transition to `halted` (e.g., sequence gap, endpoint failure).
-- **Critical Alerts**: Transition to `manage_only` or `halted` (e.g., stale snapshots > 30s).
+- **Critical Alerts**: Transition to `manage_only` or `halted` depending on the threshold table (e.g., divergence spike or QuestDB unavailability may be `manage_only`; stale live snapshots at `>= 30s` are `fatal` and transition immediately to `halted`).
 - **Warning Alerts**: Operator investigation required within 15 minutes; no automatic mode change.
 
 ### Incident Response and Runbooks

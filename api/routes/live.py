@@ -53,7 +53,7 @@ def _build_live_health_summary_from_snapshot(snapshot: LiveSnapshot | None) -> d
         for name, health in snapshot.source_health.items()
     }
     
-    if age_seconds > 60:
+    if age_seconds >= 30:
         overall_status = "stale"
     else:
         overall_status = (
@@ -126,7 +126,7 @@ async def get_live_ready(
     now = utc_now()
     age_seconds = (now - snapshot.timestamp).total_seconds()
     
-    if age_seconds > 60:
+    if age_seconds >= 30:
         raise HTTPException(
             status_code=503, 
             detail=f"live data is stale ({age_seconds:.1f}s old)"
