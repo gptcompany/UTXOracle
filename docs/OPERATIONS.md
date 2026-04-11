@@ -672,6 +672,40 @@ CRITICAL FATAL: Both primary and backup DB writes failed
 
 ---
 
+## Execution-Grade Observability
+
+### General Monitoring vs. Execution-Grade Observability
+
+| Feature | General Monitoring (Baseline) | Execution-Grade Observability (spec-059) |
+|---------|------------------------------|-----------------------------------------|
+| **Goal** | Dashboard visibility, "is it up?" | Deterministic evidence for live capital trading |
+| **Primary Metric** | CPU, Memory, HTTP 200s | Freshness, Sequence Integrity, Monotonicity |
+| **Response** | Investigation at convenience | Automated execution mode transition (halt/manage) |
+| **Evidence** | Transient logs/graphs | Structured, immutable Incident Artifacts |
+| **Success** | Green status light | Verified data freshness within SLO |
+
+### Canonical Metrics and Thresholds
+The system defines explicit thresholds for tier-1 surfaces that directly influence the `execution_mode` in Nautilus Trader. These are formalized in the [Observability Manifest](contracts/OBSERVABILITY_MANIFEST.yaml).
+
+- **Fatal Alerts**: Immediate transition to `halted` (e.g., sequence gap, endpoint failure).
+- **Critical Alerts**: Transition to `manage_only` or `halted` (e.g., stale snapshots > 30s).
+- **Warning Alerts**: Operator investigation required within 15 minutes; no automatic mode change.
+
+### Incident Response and Runbooks
+Every `critical` or `fatal` alert is treated as an **incident**. Operators must follow the [Incident Response Runbooks](contracts/INCIDENT_RESPONSE.md) for:
+1. Stale live snapshot
+2. Tier-1 endpoint failure
+3. Bundle or signal sequence gap
+4. Upstream divergence spike
+5. QuestDB unavailable
+6. Restatement affecting execution
+7. Execution-status inconsistency
+
+### Incident Artifacts
+Every incident must result in a structured JSON artifact conforming to the schema in `INCIDENT_RESPONSE.md`. This artifact provides the audit trail for recovery and any "accepted risk" decisions made during the incident.
+
+---
+
 ## Common Issues & Troubleshooting
 
 ### Issue 1: electrs Sync Stuck
