@@ -61,10 +61,10 @@
 
 ## Phase 5: Governance and Coupling
 
-- [ ] T021 Publish one canonical SLO artifact or doc section containing the frozen numeric targets
-- [ ] T022 Define how stale or violated tier-1 targets feed `spec-055` execution modes
-- [ ] T023 Define how SLO violations feed `spec-059` alerting and incident severity
-- [ ] T024 Update service docs so operators know which numbers are targets versus hard execution blockers
+- [x] T021 Publish one canonical SLO artifact or doc section containing the frozen numeric targets
+- [x] T022 Define how stale or violated tier-1 targets feed `spec-055` execution modes
+- [x] T023 Define how SLO violations feed `spec-059` alerting and incident severity
+- [x] T024 Update service docs so operators know which numbers are targets versus hard execution blockers
 
 **Checkpoint**: SLOs are not just numbers; they have operational consequences.
 

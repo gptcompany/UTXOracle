@@ -1,0 +1,64 @@
+# service_slo_and_capacity.yaml
+# Defines the canonical numeric targets and capacity assumptions for tier-1 execution surfaces.
+# Frozen per spec-056.
+
+scope:
+  applies_to:
+    - tier_1_execution (latest live snapshots, feature bundles, signal snapshots, execution-status)
+  excluded:
+    - tier_2_operator
+    - historical_research
+    - public_api
+  deployment_model: "local single-host deployment"
+
+availability_targets:
+  tier_1_execution_read_monthly: "99.5%"
+
+latency_targets_p95_local:
+  health_check: "<= 100ms"
+  tier_1_latest: "<= 250ms"
+  tier_1_history_bounded: "<= 1000ms"
+
+freshness_targets:
+  measurement: "now() - latest_block_or_capture_timestamp"
+  classes:
+    - healthy: "within the normal target window"
+    - degraded: "outside healthy target but inside the maximum safety window"
+    - stale: "at or outside the maximum safety window"
+  
+  surfaces:
+    live_snapshot:
+      healthy: "<= 15s"
+      stale_threshold: ">= 30s"
+    feature_bundle:
+      healthy: "<= 30s"
+      stale_threshold: ">= 60s"
+    signal_snapshot:
+      healthy: "<= 30s"
+      stale_threshold: ">= 60s"
+
+capacity_assumptions:
+  consumer_model: "one serious NT consumer plus light operator load"
+  polling_cadence:
+    tier_1_latest: "up to every 5s"
+  burst_tolerance: "retries and dashboards"
+  out_of_scope: "multi-region availability, internet-scale public API load, commercial SLA commitments"
+
+governance_and_execution_coupling:
+  degraded_state:
+    description: "Outside healthy target but inside the maximum stale threshold."
+    consequence: "Warning-only, operator-visible. These are targets, not hard execution blockers."
+    spec_055_execution_mode: "trade_enabled (trading continues)"
+    spec_059_alerting: "Warning alerts"
+    
+  stale_state:
+    description: "At or outside the maximum stale threshold (e.g., >= 30s for live snapshots)."
+    consequence: "Hard execution blocker. Cannot coexist with trade_enabled."
+    spec_055_execution_mode: "fail_closed or observe_only"
+    spec_059_alerting: "High severity incident / page operator"
+    
+  availability_failure:
+    description: "Failing to meet the 99.5% availability target or service down."
+    consequence: "Hard execution blocker."
+    spec_055_execution_mode: "fail_closed"
+    spec_059_alerting: "High severity incident / page operator"
