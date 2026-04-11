@@ -37,11 +37,11 @@
 
 ## Phase 3: Runbook Set
 
-- [ ] T011 Freeze the minimum runbook set: stale live snapshot, tier-1 endpoint failure, sequence gap, divergence spike, QuestDB unavailable, execution-affecting restatement, execution-status unavailable or inconsistent
-- [ ] T012 Define the first operator action for each runbook
-- [ ] T013 Define the recovery confirmation checks for each runbook
-- [ ] T014 Define when the runbook requires execution halt versus manage-only behavior
-- [ ] T015 Define where the dedicated execution-grade runbooks live and how they are referenced from incidents or alerts
+- [x] T011 Freeze the minimum runbook set: stale live snapshot, tier-1 endpoint failure, sequence gap, divergence spike, QuestDB unavailable, execution-affecting restatement, execution-status unavailable or inconsistent
+- [x] T012 Define the first operator action for each runbook
+- [x] T013 Define the recovery confirmation checks for each runbook
+- [x] T014 Define when the runbook requires execution halt versus manage-only behavior
+- [x] T015 Define where the dedicated execution-grade runbooks live and how they are referenced from incidents or alerts
 
 **Checkpoint**: critical failures now have explicit operator procedures.
 
@@ -49,10 +49,10 @@
 
 ## Phase 4: Incident Artifact Model
 
-- [ ] T016 Freeze the minimum incident artifact shape
-- [ ] T017 Define required fields for incident start/end, triggering evidence, affected surfaces, execution consequence, and operator action
-- [ ] T018 Define the minimum evidence required before closing a critical or fatal incident
-- [ ] T019 Define the follow-up artifact or accepted-risk note after incident closure
+- [x] T016 Freeze the minimum incident artifact shape
+- [x] T017 Define required fields for incident start/end, triggering evidence, affected surfaces, execution consequence, and operator action
+- [x] T018 Define the minimum evidence required before closing a critical or fatal incident
+- [x] T019 Define the follow-up artifact or accepted-risk note after incident closure
 
 **Checkpoint**: incident handling leaves usable evidence.
 
