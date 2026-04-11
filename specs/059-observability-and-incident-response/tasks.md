@@ -72,10 +72,10 @@
 
 ## Phase 6: Verification
 
-- [ ] T025 Verify all tier-1 surfaces have canonical telemetry coverage
-- [ ] T026 Verify every critical execution-affecting failure mode has a runbook
-- [ ] T027 Verify incident severity maps cleanly into execution consequences and recovery clearance conditions
-- [ ] T028 Verify the incident artifact is lightweight enough to be used consistently
-- [ ] T029 Verify the observability layer remains narrow and maintainable
+- [x] T025 Verify all tier-1 surfaces have canonical telemetry coverage
+- [x] T026 Verify every critical execution-affecting failure mode has a runbook
+- [x] T027 Verify incident severity maps cleanly into execution consequences and recovery clearance conditions
+- [x] T028 Verify the incident artifact is lightweight enough to be used consistently
+- [x] T029 Verify the observability layer remains narrow and maintainable
 
 **Checkpoint**: the operator can use the observability model under stress, not only in theory.
