@@ -63,11 +63,11 @@
 
 ## Phase 5: Execution Coupling
 
-- [ ] T023 Define how `suspect` state affects `spec-055` execution modes
-- [ ] T024 Define how `quarantined` state affects `spec-055` execution modes
-- [ ] T025 Define how unresolved critical `restated` state affects `spec-055`
-- [ ] T026 Define how continuity or sequence failures escalate into data-quality consequences
-- [ ] T027 Define the minimal operator acknowledgment or resolution flow before execution may resume
+- [x] T023 Define how `suspect` state affects `spec-055` execution modes
+- [x] T024 Define how `quarantined` state affects `spec-055` execution modes
+- [x] T025 Define how unresolved critical `restated` state affects `spec-055`
+- [x] T026 Define how continuity or sequence failures escalate into data-quality consequences
+- [x] T027 Define the minimal operator acknowledgment or resolution flow before execution may resume
 
 **Checkpoint**: data quality now has direct execution meaning.
 
@@ -75,10 +75,10 @@
 
 ## Phase 6: Storage, Serving, and Governance
 
-- [ ] T028 [E] Decide where quality-state and restatement artifacts are persisted
-- [ ] T029 [E] Decide how tier-1 surfaces reference quality and restatement status
-- [ ] T030 Update provenance and contract artifacts so data-quality semantics are discoverable
-- [ ] T031 Update service and operator docs with the quality-state vocabulary and restatement rules
+- [x] T028 [E] Decide where quality-state and restatement artifacts are persisted
+- [x] T029 [E] Decide how tier-1 surfaces reference quality and restatement status
+- [x] T030 Update provenance and contract artifacts so data-quality semantics are discoverable
+- [x] T031 Update service and operator docs with the quality-state vocabulary and restatement rules
 
 **Checkpoint**: governance artifacts and service behavior align.
 
