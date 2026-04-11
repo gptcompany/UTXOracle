@@ -66,8 +66,8 @@
 - [x] T023 Freeze the minimum response payload shape, including compatibility mapping fields if retained
 - [x] T024 Freeze how `input_refs`, freshness summary, and sequence summary are represented
 - [ ] T025 Write RED tests for execution status: response shape, mode transitions, fail-closed behavior
-- [ ] T026 [E] Implement execution-state derivation using only tier-1 inputs
-- [ ] T027 [E] Implement the execution status route
+- [x] T026 [E] Implement execution-state derivation using only tier-1 inputs
+- [x] T027 [E] Implement the execution status route
 - [ ] T028 Verify RED tests from T025 now pass GREEN
 
 **Checkpoint**: NT can read one canonical safety surface.

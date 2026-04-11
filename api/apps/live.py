@@ -43,7 +43,9 @@ SUPPORTED_CHART_PAGES = {
 class LiveServiceCheck(BaseModel):
     status: str = Field(description="ok or error")
     error: str | None = Field(default=None, description="Error details when degraded")
-    last_success: str | None = Field(default=None, description="ISO timestamp of last success")
+    last_success: str | None = Field(
+        default=None, description="ISO timestamp of last success"
+    )
 
 
 class LiveHealthStatus(BaseModel):
@@ -127,23 +129,26 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(live_router, prefix="/api/v1")
-    
+
     # tier_2_operator — NOT execution-eligible, see docs/contracts/surface_boundary.yaml
     app.include_router(charts_router, prefix="/api/v1")
-    
+
     # tier_2_operator — NOT execution-eligible, see docs/contracts/surface_boundary.yaml
     app.include_router(questdb_router)
-    
+
+    from api.routes.execution import router as execution_router
+
+    app.include_router(execution_router)
     app.include_router(features_router)
     app.include_router(signals_router)
     from api.routes.entities import router as entities_router
-    
+
     # tier_2_operator — NOT execution-eligible, see docs/contracts/surface_boundary.yaml
     app.include_router(entities_router)
-    
+
     # tier_2_operator — NOT execution-eligible, see docs/contracts/surface_boundary.yaml
     app.include_router(whale_router)
-    
+
     # tier_2_operator — NOT execution-eligible, see docs/contracts/surface_boundary.yaml
     app.include_router(meta_router)
 
@@ -195,5 +200,6 @@ def create_app() -> FastAPI:
         )
 
     return app
+
 
 app = create_app()
