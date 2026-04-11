@@ -1,6 +1,6 @@
 # spec-056: Service SLO, Freshness, and Capacity
 
-> **Status**: DRAFT
+> **Status**: IMPLEMENTED
 > **Priority**: CRITICAL
 > **Effort**: Medium
 > **Created**: 2026-04-10

@@ -72,10 +72,10 @@
 
 ## Phase 6: Verification
 
-- [ ] T025 Verify all tier-1 routes referenced in `spec-055` have explicit numeric targets
-- [ ] T026 Verify no tier-2 or research-only family receives accidental execution-grade promises
-- [ ] T027 Verify freshness thresholds are compatible with real producer cadence
-- [ ] T028 Verify the capacity story remains simple enough for a single-operator setup
-- [ ] T029 Verify the SLO artifact is small and maintainable
+- [x] T025 Verify all tier-1 routes referenced in `spec-055` have explicit numeric targets
+- [x] T026 Verify no tier-2 or research-only family receives accidental execution-grade promises
+- [x] T027 Verify freshness thresholds are compatible with real producer cadence
+- [x] T028 Verify the capacity story remains simple enough for a single-operator setup
+- [x] T029 Verify the SLO artifact is small and maintainable
 
 **Checkpoint**: the service guarantee layer is usable in operations and execution gating.
