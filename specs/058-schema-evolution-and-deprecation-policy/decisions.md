@@ -20,6 +20,9 @@ Expected coverage: 12 binding decision rows.
 | Phase 1 | T005 | current major-version rule | execution-grade `v1` surfaces are additive-only by default | T006-T024, registry alignment | spec.md#2-major-version-rule |
 | Phase 2 | T006 | major-version requirement | breaking changes require a new major version | T007-T024, migration policy | spec.md#2-major-version-rule |
 | Phase 2 | T007 | deprecation window | minimum `30 day` deprecation window for execution-grade breaking replacement unless emergency override is recorded | T008-T024, rollout docs | spec.md#3-deprecation-window |
+| Phase 2 | T008 | parallel overlap | parallel overlap is expected for all execution-grade breaking replacements where practical; skipping overlap must be justified and recorded | T009-T024, rollout strategy | spec.md#2-major-version-rule |
+| Phase 2 | T009 | emergency override | emergency overrides require recording: reason, affected surfaces, operator name, and expiration date in the decision log | T010-T024, operator safety | spec.md#3-deprecation-window |
+| Phase 2 | T010 | migration note | breaking replacements require a migration note covering: compatibility impact, rationale, and explicit transition steps | T011-T024, consumer guidance | spec.md#2-major-version-rule |
 | Phase 3 | T011 | route-contract compatibility gate | schema-affecting or `behavioral_tightening` promotions require route contract validation | T012-T024, change-control workflow | spec.md#4-nt-compatibility-gate |
 | Phase 3 | T012 | replay compatibility gate | schema-affecting or `behavioral_tightening` promotions require replay compatibility verification | T013-T024, promotion workflow | spec.md#4-nt-compatibility-gate |
 | Phase 3 | T013 | NT compatibility gate | schema-affecting or `behavioral_tightening` promotions require NT adapter compatibility verification | T014-T024, promotion workflow | spec.md#4-nt-compatibility-gate |

@@ -25,11 +25,11 @@
 
 ## Phase 2: Versioning and Deprecation Rules
 
-- [ ] T006 Freeze the rule that breaking changes require a new major version
-- [ ] T007 Freeze the minimum deprecation window for execution-grade surfaces
-- [ ] T008 Define when a parallel overlap period is expected for replacement surfaces
-- [ ] T009 Define emergency override behavior for exceptional breaking changes
-- [ ] T010 Define the minimum migration note content for breaking replacements
+- [x] T006 Freeze the rule that breaking changes require a new major version
+- [x] T007 Freeze the minimum deprecation window for execution-grade surfaces
+- [x] T008 Define when a parallel overlap period is expected for replacement surfaces
+- [x] T009 Define emergency override behavior for exceptional breaking changes
+- [x] T010 Define the minimum migration note content for breaking replacements
 
 **Checkpoint**: version change discipline is no longer ad hoc.
 
