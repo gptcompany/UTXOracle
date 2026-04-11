@@ -13,11 +13,11 @@
 
 ## Phase 1: Baseline and Drift Inventory
 
-- [ ] T001 Freeze the scope: this spec governs service boundary and execution eligibility, not strategy logic or broad auth redesign
-- [ ] T002 [P] Inventory all route families currently mounted on `:8011` — AC: produce a table of every route prefix, HTTP method, and source module; done when verified against `api/apps/live.py` route registrations
-- [ ] T003 [P] Inventory the documented `:8011` production boundary across README, service profile, and contract docs — AC: one diff table showing each doc's claim vs runtime
-- [ ] T004 Record all drift between runtime exposure and documentation — AC: drift list with file:line references for each mismatch
-- [ ] T005 Record the current consumer assumption that `NT` should only use a narrow subset of the available API — AC: statement logged in decisions.md
+- [x] T001 Freeze the scope: this spec governs service boundary and execution eligibility, not strategy logic or broad auth redesign
+- [x] T002 [P] Inventory all route families currently mounted on `:8011` — AC: produce a table of every route prefix, HTTP method, and source module; done when verified against `api/apps/live.py` route registrations
+- [x] T003 [P] Inventory the documented `:8011` production boundary across README, service profile, and contract docs — AC: one diff table showing each doc's claim vs runtime
+- [x] T004 Record all drift between runtime exposure and documentation — AC: drift list with file:line references for each mismatch
+- [x] T005 Record the current consumer assumption that `NT` should only use a narrow subset of the available API — AC: statement logged in decisions.md
 
 **Checkpoint**: the real boundary problem is explicit before tiering starts.
 
