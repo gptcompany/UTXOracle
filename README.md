@@ -82,9 +82,19 @@ The intended production topology is:
 6. `UTXOracle Live API` as the only downstream consumer contract
 
 Current production boundary:
-- `8011` exposes only `/health` and `/api/v1/live/*`
+- `8011` exposes multiple execution and operator route families
 - `8001` is legacy/research-only and must not be treated as the canonical consumer contract
 - the retained live family on `8011` is now served directly from QuestDB `live_snapshots`
+
+### Service Boundary
+
+The explicit NT execution contract is strictly limited to `tier_1_execution` surfaces:
+- `/health`
+- `/api/v1/live/*`
+- `/api/features/btc/*`
+- `/api/signals/btc/*`
+
+For the complete service boundary and tier assignments, refer to [docs/contracts/surface_boundary.yaml](docs/contracts/surface_boundary.yaml) as the canonical source of truth.
 
 ## Canonical Chart Surface
 

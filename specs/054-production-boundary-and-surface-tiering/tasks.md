@@ -52,11 +52,11 @@
 
 ## Phase 4: Boundary Artifact and Documentation
 
-- [ ] T019 Create one canonical boundary artifact at `docs/contracts/surface_boundary.yaml` listing route family, host, tier, allowed consumers, source of truth, fail mode, and execution eligibility
-- [ ] T020 Update the production consumer service profile to align with the frozen tier model
-- [ ] T021 Update the README so the documented `:8011` boundary matches the chosen contract truth
-- [ ] T022 Update the feature contract registry and related docs to reflect the frozen tier assignments
-- [ ] T023 Define the canonical doc or artifact that must be updated before any future boundary expansion
+- [x] T019 Create one canonical boundary artifact at `docs/contracts/surface_boundary.yaml` listing route family, host, tier, allowed consumers, source of truth, fail mode, and execution eligibility
+- [x] T020 Update the production consumer service profile to align with the frozen tier model
+- [x] T021 Update the README so the documented `:8011` boundary matches the chosen contract truth
+- [x] T022 Update the feature contract registry and related docs to reflect the frozen tier assignments
+- [x] T023 Define the canonical doc or artifact that must be updated before any future boundary expansion
 
 **Checkpoint**: docs and boundary policy are synchronized.
 

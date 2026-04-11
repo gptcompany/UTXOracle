@@ -25,7 +25,7 @@ If a route family is not present in the registry, it is not part of the supporte
 The registry separates:
 
 - audit reality: `runtime verified`, `code implemented`, `calculator only`, `placeholder`
-- consumer admission: `tier_1_production`, `tier_2_production_with_caveats`, `tier_3_research`, `tier_4_not_admitted`
+- consumer admission: `tier_1_execution`, `tier_2_operator`, `tier_3_research`
 
 ## 2. Required Entry Fields
 
@@ -48,21 +48,17 @@ Every registry entry carries:
 
 ## 3. Tier Definitions
 
-### `tier_1_production`
+### `tier_1_execution`
 
-Stable for production consumption under the declared host policy, backend dependency, and freshness rules.
+NT may consume; fail-closed; SLO-bound.
 
-### `tier_2_production_with_caveats`
+### `tier_2_operator`
 
-Admitted for production use only when the operator understands and accepts the declared caveats and dependency footprint.
+visibility/debug/validation; NOT an execution dependency.
 
 ### `tier_3_research`
 
-Available for exploration, validation, or internal tooling, but not admitted as part of the production feature contract for `nautilus_dev`.
-
-### `tier_4_not_admitted`
-
-Explicitly excluded from the supported contract because they are placeholder, shadowed, mocked, or otherwise materially misleading today.
+not allowed in trading decisions.
 
 ## 4. Deprecation Status Vocabulary
 
@@ -78,38 +74,38 @@ Explicitly excluded from the supported contract because they are placeholder, sh
 
 | Surface ID | Route family | Current label | Admission tier | Primary consumer | Canonical host | Backend class | Owner | Key caveats |
 |------|------|------|------|------|------|------|------|------|
-| `live_snapshot_surface` | `/api/v1/live/*` | `runtime verified` | `tier_1_production` | `nautilus_dev`, operators | `:8011` | `hybrid` | `scripts.live.worker` + `api.routes.live` | Dedicated live app is now the only served host for this surface |
-| `live_chart_surface` | `/api/v1/charts/*` | `runtime verified` | `tier_1_production` | `nautilus_dev`, research | `:8011` | `hybrid` | `scripts.live.worker` + `api.routes.charts` | Depends on live snapshot store and upstream source health |
-| `prices_surface` | `/api/prices/*` | `runtime verified` | `tier_1_production` | `nautilus_dev`, research | `:8011` | `questdb` | `scripts.daily_analysis.py` + `api.routes.questdb` | `:8001` remains active only as a secondary legacy path with migration hint header |
-| `metrics_latest_surface` | `/api/metrics/latest` | `runtime verified` | `tier_1_production` | `nautilus_dev`, research | `:8011` | `questdb` | `scripts.daily_analysis.py` + `scripts.metrics.save_metrics_to_db` + `api.routes.questdb` | `:8001` remains active only as a secondary legacy path with migration hint header |
-| `whale_query_surface` | `/api/whale/{transactions,summary,transaction/{txid}}` | `runtime verified` | `tier_2_production_with_caveats` | research, `nautilus_dev` future forensics | `:8011` | `questdb` | `mempool whale monitor` + `address cluster bootstrap` + `api.mempool_whale_endpoints` | Canonical whale query family now serves additive `whale_event.v1` fields; entity enrichment is best-effort and `:8001` remains secondary with migration hint header |
-| `exchange_netflow_surface` | `/api/metrics/exchange-netflow*` | `code implemented` | `tier_2_production_with_caveats` | `nautilus_dev`, research | `:8001` | `duckdb_utxo_lifecycle` | `scripts.metrics.exchange_netflow` + `api.main` | Requires populated DuckDB and exchange address CSV |
-| `binary_cdd_surface` | `/api/metrics/binary-cdd` | `code implemented` | `tier_2_production_with_caveats` | `nautilus_dev`, research | `:8001` | `duckdb_utxo_lifecycle` | `scripts.metrics.binary_cdd` + `api.main` | Returns `503`/`404` when DuckDB or tables are absent |
-| `net_realized_pnl_surface` | `/api/metrics/net-realized-pnl*` | `code implemented` | `tier_2_production_with_caveats` | `nautilus_dev`, research | `:8001` | `duckdb_utxo_lifecycle` | `scripts.metrics.net_realized_pnl` + `api.main` | Requires populated spent UTXO history |
-| `pl_ratio_surface` | `/api/metrics/pl-ratio*` | `code implemented` | `tier_2_production_with_caveats` | `nautilus_dev`, research | `:8001` | `duckdb_utxo_lifecycle` | `scripts.metrics.pl_ratio` + `api.main` | Requires populated spent UTXO history |
-| `sopr_surface` | `/api/metrics/sopr` | `code implemented` | `tier_2_production_with_caveats` | `nautilus_dev`, research | `:8001` | `duckdb_utxo_lifecycle` | `scripts.metrics.utxo_lifecycle` + `api.main` | Requires `utxo_lifecycle_full` and current spent data |
-| `nvt_surface` | `/api/metrics/nvt` | `code implemented` | `tier_2_production_with_caveats` | `nautilus_dev`, research | `:8001` | `duckdb_utxo_lifecycle` | `scripts.metrics.nvt` + `api.main` | Also depends on `block_heights`; default `current_price` query arg can alter outputs |
-| `volatility_surface` | `/api/metrics/volatility` | `code implemented` | `tier_2_production_with_caveats` | `nautilus_dev`, research | `:8001` | `duckdb_daily_prices` | `scripts.bootstrap.build_price_table` + `api.main` | Requires populated `daily_prices` history |
-| `mining_pulse_surface` | `/api/metrics/mining-pulse` | `code implemented` | `tier_2_production_with_caveats` | `nautilus_dev`, research | `:8001` | `bitcoin_core_rpc` | `scripts.metrics.mining_economics` + `api.main` | Hard dependency on Bitcoin Core RPC availability |
-| `hash_ribbons_surface` | `/api/metrics/hash-ribbons` | `code implemented` | `tier_2_production_with_caveats` | `nautilus_dev`, research | `:8001` | `external_api` | `scripts.data.hashrate_fetcher` + `api.main` | Hard dependency on hashrate upstream availability |
-| `mining_economics_surface` | `/api/metrics/mining-economics*` | `code implemented` | `tier_2_production_with_caveats` | `nautilus_dev`, research | `:8001` | `hybrid` | `scripts.metrics.mining_economics` + `api.main` | History path hardcodes `pulse_zone="NORMAL"` |
+| `live_snapshot_surface` | `/api/v1/live/*` | `runtime verified` | `tier_1_execution` | `nautilus_dev`, operators | `:8011` | `hybrid` | `scripts.live.worker` + `api.routes.live` | Dedicated live app is now the only served host for this surface |
+| `live_chart_surface` | `/api/v1/charts/*` | `runtime verified` | `tier_1_execution` | `nautilus_dev`, research | `:8011` | `hybrid` | `scripts.live.worker` + `api.routes.charts` | Depends on live snapshot store and upstream source health |
+| `prices_surface` | `/api/prices/*` | `runtime verified` | `tier_1_execution` | `nautilus_dev`, research | `:8011` | `questdb` | `scripts.daily_analysis.py` + `api.routes.questdb` | `:8001` remains active only as a secondary legacy path with migration hint header |
+| `metrics_latest_surface` | `/api/metrics/latest` | `runtime verified` | `tier_1_execution` | `nautilus_dev`, research | `:8011` | `questdb` | `scripts.daily_analysis.py` + `scripts.metrics.save_metrics_to_db` + `api.routes.questdb` | `:8001` remains active only as a secondary legacy path with migration hint header |
+| `whale_query_surface` | `/api/whale/{transactions,summary,transaction/{txid}}` | `runtime verified` | `tier_2_operator` | research, `nautilus_dev` future forensics | `:8011` | `questdb` | `mempool whale monitor` + `address cluster bootstrap` + `api.mempool_whale_endpoints` | Canonical whale query family now serves additive `whale_event.v1` fields; entity enrichment is best-effort and `:8001` remains secondary with migration hint header |
+| `exchange_netflow_surface` | `/api/metrics/exchange-netflow*` | `code implemented` | `tier_2_operator` | `nautilus_dev`, research | `:8001` | `duckdb_utxo_lifecycle` | `scripts.metrics.exchange_netflow` + `api.main` | Requires populated DuckDB and exchange address CSV |
+| `binary_cdd_surface` | `/api/metrics/binary-cdd` | `code implemented` | `tier_2_operator` | `nautilus_dev`, research | `:8001` | `duckdb_utxo_lifecycle` | `scripts.metrics.binary_cdd` + `api.main` | Returns `503`/`404` when DuckDB or tables are absent |
+| `net_realized_pnl_surface` | `/api/metrics/net-realized-pnl*` | `code implemented` | `tier_2_operator` | `nautilus_dev`, research | `:8001` | `duckdb_utxo_lifecycle` | `scripts.metrics.net_realized_pnl` + `api.main` | Requires populated spent UTXO history |
+| `pl_ratio_surface` | `/api/metrics/pl-ratio*` | `code implemented` | `tier_2_operator` | `nautilus_dev`, research | `:8001` | `duckdb_utxo_lifecycle` | `scripts.metrics.pl_ratio` + `api.main` | Requires populated spent UTXO history |
+| `sopr_surface` | `/api/metrics/sopr` | `code implemented` | `tier_2_operator` | `nautilus_dev`, research | `:8001` | `duckdb_utxo_lifecycle` | `scripts.metrics.utxo_lifecycle` + `api.main` | Requires `utxo_lifecycle_full` and current spent data |
+| `nvt_surface` | `/api/metrics/nvt` | `code implemented` | `tier_2_operator` | `nautilus_dev`, research | `:8001` | `duckdb_utxo_lifecycle` | `scripts.metrics.nvt` + `api.main` | Also depends on `block_heights`; default `current_price` query arg can alter outputs |
+| `volatility_surface` | `/api/metrics/volatility` | `code implemented` | `tier_2_operator` | `nautilus_dev`, research | `:8001` | `duckdb_daily_prices` | `scripts.bootstrap.build_price_table` + `api.main` | Requires populated `daily_prices` history |
+| `mining_pulse_surface` | `/api/metrics/mining-pulse` | `code implemented` | `tier_2_operator` | `nautilus_dev`, research | `:8001` | `bitcoin_core_rpc` | `scripts.metrics.mining_economics` + `api.main` | Hard dependency on Bitcoin Core RPC availability |
+| `hash_ribbons_surface` | `/api/metrics/hash-ribbons` | `code implemented` | `tier_2_operator` | `nautilus_dev`, research | `:8001` | `external_api` | `scripts.data.hashrate_fetcher` + `api.main` | Hard dependency on hashrate upstream availability |
+| `mining_economics_surface` | `/api/metrics/mining-economics*` | `code implemented` | `tier_2_operator` | `nautilus_dev`, research | `:8001` | `hybrid` | `scripts.metrics.mining_economics` + `api.main` | History path hardcodes `pulse_zone="NORMAL"` |
 | `exchange_addresses_stats_surface` | `/api/exchange-addresses/stats` | `code implemented` | `tier_3_research` | operators, research | `:8001` | `computed_inline` | `api.main` | Reads local CSV metadata only; not admitted to `nautilus_dev` |
 | `nupl_surface` | `/api/metrics/nupl` | `code implemented` | `tier_3_research` | research | `:8001` | `duckdb_utxo_lifecycle` | `scripts.metrics.nupl` + `scripts.metrics.realized_metrics` + `api.main` | `pct_supply_in_profit` remains an explicit estimate (`nupl_linear_proxy`), not a direct per-UTXO profit-state field |
-| `cost_basis_surface` | `/api/metrics/cost-basis` | `runtime verified` | `tier_1_production` | research, `nautilus_dev` | `:8011` | `questdb` | `scripts.metrics.materialize_wave1` + `api.routes.questdb` | Latest snapshot is materialized and served on `:8011`; admitted field subset only |
+| `cost_basis_surface` | `/api/metrics/cost-basis` | `runtime verified` | `tier_1_execution` | research, `nautilus_dev` | `:8011` | `questdb` | `scripts.metrics.materialize_wave1` + `api.routes.questdb` | Latest snapshot is materialized and served on `:8011`; admitted field subset only |
 | `models_core_surface` | `/api/v1/models`, `/api/v1/models/{name}/predict`, `/api/v1/models/backtest/{name}`, `/api/v1/models/compare`, `/api/v1/models/ensemble` | `code implemented` | `tier_3_research` | research | `:8001` | `computed_inline` | `api.routes.models` | Not part of first consumer slice |
 | `rbn_validation_surface` | `/api/v1/validation/rbn/*` | `code implemented` | `tier_3_research` | operators, research | `:8001` | `external_api` | `scripts.integrations.rbn_fetcher` + `api.main` | Requires `RBN_API_TOKEN` and is quota-bound |
-| `btc_feature_bundles_surface` | `/api/features/btc/*` | `runtime verified` | `tier_1_production` | `nautilus_dev` | `:8011` | `questdb` | `scripts.live.bundle_writer` + `api.routes.features` | Materialized asynchronously by the background bundle writer |
-| `btc_signal_snapshot_surface` | `/api/signals/btc/*` | `runtime verified` | `tier_1_production` | `nautilus_dev` | `:8011` | `questdb` | `scripts.live.signal_writer` + `api.routes.signals` | Derived strictly from admitted feature bundles |
+| `btc_feature_bundles_surface` | `/api/features/btc/*` | `runtime verified` | `tier_1_execution` | `nautilus_dev` | `:8011` | `questdb` | `scripts.live.bundle_writer` + `api.routes.features` | Materialized asynchronously by the background bundle writer |
+| `btc_signal_snapshot_surface` | `/api/signals/btc/*` | `runtime verified` | `tier_1_execution` | `nautilus_dev` | `:8011` | `questdb` | `scripts.live.signal_writer` + `api.routes.signals` | Derived strictly from admitted feature bundles |
 | `entity_intelligence_surface` | `/api/entities/*` | `code implemented` | `tier_3_research` | research | `:8011` | `questdb` | `scripts.clustering.backfill_entity_registry_sampled` + `scripts.live.flow_aggregator` + `scripts.bootstrap.sync_entities_to_questdb` + `api.routes.entities` | Research-only entity intelligence surface on `:8011`; accepts legacy `cluster:*` aliases read-only and depends on daily registry/flow materialization |
 | `advanced_research_surface` | `/api/metrics/{advanced,wasserstein*,cointime*,urpd,supply-profit-loss,reserve-risk,sell-side-risk,cdd-vdd,revived-supply}` | `mixed research surface` | `tier_3_research` | research | `:8001` | `hybrid` | `scripts.metrics.*` + `api.main` | `cointime*` is code implemented on `:8001`, but the broader research bucket remains mixed and some members still return `501`; `reserve-risk` is additionally frozen by the metric source-of-truth manifest as a `BRK`-first overlapping metric rather than a default local productization target |
-| `wallet_and_cohort_surface` | `/api/metrics/{address-cohorts,wallet-waves,absorption-rates}` | `runtime verified` | `tier_1_production` | research, `nautilus_dev` | `:8011` | `questdb` | `scripts.metrics.materialize_wave1` + `api.routes.questdb` | Latest snapshots are materialized and served on `:8011`; `wallet-waves/history` remains outside the admitted slice |
+| `wallet_and_cohort_surface` | `/api/metrics/{address-cohorts,wallet-waves,absorption-rates}` | `runtime verified` | `tier_1_execution` | research, `nautilus_dev` | `:8011` | `questdb` | `scripts.metrics.materialize_wave1` + `api.routes.questdb` | Latest snapshots are materialized and served on `:8011`; `wallet-waves/history` remains outside the admitted slice |
 | `power_law_surface` | `/api/v1/models/power-law*` | `code implemented` | `tier_3_research` | research | `:8001` | `duckdb_daily_prices` | `api.main` + `scripts.metrics.power_law` | Dedicated handler now wins deterministically, but the surface remains outside the first `nautilus_dev` contract slice |
 | `research_operations_surface` | `/api/research/tier-stats` | `code implemented` | `tier_3_research` | operators, research | `:8011` | `questdb` | `api.routes.questdb` | Monitoring for fetch tier fallbacks (T140) |
-| `pro_risk_surface` | `/api/risk/pro*` | `placeholder` | `tier_4_not_admitted` | research only today | `:8001` | `computed_inline` | `api.main` + `scripts.metrics.pro_risk` | `/api/risk/pro` and `/history` are now runtime-demoted; only `/zones` remains usable static metadata |
-| `puell_multiple_surface` | `/api/metrics/puell-multiple` | `placeholder` | `tier_4_not_admitted` | research only today | `:8001` | `computed_inline` | `api.main` | Runtime-demoted until real 365-day miner revenue history is wired |
-| `legacy_whale_placeholder_surface` | `/api/whale/{latest,historical,history}` | `code implemented` | `tier_4_not_admitted` | none | `:8001` | `computed_inline` | `api.main` | Legacy whale aliases now return explicit `410 Gone` migration stubs and are outside the canonical whale surface |
-| `wallet_waves_history_placeholder_surface` | `/api/metrics/wallet-waves/history` | `placeholder` | `tier_4_not_admitted` | none | `:8001` | `computed_inline` | `api.main` | Route now returns explicit `503` until historical wallet-wave snapshots are materialized |
-| `main_operational_pages_surface` | `/{,health,metrics,whale,dashboard,monitor,power-law,power_law}` | `code implemented` | `tier_4_not_admitted` | operators | `:8001` | `computed_inline` | `api.main` | Useful operationally, but not part of the admitted feature API contract |
+| `pro_risk_surface` | `/api/risk/pro*` | `placeholder` | `tier_3_research` | research only today | `:8001` | `computed_inline` | `api.main` + `scripts.metrics.pro_risk` | `/api/risk/pro` and `/history` are now runtime-demoted; only `/zones` remains usable static metadata |
+| `puell_multiple_surface` | `/api/metrics/puell-multiple` | `placeholder` | `tier_3_research` | research only today | `:8001` | `computed_inline` | `api.main` | Runtime-demoted until real 365-day miner revenue history is wired |
+| `legacy_whale_placeholder_surface` | `/api/whale/{latest,historical,history}` | `code implemented` | `tier_3_research` | none | `:8001` | `computed_inline` | `api.main` | Legacy whale aliases now return explicit `410 Gone` migration stubs and are outside the canonical whale surface |
+| `wallet_waves_history_placeholder_surface` | `/api/metrics/wallet-waves/history` | `placeholder` | `tier_3_research` | none | `:8001` | `computed_inline` | `api.main` | Route now returns explicit `503` until historical wallet-wave snapshots are materialized |
+| `main_operational_pages_surface` | `/{,health,metrics,whale,dashboard,monitor,power-law,power_law}` | `code implemented` | `tier_3_research` | operators | `:8001` | `computed_inline` | `api.main` | Useful operationally, but not part of the admitted feature API contract |
 
 ## 6. Governance Rules
 

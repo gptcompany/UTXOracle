@@ -40,7 +40,7 @@ Practical rule:
 
 These are the families that should be treated as production-ready and safe for automatic downstream consumption today.
 
-### Core live bundle
+### Core live bundle (`tier_1_execution` / `tier_2_operator`)
 
 - `/api/v1/live/*`
 - `/api/v1/charts/*`
@@ -51,7 +51,7 @@ Role:
 
 - shortest-path consumer bundle for live polling, health gating, and compact market-state ingestion
 
-### Event and forensics bundle
+### Event and forensics bundle (`tier_2_operator`)
 
 - `/api/whale/{transactions,summary,transaction/{txid}}`
 
@@ -60,7 +60,7 @@ Role:
 - canonical event bundle for whale-driven flows
 - `entity` enrichment is additive and optional; the base event remains valid without enrichment
 
-### Daily cohort bundle
+### Daily cohort bundle (`tier_2_operator`)
 
 - `/api/metrics/address-cohorts`
 - `/api/metrics/wallet-waves`
@@ -71,7 +71,7 @@ Role:
 - production-consumable daily analytical bundle for cohort and holder-state features
 - latest snapshots are in scope; `wallet-waves/history` is not
 
-### BTC Consumer Feature Bundles
+### BTC Consumer Feature Bundles (`tier_1_execution`)
 
 - `/api/features/btc/core/{latest,history}`
 - `/api/features/btc/flow/{latest,history}`
@@ -83,7 +83,7 @@ Role:
 - structured and admitted downstream consumer feature contracts (spec-052)
 - aggregates underlying metrics into stable bounded interfaces for strategy consumption
 
-### BTC Signal Snapshot
+### BTC Signal Snapshot (`tier_1_execution`)
 
 - `/api/signals/btc/{latest,history}`
 

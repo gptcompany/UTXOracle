@@ -1,0 +1,122 @@
+schema_version: '1'
+published_at: '2026-04-11'
+boundary_host: http://127.0.0.1:8011
+families:
+  - route_family: /health
+    host: :8011
+    tier: tier_1_execution
+    allowed_consumers:
+      - NT
+      - operators
+    source_of_truth: Live app health check endpoint
+    fail_mode: fail-closed
+    execution_eligible: true
+  - route_family: /api/v1/live/*
+    host: :8011
+    tier: tier_1_execution
+    allowed_consumers:
+      - NT
+      - operators
+    source_of_truth: Dedicated live app and LiveSnapshotStore-backed live worker
+    fail_mode: fail-closed
+    execution_eligible: true
+  - route_family: /api/v1/charts/*
+    host: :8011
+    tier: tier_2_operator
+    allowed_consumers:
+      - operators
+    source_of_truth: Dedicated live app charts derived from LiveSnapshotStore
+    fail_mode: degraded
+    execution_eligible: false
+  - route_family: /api/prices/*
+    host: :8011
+    tier: tier_2_operator
+    allowed_consumers:
+      - operators
+    source_of_truth: QuestDB price_analysis table via QuestDBRepository
+    fail_mode: degraded
+    execution_eligible: false
+  - route_family: /api/metrics/latest
+    host: :8011
+    tier: tier_2_operator
+    allowed_consumers:
+      - operators
+    source_of_truth: QuestDB metrics table via QuestDBRepository
+    fail_mode: degraded
+    execution_eligible: false
+  - route_family: /api/whale/{transactions,summary,transaction/{txid}}
+    host: :8011
+    tier: tier_2_operator
+    allowed_consumers:
+      - operators
+    source_of_truth: QuestDB mempool_predictions table with additive 
+      whale_event.v1 entity foundation fields
+    fail_mode: degraded
+    execution_eligible: false
+  - route_family: /api/metrics/{address-cohorts,wallet-waves,absorption-rates}
+    host: :8011
+    tier: tier_2_operator
+    allowed_consumers:
+      - operators
+    source_of_truth: QuestDB materialized daily metrics
+    fail_mode: degraded
+    execution_eligible: false
+  - route_family: /api/research/*
+    host: :8011
+    tier: tier_3_research
+    allowed_consumers:
+      - research
+    source_of_truth: QuestDB price_analysis table telemetry
+    fail_mode: degraded
+    execution_eligible: false
+  - route_family: /api/features/btc/*
+    host: :8011
+    tier: tier_1_execution
+    allowed_consumers:
+      - NT
+      - operators
+    source_of_truth: QuestDB btc_feature_bundles table
+    fail_mode: fail-closed
+    execution_eligible: true
+  - route_family: /api/signals/btc/*
+    host: :8011
+    tier: tier_1_execution
+    allowed_consumers:
+      - NT
+      - operators
+    source_of_truth: QuestDB btc_signal_snapshots table
+    fail_mode: fail-closed
+    execution_eligible: true
+  - route_family: /api/entities/*
+    host: :8011
+    tier: tier_2_operator
+    allowed_consumers:
+      - operators
+    source_of_truth: QuestDB entity registry, provenance, balance snapshot, and 
+      counterparty-edge serving tables via QuestDBRepository
+    fail_mode: degraded
+    execution_eligible: false
+  - route_family: /api/meta/features
+    host: :8011
+    tier: tier_2_operator
+    allowed_consumers:
+      - operators
+    source_of_truth: Static Meta Features API
+    fail_mode: degraded
+    execution_eligible: false
+  - route_family: /charts/{chart_id}
+    host: :8011
+    tier: tier_2_operator
+    allowed_consumers:
+      - operators
+    source_of_truth: Charts API fallback
+    fail_mode: degraded
+    execution_eligible: false
+  - route_family: /api/metrics/cost-basis
+    host: :8011
+    tier: tier_2_operator
+    allowed_consumers:
+      - operators
+    source_of_truth: DuckDB-backed cost basis
+    fail_mode: degraded
+    execution_eligible: false
