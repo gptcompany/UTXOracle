@@ -49,7 +49,7 @@ async def test_mempool_client_reads_usd_price():
 async def test_brk_client_fetches_curated_features_via_bulk_metrics():
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/api/metrics/bulk"
-        assert request.url.params["metrics"] == "realized_price_usd,liveliness,reserve_risk,nupl,sopr"
+        assert request.url.params["metrics"] == "realized_price_usd,liveliness,reserve_risk,nupl_ratio,sopr_24h"
         return httpx.Response(
             200,
             json=[
@@ -101,7 +101,7 @@ async def test_brk_client_tolerates_partial_bulk_payload_with_metric_names():
     assert result.value.brk_realized_price == pytest.approx(54311.39)
     assert result.value.brk_liveliness is None
     assert result.value.brk_reserve_risk == pytest.approx(4.100239e-06)
-    assert result.health.details["missing_metrics"] == ["liveliness", "nupl", "sopr"]
+    assert result.health.details["missing_metrics"] == ["liveliness", "nupl_ratio", "sopr_24h"]
 
 
 @pytest.mark.asyncio
@@ -127,7 +127,7 @@ async def test_brk_client_tolerates_partial_unnamed_bulk_payload():
     assert result.value.brk_reserve_risk == pytest.approx(4.100239e-06)
     assert result.value.brk_nupl is None
     assert result.value.brk_sopr is None
-    assert result.health.details["missing_metrics"] == ["nupl", "sopr"]
+    assert result.health.details["missing_metrics"] == ["nupl_ratio", "sopr_24h"]
 
 
 @pytest.mark.asyncio

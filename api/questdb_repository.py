@@ -1321,7 +1321,8 @@ class QuestDBRepository:
         query = f"""
         SELECT * FROM btc_feature_bundles 
         WHERE bundle_id = '{bundle_id}'
-        LATEST ON ts;
+        ORDER BY sequence_id DESC, produced_at DESC
+        LIMIT 1;
         """
         row = await self.fetchrow(query)
         if not row:
@@ -1367,7 +1368,8 @@ class QuestDBRepository:
         query = """
         SELECT * FROM btc_signal_snapshots 
         WHERE schema_version = 'v1'
-        LATEST ON ts;
+        ORDER BY sequence_id DESC, produced_at DESC
+        LIMIT 1;
         """
         row = await self.fetchrow(query)
         if not row:

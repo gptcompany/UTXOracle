@@ -17,6 +17,7 @@ WORKDIR /app
 
 COPY pyproject.toml uv.lock README.md /app/
 COPY api /app/api
+COPY docs /app/docs
 COPY scripts /app/scripts
 COPY frontend /app/frontend
 COPY UTXOracle_library.py /app/UTXOracle_library.py

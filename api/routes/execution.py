@@ -24,7 +24,7 @@ from scripts.live.storage import LiveSnapshotStore
 router = APIRouter(prefix="/api/execution/btc", tags=["execution-btc"])
 logger = logging.getLogger(__name__)
 
-DOCS_DIR = Path(__file__).resolve().parents[3] / "docs"
+DOCS_DIR = Path(__file__).resolve().parents[2] / "docs"
 EXECUTION_SAFETY_PATH = DOCS_DIR / "contracts" / "execution_safety.yaml"
 HEALTHY_INPUT_STATUSES = {"healthy", "ok"}
 

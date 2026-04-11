@@ -29,10 +29,13 @@ reports
 research
 validation
 
-docs
 specs
 tests
 examples
+
+# The live API serves contract manifests from docs/contracts at runtime.
+!docs/
+!docs/**
 
 UTXOracle_*.html
 backfill.log

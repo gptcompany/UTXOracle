@@ -45,8 +45,8 @@ BRK_CURATED_METRICS = (
     ("brk_realized_price", "realized_price_usd"),
     ("brk_liveliness", "liveliness"),
     ("brk_reserve_risk", "reserve_risk"),
-    ("brk_nupl", "nupl"),
-    ("brk_sopr", "sopr"),
+    ("brk_nupl", "nupl_ratio"),
+    ("brk_sopr", "sopr_24h"),
 )
 
 
