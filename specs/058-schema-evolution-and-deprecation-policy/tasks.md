@@ -13,11 +13,11 @@
 
 ## Phase 1: Change-Class Freeze
 
-- [ ] T001 Freeze the scope: execution-grade contract evolution only, not every internal helper model
-- [ ] T002 Freeze the execution-grade change-class vocabulary to `docs_only`, `additive_non_breaking`, `behavioral_tightening`, `breaking`, and map it to the broader `spec-044` governance terms
-- [ ] T003 Freeze the definition of what counts as a breaking shape change
-- [ ] T004 Freeze the definition of what counts as a breaking semantic change
-- [ ] T005 Freeze the first-slice `v1` rule as additive-only by default
+- [x] T001 Freeze the scope: execution-grade contract evolution only, not every internal helper model
+- [x] T002 Freeze the execution-grade change-class vocabulary to `docs_only`, `additive_non_breaking`, `behavioral_tightening`, `breaking`, and map it to the broader `spec-044` governance terms
+- [x] T003 Freeze the definition of what counts as a breaking shape change
+- [x] T004 Freeze the definition of what counts as a breaking semantic change
+- [x] T005 Freeze the first-slice `v1` rule as additive-only by default
 
 **Checkpoint**: the policy for safe versus unsafe change is explicit.
 
