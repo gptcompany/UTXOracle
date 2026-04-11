@@ -39,11 +39,11 @@
 
 ## Phase 3: Suspect and Quarantine Rules
 
-- [ ] T013 Freeze the escalation rule from `valid` to `suspect`
-- [ ] T014 Freeze the escalation rule from `suspect` to `quarantined`
-- [ ] T015 Define which quarantined conditions must immediately block execution
-- [ ] T016 Define operator visibility requirements for suspect and quarantined data
-- [ ] T017 Define whether quarantined data remains readable for operator and forensic use
+- [x] T013 Freeze the escalation rule from `valid` to `suspect`
+- [x] T014 Freeze the escalation rule from `suspect` to `quarantined`
+- [x] T015 Define which quarantined conditions must immediately block execution
+- [x] T016 Define operator visibility requirements for suspect and quarantined data
+- [x] T017 Define whether quarantined data remains readable for operator and forensic use
 
 **Checkpoint**: unsafe data cannot continue as normal silently.
 
@@ -51,11 +51,11 @@
 
 ## Phase 4: Restatement Model
 
-- [ ] T018 Freeze the minimum restatement artifact shape
-- [ ] T019 Define how affected surfaces and time ranges are referenced
-- [ ] T020 Define how a restatement points to the superseded artifact or reference
-- [ ] T021 Define severity classes for restatements
-- [ ] T022 Define whether and how restatements propagate to tier-1 `latest` and `history` consumers
+- [x] T018 Freeze the minimum restatement artifact shape
+- [x] T019 Define how affected surfaces and time ranges are referenced
+- [x] T020 Define how a restatement points to the superseded artifact or reference
+- [x] T021 Define severity classes for restatements
+- [x] T022 Define whether and how restatements propagate to tier-1 `latest` and `history` consumers
 
 **Checkpoint**: historical corrections are explicit and auditable.
 
