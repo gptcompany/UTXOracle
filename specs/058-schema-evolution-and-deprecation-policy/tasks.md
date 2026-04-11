@@ -49,10 +49,10 @@
 
 ## Phase 4: Governance Alignment
 
-- [ ] T016 [E] Align the feature contract registry with the frozen change classes, their `spec-044` mapping, and the version policy
-- [ ] T017 [E] Align provenance and contract docs where schema version semantics need to be explicit
-- [ ] T018 Update operator and consumer guidance with the change and deprecation policy
-- [ ] T019 Define the review checklist item that enforces this spec for future execution-grade contract changes
+- [x] T016 [E] Align the feature contract registry with the frozen change classes, their `spec-044` mapping, and the version policy
+- [x] T017 [E] Align provenance and contract docs where schema version semantics need to be explicit
+- [x] T018 Update operator and consumer guidance with the change and deprecation policy
+- [x] T019 Define the review checklist item that enforces this spec for future execution-grade contract changes
 
 **Checkpoint**: the policy is attached to real governance artifacts.
 

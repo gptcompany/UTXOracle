@@ -14,6 +14,15 @@ admission_tiers:
     description: visibility/debug/validation; NOT an execution dependency
   tier_3_research:
     description: not allowed in trading decisions
+change_classes:
+  docs_only:
+    description: no consumer impact; documentation or metadata only
+  additive_non_breaking:
+    description: new optional fields or metadata only; safe for existing consumers
+  behavioral_tightening:
+    description: stricter semantics without shape breakage; requires explicit review
+  breaking:
+    description: removal, rename, incompatible semantic change, or contract split
 entries:
   - surface_id: live_health_surface
     route_family: /health

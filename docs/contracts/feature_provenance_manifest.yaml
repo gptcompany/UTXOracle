@@ -19,6 +19,11 @@ failure_mode_vocabulary:
   misconfigured: Required env vars, credentials, DB files, or services are missing.
   placeholder: Route is exposed but semantics are mocked, hardcoded, or intentionally
     incomplete.
+change_class_vocabulary:
+  docs_only: no consumer impact; documentation or metadata only.
+  additive_non_breaking: new optional fields or metadata only; safe for existing consumers.
+  behavioral_tightening: stricter semantics without shape breakage; requires explicit review.
+  breaking: removal, rename, incompatible semantic change, or contract split.
 quality_state_vocabulary:
   valid: Safe to serve normally for execution.
   suspect: Anomaly detected; may be visible but cannot silently pass as normal execution-grade data.
