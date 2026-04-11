@@ -5,6 +5,8 @@ This file tracks the binding couplings between:
 - [spec-052](/media/sam/1TB/UTXOracle/specs/052-btc-consumer-bundles-and-signal-snapshots/spec.md)
 - [spec-053](/media/sam/1TB/UTXOracle/specs/053-btc-entity-and-flow-intelligence-plane/spec.md)
 
+Note: the execution-grade NT pack (`spec-054` through `spec-059`) uses [execution-grade-nt-cross-spec-sync.md](/media/sam/1TB/UTXOracle/specs/execution-grade-nt-cross-spec-sync.md).
+
 Usage:
 
 - keep one row per real coupling, not per discussion
