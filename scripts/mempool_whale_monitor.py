@@ -101,8 +101,10 @@ class MempoolWhaleMonitor:
             max_delay=30.0,
         )
 
-        # Broadcaster reference (will be set externally)
         self.broadcaster = None
+
+        # Load exchange addresses
+        self.exchange_addresses = self._load_exchange_addresses("data/exchange_addresses.csv")
 
         # Urgency scorer (for fee-based urgency calculation)
         self.urgency_scorer = WhaleUrgencyScorer(
@@ -110,9 +112,23 @@ class MempoolWhaleMonitor:
             update_interval_seconds=60,
         )
 
-        logger.info("Mempool whale monitor initialized")
+        logger.info(f"Mempool whale monitor initialized with {len(self.exchange_addresses)} exchange addresses")
         logger.info(f"Whale threshold: {whale_threshold_btc} BTC")
         logger.info("Using QuestDB for persistence")
+
+    def _load_exchange_addresses(self, path: str) -> dict[str, str]:
+        """Load exchange addresses mapping address -> exchange_name"""
+        import csv
+        addresses = {}
+        try:
+            with open(path, "r") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    addresses[row["address"]] = row["exchange_name"]
+            return addresses
+        except Exception as e:
+            logger.warning(f"Failed to load exchange addresses: {e}")
+            return {}
 
     async def _on_connect(self, websocket):
         """Handle WebSocket connection established"""
@@ -278,32 +294,42 @@ class MempoolWhaleMonitor:
     async def _create_whale_signal(self, tx_data: Dict[str, Any]) -> MempoolWhaleSignal:
         """
         Create MempoolWhaleSignal from transaction data
-
-        Args:
-            tx_data: Parsed transaction data
-
-        Returns:
-            MempoolWhaleSignal instance
         """
-        # Generate unique prediction ID
         prediction_id = str(uuid.uuid4())
-
-        # Classify flow type (simplified - defaults to UNKNOWN)
-        # TODO: Implement exchange address detection for proper classification
+        raw_data = tx_data.get("raw_data", {})
+        
+        # Extract addresses from input/output
+        involved_addresses = []
+        for vin in raw_data.get("vin", []):
+            if "prevout" in vin and "scriptpubkey_address" in vin["prevout"]:
+                involved_addresses.append(vin["prevout"]["scriptpubkey_address"])
+        for vout in raw_data.get("vout", []):
+            if "scriptpubkey_address" in vout:
+                involved_addresses.append(vout["scriptpubkey_address"])
+                
+        # Identify exchange addresses
+        identified = {addr: self.exchange_addresses[addr] for addr in involved_addresses if addr in self.exchange_addresses}
+        
+        # Simple flow classification (Inflow: exchange in vout, Outflow: exchange in vin)
         flow_type = FlowType.UNKNOWN
-
+        if identified:
+            # Check vout (inflow to exchange)
+            if any(addr in identified for vout in raw_data.get("vout", []) for addr in [vout.get("scriptpubkey_address")] if addr in self.exchange_addresses):
+                flow_type = FlowType.INFLOW
+            # Check vin (outflow from exchange)
+            elif any(addr in identified for vin in raw_data.get("vin", []) for addr in [vin.get("prevout", {}).get("scriptpubkey_address")] if addr in self.exchange_addresses):
+                flow_type = FlowType.OUTFLOW
+            else:
+                flow_type = FlowType.INTERNAL
+        
         # Predict confirmation block based on fee rate
         try:
-            predicted_block = self.urgency_scorer.predict_confirmation_block(
-                tx_data["fee_rate"]
-            )
+            predicted_block = self.urgency_scorer.predict_confirmation_block(tx_data["fee_rate"])
         except RuntimeError:
-            # Fallback if metrics not initialized
             predicted_block = None
-            logger.warning("Cannot predict confirmation block: metrics not initialized")
 
         # Create signal
-        signal = MempoolWhaleSignal(
+        return MempoolWhaleSignal(
             prediction_id=prediction_id,
             transaction_id=tx_data["txid"],
             flow_type=flow_type,
@@ -313,11 +339,9 @@ class MempoolWhaleMonitor:
             rbf_enabled=tx_data["rbf_enabled"],
             detection_timestamp=datetime.now(timezone.utc),
             predicted_confirmation_block=predicted_block,
-            exchange_addresses=[],  # TODO: Detect exchange addresses
-            confidence_score=None,  # TODO: Calculate classification confidence
+            exchange_addresses=list(identified.keys()),
+            confidence_score=0.8 if identified else None,
         )
-
-        return signal
 
     @with_db_retry(max_attempts=3)
     async def _persist_to_db(self, signal: MempoolWhaleSignal):
