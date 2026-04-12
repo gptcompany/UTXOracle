@@ -1108,6 +1108,17 @@ class QuestDBRepository:
 
         return await self.commit_address_clusters_refresh()
 
+    async def get_cluster_for_address(self, address: str) -> Optional[Dict[str, Any]]:
+        """Fetch fine-grained cluster info from QuestDB."""
+        try:
+            # We use PG wire port (8812) for select queries via fetchrow
+            query = f"SELECT cluster_id, label FROM {ADDRESS_CLUSTERS_TABLE} WHERE address = $1 LIMIT 1"
+            row = await self.fetchrow(query, address)
+            return dict(row) if row else None
+        except Exception as e:
+            logger.error(f"Cluster lookup failed for {address}: {e}")
+            return None
+
     def save_address_cohorts(self, result: AddressCohortsResult) -> bool:
         """
         Save address cohorts via ILP.

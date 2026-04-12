@@ -295,8 +295,15 @@ class MempoolWhaleMonitor:
             if "scriptpubkey_address" in vout:
                 involved_addresses.append(vout["scriptpubkey_address"])
                 
-        # Identify exchange addresses
+        # Identify exchange addresses (CSV first)
         identified = {addr: self.exchange_addresses[addr] for addr in involved_addresses if addr in self.exchange_addresses}
+        
+        # Enrichment: try DB lookup for addresses not in CSV
+        for addr in involved_addresses:
+            if addr not in identified:
+                cluster = await self.repo.get_cluster_for_address(addr)
+                if cluster:
+                    identified[addr] = cluster.get("label") or cluster.get("cluster_id")
         
         # Classify flow type and analyze involved exchanges
         flow_type = FlowType.UNKNOWN
