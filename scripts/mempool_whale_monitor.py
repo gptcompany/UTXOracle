@@ -312,23 +312,33 @@ class MempoolWhaleMonitor:
         
         # Classify flow type and analyze involved exchanges
         flow_type = FlowType.UNKNOWN
-        involved_exchanges = set(identified.values())
+        involved_exchanges = list(set(identified.values()))
         
-        has_inflow = any(addr in identified for vout in raw_data.get("vout", []) for addr in [vout.get("scriptpubkey_address")] if addr in self.exchange_addresses)
-        has_outflow = any(addr in identified for vin in raw_data.get("vin", []) for addr in [vin.get("prevout", {}).get("scriptpubkey_address")] if addr in self.exchange_addresses)
-
-        if has_inflow and has_outflow:
+        # Check inputs and outputs for specific exchange involvement
+        inflow_addresses = {addr for vout in raw_data.get("vout", []) for addr in [vout.get("scriptpubkey_address")] if addr in identified}
+        outflow_addresses = {addr for vin in raw_data.get("vin", []) for addr in [vin.get("prevout", {}).get("scriptpubkey_address")] if addr in identified}
+        
+        inflow_exchanges = {identified[addr] for addr in inflow_addresses}
+        outflow_exchanges = {identified[addr] for addr in outflow_addresses}
+        
+        # Logic refinement:
+        # 1. Internal transfer: Input and Output share exchanges (or across different exchanges)
+        # 2. Inflow: Only Output involves an exchange
+        # 3. Outflow: Only Input involves an exchange
+        
+        if inflow_exchanges and outflow_exchanges:
             flow_type = FlowType.INTERNAL
-            confidence = 0.95
-        elif has_inflow:
+            confidence = 0.98 if inflow_exchanges == outflow_exchanges else 0.9
+        elif inflow_exchanges:
             flow_type = FlowType.INFLOW
-            confidence = 0.9
-        elif has_outflow:
+            confidence = 0.95
+        elif outflow_exchanges:
             flow_type = FlowType.OUTFLOW
-            confidence = 0.9
+            confidence = 0.95
         else:
-            flow_type = FlowType.INTERNAL if len(involved_exchanges) > 1 else FlowType.UNKNOWN
-            confidence = 0.5 if flow_type == FlowType.INTERNAL else 0.0
+            # Fallback for complex/non-direct cases
+            flow_type = FlowType.UNKNOWN
+            confidence = 0.0
 
         # Predict confirmation block based on fee rate
         try:
