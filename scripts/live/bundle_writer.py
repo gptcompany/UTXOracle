@@ -583,9 +583,10 @@ class BundleWriter:
         try:
             return await builder()
         except Exception as exc:
+            error_msg = f"{component_name} failure: {str(exc)}"
             logger.warning("Failed to build %s bundle component: %s", component_name, exc)
-            if blocking:
-                degraded_reasons.append(f"{component_name} unavailable")
+            if blocking or error_msg not in degraded_reasons:
+                degraded_reasons.append(error_msg)
             return {}, None
 
     async def _build_flow_absorption_copy(self) -> tuple[dict[str, Any], Any]:
