@@ -103,8 +103,9 @@ class MempoolWhaleMonitor:
 
         self.broadcaster = None
 
-        # Load exchange addresses
-        self.exchange_addresses = self._load_exchange_addresses("data/exchange_addresses.csv")
+        # Load exchange addresses using shared robust utility
+        from scripts.utils.whale_utils import load_exchange_addresses
+        self.exchange_addresses = load_exchange_addresses("data/exchange_addresses.csv")
 
         # Urgency scorer (for fee-based urgency calculation)
         self.urgency_scorer = WhaleUrgencyScorer(
@@ -115,20 +116,6 @@ class MempoolWhaleMonitor:
         logger.info(f"Mempool whale monitor initialized with {len(self.exchange_addresses)} exchange addresses")
         logger.info(f"Whale threshold: {whale_threshold_btc} BTC")
         logger.info("Using QuestDB for persistence")
-
-    def _load_exchange_addresses(self, path: str) -> dict[str, str]:
-        """Load exchange addresses mapping address -> exchange_name"""
-        import csv
-        addresses = {}
-        try:
-            with open(path, "r") as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    addresses[row["address"]] = row["exchange_name"]
-            return addresses
-        except Exception as e:
-            logger.warning(f"Failed to load exchange addresses: {e}")
-            return {}
 
     async def _on_connect(self, websocket):
         """Handle WebSocket connection established"""
@@ -301,6 +288,7 @@ class MempoolWhaleMonitor:
         # Extract addresses from input/output
         involved_addresses = []
         for vin in raw_data.get("vin", []):
+            if vin.get("is_coinbase", False): continue
             if "prevout" in vin and "scriptpubkey_address" in vin["prevout"]:
                 involved_addresses.append(vin["prevout"]["scriptpubkey_address"])
         for vout in raw_data.get("vout", []):
