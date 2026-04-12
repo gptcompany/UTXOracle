@@ -56,6 +56,28 @@ services:
       - ./logs:/app/logs
       - /media/sam/4TB-NVMe/docker-volumes/hyperliquid/hl/data:/app/external/hyperliquid/node-data:ro
 
+  utxoracle-data-updater:
+    image: utxoracle-live:local
+    user: "1000:1000"
+    restart: always
+    volumes:
+      - ./data:/app/data
+    command: >
+      /bin/sh -c "while true; do
+        /app/.venv/bin/python3 scripts/bootstrap/scrape_exchange_addresses.py &&
+        /app/.venv/bin/python3 scripts/bootstrap/ingest_to_db.py &&
+        echo 'Registry updated, signaling monitor...';
+        sleep 604800;
+      done"
+    depends_on:
+      - utxoracle-live-questdb
+    environment:
+      DUCKDB_PATH: /app/data/utxoracle.duckdb
+      UTXORACLE_DB_PATH: /app/data/utxoracle.duckdb
+      QUESTDB_PG_HOST: utxoracle-live-questdb
+      QUESTDB_ILP_HOST: utxoracle-live-questdb
+      QUESTDB_HTTP_HOST: utxoracle-live-questdb
+
   utxoracle-live-api:
     image: utxoracle-live:local
     user: "1000:1000"
@@ -118,6 +140,28 @@ services:
       - ./data:/app/data
       - ./logs:/app/logs
       - /media/sam/4TB-NVMe/docker-volumes/hyperliquid/hl/data:/app/external/hyperliquid/node-data:ro
+
+  utxoracle-data-updater:
+    image: utxoracle-live:local
+    user: "1000:1000"
+    restart: always
+    volumes:
+      - ./data:/app/data
+    command: >
+      /bin/sh -c "while true; do
+        /app/.venv/bin/python3 scripts/bootstrap/scrape_exchange_addresses.py &&
+        /app/.venv/bin/python3 scripts/bootstrap/ingest_to_db.py &&
+        echo 'Registry updated, signaling monitor...';
+        sleep 604800;
+      done"
+    depends_on:
+      - utxoracle-live-questdb
+    environment:
+      DUCKDB_PATH: /app/data/utxoracle.duckdb
+      UTXORACLE_DB_PATH: /app/data/utxoracle.duckdb
+      QUESTDB_PG_HOST: utxoracle-live-questdb
+      QUESTDB_ILP_HOST: utxoracle-live-questdb
+      QUESTDB_HTTP_HOST: utxoracle-live-questdb
     healthcheck:
       test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8011/health', timeout=2)"]
       interval: 30s
