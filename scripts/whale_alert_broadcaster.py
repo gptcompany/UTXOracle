@@ -218,10 +218,12 @@ class WhaleAlertBroadcaster:
             return
 
         # Prepare the message
+        # Use to_broadcast_dict if available (from MempoolWhaleSignal), otherwise assume it's a dict or has to_dict
+        data = alert.to_broadcast_dict() if hasattr(alert, 'to_broadcast_dict') else (alert.to_dict() if hasattr(alert, 'to_dict') else alert)
         message = json.dumps(
             {
                 "type": "whale_alert",
-                "data": alert.to_dict(),
+                "data": data,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         )

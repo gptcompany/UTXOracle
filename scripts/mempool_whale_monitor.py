@@ -379,7 +379,7 @@ class MempoolWhaleMonitor:
             alert_data = signal.to_broadcast_dict()
 
             # Broadcast to all authenticated clients with 'read' permission
-            await self.broadcaster.broadcast_whale_alert(alert_data)
+            await self.broadcaster.broadcast_alert(signal)
 
             self.stats["alerts_broadcasted"] += 1
             logger.debug(f"Broadcasted alert {signal.prediction_id[:8]}...")
