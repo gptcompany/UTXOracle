@@ -39,16 +39,14 @@ Use `http://127.0.0.1:8001` for:
 - admitted main-app analytics listed below
 - canonical whale query routes
 
-## 3. Tier 1 Production Slice
+## 3. Tier 1 Execution Slice
 
-These surfaces are admitted for direct production consumption in `v1`.
+These surfaces are the only `tier_1_execution` inputs admitted for direct execution use in `v1`.
 
 | Surface ID | Route family | Why admitted | Freshness target | Empty/stale policy |
 |------|------|------|------|------|
 | `live_snapshot_surface` | `/api/v1/live/*` on `:8011` | strongest runtime-verified live surface | healthy `<= 15s`; stale `>= 30s` | `503` when snapshot missing; stale at `>= 30s`; `/ready` returns `503` when stale |
-| `live_chart_surface` | `/api/v1/charts/*` on `:8011` | strongest runtime-verified chart surface | healthy `<= 15s`; stale `>= 30s` | `503` when snapshot history unavailable; stale shown in chart metadata |
-| `prices_surface` | `/api/prices/*` | canonical price comparison family for main app | newest `price_analysis` row | `404` when no rows; `500` on QuestDB failures |
-| `metrics_latest_surface` | `/api/metrics/latest` | compact admitted bundle already exposed for downstream feature use | newest `metrics` row | `404` when no rows; `500` on QuestDB failures |
+| `live_health_surface` | `/health` on `:8011` | blocking health corroboration for the live execution slice | latest health evaluation | unhealthy or unavailable health must fail closed |
 | `btc_feature_bundles_surface` | `/api/features/btc/*` on `:8011` | admitted consumer feature bundles | newest bundle | `200 OK` with `empty`/`stale` status in payload |
 | `btc_signal_snapshot_surface` | `/api/signals/btc/*` on `:8011` | canonical deterministic signal layer | newest signal | `200 OK` with `empty`/`stale` status in payload |
 | `execution_safety_surface` | `/api/execution/btc/status` on `:8011` | single authoritative source of execution safety | newest state | resolves to `halted` if dependencies missing or stale |
@@ -62,12 +60,15 @@ The `execution_safety_surface` is the only trusted contract for live capital tra
 - Compatibility mapping: For older adapters still relying on `spec-043` statuses, use the `compatibility_status` field where `trade_enabled` maps to `STATUS_OK`, `manage_only` maps to `STATUS_LIQUIDATE_ONLY`, and all others map to `STATUS_HALT`.
 
 
-## 4. Tier 2 Production With Caveats
+## 4. Tier 2 Operator With Caveats
 
-These surfaces are admitted only with the declared infrastructure and semantic caveats.
+These surfaces may remain exposed or operationally useful in `v1`, but they are not execution-eligible in the first slice.
 
 | Surface ID | Route family | Caveat |
 |------|------|------|
+| `live_chart_surface` | `/api/v1/charts/*` | live chart surface is operator-facing only in the first slice; freshness may help humans without gating `trade_enabled` |
+| `prices_surface` | `/api/prices/*` | canonical price comparison family, but `tier_2_operator` in the first execution slice |
+| `metrics_latest_surface` | `/api/metrics/latest` | compact metrics surface remains operator-only for the first execution slice; missing rows must not block `trade_enabled` directly |
 | `whale_query_surface` | `/api/whale/{transactions,summary,transaction/{txid}}` | canonical whale query family is frozen with additive `whale_event.v1` fields; entity enrichment is best-effort and may be omitted while the base event remains valid |
 | `exchange_netflow_surface` | `/api/metrics/exchange-netflow*` | requires populated DuckDB plus `exchange_addresses.csv` |
 | `binary_cdd_surface` | `/api/metrics/binary-cdd` | requires populated DuckDB and sufficient lookback history |

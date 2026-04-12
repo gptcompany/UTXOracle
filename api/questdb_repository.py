@@ -1197,6 +1197,10 @@ class QuestDBRepository:
         """Get latest price analysis entry."""
         return await self.fetchrow("SELECT * FROM price_analysis ORDER BY ts DESC LIMIT 1")
 
+    async def get_latest_live_snapshot_row(self) -> Optional[AsyncpgRecord]:
+        """Get latest live snapshot entry."""
+        return await self.fetchrow("SELECT * FROM live_snapshots ORDER BY ts DESC LIMIT 1")
+
     async def get_latest_metrics(self) -> Optional[AsyncpgRecord]:
         """Get the most recent metrics entry."""
         return await self.fetchrow("SELECT * FROM metrics ORDER BY ts DESC LIMIT 1")
@@ -1312,7 +1316,10 @@ class QuestDBRepository:
     async def get_cost_basis_latest(self) -> Optional[AsyncpgRecord]:
         """Fetch the latest STH/LTH cost basis metrics."""
         query = """
-        SELECT * FROM cost_basis_daily LATEST ON ts;
+        SELECT *
+        FROM cost_basis_daily
+        ORDER BY ts DESC
+        LIMIT 1;
         """
         return await self.fetchrow(query)
 

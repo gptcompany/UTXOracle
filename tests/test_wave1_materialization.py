@@ -12,7 +12,11 @@ from scripts.models.metrics_models import (
     AbsorptionRateMetrics,
     AbsorptionRatesResult
 )
-from scripts.metrics.materialize_wave1 import materialize_daily_snapshot, main
+from scripts.metrics.materialize_wave1 import (
+    _resolve_current_price,
+    main,
+    materialize_daily_snapshot,
+)
 
 @pytest.fixture
 def mock_repo():
@@ -123,6 +127,34 @@ async def test_materialize_daily_snapshot_returns_false_on_partial_write_failure
     repo.save_absorption_rates.assert_called_once_with(absorption)
     repo.save_address_cohorts.assert_not_called()
     repo.abort_ingestion.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_resolve_current_price_falls_back_to_live_snapshot_field():
+    repo = MagicMock()
+    repo.get_latest_price_analysis = AsyncMock(return_value=None)
+    repo.get_latest_live_snapshot_row = AsyncMock(
+        return_value={"utxoracle_price": 87654.32}
+    )
+
+    price, source = await _resolve_current_price(repo)
+
+    assert price == pytest.approx(87654.32)
+    assert source == "live_snapshots"
+
+
+@pytest.mark.asyncio
+async def test_resolve_current_price_falls_back_to_snapshot_json():
+    repo = MagicMock()
+    repo.get_latest_price_analysis = AsyncMock(return_value=None)
+    repo.get_latest_live_snapshot_row = AsyncMock(
+        return_value={"snapshot_json": '{"utxoracle_price": 76543.21}'}
+    )
+
+    price, source = await _resolve_current_price(repo)
+
+    assert price == pytest.approx(76543.21)
+    assert source == "live_snapshots.snapshot_json"
 
 
 @pytest.mark.asyncio

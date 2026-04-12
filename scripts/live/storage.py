@@ -171,11 +171,18 @@ class LiveSnapshotStore:
         )
         deleted = int(count_row["count"]) if count_row else 0
         if deleted:
-            await self._retry_on_missing_live_snapshots(
-                self.repo.execute,
-                "DELETE FROM live_snapshots WHERE ts < $1",
-                cutoff,
-            )
+            try:
+                await self._retry_on_missing_live_snapshots(
+                    self.repo.execute,
+                    "DELETE FROM live_snapshots WHERE ts < $1",
+                    cutoff,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Live snapshot retention prune failed; keeping old rows: %s",
+                    exc,
+                )
+                return 0
         return deleted
 
     async def _retry_on_missing_live_snapshots(self, operation, *args):

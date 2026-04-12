@@ -182,6 +182,33 @@ def test_store_write_snapshot_applies_retention_automatically():
     ]
 
 
+def test_store_prune_failure_does_not_break_snapshot_writes():
+    class FailingPruneRepo(FakeQuestDBRepo):
+        async def execute(self, sql, *args):
+            self.execute_calls.append((sql, args))
+            raise RuntimeError("unexpected token [FROM]")
+
+    now = datetime(2026, 3, 20, 18, 0, tzinfo=timezone.utc)
+    repo = FailingPruneRepo()
+    store = LiveSnapshotStore(repo=repo, retention_hours=1)
+    store.initialize(for_write=True)
+
+    store.write_snapshot(
+        _build_snapshot(timestamp=now - timedelta(hours=2), block_height=941430, price=83000.0)
+    )
+    store.write_snapshot(
+        _build_snapshot(timestamp=now, block_height=941456, price=84211.52)
+    )
+
+    latest = store.get_latest()
+
+    assert latest is not None
+    assert latest.block_height == 941456
+    assert repo.execute_calls == [
+        ("DELETE FROM live_snapshots WHERE ts < $1", ((now - timedelta(hours=1)).replace(tzinfo=None),))
+    ]
+
+
 def test_store_close_closes_repo():
     repo = FakeQuestDBRepo()
     store = LiveSnapshotStore(repo=repo)

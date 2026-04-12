@@ -192,7 +192,9 @@ def test_get_cost_basis_latest_uses_fetchrow():
     repo.fetchrow.assert_awaited_once()
     query = repo.fetchrow.await_args.args[0]
     assert "FROM cost_basis_daily" in query
-    assert "LATEST ON ts" in query
+    assert "ORDER BY ts DESC" in query
+    assert "LIMIT 1" in query
+    assert "LATEST ON ts" not in query
 
 
 def test_get_feature_bundle_history_pages_oldest_first():

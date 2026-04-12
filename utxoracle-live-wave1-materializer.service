@@ -1,0 +1,26 @@
+[Unit]
+Description=UTXOracle Live Wave 1 Materializer
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sam
+Group=sam
+WorkingDirectory=/media/sam/1TB/UTXOracle
+Environment=PYTHONUNBUFFERED=1
+Environment=DUCKDB_PATH=/media/sam/1TB/UTXOracle/data/utxoracle.duckdb
+Environment=LIVE_WAVE1_INTERVAL_SECONDS=3600
+Environment=QUESTDB_PG_HOST=127.0.0.1
+Environment=QUESTDB_PG_PORT=9912
+Environment=QUESTDB_ILP_HOST=127.0.0.1
+Environment=QUESTDB_ILP_PORT=9909
+Environment=QUESTDB_HTTP_HOST=127.0.0.1
+Environment=QUESTDB_HTTP_PORT=9900
+ExecStart=/media/sam/1TB/UTXOracle/.venv/bin/python -m scripts.live.wave1_materializer_runtime
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

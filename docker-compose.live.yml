@@ -3,6 +3,10 @@ services:
     image: questdb/questdb:latest
     restart: unless-stopped
     init: true
+    ports:
+      - "127.0.0.1:9912:8812"
+      - "127.0.0.1:9900:9000"
+      - "127.0.0.1:9909:9009"
     volumes:
       - ./data/questdb-live:/var/lib/questdb
 

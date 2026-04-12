@@ -11,6 +11,7 @@ Reads from DuckDB (utxo_lifecycle_full) and writes to QuestDB for persistent ser
 """
 
 import asyncio
+import json
 import logging
 import os
 import sys
@@ -22,14 +23,46 @@ import duckdb
 # Add project root to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
-from api.config import DUCKDB_PATH, setup_logging
 from api.questdb_repository import QuestDBRepository
 from scripts.metrics.absorption_rates import calculate_absorption_rates
 from scripts.metrics.wallet_waves import calculate_wallet_waves
 from scripts.metrics.address_cohorts import calculate_address_cohorts
 from scripts.metrics.cost_basis import calculate_cost_basis_signal
 
-logger = setup_logging("materialize_wave1")
+DUCKDB_PATH = os.getenv("DUCKDB_PATH") or os.getenv("UTXORACLE_DB_PATH") or "data/utxoracle.duckdb"
+
+
+def _setup_script_logging(name: str) -> logging.Logger:
+    if not logging.getLogger().handlers:
+        logging.basicConfig(
+            level=getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO),
+            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        )
+    return logging.getLogger(name)
+
+
+logger = _setup_script_logging("materialize_wave1")
+
+
+async def _resolve_current_price(repo: QuestDBRepository) -> tuple[float, str]:
+    price_row = await repo.get_latest_price_analysis()
+    if price_row and price_row.get("utxoracle_price"):
+        return float(price_row["utxoracle_price"]), "price_analysis"
+
+    live_snapshot_row = await repo.get_latest_live_snapshot_row()
+    if live_snapshot_row and live_snapshot_row.get("utxoracle_price"):
+        return float(live_snapshot_row["utxoracle_price"]), "live_snapshots"
+
+    if live_snapshot_row and live_snapshot_row.get("snapshot_json"):
+        try:
+            snapshot = json.loads(live_snapshot_row["snapshot_json"])
+            price = snapshot.get("utxoracle_price")
+            if price:
+                return float(price), "live_snapshots.snapshot_json"
+        except (TypeError, ValueError, json.JSONDecodeError):
+            logger.warning("Failed to parse live snapshot JSON while resolving Wave 1 price")
+
+    return 0.0, "unavailable"
 
 
 async def materialize_daily_snapshot(
@@ -46,11 +79,15 @@ async def materialize_daily_snapshot(
         res = conn.execute("SELECT max(creation_block) FROM utxo_lifecycle_full").fetchone()
         latest_height = res[0] if res and res[0] else 0
         
-        # Get latest price for MVRV calculations in address cohorts
-        price_row = await repo.get_latest_price_analysis()
-        current_price = price_row["utxoracle_price"] if price_row else 0.0
-        
-        logger.info(f"Materializing Wave 1 for height {latest_height} (target: {target_date.date()}), price: ${current_price:,.2f}")
+        current_price, price_source = await _resolve_current_price(repo)
+
+        logger.info(
+            "Materializing Wave 1 for height %s (target: %s), price: $%.2f via %s",
+            latest_height,
+            target_date.date(),
+            current_price,
+            price_source,
+        )
         
         # 2. Calculate Wallet Waves
         wallet_waves = calculate_wallet_waves(conn, block_height=latest_height, timestamp=target_date)

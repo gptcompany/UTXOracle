@@ -26,6 +26,8 @@ To maintain the strict boundaries set in the Phase 1 freeze, only the highest-si
 ## Serving-Grade Path Decision (T021)
 The `cost_basis` slice is materialized daily into QuestDB (`cost_basis_daily` table) rather than being served directly from DuckDB. This ensures zero latency under load and decouples consumer reads from heavy analytical queries.
 
+Operational note: this promotion is only complete when the Wave 1 materializer is actually running in the live environment. The admitted `:8011` cohort/signal/execution path depends on a scheduled materialization pass that reads DuckDB in `read_only` mode and writes serving snapshots into QuestDB.
+
 ## Reproducibility Checks (T020)
 The metric is perfectly reproducible from the DuckDB `utxo_lifecycle` table:
 ```sql

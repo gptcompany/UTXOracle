@@ -224,6 +224,37 @@ class FakeBundleRepo:
         return True
 
 
+class MissingMetricsRepo(FakeBundleRepo):
+    async def get_latest_metrics(self):
+        return None
+
+
+class CostBasisOnlyRepo(FakeBundleRepo):
+    async def get_address_cohorts_latest(self):
+        return []
+
+    async def get_wallet_waves_latest(self):
+        return []
+
+    async def get_absorption_rates_latest(self, window_days: int = 30):
+        return []
+
+    async def get_cost_basis_latest(self):
+        row = await super().get_cost_basis_latest()
+        if row is None:
+            return None
+        return {
+            **row,
+            "ts": datetime.now(timezone.utc),
+        }
+
+
+class LegacyAbsorptionRepo(FakeBundleRepo):
+    async def get_absorption_rates_latest(self, window_days: int = 30):
+        rows = await super().get_absorption_rates_latest(window_days)
+        return [{k: v for k, v in row.items() if k != "has_historical_data"} for row in rows]
+
+
 @pytest.mark.asyncio
 async def test_bundle_writer_materializes_all_four_bundle_families():
     repo = FakeBundleRepo()
@@ -267,3 +298,71 @@ async def test_bundle_writer_increments_sequence_ids_per_bundle_family():
 
     assert core_payload["metadata"]["sequence_id"] == 2
     assert flow_payload["metadata"]["sequence_id"] == 2
+
+
+@pytest.mark.asyncio
+async def test_bundle_writer_keeps_core_healthy_when_metrics_latest_is_missing():
+    repo = MissingMetricsRepo()
+    writer = BundleWriter(repo)
+
+    await writer.write_bundles(_build_snapshot())
+
+    core_payload = json.loads(repo.latest_feature_bundles[CORE_BUNDLE_ID]["payload_json"])
+
+    assert core_payload["metadata"]["bundle_status"] == "healthy"
+    assert core_payload["metadata"]["degraded_reasons"] == []
+    assert core_payload["metrics_latest"] == {}
+
+
+@pytest.mark.asyncio
+async def test_bundle_writer_keeps_flow_and_cohort_healthy_with_only_required_inputs():
+    repo = CostBasisOnlyRepo()
+    writer = BundleWriter(repo)
+
+    await writer.write_bundles(_build_snapshot())
+
+    flow_payload = json.loads(repo.latest_feature_bundles[FLOW_BUNDLE_ID]["payload_json"])
+    cohort_payload = json.loads(repo.latest_feature_bundles[COHORT_BUNDLE_ID]["payload_json"])
+
+    assert flow_payload["metadata"]["bundle_status"] == "healthy"
+    assert flow_payload["metadata"]["degraded_reasons"] == []
+    assert flow_payload["absorption_rates"] == {}
+
+    assert cohort_payload["metadata"]["bundle_status"] == "healthy"
+    assert cohort_payload["metadata"]["degraded_reasons"] == []
+    assert cohort_payload["address_cohorts"] == {}
+    assert cohort_payload["wallet_waves"] == {}
+    assert cohort_payload["absorption_rates"] == {}
+    assert cohort_payload["cost_basis"]["total_cost_basis"] == pytest.approx(50_000.0)
+
+
+@pytest.mark.asyncio
+async def test_bundle_writer_degrades_cohort_when_cost_basis_is_missing():
+    class MissingCostBasisRepo(FakeBundleRepo):
+        async def get_cost_basis_latest(self):
+            return None
+
+    repo = MissingCostBasisRepo()
+    writer = BundleWriter(repo)
+
+    await writer.write_bundles(_build_snapshot())
+
+    cohort_payload = json.loads(repo.latest_feature_bundles[COHORT_BUNDLE_ID]["payload_json"])
+
+    assert cohort_payload["metadata"]["bundle_status"] == "degraded"
+    assert "cost_basis unavailable" in cohort_payload["metadata"]["degraded_reasons"]
+
+
+@pytest.mark.asyncio
+async def test_bundle_writer_accepts_legacy_absorption_rows_without_has_historical_data():
+    repo = LegacyAbsorptionRepo()
+    writer = BundleWriter(repo)
+
+    await writer.write_bundles(_build_snapshot())
+
+    flow_payload = json.loads(repo.latest_feature_bundles[FLOW_BUNDLE_ID]["payload_json"])
+    cohort_payload = json.loads(repo.latest_feature_bundles[COHORT_BUNDLE_ID]["payload_json"])
+
+    assert flow_payload["metadata"]["bundle_status"] == "healthy"
+    assert flow_payload["absorption_rates"]["has_historical_data"] is True
+    assert cohort_payload["absorption_rates"]["has_historical_data"] is True

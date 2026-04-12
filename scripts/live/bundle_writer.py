@@ -33,7 +33,6 @@ DEFAULT_FLOW_WINDOW_HOURS = int(os.getenv("BTC_FLOW_WINDOW_HOURS", "1"))
 DEFAULT_FLOW_SUMMARY_HOURS = int(os.getenv("BTC_FLOW_SUMMARY_HOURS", "24"))
 DEFAULT_ABSORPTION_WINDOW_DAYS = int(os.getenv("BTC_BUNDLE_ABSORPTION_WINDOW_DAYS", "30"))
 WAVE1_STALE_AFTER = timedelta(hours=48)
-METRICS_STALE_AFTER = timedelta(hours=48)
 BRK_STALE_AFTER = timedelta(hours=24)
 
 
@@ -184,11 +183,6 @@ class BundleWriter:
                     low_confidence=metrics_row["low_confidence"],
                 ),
             ).model_dump(mode="json")
-            stale = _is_stale(metrics_row["ts"], METRICS_STALE_AFTER, now=now)
-            if stale:
-                degraded_reasons.append("metrics_latest is stale")
-        else:
-            degraded_reasons.append("metrics_latest unavailable")
 
         for source_name, health in snapshot.source_health.items():
             if health.status == "stale":
@@ -241,13 +235,7 @@ class BundleWriter:
 
         whale_summary = await self._build_whale_summary(now=now)
         recent_whale_window = await self._build_recent_whale_window(now=now)
-        absorption_payload, absorption_ts = await self._build_flow_absorption_copy()
-
-        if not absorption_payload:
-            degraded_reasons.append("absorption_rates unavailable")
-        elif _is_stale(absorption_ts, WAVE1_STALE_AFTER, now=now):
-            stale = True
-            degraded_reasons.append("absorption_rates is stale")
+        absorption_payload, _absorption_ts = await self._build_flow_absorption_copy()
 
         has_any_data = bool(whale_summary) or bool(absorption_payload)
         status = self._resolve_bundle_status(
@@ -342,16 +330,19 @@ class BundleWriter:
             "address_cohorts",
             self._build_address_cohorts,
             degraded_reasons,
+            blocking=False,
         )
         wallet_waves_payload, wallet_waves_ts = await self._safe_component_build(
             "wallet_waves",
             self._build_wallet_waves,
             degraded_reasons,
+            blocking=False,
         )
         absorption_payload, absorption_ts = await self._safe_component_build(
             "absorption_rates",
             self._build_absorption_rates,
             degraded_reasons,
+            blocking=False,
         )
         cost_basis_payload, cost_basis_ts = await self._safe_component_build(
             "cost_basis",
@@ -366,20 +357,23 @@ class BundleWriter:
             ("cost_basis", cost_basis_payload, cost_basis_ts),
         ):
             if not payload:
-                degraded_reasons.append(f"{component_name} unavailable")
+                if component_name == "cost_basis" and f"{component_name} unavailable" not in degraded_reasons:
+                    degraded_reasons.append(f"{component_name} unavailable")
                 continue
             if _is_stale(component_ts, WAVE1_STALE_AFTER, now=now):
-                stale = True
-                degraded_reasons.append(f"{component_name} is stale")
+                if component_name == "cost_basis":
+                    stale = True
+                    if f"{component_name} is stale" not in degraded_reasons:
+                        degraded_reasons.append(f"{component_name} is stale")
 
         status = self._resolve_bundle_status(
-            has_any_data=any(
+            has_any_data=bool(cost_basis_payload)
+            or any(
                 bool(payload)
                 for payload in (
                     address_cohorts_payload,
                     wallet_waves_payload,
                     absorption_payload,
-                    cost_basis_payload,
                 )
             ),
             degraded_reasons=degraded_reasons,
@@ -583,12 +577,15 @@ class BundleWriter:
         component_name: str,
         builder,
         degraded_reasons: list[str],
+        *,
+        blocking: bool = True,
     ) -> tuple[dict[str, Any], Any]:
         try:
             return await builder()
         except Exception as exc:
             logger.warning("Failed to build %s bundle component: %s", component_name, exc)
-            degraded_reasons.append(f"{component_name} unavailable")
+            if blocking:
+                degraded_reasons.append(f"{component_name} unavailable")
             return {}, None
 
     async def _build_flow_absorption_copy(self) -> tuple[dict[str, Any], Any]:
@@ -603,7 +600,7 @@ class BundleWriter:
                 "retail_absorption": first["retail_absorption"],
                 "institutional_absorption": first["institutional_absorption"],
                 "confidence": first["confidence"],
-                "has_historical_data": first["has_historical_data"],
+                "has_historical_data": bool(first.get("has_historical_data", True)),
             },
             first["ts"],
         )
@@ -708,7 +705,7 @@ class BundleWriter:
             retail_absorption=first["retail_absorption"],
             institutional_absorption=first["institutional_absorption"],
             confidence=first["confidence"],
-            has_historical_data=first["has_historical_data"],
+            has_historical_data=bool(first.get("has_historical_data", True)),
         ).model_dump(mode="json")
         return payload, first["ts"]
 
