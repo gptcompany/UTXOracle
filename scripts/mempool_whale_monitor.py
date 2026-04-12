@@ -310,18 +310,26 @@ class MempoolWhaleMonitor:
         # Identify exchange addresses
         identified = {addr: self.exchange_addresses[addr] for addr in involved_addresses if addr in self.exchange_addresses}
         
-        # Simple flow classification (Inflow: exchange in vout, Outflow: exchange in vin)
+        # Classify flow type and analyze involved exchanges
         flow_type = FlowType.UNKNOWN
-        if identified:
-            # Check vout (inflow to exchange)
-            if any(addr in identified for vout in raw_data.get("vout", []) for addr in [vout.get("scriptpubkey_address")] if addr in self.exchange_addresses):
-                flow_type = FlowType.INFLOW
-            # Check vin (outflow from exchange)
-            elif any(addr in identified for vin in raw_data.get("vin", []) for addr in [vin.get("prevout", {}).get("scriptpubkey_address")] if addr in self.exchange_addresses):
-                flow_type = FlowType.OUTFLOW
-            else:
-                flow_type = FlowType.INTERNAL
+        involved_exchanges = set(identified.values())
         
+        has_inflow = any(addr in identified for vout in raw_data.get("vout", []) for addr in [vout.get("scriptpubkey_address")] if addr in self.exchange_addresses)
+        has_outflow = any(addr in identified for vin in raw_data.get("vin", []) for addr in [vin.get("prevout", {}).get("scriptpubkey_address")] if addr in self.exchange_addresses)
+
+        if has_inflow and has_outflow:
+            flow_type = FlowType.INTERNAL
+            confidence = 0.95
+        elif has_inflow:
+            flow_type = FlowType.INFLOW
+            confidence = 0.9
+        elif has_outflow:
+            flow_type = FlowType.OUTFLOW
+            confidence = 0.9
+        else:
+            flow_type = FlowType.INTERNAL if len(involved_exchanges) > 1 else FlowType.UNKNOWN
+            confidence = 0.5 if flow_type == FlowType.INTERNAL else 0.0
+
         # Predict confirmation block based on fee rate
         try:
             predicted_block = self.urgency_scorer.predict_confirmation_block(tx_data["fee_rate"])
@@ -340,7 +348,7 @@ class MempoolWhaleMonitor:
             detection_timestamp=datetime.now(timezone.utc),
             predicted_confirmation_block=predicted_block,
             exchange_addresses=list(identified.keys()),
-            confidence_score=0.8 if identified else None,
+            confidence_score=confidence,
         )
 
     @with_db_retry(max_attempts=3)
