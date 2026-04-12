@@ -274,13 +274,22 @@ async def main():
     # Setup signal handlers for graceful shutdown
     loop = asyncio.get_event_loop()
 
-    def signal_handler(sig):
+    def shutdown_handler(sig):
         logger.info(f"\n\n🛑 Received signal {sig.name} - initiating shutdown...")
         asyncio.create_task(orchestrator.stop())
 
+    def reload_handler():
+        logger.info("♻️ Received SIGHUP - reloading data...")
+        if orchestrator.monitor:
+            from scripts.utils.whale_utils import load_exchange_addresses
+            orchestrator.monitor.exchange_addresses = load_exchange_addresses("data/exchange_addresses.csv")
+            logger.info("✅ Exchange addresses reloaded")
+
     # Register signal handlers
     for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, lambda s=sig: signal_handler(s))
+        loop.add_signal_handler(sig, lambda s=sig: shutdown_handler(s))
+    
+    loop.add_signal_handler(signal.SIGHUP, reload_handler)
 
     try:
         # Start system
