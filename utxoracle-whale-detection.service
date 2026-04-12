@@ -20,6 +20,7 @@ ExecStart=/usr/bin/python3 /media/sam/1TB/UTXOracle/scripts/whale_detection_orch
   --ws-host 0.0.0.0 \
   --ws-port 8765 \
   --whale-threshold 100.0
+ExecReload=/bin/kill -HUP $MAINPID
 
 # Restart policy
 Restart=on-failure
