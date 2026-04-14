@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+from contextlib import suppress
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -33,11 +35,61 @@ APP_COMMIT_SHA = os.getenv("UTXORACLE_COMMIT_SHA", "unknown")
 APP_BUILD_AT = os.getenv("UTXORACLE_BUILD_AT", "unknown")
 STARTUP_TIME = datetime.now(timezone.utc)
 FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
+WHALE_REGISTRY_PATH = Path(__file__).resolve().parents[2] / "data" / "exchange_addresses.csv"
 LIVE_PRICE_COMPARISON_PAGE = FRONTEND_DIR / "live_price_comparison.html"
 SUPPORTED_CHART_PAGES = {
     "live-price-comparison",
     "realized-price-reference",
 }
+
+
+def _log_background_task_failure(task: asyncio.Task) -> None:
+    with suppress(asyncio.CancelledError):
+        exc = task.exception()
+        if exc is not None:
+            logging.error("Background task %s failed: %s", task.get_name(), exc)
+
+
+def _get_registry_mtime(path: Path) -> float | None:
+    try:
+        return path.stat().st_mtime
+    except FileNotFoundError:
+        return None
+
+
+async def _reload_registry_if_changed(
+    monitor: Any,
+    registry_path: Path,
+    last_mtime: float | None,
+) -> float | None:
+    current_mtime = _get_registry_mtime(registry_path)
+    if current_mtime is None or current_mtime == last_mtime:
+        return last_mtime
+
+    await monitor.reload_exchange_registry()
+    logging.info("Reloaded whale registry from %s", registry_path)
+    return current_mtime
+
+
+async def _watch_exchange_registry(
+    monitor: Any,
+    registry_path: Path,
+    *,
+    poll_interval_seconds: float,
+) -> None:
+    last_mtime = _get_registry_mtime(registry_path)
+    interval = max(poll_interval_seconds, 1.0)
+
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            last_mtime = await _reload_registry_if_changed(
+                monitor,
+                registry_path,
+                last_mtime,
+            )
+        except Exception as exc:
+            logging.error("Failed to reload whale registry from %s: %s", registry_path, exc)
 
 
 class LiveServiceCheck(BaseModel):
@@ -77,8 +129,67 @@ async def lifespan(app: FastAPI):
             exc,
         )
 
+    # Initialize Unified Mempool Whale Monitor
+    from scripts.mempool_whale_monitor import MempoolWhaleMonitor
+    from api.routes.execution import stream_manager
+    try:
+        monitor = MempoolWhaleMonitor()
+        if app.state.questdb_repo is not None:
+            monitor.repo = app.state.questdb_repo
+
+        # Set our new FastAPI-native stream manager as the broadcaster
+        class BroadcasterAdapter:
+            async def broadcast_whale_alert(self, payload: dict[str, Any]):
+                await stream_manager.broadcast(
+                    {
+                        "type": "whale_alert",
+                        "data": payload,
+                    }
+                )
+
+            async def broadcast_alert(self, signal):
+                await self.broadcast_whale_alert(signal.to_broadcast_dict())
+
+        monitor.broadcaster = BroadcasterAdapter()
+        app.state.whale_monitor = monitor
+        app.state.whale_monitor_task = asyncio.create_task(
+            monitor.start(),
+            name="live-whale-monitor",
+        )
+        app.state.whale_monitor_task.add_done_callback(_log_background_task_failure)
+        registry_reload_seconds = float(
+            os.getenv("WHALE_REGISTRY_RELOAD_SECONDS", "60")
+        )
+        app.state.whale_registry_task = asyncio.create_task(
+            _watch_exchange_registry(
+                monitor,
+                WHALE_REGISTRY_PATH,
+                poll_interval_seconds=registry_reload_seconds,
+            ),
+            name="live-whale-registry-watch",
+        )
+        app.state.whale_registry_task.add_done_callback(_log_background_task_failure)
+        logging.info("Unified Mempool Whale Monitor started within FastAPI.")
+    except Exception as exc:
+        logging.error("Failed to start Mempool Whale Monitor: %s", exc)
+
     yield
     logging.info("UTXOracle live production API shutting down...")
+    
+    if hasattr(app.state, "whale_monitor"):
+        try:
+            if hasattr(app.state, "whale_registry_task"):
+                app.state.whale_registry_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await app.state.whale_registry_task
+            await app.state.whale_monitor.stop()
+            if hasattr(app.state, "whale_monitor_task"):
+                app.state.whale_monitor_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await app.state.whale_monitor_task
+        except Exception as exc:
+            logging.error("Failed to stop Mempool Whale Monitor: %s", exc)
+
     try:
         store = _resolve_snapshot_store(app)
         close = getattr(store, "aclose", None)

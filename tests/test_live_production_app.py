@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import os
 
+import pytest
 from fastapi.testclient import TestClient
 
 from api.routes.live import get_live_snapshot_store
+from api.apps.live import _reload_registry_if_changed
 from scripts.live.models import LiveComparison, LiveFeatureSet, LiveSnapshot, SourceHealth
 
 
@@ -142,3 +145,31 @@ def test_live_production_chart_page_rejects_unknown_chart_id():
         response = client.get("/charts/unknown")
 
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_reload_registry_if_changed_only_reloads_on_mtime_change(tmp_path):
+    registry_path = tmp_path / "exchange_addresses.csv"
+    registry_path.write_text("exchange_name,address,type\n", encoding="utf-8")
+
+    class FakeMonitor:
+        def __init__(self) -> None:
+            self.reloads = 0
+
+        async def reload_exchange_registry(self) -> None:
+            self.reloads += 1
+
+    monitor = FakeMonitor()
+    first_mtime = registry_path.stat().st_mtime
+
+    same_mtime = await _reload_registry_if_changed(monitor, registry_path, first_mtime)
+    assert same_mtime == first_mtime
+    assert monitor.reloads == 0
+
+    registry_path.write_text("exchange_name,address,type\nBinance,addr,wallet\n", encoding="utf-8")
+    os.utime(registry_path, (first_mtime + 5, first_mtime + 5))
+    changed_mtime = await _reload_registry_if_changed(monitor, registry_path, first_mtime)
+
+    assert changed_mtime is not None
+    assert changed_mtime != first_mtime
+    assert monitor.reloads == 1

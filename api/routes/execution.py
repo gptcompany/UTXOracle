@@ -1,10 +1,12 @@
 import yaml
+import json
+import asyncio
 from pathlib import Path
 from datetime import datetime, timezone
 import logging
 from typing import Any, Dict, Tuple, List
 
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request, Depends, WebSocket, WebSocketDisconnect
 
 from api.models.execution import (
     ExecutionMode,
@@ -23,6 +25,55 @@ from scripts.live.storage import LiveSnapshotStore
 
 router = APIRouter(prefix="/api/execution/btc", tags=["execution-btc"])
 logger = logging.getLogger(__name__)
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: list[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: dict):
+        if not self.active_connections:
+            return
+        payload = json.dumps(message)
+        connections = list(self.active_connections)
+        tasks = [
+            asyncio.wait_for(connection.send_text(payload), timeout=0.1)
+            for connection in connections
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        disconnected: list[WebSocket] = []
+        for connection, result in zip(connections, results):
+            if isinstance(result, Exception):
+                logger.warning("Broadcast failed for a client: %s", result)
+                disconnected.append(connection)
+        for connection in disconnected:
+            self.disconnect(connection)
+
+stream_manager = ConnectionManager()
+
+@router.websocket("/stream")
+async def execution_stream_endpoint(websocket: WebSocket):
+    """
+    WebSocket endpoint for Nautilus Trader to receive live execution signals.
+    Unifies the communication channel to port 8011.
+    """
+    await stream_manager.connect(websocket)
+    try:
+        while True:
+            # Keep connection alive
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        stream_manager.disconnect(websocket)
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+        stream_manager.disconnect(websocket)
 
 DOCS_DIR = Path(__file__).resolve().parents[2] / "docs"
 EXECUTION_SAFETY_PATH = DOCS_DIR / "contracts" / "execution_safety.yaml"

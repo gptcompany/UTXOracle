@@ -4,16 +4,18 @@ services:
     restart: unless-stopped
     init: true
     ports:
-      - "127.0.0.1:9912:8812"
-      - "127.0.0.1:9900:9000"
-      - "127.0.0.1:9909:9009"
+    - 127.0.0.1:9912:8812
+    - 127.0.0.1:9900:9000
+    - 127.0.0.1:9909:9009
     volumes:
-      - ./data/questdb-live:/var/lib/questdb
-
+    - ./data/questdb-live:/var/lib/questdb
   utxoracle-live-worker:
     image: utxoracle-live:local
-    user: "1000:1000"
-    command: ["/app/.venv/bin/python", "-m", "scripts.live.runtime"]
+    user: 1000:1000
+    command:
+    - /app/.venv/bin/python
+    - -m
+    - scripts.live.runtime
     ulimits:
       nproc: 65535
       nofile:
@@ -22,12 +24,12 @@ services:
     restart: unless-stopped
     init: true
     depends_on:
-      - utxoracle-live-questdb
+    - utxoracle-live-questdb
     extra_hosts:
-      - "host.docker.internal:host-gateway"
+    - host.docker.internal:host-gateway
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      LIVE_ENABLED: "true"
+      LIVE_ENABLED: 'true'
       LIVE_WORKER_LOCK_PATH: /app/data/utxoracle_live.questdb.worker.lock
       LIVE_RETENTION_HOURS: ${LIVE_RETENTION_HOURS:-24}
       LIVE_SOURCE_TIMEOUT_SECONDS: ${LIVE_SOURCE_TIMEOUT_SECONDS:-5.0}
@@ -52,35 +54,40 @@ services:
       QUESTDB_ILP_HOST: utxoracle-live-questdb
       QUESTDB_HTTP_HOST: utxoracle-live-questdb
     volumes:
-      - ./data:/app/data
-      - ./logs:/app/logs
-      - /media/sam/4TB-NVMe/docker-volumes/hyperliquid/hl/data:/app/external/hyperliquid/node-data:ro
-
+    - ./data:/app/data
+    - ./logs:/app/logs
+    - /media/sam/4TB-NVMe/docker-volumes/hyperliquid/hl/data:/app/external/hyperliquid/node-data:ro
   utxoracle-data-updater:
     image: utxoracle-live:local
-    user: "1000:1000"
+    user: 1000:1000
     restart: always
     volumes:
-      - ./data:/app/data
-    command: >
-      /bin/sh -c "while true; do
-        /app/.venv/bin/python3 scripts/bootstrap/scrape_exchange_addresses.py &&
-        /app/.venv/bin/python3 scripts/bootstrap/ingest_to_db.py &&
-        echo 'Registry updated, signaling monitor...';
-        sleep 604800;
-      done"
+    - ./data:/app/data
+    command: "/bin/sh -c \"while true; do\n  /app/.venv/bin/python3 scripts/bootstrap/scrape_exchange_addresses.py\
+      \ &&\n  /app/.venv/bin/python3 scripts/bootstrap/ingest_to_db.py &&\n  echo\
+      \ 'Registry updated, signaling monitor...';\n  sleep 604800;\ndone\"\n"
     depends_on:
-      - utxoracle-live-questdb
+    - utxoracle-live-questdb
     environment:
       DUCKDB_PATH: /app/data/utxoracle.duckdb
       UTXORACLE_DB_PATH: /app/data/utxoracle.duckdb
       QUESTDB_PG_HOST: utxoracle-live-questdb
       QUESTDB_ILP_HOST: utxoracle-live-questdb
       QUESTDB_HTTP_HOST: utxoracle-live-questdb
-
+    healthcheck:
+      test:
+      - CMD
+      - /app/.venv/bin/python
+      - -c
+      - import urllib.request; urllib.request.urlopen('http://utxoracle-live-api:8011/health',
+        timeout=2)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
   utxoracle-live-api:
     image: utxoracle-live:local
-    user: "1000:1000"
+    user: 1000:1000
     build:
       context: .
       dockerfile: Dockerfile.live
@@ -89,16 +96,16 @@ services:
         COMMIT_SHA: ${UTXORACLE_COMMIT_SHA:-unknown}
         BUILD_AT: ${UTXORACLE_BUILD_AT:-unknown}
     command:
-      - /app/.venv/bin/uvicorn
-      - api.apps.live:app
-      - --host
-      - 0.0.0.0
-      - --port
-      - "8011"
-      - --workers
-      - "1"
-      - --log-level
-      - info
+    - /app/.venv/bin/uvicorn
+    - api.apps.live:app
+    - --host
+    - 0.0.0.0
+    - --port
+    - '8011'
+    - --workers
+    - '1'
+    - --log-level
+    - info
     ulimits:
       nproc: 65535
       nofile:
@@ -107,18 +114,19 @@ services:
     restart: unless-stopped
     init: true
     depends_on:
-      - utxoracle-live-questdb
-      - utxoracle-live-worker
+    - utxoracle-live-questdb
+    - utxoracle-live-worker
     extra_hosts:
-      - "host.docker.internal:host-gateway"
+    - host.docker.internal:host-gateway
     ports:
-      - "${LIVE_API_PORT:-8011}:8011"
+    - ${LIVE_API_PORT:-8011}:8011
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       JWT_SECRET: ${JWT_SECRET:-jBqveFvsr4ifuLX3Gf6CIyJCujuLSYiIUD437Hntf60HbRSlWmF7U0HXnVnvulSn}
-      FASTAPI_PORT: "8011"
-      LIVE_API_PORT: "8011"
-      LIVE_ENABLED: "true"
+      FASTAPI_PORT: '8011'
+      LIVE_API_PORT: '8011'
+      LIVE_ENABLED: 'true'
+      WHALE_REGISTRY_RELOAD_SECONDS: ${WHALE_REGISTRY_RELOAD_SECONDS:-60}
       DUCKDB_PATH: /app/data/utxoracle.duckdb
       UTXORACLE_DB_PATH: /app/data/utxoracle.duckdb
       LIVE_RETENTION_HOURS: ${LIVE_RETENTION_HOURS:-24}
@@ -137,34 +145,6 @@ services:
       QUESTDB_ILP_HOST: utxoracle-live-questdb
       QUESTDB_HTTP_HOST: utxoracle-live-questdb
     volumes:
-      - ./data:/app/data
-      - ./logs:/app/logs
-      - /media/sam/4TB-NVMe/docker-volumes/hyperliquid/hl/data:/app/external/hyperliquid/node-data:ro
-
-  utxoracle-data-updater:
-    image: utxoracle-live:local
-    user: "1000:1000"
-    restart: always
-    volumes:
-      - ./data:/app/data
-    command: >
-      /bin/sh -c "while true; do
-        /app/.venv/bin/python3 scripts/bootstrap/scrape_exchange_addresses.py &&
-        /app/.venv/bin/python3 scripts/bootstrap/ingest_to_db.py &&
-        echo 'Registry updated, signaling monitor...';
-        sleep 604800;
-      done"
-    depends_on:
-      - utxoracle-live-questdb
-    environment:
-      DUCKDB_PATH: /app/data/utxoracle.duckdb
-      UTXORACLE_DB_PATH: /app/data/utxoracle.duckdb
-      QUESTDB_PG_HOST: utxoracle-live-questdb
-      QUESTDB_ILP_HOST: utxoracle-live-questdb
-      QUESTDB_HTTP_HOST: utxoracle-live-questdb
-    healthcheck:
-      test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8011/health', timeout=2)"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 40s
+    - ./data:/app/data
+    - ./logs:/app/logs
+    - /media/sam/4TB-NVMe/docker-volumes/hyperliquid/hl/data:/app/external/hyperliquid/node-data:ro

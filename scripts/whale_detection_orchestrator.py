@@ -281,9 +281,7 @@ async def main():
     def reload_handler():
         logger.info("♻️ Received SIGHUP - reloading data...")
         if orchestrator.monitor:
-            from scripts.utils.whale_utils import load_exchange_addresses
-            orchestrator.monitor.exchange_addresses = load_exchange_addresses("data/exchange_addresses.csv")
-            logger.info("✅ Exchange addresses reloaded")
+            asyncio.create_task(orchestrator.monitor.reload_exchange_registry())
 
     # Register signal handlers
     for sig in (signal.SIGTERM, signal.SIGINT):

@@ -16,14 +16,19 @@ logger = logging.getLogger(__name__)
 
 async def main():
     logger.info("Initializing Nautilus Trader Node for UTXOracle Whale Detection...")
-    
+
     # 1. Check Execution Gatekeeper before starting
     # This prevents the trading node from starting if UTXOracle is degraded
     gatekeeper = NTWhaleAdapter(api_url="http://127.0.0.1:8011", max_jitter_ms=500)
-    if not await gatekeeper.can_execute():
+    try:
+        can_execute = await gatekeeper.can_execute()
+    finally:
+        await gatekeeper.aclose()
+
+    if not can_execute:
         logger.error("🛑 UTXOracle Gatekeeper denied execution (System degraded or high jitter). Aborting startup.")
         sys.exit(1)
-        
+
     logger.info("✅ UTXOracle Gatekeeper passed. System is healthy.")
 
     # 2. Setup Nautilus Node

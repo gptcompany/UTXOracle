@@ -22,6 +22,7 @@ Architecture:
 import asyncio
 import json
 import logging
+import os
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -38,6 +39,7 @@ from scripts.utils.transaction_cache import TransactionCache
 from scripts.config.mempool_config import get_config
 from scripts.utils.db_retry import with_db_retry
 from scripts.utils.rbf_detector import is_rbf_enabled
+from scripts.utils.whale_utils import load_exchange_addresses
 from scripts.whale_urgency_scorer import WhaleUrgencyScorer
 
 from api.questdb_repository import QuestDBRepository
@@ -103,9 +105,8 @@ class MempoolWhaleMonitor:
 
         self.broadcaster = None
 
-        # Load exchange addresses using shared robust utility
-        from scripts.utils.whale_utils import load_exchange_addresses
         self.exchange_addresses = load_exchange_addresses("data/exchange_addresses.csv")
+        self.registry_cache = dict(self.exchange_addresses)
 
         # Urgency scorer (for fee-based urgency calculation)
         self.urgency_scorer = WhaleUrgencyScorer(
@@ -187,11 +188,10 @@ class MempoolWhaleMonitor:
 
             # --- FILTER: MARKET IMPACT (LOB) ---
             if signal.flow_type in (FlowType.INFLOW, FlowType.OUTFLOW):
-                import os, json
                 lob_path = "/app/external/hyperliquid/node-data/l4_book.json"
                 if os.path.exists(lob_path):
                     try:
-                        with open(lob_path, 'r') as f:
+                        with open(lob_path, "r", encoding="utf-8") as f:
                             lob = json.load(f)
                         
                         bids = lob.get('levels', [[]])[0]
@@ -364,7 +364,7 @@ class MempoolWhaleMonitor:
         else:
             # Fallback for complex/non-direct cases
             flow_type = FlowType.UNKNOWN
-            confidence = 0.0
+            confidence = None
 
         # Predict confirmation block based on fee rate
         try:
@@ -446,8 +446,11 @@ class MempoolWhaleMonitor:
             # Convert signal to dict for broadcasting
             alert_data = signal.to_broadcast_dict()
 
-            # Broadcast to all authenticated clients with 'read' permission
-            await self.broadcaster.broadcast_alert(signal)
+            # Support both the legacy broadcaster mock contract and the live broadcaster.
+            if hasattr(self.broadcaster, "broadcast_whale_alert"):
+                await self.broadcaster.broadcast_whale_alert(alert_data)
+            else:
+                await self.broadcaster.broadcast_alert(signal)
 
             self.stats["alerts_broadcasted"] += 1
             logger.debug(f"Broadcasted alert {signal.prediction_id[:8]}...")
@@ -479,6 +482,17 @@ class MempoolWhaleMonitor:
             logger.error(f"Failed to preload registry from DB: {e}")
             self.registry_cache = self.exchange_addresses
             self.is_healthy = len(self.registry_cache) > 0
+
+    async def reload_exchange_registry(self):
+        """Reload CSV-backed exchange labels and rebuild the effective lookup cache."""
+        logger.info("Reloading exchange registry from CSV and QuestDB...")
+        self.exchange_addresses = load_exchange_addresses("data/exchange_addresses.csv")
+        await self._preload_registry()
+        logger.info(
+            "Exchange registry reload complete: %s CSV labels, %s cached addresses",
+            len(self.exchange_addresses),
+            len(self.registry_cache),
+        )
 
     async def start(self):
         """Start the mempool whale monitor"""
