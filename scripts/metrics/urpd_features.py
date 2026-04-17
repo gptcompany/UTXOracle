@@ -46,7 +46,7 @@ def calculate_urpd_features_signal(
         block_height=current_block,
     )
 
-    top_cluster_concentration = (
+    top_bucket_concentration = (
         urpd.dominant_bucket.percentage if urpd.dominant_bucket is not None else 0.0
     )
     if urpd.dominant_bucket is not None and current_price_usd > 0:
@@ -71,7 +71,7 @@ def calculate_urpd_features_signal(
     return URPDFeaturesResult(
         supply_below_price_pct=urpd.supply_below_price_pct,
         supply_above_price_pct=urpd.supply_above_price_pct,
-        top_cluster_concentration=top_cluster_concentration,
+        top_bucket_concentration=top_bucket_concentration,
         dominant_bucket_distance_pct=dominant_bucket_distance_pct,
         distribution_entropy=entropy,
         current_price_usd=current_price_usd,

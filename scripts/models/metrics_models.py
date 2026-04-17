@@ -1838,6 +1838,77 @@ class CostBasisResult:
 
 
 # =============================================================================
+# URPD-derived Feature Dataclasses
+# =============================================================================
+
+
+@dataclass
+class URPDFeaturesResult:
+    """Scalar features derived from the cost basis distribution.
+
+    This compresses the full URPD / cost-basis histogram into a small set of
+    backtest-friendly features with stable semantics.
+    """
+
+    supply_below_price_pct: float
+    supply_above_price_pct: float
+    top_bucket_concentration: float
+    dominant_bucket_distance_pct: float
+    distribution_entropy: float
+    current_price_usd: float
+    bucket_size_usd: float
+    total_supply_btc: float
+    block_height: int
+    timestamp: datetime = field(default_factory=datetime.utcnow)
+    confidence: float = 0.85
+
+    def __post_init__(self):
+        """Validate derived feature bounds."""
+        bounded_percentages = {
+            "supply_below_price_pct": self.supply_below_price_pct,
+            "supply_above_price_pct": self.supply_above_price_pct,
+            "top_bucket_concentration": self.top_bucket_concentration,
+        }
+        for field_name, value in bounded_percentages.items():
+            if not 0.0 <= value <= 100.0:
+                raise ValueError(f"{field_name} must be in [0, 100]: {value}")
+
+        if not 0.0 <= self.distribution_entropy <= 1.0:
+            raise ValueError(
+                "distribution_entropy must be in [0, 1]: "
+                f"{self.distribution_entropy}"
+            )
+        if not 0.0 <= self.confidence <= 1.0:
+            raise ValueError(f"confidence must be in [0, 1]: {self.confidence}")
+        if self.current_price_usd <= 0:
+            raise ValueError(f"current_price_usd must be > 0: {self.current_price_usd}")
+        if self.bucket_size_usd <= 0:
+            raise ValueError(f"bucket_size_usd must be > 0: {self.bucket_size_usd}")
+        if self.total_supply_btc < 0:
+            raise ValueError(f"total_supply_btc must be >= 0: {self.total_supply_btc}")
+        if self.block_height < 0:
+            raise ValueError(f"block_height must be >= 0: {self.block_height}")
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "supply_below_price_pct": self.supply_below_price_pct,
+            "supply_above_price_pct": self.supply_above_price_pct,
+            "top_bucket_concentration": self.top_bucket_concentration,
+            "dominant_bucket_distance_pct": self.dominant_bucket_distance_pct,
+            "distribution_entropy": self.distribution_entropy,
+            "current_price_usd": self.current_price_usd,
+            "bucket_size_usd": self.bucket_size_usd,
+            "total_supply_btc": self.total_supply_btc,
+            "block_height": self.block_height,
+            "timestamp": self.timestamp.isoformat()
+            if hasattr(self.timestamp, "isoformat")
+            else str(self.timestamp),
+            "confidence": self.confidence,
+        }
+
+
+# =============================================================================
 # Spec-024: Revived Supply Dataclasses
 # =============================================================================
 

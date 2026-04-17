@@ -66,6 +66,7 @@ def test_wave1_routes_return_503_when_questdb_repo_is_missing():
             "/api/metrics/wallet-waves",
             "/api/metrics/absorption-rates",
             "/api/metrics/cost-basis",
+            "/api/metrics/urpd-features",
         ]:
             response = client.get(path)
             assert response.status_code == 503
@@ -98,3 +99,29 @@ def test_cost_basis_endpoint_returns_metrics(wave1_client, questdb_repo_mock):
     assert data["block_height"] == 875000
     assert data["sth_cost_basis"] == 66428.57
     assert data["total_cost_basis"] == 34189.19
+
+
+def test_urpd_features_endpoint_returns_metrics(wave1_client, questdb_repo_mock):
+    wave1_client.app.state.questdb_repo = questdb_repo_mock
+    questdb_repo_mock.get_urpd_features_latest = AsyncMock(return_value={
+        "ts": "2025-12-16T10:00:00Z",
+        "block_height": 875000,
+        "current_price_usd": 95000.0,
+        "bucket_size_usd": 5000.0,
+        "total_supply_btc": 19.2,
+        "supply_below_price_pct": 71.3,
+        "supply_above_price_pct": 28.7,
+        "top_bucket_concentration": 12.4,
+        "dominant_bucket_distance_pct": -6.1,
+        "distribution_entropy": 0.88,
+        "confidence": 0.85,
+    })
+
+    response = wave1_client.get("/api/metrics/urpd-features")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["block_height"] == 875000
+    assert data["supply_below_price_pct"] == 71.3
+    assert data["top_bucket_concentration"] == 12.4
+    assert data["distribution_entropy"] == 0.88

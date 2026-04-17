@@ -119,6 +119,20 @@ class CostBasisResponse(BaseModel):
     confidence: float
 
 
+class URPDFeaturesResponse(BaseModel):
+    timestamp: datetime
+    block_height: int
+    current_price_usd: float
+    bucket_size_usd: float
+    total_supply_btc: float
+    supply_below_price_pct: float
+    supply_above_price_pct: float
+    top_bucket_concentration: float
+    dominant_bucket_distance_pct: float
+    distribution_entropy: float
+    confidence: float
+
+
 class WalletBandMetricsResponse(BaseModel):
     band: str
     supply_btc: float

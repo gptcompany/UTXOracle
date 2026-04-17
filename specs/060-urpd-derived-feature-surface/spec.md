@@ -73,7 +73,7 @@ This spec freezes exactly five scalar fields derived from the current cost-basis
 
 - `supply_below_price_pct`
 - `supply_above_price_pct`
-- `top_cluster_concentration`
+- `top_bucket_concentration`
 - `dominant_bucket_distance_pct`
 - `distribution_entropy`
 
@@ -108,7 +108,7 @@ Required columns:
 - `total_supply_btc`
 - `supply_below_price_pct`
 - `supply_above_price_pct`
-- `top_cluster_concentration`
+- `top_bucket_concentration`
 - `dominant_bucket_distance_pct`
 - `distribution_entropy`
 - `confidence`

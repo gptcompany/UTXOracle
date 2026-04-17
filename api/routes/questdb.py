@@ -17,6 +17,7 @@ from api.models.questdb import (
     TxVolumeResponse,
     AddressCohortsResponse,
     CostBasisResponse,
+    URPDFeaturesResponse,
     CohortMetricsResponse,
     WalletWavesResponse,
     WalletBandMetricsResponse,
@@ -396,6 +397,42 @@ async def get_cost_basis(
         )
 
 
+@router.get("/api/metrics/urpd-features", response_model=URPDFeaturesResponse)
+async def get_urpd_features(
+    repo: Annotated[QuestDBRepository, Depends(get_questdb_repo)],
+):
+    """
+    Get latest scalar features derived from the URPD / cost-basis distribution.
+    """
+    try:
+        row = await repo.get_urpd_features_latest()
+        if not row:
+            raise HTTPException(status_code=404, detail="No URPD feature data found")
+
+        return URPDFeaturesResponse(
+            timestamp=row["ts"],
+            block_height=row["block_height"],
+            current_price_usd=row["current_price_usd"],
+            bucket_size_usd=row["bucket_size_usd"],
+            total_supply_btc=row["total_supply_btc"],
+            supply_below_price_pct=row["supply_below_price_pct"],
+            supply_above_price_pct=row["supply_above_price_pct"],
+            top_bucket_concentration=row["top_bucket_concentration"],
+            dominant_bucket_distance_pct=row["dominant_bucket_distance_pct"],
+            distribution_entropy=row["distribution_entropy"],
+            confidence=row["confidence"],
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        _raise_http_exception(
+            status_code=500,
+            public_detail="Failed to fetch URPD features",
+            log_message="Error getting URPD features",
+            exc=e,
+        )
+
+
 @router.get("/api/metrics/wallet-waves", response_model=WalletWavesResponse)
 async def get_wallet_waves(
     repo: Annotated[QuestDBRepository, Depends(get_questdb_repo)],
@@ -571,4 +608,3 @@ async def get_tier_stats(
             log_message="Error getting tier stats",
             exc=e,
         )
-

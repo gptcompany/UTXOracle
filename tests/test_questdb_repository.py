@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 from api.questdb_repository import QuestDBRepository
-from scripts.models.metrics_models import CostBasisResult
+from scripts.models.metrics_models import CostBasisResult, URPDFeaturesResult
 
 
 class _FakeSender:
@@ -192,6 +192,58 @@ def test_get_cost_basis_latest_uses_fetchrow():
     repo.fetchrow.assert_awaited_once()
     query = repo.fetchrow.await_args.args[0]
     assert "FROM cost_basis_daily" in query
+    assert "ORDER BY ts DESC" in query
+    assert "LIMIT 1" in query
+    assert "LATEST ON ts" not in query
+
+
+def test_save_urpd_features_passes_empty_symbols():
+    repo = QuestDBRepository()
+    calls: list[tuple[str, dict, dict, object]] = []
+
+    def fake_send_row(table, symbols, columns, at=None, flush=False):
+        calls.append((table, symbols, columns, at))
+        return True
+
+    repo._send_row = fake_send_row  # type: ignore[attr-defined]
+    timestamp = datetime(2026, 1, 2, tzinfo=timezone.utc)
+    result = URPDFeaturesResult(
+        supply_below_price_pct=72.0,
+        supply_above_price_pct=28.0,
+        top_bucket_concentration=14.5,
+        dominant_bucket_distance_pct=-8.2,
+        distribution_entropy=0.84,
+        current_price_usd=78000.0,
+        bucket_size_usd=5000.0,
+        total_supply_btc=18.5,
+        block_height=900000,
+        timestamp=timestamp,
+        confidence=0.85,
+    )
+
+    assert repo.save_urpd_features(result) is True
+
+    assert len(calls) == 1
+    table, symbols, columns, at = calls[0]
+    assert table == "urpd_features_daily"
+    assert symbols == {}
+    assert columns["supply_below_price_pct"] == 72.0
+    assert columns["top_bucket_concentration"] == 14.5
+    assert columns["distribution_entropy"] == 0.84
+    assert at is timestamp
+
+
+def test_get_urpd_features_latest_uses_fetchrow():
+    repo = QuestDBRepository()
+    expected = {"block_height": 900000}
+    repo.fetchrow = AsyncMock(return_value=expected)  # type: ignore[method-assign]
+
+    row = asyncio.run(repo.get_urpd_features_latest())
+
+    assert row == expected
+    repo.fetchrow.assert_awaited_once()
+    query = repo.fetchrow.await_args.args[0]
+    assert "FROM urpd_features_daily" in query
     assert "ORDER BY ts DESC" in query
     assert "LIMIT 1" in query
     assert "LATEST ON ts" not in query

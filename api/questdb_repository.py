@@ -606,6 +606,25 @@ async def create_tables_if_not_exist():
             """
         )
 
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS urpd_features_daily (
+                ts TIMESTAMP,
+                block_height LONG,
+                current_price_usd DOUBLE,
+                bucket_size_usd DOUBLE,
+                total_supply_btc DOUBLE,
+                supply_below_price_pct DOUBLE,
+                supply_above_price_pct DOUBLE,
+                top_bucket_concentration DOUBLE,
+                dominant_bucket_distance_pct DOUBLE,
+                distribution_entropy DOUBLE,
+                confidence DOUBLE,
+                created_at TIMESTAMP
+            ) timestamp(ts) PARTITION BY MONTH;
+            """
+        )
+
         logger.info("QuestDB tables verified/created successfully.")
 
     except Exception as e:
@@ -1112,9 +1131,9 @@ class QuestDBRepository:
         """Fetch fine-grained cluster info from QuestDB."""
         try:
             # We use PG wire port (8812) for select queries via fetchrow
-            query = f"SELECT cluster_id, label FROM {ADDRESS_CLUSTERS_TABLE} WHERE address = $1 LIMIT 1"
+            query = f"SELECT cluster_id FROM {ADDRESS_CLUSTERS_TABLE} WHERE address = $1 LIMIT 1"
             row = await self.fetchrow(query, address)
-            return dict(row) if row else None
+            return {"cluster_id": row[0]} if row else None
         except Exception as e:
             logger.error(f"Cluster lookup failed for {address}: {e}")
             return None
@@ -1175,6 +1194,32 @@ class QuestDBRepository:
                 "lth_mvrv": float(result.lth_mvrv),
                 "sth_supply_btc": float(result.sth_supply_btc),
                 "lth_supply_btc": float(result.lth_supply_btc),
+                "confidence": float(result.confidence),
+                "created_at": created_at,
+            },
+            at=result.timestamp,
+        )
+
+    def save_urpd_features(self, result: "URPDFeaturesResult") -> bool:
+        """
+        Save scalar features derived from the URPD / cost-basis distribution.
+        """
+        created_at = datetime.utcnow()
+        return self._send_row(
+            "urpd_features_daily",
+            symbols={},
+            columns={
+                "block_height": result.block_height,
+                "current_price_usd": float(result.current_price_usd),
+                "bucket_size_usd": float(result.bucket_size_usd),
+                "total_supply_btc": float(result.total_supply_btc),
+                "supply_below_price_pct": float(result.supply_below_price_pct),
+                "supply_above_price_pct": float(result.supply_above_price_pct),
+                "top_bucket_concentration": float(result.top_bucket_concentration),
+                "dominant_bucket_distance_pct": float(
+                    result.dominant_bucket_distance_pct
+                ),
+                "distribution_entropy": float(result.distribution_entropy),
                 "confidence": float(result.confidence),
                 "created_at": created_at,
             },
@@ -1329,6 +1374,16 @@ class QuestDBRepository:
         query = """
         SELECT *
         FROM cost_basis_daily
+        ORDER BY ts DESC
+        LIMIT 1;
+        """
+        return await self.fetchrow(query)
+
+    async def get_urpd_features_latest(self) -> Optional[AsyncpgRecord]:
+        """Fetch the latest URPD-derived scalar features."""
+        query = """
+        SELECT *
+        FROM urpd_features_daily
         ORDER BY ts DESC
         LIMIT 1;
         """
