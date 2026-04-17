@@ -3,17 +3,24 @@ Unified Metric Loader for UTXOracle validation system.
 
 Loads metric data from multiple sources:
 1. DuckDB tables (primary)
-2. Calculated on-demand from UTXO data (fallback)
-3. Cached golden data (for tests)
+2. QuestDB tables via HTTP API (for materialized metrics)
+3. Calculated on-demand from UTXO data (fallback)
+4. Cached golden data (for tests)
 
 Supports P1 metrics: MVRV, SOPR, NUPL, Realized Cap
+Supports URPD-derived features: supply_below/above, top_bucket, entropy (spec-060)
 """
 
+import json
 import logging
+import os
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Optional
+from urllib.error import URLError
+from urllib.parse import quote
+from urllib.request import urlopen
 
 import pandas as pd
 from scripts.config import UTXORACLE_DB_PATH
@@ -121,6 +128,32 @@ METRIC_CONFIG = {
         "fallback_table": None,
         "transform": None,
     },
+    # --- URPD-derived features (spec-060) --- backend: questdb ---
+    "supply_below_price_pct": {
+        "table": "urpd_features_daily",
+        "column": "supply_below_price_pct",
+        "backend": "questdb",
+    },
+    "supply_above_price_pct": {
+        "table": "urpd_features_daily",
+        "column": "supply_above_price_pct",
+        "backend": "questdb",
+    },
+    "top_bucket_concentration": {
+        "table": "urpd_features_daily",
+        "column": "top_bucket_concentration",
+        "backend": "questdb",
+    },
+    "dominant_bucket_distance_pct": {
+        "table": "urpd_features_daily",
+        "column": "dominant_bucket_distance_pct",
+        "backend": "questdb",
+    },
+    "distribution_entropy": {
+        "table": "urpd_features_daily",
+        "column": "distribution_entropy",
+        "backend": "questdb",
+    },
 }
 
 
@@ -186,20 +219,35 @@ class MetricLoader:
         if metric_id not in METRIC_CONFIG:
             raise ValueError(f"Unsupported metric: {metric_id}")
 
+        config = METRIC_CONFIG[metric_id]
+        backend = config.get("backend", "duckdb")
+
         # Try sources in order based on preference
         if source == "golden":
             return self._load_from_golden(metric_id, start_date, end_date)
 
-        if source == "duckdb":
+        if source == "questdb":
+            return self._load_from_questdb(metric_id, start_date, end_date)
+
+        if source in ("auto", "duckdb") and backend == "questdb":
+            try:
+                result = self._load_from_questdb(metric_id, start_date, end_date)
+                if result.data:
+                    return result
+            except Exception as e:
+                logger.warning(f"QuestDB load failed for {metric_id}: {e}")
+
+        if source == "duckdb" and backend != "questdb":
             return self._load_from_duckdb(metric_id, start_date, end_date)
 
-        # Auto: try DuckDB first, fall back to golden
-        try:
-            result = self._load_from_duckdb(metric_id, start_date, end_date)
-            if result.data:
-                return result
-        except Exception as e:
-            logger.warning(f"DuckDB load failed for {metric_id}: {e}")
+        # Auto: try primary backend first, fall back to golden
+        if backend != "questdb":
+            try:
+                result = self._load_from_duckdb(metric_id, start_date, end_date)
+                if result.data:
+                    return result
+            except Exception as e:
+                logger.warning(f"DuckDB load failed for {metric_id}: {e}")
 
         # Fall back to golden data
         return self._load_from_golden(metric_id, start_date, end_date)
@@ -303,6 +351,57 @@ class MetricLoader:
                 end_date=end_date,
                 source="duckdb",
             )
+
+    def _load_from_questdb(
+        self,
+        metric_id: str,
+        start_date: date,
+        end_date: date,
+    ) -> MetricSeries:
+        """Load metric from QuestDB via HTTP API (sync)."""
+        config = METRIC_CONFIG[metric_id]
+        table = config["table"]
+        column = config["column"]
+        host = os.getenv("QUESTDB_HTTP_HOST", "localhost")
+        port = int(os.getenv("QUESTDB_HTTP_PORT", "9000"))
+
+        query = (
+            f"SELECT ts, {column} FROM {table} "
+            f"WHERE ts >= '{start_date}' AND ts <= '{end_date}T23:59:59.999Z' "
+            f"ORDER BY ts"
+        )
+        url = f"http://{host}:{port}/exec?query={quote(query)}"
+
+        try:
+            with urlopen(url, timeout=10) as resp:
+                body = json.loads(resp.read())
+        except (URLError, OSError) as e:
+            logger.warning(f"QuestDB HTTP request failed for {metric_id}: {e}")
+            return MetricSeries(
+                metric_id=metric_id,
+                data=[],
+                start_date=start_date,
+                end_date=end_date,
+                source="questdb",
+            )
+
+        data_points = []
+        for row in body.get("dataset", []):
+            ts_str, val = row[0], row[1]
+            if val is not None:
+                # QuestDB returns ISO timestamps like "2026-04-17T00:00:00.000000Z"
+                dt = date.fromisoformat(ts_str[:10])
+                data_points.append(
+                    MetricDataPoint(date=dt, value=float(val), source="questdb")
+                )
+
+        return MetricSeries(
+            metric_id=metric_id,
+            data=data_points,
+            start_date=start_date,
+            end_date=end_date,
+            source="questdb",
+        )
 
     def _load_from_golden(
         self,
