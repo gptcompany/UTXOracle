@@ -24,7 +24,7 @@ The first useful step is not to expose raw histogram data. It is to freeze a nar
 2. materialize that feature set into QuestDB as a daily historical surface
 3. expose a stable latest-read API route for operators and downstream consumers
 4. keep the contract small enough to be backtestable without carrying the full histogram
-5. leave full backtest loader integration as an explicit next step instead of implicitly broadening this slice
+5. wire historical backtest loading through `MetricLoader` so the feature set is consumable by the backtest path
 
 ## Non-Goals
 
@@ -159,9 +159,11 @@ What this spec includes:
 - historical materialization
 - latest-read serving contract
 
+Historical feature loading in the backtest ingestion path is now wired through
+`MetricLoader`.
+
 What remains open after this spec:
 
-- historical feature loading in the backtest ingestion path
 - signal generation rules built on top of these features
 - comparative validation of local-vs-`BRK` semantics
 
@@ -187,9 +189,10 @@ The repo MUST expose a latest-read route for the materialized feature set under 
 
 The spec MUST state that this first slice is locally derived and does not silently reclassify `BRK` as the canonical source.
 
-### FR6: Backtest Follow-Up Is Separate
+### FR6: Backtest Loader Must Be Explicit
 
-The first slice MUST NOT pretend that historical backtest ingestion is complete until the loader path is explicitly wired.
+The surface MUST NOT claim historical backtest consumption until the loader
+path is explicitly wired.
 
 ## Acceptance Direction
 
@@ -199,4 +202,5 @@ This spec is complete only when all of the following are true:
 2. a QuestDB daily table exists for the feature set
 3. the latest route is served and tested
 4. the materialization path writes the feature set during the daily holder/cohort pass
-5. the remaining backtest integration work is explicitly recorded as follow-up rather than implied complete
+5. historical backtest ingestion for the feature set is explicitly wired, and
+   any remaining work is limited to downstream signal design or validation
