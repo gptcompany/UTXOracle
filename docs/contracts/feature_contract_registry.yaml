@@ -508,6 +508,33 @@ entries:
     version: v1
     deprecation_status: none
     execution_eligible: false
+  - surface_id: urpd_features_surface
+    route_family: /api/metrics/urpd-features
+    routes:
+      - GET /api/metrics/urpd-features
+    canonical_host: http://127.0.0.1:8011
+    current_label: runtime verified
+    admission_tier: tier_2_operator
+    allowed_consumers:
+      - operators
+    source_of_truth: QuestDB-backed scalar features derived from local URPD
+      distribution (spec-060)
+    backend_class: questdb
+    freshness_target: Daily materialization via materialize_wave1
+    empty_state_policy: Return HTTP 404 when no materialized snapshot exists.
+    stale_state_policy: No explicit stale marker; output depends on last
+      materialization pass.
+    known_caveats:
+      - top_bucket_concentration measures a single dominant bucket, not
+        adjacent-cluster aggregation.
+      - Backtest loader integration remains a declared follow-up (FR6).
+      - Source is locally derived; does not claim equivalence to BRK
+        cost-basis distribution.
+    owner: scripts.metrics.urpd_features + scripts.metrics.materialize_wave1
+      + api.routes.questdb
+    version: v1
+    deprecation_status: none
+    execution_eligible: false
   - surface_id: models_core_surface
     route_family: /api/v1/models*
     routes:
