@@ -1,0 +1,89 @@
+$schema: "http://json-schema.org/draft-07/schema#"
+title: Stream Registry
+description: >
+  Schema for `docs/contracts/stream_registry.yaml` — the 13-entry SSOT for
+  the consumer-facing contract. See spec-061 § Stream Registry Entry.
+
+type: object
+required: [version, streams]
+properties:
+  version:
+    type: string
+    pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    description: SemVer of the registry FILE itself (not individual streams).
+  streams:
+    type: array
+    minItems: 13
+    maxItems: 13
+    items: { $ref: "#/definitions/StreamEntry" }
+
+definitions:
+  StreamEntry:
+    type: object
+    required:
+      - name
+      - table
+      - freshness_strategy
+      - schema_version
+      - sla_seconds
+      - source_spec
+      - pinned_columns
+    additionalProperties: false
+    properties:
+      name:
+        type: string
+        pattern: "^[a-z][a-z0-9_]*$"
+        description: Contract identifier; must match what nautilus_dev pins.
+      table:
+        type: string
+        pattern: "^[a-z][a-z0-9_]*$"
+        description: Backing QuestDB table name (may differ from `name`).
+      freshness_strategy:
+        type: string
+        enum: [max_ts, tip_lag_blocks]
+        description: >
+          How `stale_seconds` is computed for this stream.
+          `max_ts` (default) = `now() - max(timestamp_column)`.
+          `tip_lag_blocks` = `(getblockcount() - max(block_column)) * 600`.
+          Use `tip_lag_blocks` only when the row's `ts` is creation-time,
+          not data-time (currently: `utxo_lifecycle_full`).
+      timestamp_column:
+        type: string
+        pattern: "^[a-z][a-z0-9_]*$"
+        description: >
+          Authoritative UTC monotonic column queried for `max(...)`.
+          REQUIRED when `freshness_strategy` is `max_ts`; ignored otherwise.
+        default: ts
+      block_column:
+        type: string
+        pattern: "^[a-z][a-z0-9_]*$"
+        description: >
+          The column carrying the Bitcoin block height the row represents.
+          REQUIRED when `freshness_strategy` is `tip_lag_blocks`; ignored
+          otherwise.
+        default: spent_block
+      schema_version:
+        type: string
+        pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        description: SemVer of the per-stream contract shape; starts at "1.0.0".
+      sla_seconds:
+        type: integer
+        minimum: 1
+        description: Maximum allowed staleness in seconds.
+      source_spec:
+        type: string
+        description: Internal spec that owns this stream (e.g., "specs/056").
+      pinned_columns:
+        type: array
+        minItems: 1
+        items: { type: string }
+        description: Columns the consumer pins; removing any is breaking.
+      deprecated_at:
+        type: [string, "null"]
+        format: date
+        description: >
+          ISO-8601 date when soft-deprecation started. Stream stays valid
+          for at least 30 days after this date before removal.
+      notes:
+        type: string
+        description: Free-text human-readable context.

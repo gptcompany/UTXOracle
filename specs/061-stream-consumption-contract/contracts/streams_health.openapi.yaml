@@ -1,0 +1,186 @@
+openapi: 3.0.3
+info:
+  title: UTXOracle Stream Consumption Contract
+  version: "1.0.0"
+  description: >
+    Consumer-facing freshness contract for the 13 onchain streams that
+    `nautilus_dev` consumes. Implements spec-061. See
+    `specs/061-stream-consumption-contract/spec.md` for the full requirements.
+servers:
+  - url: http://localhost:8001
+    description: Local UTXOracle FastAPI instance
+
+paths:
+  /v1/streams/health:
+    get:
+      summary: Return the current freshness state of all 13 contractual streams.
+      description: >
+        Polled by `nautilus_dev` before a strict-mode run. The consumer gates
+        the run on `overall == "OK"`. See FR-003, FR-004, FR-011 in spec.md.
+      operationId: getStreamsHealth
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Per-stream freshness plus rollup status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StreamsHealthResponse"
+              examples:
+                allOK:
+                  summary: All 13 streams within SLA
+                  value:
+                    as_of: "2026-05-31T12:00:00Z"
+                    streams:
+                      - name: live_snapshots
+                        last_row_ts: "2026-05-31T11:59:30Z"
+                        stale_seconds: 30
+                        sla_seconds: 3600
+                        schema_version: "1.0.0"
+                        status: OK
+                      - name: utxo_lifecycle_full
+                        last_row_ts: null
+                        stale_seconds: 75600
+                        sla_seconds: 259200
+                        schema_version: "1.0.0"
+                        status: OK
+                    overall: OK
+                degraded:
+                  summary: Some streams past SLA or missing
+                  value:
+                    as_of: "2026-05-31T12:00:00Z"
+                    streams:
+                      - name: live_snapshots
+                        last_row_ts: "2026-05-31T11:59:30Z"
+                        stale_seconds: 30
+                        sla_seconds: 3600
+                        schema_version: "1.0.0"
+                        status: OK
+                      - name: mvrv_daily
+                        last_row_ts: "2026-01-15T00:00:00Z"
+                        stale_seconds: 11577600
+                        sla_seconds: 172800
+                        schema_version: "1.0.0"
+                        status: STALE
+                      - name: utxo_snapshots
+                        last_row_ts: null
+                        stale_seconds: null
+                        sla_seconds: 172800
+                        schema_version: "1.0.0"
+                        status: MISSING
+                    overall: DEGRADED
+                backendUnreachable:
+                  summary: Backing store transient failure
+                  value:
+                    as_of: "2026-05-31T12:00:00Z"
+                    streams:
+                      - name: whale_transactions
+                        last_row_ts: null
+                        stale_seconds: null
+                        sla_seconds: 3600
+                        schema_version: "1.0.0"
+                        status: MISSING
+                        error: "asyncpg.exceptions.ConnectionDoesNotExistError"
+                    overall: DEGRADED
+        "401":
+          description: Missing or invalid bearer token.
+        "503":
+          description: >
+            Reserved. Per FR-003, the endpoint normally returns 200 with
+            per-stream MISSING status when individual queries fail. A 503
+            is returned only when the endpoint itself cannot construct the
+            response (registry load failure at startup, etc.).
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    StreamStatus:
+      type: string
+      enum: [OK, STALE, MISSING]
+      description: >
+        Per FR-003 and spec.md Clarifications Q2.
+        OK = fresh within SLA.
+        STALE = table has rows but most recent is past SLA.
+        MISSING = table empty OR backend query failed (use `error` to
+        distinguish; consumer treats both as block-strict-mode).
+    OverallStatus:
+      type: string
+      enum: [OK, DEGRADED]
+      description: OK iff every stream is OK.
+    StreamHealthReading:
+      type: object
+      required:
+        - name
+        - last_row_ts
+        - stale_seconds
+        - sla_seconds
+        - schema_version
+        - status
+      properties:
+        name:
+          type: string
+          description: Contract stream identifier (matches `name` in `stream_registry.yaml`).
+        last_row_ts:
+          type: string
+          format: date-time
+          nullable: true
+          description: >
+            UTC ISO-8601 timestamp of the most recent row when the freshness
+            strategy is timestamp-based; null when MISSING or when the stream
+            uses a non-timestamp strategy such as `tip_lag_blocks`.
+        stale_seconds:
+          type: integer
+          nullable: true
+          minimum: 0
+          description: >
+            Strategy-derived staleness in seconds; null when MISSING.
+            For `max_ts`, this is now() - last_row_ts. For
+            `tip_lag_blocks`, this is (current_tip - max(block_column)) * 600.
+        sla_seconds:
+          type: integer
+          minimum: 1
+          description: Maximum allowed staleness from the registry.
+        schema_version:
+          type: string
+          pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+          description: SemVer of the stream's contract shape.
+        status:
+          $ref: "#/components/schemas/StreamStatus"
+        error:
+          type: string
+          nullable: true
+          description: >
+            Optional diagnostic message when status is MISSING due to a
+            backend failure (as opposed to an empty table). Consumer SHOULD
+            NOT branch on this field.
+    StreamsHealthResponse:
+      type: object
+      required:
+        - as_of
+        - streams
+        - overall
+      properties:
+        as_of:
+          type: string
+          format: date-time
+          description: Server clock at rollup time.
+        streams:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/StreamHealthReading"
+          description: >
+            One entry per registry stream. In the current registry version
+            (1.0.0) this is exactly 13 entries; the exact-count constraint
+            is enforced by `tests/test_stream_registry.py` and by the
+            endpoint at runtime, not by the wire schema, so that future
+            registry versions can extend the list without an OpenAPI bump.
+            The examples below are illustrative; they truncate the list
+            for readability rather than always showing all 13.
+        overall:
+          $ref: "#/components/schemas/OverallStatus"
