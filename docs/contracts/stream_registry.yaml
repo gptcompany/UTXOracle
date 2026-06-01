@@ -1,0 +1,244 @@
+# Stream Consumption Contract Registry
+# ====================================
+#
+# SSOT for the 13 onchain streams that nautilus_dev consumes from UTXOracle.
+# Implements spec-061. See specs/061-stream-consumption-contract/spec.md.
+#
+# Schema:    specs/061-stream-consumption-contract/contracts/stream_registry.schema.yaml
+# Endpoint:  GET /v1/streams/health  (api/routes/streams.py)
+# Source:    gptcompany/nautilus_dev PR #146
+# Consumer:  nautilus_dev/strategies/common/flow_discovery/onchain_context.py
+#
+# Renaming a stream is a BREAKING change (spec FR-005).
+# Removing a column from `pinned_columns` is a BREAKING change (spec FR-006).
+# Breaking changes require schema_version bump + 30-day overlap (spec FR-009).
+#
+# Freshness strategies:
+# - max_ts          → stale_seconds = now() - max(timestamp_column)
+# - tip_lag_blocks  → stale_seconds = (getblockcount() - max(block_column)) * 600
+#                     Used only when row `ts` is creation-time, not data-time.
+
+version: "1.0.0"
+
+streams:
+  # ── Tier 1: real-time / hourly ────────────────────────────────────────
+
+  - name: live_snapshots
+    table: live_snapshots
+    freshness_strategy: max_ts
+    timestamp_column: ts
+    schema_version: "1.0.0"
+    sla_seconds: 3600   # 1h
+    source_spec: specs/053
+    pinned_columns:
+      - snapshot_ts
+      - block_height
+      - utxoracle_price
+      - utxoracle_confidence
+      - mempool_exchange_price
+      - hyperliquid_oracle_price
+      - hyperliquid_mark_price
+    notes: Real-time price snapshots emitted by the live worker.
+
+  - name: whale_transactions
+    table: whale_transactions
+    freshness_strategy: max_ts
+    timestamp_column: ts
+    schema_version: "1.0.0"
+    sla_seconds: 3600   # 1h
+    source_spec: specs/020
+    pinned_columns:
+      - ts
+      - amount_btc
+      - urgency_score
+      - confidence
+    notes: Event-driven whale-tx stream.
+
+  - name: mempool_predictions
+    table: mempool_predictions
+    freshness_strategy: max_ts
+    timestamp_column: ts
+    schema_version: "1.0.0"
+    sla_seconds: 1800   # 30min
+    source_spec: specs/018
+    pinned_columns:
+      - ts
+      - btc_value
+      - fee_rate
+      - urgency_score
+      - confidence_score
+    notes: Sub-hour mempool predictions.
+
+  # ── Tier 2: hourly / 6h ───────────────────────────────────────────────
+
+  - name: net_flow_metrics
+    table: net_flow_metrics
+    freshness_strategy: max_ts
+    timestamp_column: ts
+    schema_version: "1.0.0"
+    sla_seconds: 21600   # 6h
+    source_spec: specs/022
+    pinned_columns:
+      - period_end
+      - total_buy_btc
+      - total_sell_btc
+      - net_flow_btc
+      - net_flow_usd
+      - transaction_count
+      - average_urgency
+      - strength
+    notes: Net flow aggregation per interval.
+
+  # ── Tier 3: daily (≤36h) ──────────────────────────────────────────────
+
+  - name: entity_flows_daily
+    table: entity_flows_daily
+    freshness_strategy: max_ts
+    timestamp_column: ts
+    schema_version: "1.0.0"
+    sla_seconds: 129600   # 36h
+    source_spec: specs/053
+    pinned_columns:
+      - date
+      - inflow_btc
+      - outflow_btc
+      - netflow_btc
+      - is_exchange
+    notes: Per-entity daily flows; consumer aggregates exchange totals.
+
+  - name: price_analysis
+    table: price_analysis
+    freshness_strategy: max_ts
+    timestamp_column: ts
+    schema_version: "1.0.0"
+    sla_seconds: 129600   # 36h
+    source_spec: specs/013
+    pinned_columns:
+      - ts
+      - exchange_price
+      - utxoracle_price
+      - confidence
+    notes: Daily exchange-vs-utxoracle price analysis.
+
+  - name: urpd_features_daily
+    table: urpd_features_daily
+    freshness_strategy: max_ts
+    timestamp_column: ts
+    schema_version: "1.0.0"
+    sla_seconds: 129600   # 36h
+    source_spec: specs/060
+    pinned_columns:
+      - ts
+      - block_height
+      - current_price_usd
+      - bucket_size_usd
+      - total_supply_btc
+      - supply_below_price_pct
+      - supply_above_price_pct
+      - top_bucket_concentration
+      - dominant_bucket_distance_pct
+      - distribution_entropy
+      - confidence
+    notes: URPD-derived daily feature surface.
+
+  # ── Tier 4: daily (≤48h) ──────────────────────────────────────────────
+
+  - name: utxo_snapshots
+    table: utxo_snapshots
+    freshness_strategy: max_ts
+    timestamp_column: ts
+    schema_version: "1.0.0"
+    sla_seconds: 172800   # 48h
+    source_spec: specs/017
+    pinned_columns:
+      - ts
+      - block_height
+      - total_supply_btc
+      - market_cap_usd
+    notes: Daily UTXO supply snapshots.
+
+  - name: mvrv_daily
+    table: mvrv_daily
+    freshness_strategy: max_ts
+    timestamp_column: ts
+    schema_version: "1.0.0"
+    sla_seconds: 172800   # 48h
+    source_spec: specs/040
+    pinned_columns:
+      - ts
+      - mvrv
+      - mvrv_z
+      - market_cap
+      - realized_cap
+    notes: Daily MVRV ratio; produced by calculate_daily_metrics.
+
+  - name: nupl_daily
+    table: nupl_daily
+    freshness_strategy: max_ts
+    timestamp_column: ts
+    schema_version: "1.0.0"
+    sla_seconds: 172800   # 48h
+    source_spec: specs/040
+    pinned_columns:
+      - ts
+      - nupl
+      - market_cap
+      - realized_cap
+      - unrealized_profit
+      - unrealized_loss
+    notes: Daily NUPL; produced by calculate_daily_metrics.
+
+  - name: realized_cap_daily
+    table: realized_cap_daily
+    freshness_strategy: max_ts
+    timestamp_column: ts
+    schema_version: "1.0.0"
+    sla_seconds: 172800   # 48h
+    source_spec: specs/040
+    pinned_columns:
+      - ts
+      - realized_cap
+    notes: Daily realized cap. DDL added by spec-061 T022 (was missing in pre-existing create_tables_if_not_exist).
+
+  # ── Tier 5: per-block (≤tip - 72h) ────────────────────────────────────
+
+  - name: utxo_lifecycle_full
+    table: utxo_lifecycle
+    freshness_strategy: tip_lag_blocks
+    block_column: spent_block
+    schema_version: "1.0.0"
+    sla_seconds: 259200   # 72h ≈ 432 blocks @ 10min/block
+    source_spec: specs/017
+    pinned_columns:
+      - creation_block
+      - creation_price_usd
+      - btc_value
+      - is_spent
+      - spent_block
+    notes: >
+      Per-block UTXO lifecycle. Freshness measured via tip_lag_blocks because
+      the table's ts column is row-creation time, not block time (the backfill
+      writes ts ≈ now() even for blocks 150 days behind tip). Probe:
+      (getblockcount() - max(spent_block)) * 600.
+
+  # ── Tier 6: research / weekly (≤168h) ─────────────────────────────────
+
+  - name: backtest_whale_signals
+    table: backtest_whale_signals
+    freshness_strategy: max_ts
+    timestamp_column: ts
+    schema_version: "1.0.0"
+    sla_seconds: 604800   # 168h = 7 days; per spec.md Clarifications Q3 (2026-05-31)
+    source_spec: specs/016
+    pinned_columns:
+      - ts
+      - net_flow_btc
+      - confidence
+      - btc_price
+      - inflow_btc
+      - outflow_btc
+      - tx_count_relevant
+    notes: >
+      Research-batch backtest signals. Producer writes DuckDB only; the QuestDB
+      surface is fed by scripts/metrics/mirror_backtest_whale_signals.py
+      (spec-061 T026a/c). DDL added by T022.
