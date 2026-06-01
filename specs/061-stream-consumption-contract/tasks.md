@@ -114,15 +114,15 @@ Single FastAPI project. Repo root: `/media/sam/1TB/UTXOracle/`. All paths below 
 
 ### Tests for US3 (RED — write first)
 
-- [ ] T027 [P] [US3] Write test `tests/test_stream_registry.py::test_schema_version_present_and_valid` — assert every stream entry has a `schema_version` matching `^\d+\.\d+\.\d+$`.
-- [ ] T028 [P] [US3] Write test `tests/test_streams_health.py::test_schema_version_echoed_in_response` — mock the registry; assert each stream's `schema_version` is echoed in its `StreamHealthReading`.
-- [ ] T029 [P] [US3] Write test `tests/test_streams_health.py::test_deprecated_at_field_optional` — register one stream with `deprecated_at: "2026-05-31"`; assert the registry loads without error and the stream is still queried.
+- [x] T027 [P] [US3] Write test `tests/test_stream_registry.py::test_schema_version_present_and_valid` — assert every stream entry has a `schema_version` matching `^\d+\.\d+\.\d+$`.
+- [x] T028 [P] [US3] Write test `tests/test_streams_health.py::test_schema_version_echoed_in_response` — mock the registry; assert each stream's `schema_version` is echoed in its `StreamHealthReading`.
+- [x] T029 [P] [US3] Write test `tests/test_streams_health.py::test_deprecated_at_field_optional` — register one stream with `deprecated_at: "2026-05-31"`; assert the registry loads without error and the stream is still queried.
 
 ### Implementation for US3 (GREEN)
 
-- [ ] T030 [US3] Ensure the registry from T003 already includes `schema_version: "1.0.0"` for all 13 entries (it should by Foundational design; this task is a verification + fix-up gate).
-- [ ] T031 [US3] Ensure `StreamHealthReading` (T012) and the route response (T013) echo `schema_version`. Update T012 / T013 if missing.
-- [ ] T032 [US3] Author `docs/SCHEMA_VERSIONING.md` documenting: (1) what counts as additive vs breaking per FR-006, (2) the 30-day soft-deprecation rule from FR-009, (3) the registry edit workflow from `quickstart.md` § "Edit the contract", (4) a worked example showing the old + new entry living side by side. Cross-link to existing `docs/contracts/CHANGE_POLICY.md` for the broader policy.
+- [x] T030 [US3] Ensure the registry from T003 already includes `schema_version: "1.0.0"` for all 13 entries (it should by Foundational design; this task is a verification + fix-up gate).
+- [x] T031 [US3] Ensure `StreamHealthReading` (T012) and the route response (T013) echo `schema_version`. Update T012 / T013 if missing.
+- [x] T032 [US3] Author `docs/SCHEMA_VERSIONING.md` documenting: (1) what counts as additive vs breaking per FR-006, (2) the 30-day soft-deprecation rule from FR-009, (3) the registry edit workflow from `quickstart.md` § "Edit the contract", (4) a worked example showing the old + new entry living side by side. Cross-link to existing `docs/contracts/CHANGE_POLICY.md` for the broader policy.
 
 **Checkpoint US3**: registry validates; endpoint echoes `schema_version`; documentation merged; the policy is referenceable by future PRs.
 

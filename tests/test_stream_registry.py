@@ -5,6 +5,7 @@ presence). RED first, then GREEN by aligning the registry YAML.
 """
 from __future__ import annotations
 
+import copy
 import re
 from pathlib import Path
 
@@ -119,3 +120,25 @@ def test_sla_seconds_positive(registry):
     """Every stream MUST declare sla_seconds > 0."""
     for s in registry["streams"]:
         assert s["sla_seconds"] > 0, f"{s['name']}: sla_seconds must be > 0"
+
+
+def test_deprecated_at_field_optional(registry, schema):
+    """T029: deprecated_at MUST be optional; registry MUST validate with or without it.
+
+    Constructs a synthetic registry copy where one entry carries
+    `deprecated_at: 2026-05-31`. The schema MUST accept it without
+    error, and a registry without any `deprecated_at` field (the
+    current state) MUST also validate.
+    """
+    # Current registry has zero deprecated_at fields; it must still validate.
+    errors = list(Draft7Validator(schema).iter_errors(registry))
+    assert not errors, "Registry without any deprecated_at must validate"
+
+    # Add deprecated_at to one entry; it must still validate.
+    augmented = copy.deepcopy(registry)
+    augmented["streams"][0]["deprecated_at"] = "2026-05-31"
+    errors = list(Draft7Validator(schema).iter_errors(augmented))
+    assert not errors, (
+        "Registry with deprecated_at on one entry must validate; "
+        f"errors: {[e.message for e in errors]}"
+    )

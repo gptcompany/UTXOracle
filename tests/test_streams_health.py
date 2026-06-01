@@ -230,6 +230,80 @@ async def test_auth_required(monkeypatch: pytest.MonkeyPatch):
     assert "utxo_lifecycle_full" not in text
 
 
+# ── T028: schema_version echoed in response ──────────────────────────────────
+
+
+async def test_schema_version_echoed_in_response(client: AsyncClient):
+    """T028: every StreamHealthReading MUST echo the registry schema_version.
+
+    The consumer pins schema_version at connect time per FR-009; the
+    endpoint MUST return the version actually backing each stream so the
+    pin check succeeds at the wire.
+    """
+    fresh_ts = _now() - timedelta(seconds=30)
+
+    async def fake_max_ts(table: str, timestamp_column: str):
+        return fresh_ts
+
+    async def fake_tip_lag(*args, **kwargs):
+        return 0
+
+    with (
+        patch("api.routes.streams.read_stream_max_ts", AsyncMock(side_effect=fake_max_ts)),
+        patch(
+            "api.routes.streams.read_stream_tip_lag_seconds",
+            AsyncMock(side_effect=fake_tip_lag),
+        ),
+        patch("api.routes.streams.get_current_tip", AsyncMock(return_value=950_000)),
+    ):
+        resp = await client.get("/v1/streams/health")
+
+    body = resp.json()
+    # All 13 streams in the v1.0.0 registry carry "1.0.0"
+    for s in body["streams"]:
+        assert s["schema_version"] == "1.0.0", (
+            f"{s['name']}: expected schema_version 1.0.0, got {s['schema_version']!r}"
+        )
+
+
+async def test_deprecated_at_field_optional(client: AsyncClient):
+    """T029: deprecated_at marks soft-deprecation; it must not disable probing."""
+    fresh_ts = _now() - timedelta(seconds=30)
+    deprecated_registry = [
+        {
+            "name": "legacy_metric",
+            "table": "legacy_metric_table",
+            "freshness_strategy": "max_ts",
+            "timestamp_column": "ts",
+            "schema_version": "1.0.0",
+            "sla_seconds": 3600,
+            "source_spec": "specs/test",
+            "pinned_columns": ["ts", "value"],
+            "deprecated_at": "2026-05-31",
+        }
+    ]
+    max_ts = AsyncMock(return_value=fresh_ts)
+
+    with (
+        patch("api.routes.streams._REGISTRY", deprecated_registry),
+        patch("api.routes.streams.read_stream_max_ts", max_ts),
+    ):
+        resp = await client.get("/v1/streams/health")
+
+    assert resp.status_code == 200
+    max_ts.assert_awaited_once_with("legacy_metric_table", "ts")
+    body = resp.json()
+    stream = body["streams"][0]
+    assert body["overall"] == OverallStatus.OK.value
+    assert stream["name"] == "legacy_metric"
+    assert stream["last_row_ts"] is not None
+    assert stream["stale_seconds"] <= 120
+    assert stream["sla_seconds"] == 3600
+    assert stream["schema_version"] == "1.0.0"
+    assert stream["status"] == StreamStatus.OK.value
+    assert stream["error"] is None
+
+
 # ── T011b: tip_lag_blocks strategy ────────────────────────────────────────────
 
 
