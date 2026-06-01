@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily DuckDB -> QuestDB mirror for backtest_whale_signals
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 UTC
+Persistent=true
+Unit=utxoracle-backtest-mirror.service
+
+[Install]
+WantedBy=timers.target

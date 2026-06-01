@@ -132,6 +132,129 @@ async def read_stream_tip_lag_seconds(
     return (int(current_tip) - int(max_block)) * 600
 
 
+# spec-061 T022: synchronous save methods for the daily aggregator.
+# The producer (`scripts/metrics/calculate_daily_metrics.py::persist_metrics`)
+# runs in sync context, so we use psycopg over the QuestDB PG-wire port
+# rather than asyncpg. Failure isolation is the caller's job (R5 strangler-fig);
+# these functions raise on backend errors and return True/False on logical
+# outcomes. Tables MUST exist before calling (create_tables_if_not_exist).
+
+try:
+    import psycopg
+except ModuleNotFoundError:  # pragma: no cover
+    psycopg = None  # type: ignore[assignment]
+
+
+def _open_pg_sync():
+    """Open a one-shot synchronous psycopg connection to QuestDB."""
+    if psycopg is None:
+        raise ModuleNotFoundError(
+            "psycopg is required for sync daily-aggregator saves; install project deps"
+        )
+    return psycopg.connect(
+        host=QUESTDB_PG_HOST,
+        port=QUESTDB_PG_PORT,
+        user=QUESTDB_PG_USER,
+        password=QUESTDB_PG_PASSWORD,
+        dbname=QUESTDB_PG_DATABASE,
+        autocommit=True,
+    )
+
+
+def save_mvrv_daily(
+    ts: datetime,
+    mvrv: float,
+    mvrv_z: Optional[float] = None,
+    market_cap: Optional[float] = None,
+    realized_cap: Optional[float] = None,
+) -> bool:
+    """Persist one row to QuestDB mvrv_daily. Idempotent per FR-010 + DEDUP."""
+    with _open_pg_sync() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO mvrv_daily (ts, mvrv, mvrv_z, market_cap, realized_cap, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (ts, mvrv, mvrv_z, market_cap, realized_cap, ts),
+            )
+    return True
+
+
+def save_nupl_daily(
+    ts: datetime,
+    nupl: float,
+    market_cap: Optional[float] = None,
+    realized_cap: Optional[float] = None,
+    unrealized_profit: Optional[float] = None,
+    unrealized_loss: Optional[float] = None,
+) -> bool:
+    """Persist one row to QuestDB nupl_daily. Idempotent per FR-010 + DEDUP."""
+    with _open_pg_sync() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO nupl_daily (ts, nupl, market_cap, realized_cap,
+                                        unrealized_profit, unrealized_loss, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    ts, nupl, market_cap, realized_cap,
+                    unrealized_profit, unrealized_loss, ts,
+                ),
+            )
+    return True
+
+
+def save_realized_cap_daily(
+    ts: datetime,
+    realized_cap: float,
+    total_supply: Optional[float] = None,
+) -> bool:
+    """Persist one row to QuestDB realized_cap_daily. Idempotent per FR-010 + DEDUP."""
+    with _open_pg_sync() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO realized_cap_daily (ts, realized_cap, total_supply, created_at)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (ts, realized_cap, total_supply, ts),
+            )
+    return True
+
+
+def save_backtest_whale_signal_row(
+    ts: datetime,
+    net_flow_btc: Optional[float] = None,
+    confidence: Optional[float] = None,
+    btc_price: Optional[float] = None,
+    inflow_btc: Optional[float] = None,
+    outflow_btc: Optional[float] = None,
+    tx_count_relevant: Optional[int] = None,
+) -> bool:
+    """Persist one row to QuestDB backtest_whale_signals (T026a mirror target).
+
+    Used by scripts/metrics/mirror_backtest_whale_signals.py to bridge the
+    DuckDB producer to the consumer-visible QuestDB surface. Idempotent
+    per FR-010 + DEDUP UPSERT KEYS(ts).
+    """
+    with _open_pg_sync() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO backtest_whale_signals (ts, net_flow_btc, confidence, btc_price,
+                                                    inflow_btc, outflow_btc, tx_count_relevant, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    ts, net_flow_btc, confidence, btc_price,
+                    inflow_btc, outflow_btc, tx_count_relevant, ts,
+                ),
+            )
+    return True
+
+
 async def create_tables_if_not_exist():
     """
     Creates the necessary tables in QuestDB if they do not already exist.
@@ -528,7 +651,8 @@ async def create_tables_if_not_exist():
                 unrealized_profit DOUBLE,
                 unrealized_loss DOUBLE,
                 created_at TIMESTAMP
-            ) timestamp(ts) PARTITION BY YEAR;
+            ) timestamp(ts) PARTITION BY YEAR WAL
+              DEDUP UPSERT KEYS(ts);
             """
         )
 
@@ -541,7 +665,54 @@ async def create_tables_if_not_exist():
                 market_cap DOUBLE,
                 realized_cap DOUBLE,
                 created_at TIMESTAMP
-            ) timestamp(ts) PARTITION BY YEAR;
+            ) timestamp(ts) PARTITION BY YEAR WAL
+              DEDUP UPSERT KEYS(ts);
+            """
+        )
+
+        for table_name in ("nupl_daily", "mvrv_daily"):
+            for ddl in (
+                f"ALTER TABLE {table_name} SET TYPE WAL",
+                f"ALTER TABLE {table_name} DEDUP ENABLE UPSERT KEYS(ts)",
+            ):
+                try:
+                    await conn.execute(ddl)
+                except Exception:
+                    pass
+
+        # spec-061 T022: realized_cap_daily - added because the pre-existing DDL
+        # set covered mvrv_daily + nupl_daily but not realized_cap_daily, which
+        # the contract registry exposes as its own consumer-facing stream.
+        # WAL + DEDUP UPSERT KEYS(ts) makes same-day re-runs replace rows.
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS realized_cap_daily (
+                ts TIMESTAMP,
+                realized_cap DOUBLE,
+                total_supply DOUBLE,
+                created_at TIMESTAMP
+            ) timestamp(ts) PARTITION BY YEAR WAL
+              DEDUP UPSERT KEYS(ts);
+            """
+        )
+
+        # spec-061 T022 / R8: backtest_whale_signals - QuestDB consumption surface
+        # for nautilus_dev. The producer (scripts/whale_flow_backtest.py) writes
+        # DuckDB only; rows land here via scripts/metrics/mirror_backtest_whale_signals.py.
+        # Columns match the pinned set in the registry + onchain_context.py.
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS backtest_whale_signals (
+                ts TIMESTAMP,
+                net_flow_btc DOUBLE,
+                confidence DOUBLE,
+                btc_price DOUBLE,
+                inflow_btc DOUBLE,
+                outflow_btc DOUBLE,
+                tx_count_relevant LONG,
+                created_at TIMESTAMP
+            ) timestamp(ts) PARTITION BY MONTH WAL
+              DEDUP UPSERT KEYS(ts);
             """
         )
 

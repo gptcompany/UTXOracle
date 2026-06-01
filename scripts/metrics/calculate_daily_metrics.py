@@ -26,6 +26,16 @@ import duckdb
 
 from scripts.config import UTXORACLE_DB_PATH
 
+# spec-061 T023: dual-write to QuestDB. Imported at module level so tests can
+# patch these symbols at scripts.metrics.calculate_daily_metrics.save_*.
+# Strangler-fig per research.md R5: QuestDB write failure logs but does not
+# raise; DuckDB remains the source of truth during the transition.
+from api.questdb_repository import (
+    save_mvrv_daily,
+    save_nupl_daily,
+    save_realized_cap_daily,
+)
+
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
@@ -443,6 +453,55 @@ def persist_metrics(metrics: dict, conn: duckdb.DuckDBPyConnection) -> None:
         )
 
     logger.debug(f"  Persisted metrics for {target_date}")
+
+    # spec-061 T023: dual-write to QuestDB after DuckDB writes complete.
+    # Strangler-fig per research.md R5: failure logged, not raised.
+    _persist_to_questdb(metrics)
+
+
+def _persist_to_questdb(metrics: dict) -> None:
+    """Mirror the three daily aggregates into QuestDB for the consumer contract.
+
+    Failure isolated per call so a transient QuestDB issue does not block
+    the DuckDB write that already succeeded (research.md R5). The endpoint
+    reads ONLY from QuestDB; if writes silently fail, the affected stream
+    goes STALE and the consumer sees the truth - no silent success.
+    """
+    target_date = metrics["date"]
+    ts = datetime(target_date.year, target_date.month, target_date.day)
+
+    if metrics.get("mvrv") is not None:
+        try:
+            save_mvrv_daily(
+                ts,
+                float(metrics["mvrv"]),
+                mvrv_z=metrics.get("mvrv_z"),
+                market_cap=metrics.get("market_cap"),
+                realized_cap=metrics.get("realized_cap"),
+            )
+        except Exception as exc:
+            logger.error("QuestDB save_mvrv_daily failed for %s: %s", target_date, exc)
+
+    if metrics.get("nupl") is not None:
+        try:
+            save_nupl_daily(
+                ts,
+                float(metrics["nupl"]),
+                market_cap=metrics.get("market_cap"),
+                realized_cap=metrics.get("realized_cap"),
+            )
+        except Exception as exc:
+            logger.error("QuestDB save_nupl_daily failed for %s: %s", target_date, exc)
+
+    if metrics.get("realized_cap") is not None:
+        try:
+            save_realized_cap_daily(
+                ts,
+                float(metrics["realized_cap"]),
+                total_supply=metrics.get("total_supply"),
+            )
+        except Exception as exc:
+            logger.error("QuestDB save_realized_cap_daily failed for %s: %s", target_date, exc)
 
 
 def backfill_metrics(

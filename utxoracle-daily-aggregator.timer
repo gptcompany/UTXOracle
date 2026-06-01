@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily UTXOracle metrics aggregation (mvrv/nupl/realized_cap)
+
+[Timer]
+OnCalendar=*-*-* 02:30:00 UTC
+Persistent=true
+Unit=utxoracle-daily-aggregator.service
+
+[Install]
+WantedBy=timers.target
