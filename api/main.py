@@ -267,6 +267,11 @@ from api.routes.questdb import router as questdb_router
 app.include_router(questdb_router)
 logging.info("✅ Promoted QuestDB-backed metrics registered (prices, metrics/latest)")
 
+# spec-061: Consumer-facing stream consumption contract — GET /v1/streams/health
+from api.routes.streams import router as streams_router
+app.include_router(streams_router)
+logging.info("✅ Stream consumption contract registered (/v1/streams/health, 13 streams)")
+
 # =============================================================================
 # spec-040: Dedicated live API host policy
 # =============================================================================

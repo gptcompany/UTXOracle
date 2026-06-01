@@ -4,6 +4,7 @@ Repository for interacting with QuestDB.
 
 import os
 import logging
+import re
 from api.models.data import WhaleTransaction, NetFlowMetrics, Alert
 from scripts.models.metrics_models import (
     WalletWavesResult,
@@ -48,6 +49,87 @@ QUESTDB_POOL_MIN_SIZE = int(os.getenv("QUESTDB_POOL_MIN_SIZE", "5"))
 QUESTDB_POOL_MAX_SIZE = int(os.getenv("QUESTDB_POOL_MAX_SIZE", "20"))
 QUESTDB_COMMAND_TIMEOUT = int(os.getenv("QUESTDB_COMMAND_TIMEOUT", "30"))
 QUESTDB_MAX_INACTIVE_LIFETIME = int(os.getenv("QUESTDB_MAX_INACTIVE_LIFETIME", "300"))
+
+
+# Defense-in-depth: identifiers in the freshness probes come from the registry
+# YAML (already validated against `stream_registry.schema.yaml` pattern
+# `^[a-z][a-z0-9_]*$`), but we re-check here so a misconfigured loader cannot
+# inject SQL via table or column names.
+_IDENTIFIER_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+def _validate_identifier(name: str, kind: str) -> str:
+    if not _IDENTIFIER_RE.match(name):
+        raise ValueError(f"invalid {kind} identifier: {name!r}")
+    return name
+
+
+async def _fetch_stream_probe_value(query: str):
+    """Run a scalar freshness probe using the shared PG pool when available."""
+    if asyncpg is None:
+        raise ModuleNotFoundError(
+            "asyncpg is required for stream freshness probes; install project deps"
+        )
+
+    if QuestDBRepository._pool is not None:
+        async with QuestDBRepository._pool.acquire() as conn:
+            return await conn.fetchval(query)
+
+    conn = await asyncpg.connect(
+        host=QUESTDB_PG_HOST,
+        port=QUESTDB_PG_PORT,
+        user=QUESTDB_PG_USER,
+        password=QUESTDB_PG_PASSWORD,
+        database=QUESTDB_PG_DATABASE,
+    )
+    try:
+        return await conn.fetchval(query)
+    finally:
+        await conn.close()
+
+
+async def read_stream_max_ts(table: str, timestamp_column: str) -> Optional[datetime]:
+    """Return `max(timestamp_column)` from `table`, or None if the table is empty.
+
+    Used by the freshness endpoint (spec-061 FR-003) for streams whose
+    registry entry declares `freshness_strategy: max_ts`. Raises on
+    backend failure; the caller maps that to status `MISSING` with an
+    `error` field.
+    """
+    if asyncpg is None:
+        raise ModuleNotFoundError(
+            "asyncpg is required for read_stream_max_ts; install project deps"
+        )
+    _validate_identifier(table, "table")
+    _validate_identifier(timestamp_column, "timestamp_column")
+    return await _fetch_stream_probe_value(
+        f"SELECT max({timestamp_column}) FROM {table}"
+    )
+
+
+async def read_stream_tip_lag_seconds(
+    table: str, block_column: str, current_tip: int
+) -> Optional[int]:
+    """Return `(current_tip - max(block_column)) * 600` from `table`, or None if empty.
+
+    Used by streams whose registry entry declares
+    `freshness_strategy: tip_lag_blocks` — currently only `utxo_lifecycle_full`,
+    where the row's `ts` is creation-time and `max(ts)` would falsely report
+    `OK` during a backfill. Block lag is the authoritative freshness signal.
+    Raises on backend failure; caller maps to MISSING with `error`.
+    """
+    if asyncpg is None:
+        raise ModuleNotFoundError(
+            "asyncpg is required for read_stream_tip_lag_seconds; install project deps"
+        )
+    _validate_identifier(table, "table")
+    _validate_identifier(block_column, "block_column")
+    max_block = await _fetch_stream_probe_value(
+        f"SELECT max({block_column}) FROM {table}"
+    )
+    if max_block is None:
+        return None
+    return (int(current_tip) - int(max_block)) * 600
 
 
 async def create_tables_if_not_exist():
