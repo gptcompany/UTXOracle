@@ -83,7 +83,18 @@ def _open_questdb_connection():
 
 
 def verify(conn=None) -> IntegrityReport:
-    """Run the integrity check; return the report. Read-only."""
+    """Run the integrity check; return the report. Read-only.
+
+    Memory-safe variant (2026-06-03): the original implementation issued
+    ``SELECT count_distinct(outpoint) FROM utxo_lifecycle``, which on a
+    164M-row table caused QuestDB to OOM and close the connection. We now
+    compare QuestDB count(*) against the DuckDB source count(*) — if they
+    match, no duplicates were inserted by the mirror (the mirror SELECT is
+    1:1 with source rows, so equal counts means equal sets).
+
+    Only when the counts disagree by a small amount do we fall back to the
+    bucketed distinct count, which streams under QuestDB's memory budget.
+    """
     if conn is None:
         with _open_questdb_connection() as owned:
             return verify(owned)
@@ -91,8 +102,27 @@ def verify(conn=None) -> IntegrityReport:
     with conn.cursor() as cur:
         cur.execute("SELECT count() FROM utxo_lifecycle")
         total = int(cur.fetchone()[0])
-        cur.execute("SELECT count_distinct(outpoint) FROM utxo_lifecycle")
-        distinct = int(cur.fetchone()[0])
+
+    # Compare against the DuckDB source as the cheap parity check.
+    source_count = _duckdb_source_count()
+    if source_count is not None and total == source_count:
+        # Parity holds → distinct == total by construction of the mirror.
+        report = IntegrityReport(total_rows=total, distinct_outpoints=total)
+        logger.info(
+            "utxo_lifecycle integrity (parity path): %d rows == DuckDB source",
+            total,
+        )
+        return report
+
+    # Counts disagree (or DuckDB unreachable): fall back to a bucketed
+    # distinct count. Splits the work into 256 first-byte buckets so peak
+    # memory per bucket is ~1/256 of the full distinct set.
+    logger.warning(
+        "Count parity inconclusive (questdb=%s, duckdb=%s); running bucketed distinct",
+        total,
+        source_count,
+    )
+    distinct = _bucketed_distinct_outpoints(conn)
 
     report = IntegrityReport(total_rows=total, distinct_outpoints=distinct)
     logger.info(
@@ -102,6 +132,52 @@ def verify(conn=None) -> IntegrityReport:
         report.duplicate_rows,
     )
     return report
+
+
+def _duckdb_source_count() -> int | None:
+    """Return the source row count from DuckDB utxo_lifecycle_full, or None
+    if DuckDB cannot be opened. Used as the cheap parity reference."""
+    try:
+        import duckdb
+
+        from scripts.config import UTXORACLE_DB_PATH
+    except Exception:  # pragma: no cover
+        return None
+    try:
+        conn = duckdb.connect(str(UTXORACLE_DB_PATH), read_only=True)
+        try:
+            row = conn.execute(
+                "SELECT count(*) FROM utxo_lifecycle_full"
+            ).fetchone()
+            return int(row[0]) if row else 0
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.warning("DuckDB source count unavailable: %s", exc)
+        return None
+
+
+def _bucketed_distinct_outpoints(conn) -> int:
+    """Compute distinct outpoints in 256 first-byte buckets to bound memory.
+
+    QuestDB does not push down count_distinct on a SYMBOL of cardinality
+    164M, so we issue 256 narrower queries that each fit in working memory.
+    Sum-of-bucket-distincts == total-distinct because the bucket key is a
+    prefix of the value being counted (outpoints starting with different
+    first bytes are disjoint).
+    """
+    total_distinct = 0
+    with conn.cursor() as cur:
+        for prefix_byte in range(256):
+            prefix = format(prefix_byte, "02x")
+            cur.execute(
+                "SELECT count_distinct(outpoint) FROM utxo_lifecycle "
+                "WHERE outpoint LIKE %s",
+                (f"{prefix}%",),
+            )
+            row = cur.fetchone()
+            total_distinct += int(row[0]) if row and row[0] is not None else 0
+    return total_distinct
 
 
 def fix_duplicates(conn=None) -> int:

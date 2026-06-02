@@ -31,7 +31,7 @@ class _FakeCursor:
     def __exit__(self, exc_type, exc, tb):
         return False
 
-    def execute(self, query: str):
+    def execute(self, query: str, params: tuple | None = None):
         self.executed.append(query)
 
     def fetchone(self):
@@ -53,16 +53,15 @@ class _FakeConnection:
         return self.cursor_holder
 
 
-def test_verify_reports_clean(monkeypatch):
-    """F3 baseline: 100M rows, 100M distinct outpoints → no duplicates."""
+def test_verify_reports_clean_parity_path(monkeypatch):
+    """Memory-safe verify (2026-06-03): when QuestDB count == DuckDB source,
+    parity short-circuits the verdict to clean without count_distinct."""
     from scripts.bootstrap import verify_utxo_lifecycle_mirror as module
 
-    fake_conn = _FakeConnection([100_000_000, 100_000_000])
-
-    def fake_open():
-        return fake_conn
-
-    monkeypatch.setattr(module, "_open_questdb_connection", fake_open)
+    # Only 1 fetchone() needed now (count(*)) before parity check fires
+    fake_conn = _FakeConnection([100_000_000])
+    monkeypatch.setattr(module, "_open_questdb_connection", lambda: fake_conn)
+    monkeypatch.setattr(module, "_duckdb_source_count", lambda: 100_000_000)
     report = module.verify()
     assert report.total_rows == 100_000_000
     assert report.distinct_outpoints == 100_000_000
@@ -70,33 +69,52 @@ def test_verify_reports_clean(monkeypatch):
     assert report.is_clean is True
 
 
-def test_verify_detects_duplicates_from_f1_materialised(monkeypatch):
-    """F3 exposes F1: 100M+5k rows but only 100M distinct outpoints → 5k dups.
+def test_verify_detects_duplicates_via_bucketed_distinct(monkeypatch):
+    """When parity disagrees, falls back to bucketed distinct sum (256 buckets).
 
-    This is exactly the residue of a mid-chunk crash + resume against a
-    utxo_lifecycle table without DEDUP UPSERT KEYS. The verify script must
-    surface the count loudly so the operator runs --fix before downstream
-    consumers read stale-looking creation counts.
+    Simulates: QuestDB has 100M+5k rows, DuckDB source has 100M,
+    bucketed distinct returns 100M total (5k duplicates).
     """
     from scripts.bootstrap import verify_utxo_lifecycle_mirror as module
 
-    fake_conn = _FakeConnection([100_005_000, 100_000_000])
-
-    def fake_open():
-        return fake_conn
-
-    monkeypatch.setattr(module, "_open_questdb_connection", fake_open)
+    # 1 fetchone() for count(*), then 256 fetchones for the buckets
+    bucket_scripted = [100_000_000 // 256] * 256
+    # Make first bucket carry the remainder so sum == 100_000_000
+    bucket_scripted[0] = 100_000_000 - sum(bucket_scripted[1:])
+    fake_conn = _FakeConnection([100_005_000, *bucket_scripted])
+    monkeypatch.setattr(module, "_open_questdb_connection", lambda: fake_conn)
+    monkeypatch.setattr(module, "_duckdb_source_count", lambda: 100_000_000)
     report = module.verify()
+    assert report.total_rows == 100_005_000
+    assert report.distinct_outpoints == 100_000_000
     assert report.duplicate_rows == 5_000
     assert report.is_clean is False
 
 
-def test_main_returns_nonzero_when_dups_and_no_fix(monkeypatch, capsys):
+def test_verify_runs_bucketed_distinct_when_duckdb_unavailable(monkeypatch):
+    """If DuckDB source count is unavailable (None), use bucketed distinct."""
+    from scripts.bootstrap import verify_utxo_lifecycle_mirror as module
+
+    bucket_scripted = [100_000_000 // 256] * 256
+    bucket_scripted[0] = 100_000_000 - sum(bucket_scripted[1:])
+    fake_conn = _FakeConnection([100_000_000, *bucket_scripted])
+    monkeypatch.setattr(module, "_open_questdb_connection", lambda: fake_conn)
+    monkeypatch.setattr(module, "_duckdb_source_count", lambda: None)
+    report = module.verify()
+    assert report.total_rows == 100_000_000
+    assert report.distinct_outpoints == 100_000_000
+    assert report.is_clean is True
+
+
+def test_main_returns_nonzero_when_dups_and_no_fix(monkeypatch):
     """The CLI exit code must reflect the integrity state for CI scripts."""
     from scripts.bootstrap import verify_utxo_lifecycle_mirror as module
 
-    fake_conn = _FakeConnection([100_005_000, 100_000_000])
+    bucket_scripted = [100_000_000 // 256] * 256
+    bucket_scripted[0] = 100_000_000 - sum(bucket_scripted[1:])
+    fake_conn = _FakeConnection([100_005_000, *bucket_scripted])
     monkeypatch.setattr(module, "_open_questdb_connection", lambda: fake_conn)
+    monkeypatch.setattr(module, "_duckdb_source_count", lambda: 100_000_000)
     monkeypatch.setattr("sys.argv", ["verify_utxo_lifecycle_mirror"])
 
     code = module.main()
@@ -106,8 +124,9 @@ def test_main_returns_nonzero_when_dups_and_no_fix(monkeypatch, capsys):
 def test_main_clean_returns_zero(monkeypatch):
     from scripts.bootstrap import verify_utxo_lifecycle_mirror as module
 
-    fake_conn = _FakeConnection([100_000_000, 100_000_000])
+    fake_conn = _FakeConnection([100_000_000])
     monkeypatch.setattr(module, "_open_questdb_connection", lambda: fake_conn)
+    monkeypatch.setattr(module, "_duckdb_source_count", lambda: 100_000_000)
     monkeypatch.setattr("sys.argv", ["verify_utxo_lifecycle_mirror"])
 
     code = module.main()
@@ -118,12 +137,15 @@ def test_fix_pass_removes_duplicates(monkeypatch):
     """F3: when --fix is requested and dups exist, the dedup pass runs."""
     from scripts.bootstrap import verify_utxo_lifecycle_mirror as module
 
-    # First two fetchone()s are for verify (5000 dups), then for fix:
-    # count() before -> 100_005_000, count() after -> 100_000_000
+    # First fetchone() -> 100_005_000 (count); then 256 buckets summing to
+    # 100M (5k duplicates); then fix pass: 100_005_000 before + 100M after.
+    bucket_scripted = [100_000_000 // 256] * 256
+    bucket_scripted[0] = 100_000_000 - sum(bucket_scripted[1:])
     fake_conn = _FakeConnection(
-        [100_005_000, 100_000_000, 100_005_000, 100_000_000]
+        [100_005_000, *bucket_scripted, 100_005_000, 100_000_000]
     )
     monkeypatch.setattr(module, "_open_questdb_connection", lambda: fake_conn)
+    monkeypatch.setattr(module, "_duckdb_source_count", lambda: 100_000_000)
     monkeypatch.setattr("sys.argv", ["verify_utxo_lifecycle_mirror", "--fix"])
 
     code = module.main()

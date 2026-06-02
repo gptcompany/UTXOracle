@@ -133,22 +133,46 @@ done
 
 set_state "verifying_integrity"
 log "Step 1: verify_utxo_lifecycle_mirror"
-if ! uv run python -m scripts.bootstrap.verify_utxo_lifecycle_mirror >> "$LOG" 2>&1; then
-    set_state "duplicates_found"
-    log "Step 2: dedup pass (--fix)"
-    if ! uv run python -m scripts.bootstrap.verify_utxo_lifecycle_mirror --fix >> "$LOG" 2>&1; then
-        log "FATAL: dedup pass failed"
-        set_state "fatal_dedup_failed"
+# Fix 2026-06-03: distinguish exit codes per the verify script contract.
+#   0 -> clean
+#   1 -> duplicates found
+#   2 -> backend error (e.g. QuestDB OOM on count_distinct)
+# Previously any non-zero was treated as "duplicates_found" -> wrong
+# follow-up. With the parity-first verify we should rarely see a true
+# duplicates exit, but we still handle it.
+uv run python -m scripts.bootstrap.verify_utxo_lifecycle_mirror >> "$LOG" 2>&1
+verify_rc=$?
+case "$verify_rc" in
+    0)
+        log "Integrity OK (parity confirmed)"
+        ;;
+    1)
+        set_state "duplicates_found"
+        log "Step 2: dedup pass (--fix)"
+        if ! uv run python -m scripts.bootstrap.verify_utxo_lifecycle_mirror --fix >> "$LOG" 2>&1; then
+            log "FATAL: dedup pass failed"
+            set_state "fatal_dedup_failed"
+            exit 3
+        fi
+        log "Dedup succeeded; re-verifying"
+        if ! uv run python -m scripts.bootstrap.verify_utxo_lifecycle_mirror >> "$LOG" 2>&1; then
+            log "FATAL: integrity still failing after dedup"
+            set_state "fatal_integrity_post_dedup"
+            exit 3
+        fi
+        log "Integrity OK (post-dedup)"
+        ;;
+    2)
+        log "FATAL: integrity check could not reach QuestDB (backend error)"
+        set_state "fatal_integrity_backend_error"
         exit 3
-    fi
-    log "Dedup succeeded; re-verifying"
-    if ! uv run python -m scripts.bootstrap.verify_utxo_lifecycle_mirror >> "$LOG" 2>&1; then
-        log "FATAL: integrity still failing after dedup"
-        set_state "fatal_integrity_post_dedup"
+        ;;
+    *)
+        log "FATAL: unexpected exit $verify_rc from verify_utxo_lifecycle_mirror"
+        set_state "fatal_integrity_unexpected"
         exit 3
-    fi
-fi
-log "Integrity OK"
+        ;;
+esac
 
 # ── Step 3: creation catch-up ────────────────────────────────────────────────
 

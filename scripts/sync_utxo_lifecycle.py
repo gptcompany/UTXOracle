@@ -98,17 +98,23 @@ class BitcoinRPC:
 
         # Get connection settings from env
         rpc_url = os.getenv("BITCOIN_RPC_URL", "http://127.0.0.1:8332")
+        if not rpc_url:
+            rpc_url = "http://127.0.0.1:8332"
         self.rpc_user = os.getenv("BITCOIN_RPC_USER", "")
         self.rpc_pass = os.getenv("BITCOIN_RPC_PASSWORD", "")
 
-        # Parse host/port from URL
-        url_parts = rpc_url.replace("http://", "").replace("https://", "")
-        if ":" in url_parts:
-            self.host, port_str = url_parts.split(":")
-            self.port = int(port_str)
-        else:
-            self.host = url_parts
-            self.port = 8332
+        # Parse host/port via urllib so we handle URLs that include credentials,
+        # custom paths, or no scheme. The hand-rolled split() previously failed
+        # on URLs with embedded credentials (user:pass@host:port -> 4 colons).
+        from urllib.parse import urlparse
+
+        parsed = urlparse(rpc_url if "://" in rpc_url else f"http://{rpc_url}")
+        self.host = parsed.hostname or "127.0.0.1"
+        self.port = parsed.port or 8332
+        if parsed.username and not self.rpc_user:
+            self.rpc_user = parsed.username
+        if parsed.password and not self.rpc_pass:
+            self.rpc_pass = parsed.password
 
         # Try cookie auth if no credentials
         if not self.rpc_user or not self.rpc_pass:
