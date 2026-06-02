@@ -153,13 +153,19 @@ async def _probe_stream(
                 error = tip_error
             else:
                 assert current_tip is not None  # guarded by tip_error
-                lag = await read_stream_tip_lag_seconds(
-                    table, entry["block_column"], current_tip
+                block_columns = entry.get("block_columns") or [entry["block_column"]]
+                lags = await asyncio.gather(
+                    *(
+                        read_stream_tip_lag_seconds(table, block_column, current_tip)
+                        for block_column in block_columns
+                    )
                 )
-                if lag is None:
+                if any(lag is None for lag in lags):
                     status = StreamStatus.MISSING
                 else:
-                    stale_seconds = max(0, int(lag))
+                    stale_seconds = max(
+                        0, *(int(lag) for lag in lags if lag is not None)
+                    )
                     status = (
                         StreamStatus.OK if stale_seconds <= sla else StreamStatus.STALE
                     )

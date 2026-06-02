@@ -62,6 +62,17 @@ definitions:
           REQUIRED when `freshness_strategy` is `tip_lag_blocks`; ignored
           otherwise.
         default: spent_block
+      block_columns:
+        type: array
+        minItems: 1
+        items:
+          type: string
+          pattern: "^[a-z][a-z0-9_]*$"
+        description: >
+          Optional multi-column variant for `tip_lag_blocks`. When present,
+          the endpoint computes lag for every listed block column and uses the
+          worst lag. Required for UTXO lifecycle, where both new creations and
+          spent-state catch-up must be fresh.
       schema_version:
         type: string
         pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$"

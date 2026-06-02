@@ -6,6 +6,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory=/media/sam/1TB/UTXOracle
+Environment="PATH=/home/sam/.local/bin:/usr/local/bin:/usr/bin:/bin"
 Environment=UTXORACLE_DB_PATH=/media/sam/1TB/UTXOracle/data/utxoracle.duckdb
 ExecStart=/usr/bin/env uv run python -m scripts.metrics.mirror_backtest_whale_signals
 

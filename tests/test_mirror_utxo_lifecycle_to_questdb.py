@@ -198,6 +198,7 @@ def test_mirror_writes_batches(tmp_path, monkeypatch):
         start_block=840_000,
         end_block=840_002,
         batch_size=2,
+        checkpoint_path=tmp_path / "checkpoint.json",
     )
 
     assert stats.source_rows == 3
@@ -250,3 +251,56 @@ def test_dry_run_counts_without_opening_questdb(tmp_path, monkeypatch):
     assert stats.source_rows == 3
     assert stats.mirrored_rows == 0
     assert stats.dry_run is True
+
+
+def test_resume_starts_after_checkpoint(tmp_path, monkeypatch):
+    import scripts.bootstrap.mirror_utxo_lifecycle_to_questdb as module
+
+    duckdb_path = tmp_path / "source.duckdb"
+    checkpoint = tmp_path / "checkpoint.json"
+    _write_source_db(duckdb_path)
+    checkpoint.write_text(
+        '{"last_block": 840000, "mirrored_rows": 1, "start_block": 840000, "end_block": 840002}'
+    )
+    fake_target = _FakeQuestDBConnection(target_count=1)
+    monkeypatch.setattr(module, "_open_questdb_connection", lambda: fake_target)
+
+    stats = module.mirror(
+        duckdb_path=duckdb_path,
+        start_block=840_000,
+        end_block=840_002,
+        batch_size=2,
+        block_batch_size=1,
+        resume=True,
+        checkpoint_path=checkpoint,
+    )
+
+    assert stats.start_block == 840_001
+    assert stats.mirrored_rows == 3
+    inserted = [
+        param for _query, params in fake_target.executemany_calls for param in params
+    ]
+    assert {param[3] for param in inserted} == {840_001, 840_002}
+    saved = checkpoint.read_text()
+    assert '"last_block": 840002' in saved
+
+
+def test_resume_without_checkpoint_refuses_nonempty_target(tmp_path, monkeypatch):
+    import scripts.bootstrap.mirror_utxo_lifecycle_to_questdb as module
+
+    duckdb_path = tmp_path / "source.duckdb"
+    checkpoint = tmp_path / "missing-checkpoint.json"
+    _write_source_db(duckdb_path)
+    fake_target = _FakeQuestDBConnection(target_count=1)
+    monkeypatch.setattr(module, "_open_questdb_connection", lambda: fake_target)
+
+    with pytest.raises(RuntimeError, match="valid checkpoint"):
+        module.mirror(
+            duckdb_path=duckdb_path,
+            start_block=840_000,
+            end_block=840_002,
+            resume=True,
+            checkpoint_path=checkpoint,
+        )
+
+    assert fake_target.executemany_calls == []

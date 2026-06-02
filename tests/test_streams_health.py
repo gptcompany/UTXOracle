@@ -417,3 +417,39 @@ async def test_tip_lag_blocks_strategy(client: AsyncClient):
     assert utxo_lc["last_row_ts"] is None
     assert utxo_lc.get("error") is not None
     assert "bitcoind" in utxo_lc["error"] or "RuntimeError" in utxo_lc["error"]
+
+
+async def test_tip_lag_blocks_uses_worst_lag_across_block_columns(client: AsyncClient):
+    """Creation lag and spent lag must both gate utxo_lifecycle_full.
+
+    This prevents a false OK where spent_block is fresh but creation_block is
+    still months behind the Bitcoin tip.
+    """
+    fresh_ts = _now() - timedelta(seconds=30)
+
+    async def fake_max_ts(table: str, timestamp_column: str):
+        return fresh_ts
+
+    async def lag_by_column(table: str, block_column: str, current_tip: int):
+        if block_column == "creation_block":
+            return 500 * 600
+        if block_column == "spent_block":
+            return 100 * 600
+        raise AssertionError(f"unexpected block column {block_column}")
+
+    with (
+        patch(
+            "api.routes.streams.read_stream_max_ts", AsyncMock(side_effect=fake_max_ts)
+        ),
+        patch(
+            "api.routes.streams.read_stream_tip_lag_seconds",
+            AsyncMock(side_effect=lag_by_column),
+        ),
+        patch("api.routes.streams.get_current_tip", AsyncMock(return_value=950_000)),
+    ):
+        resp = await client.get("/v1/streams/health")
+
+    body = resp.json()
+    utxo_lc = next(s for s in body["streams"] if s["name"] == "utxo_lifecycle_full")
+    assert utxo_lc["status"] == StreamStatus.STALE.value
+    assert utxo_lc["stale_seconds"] == 300_000

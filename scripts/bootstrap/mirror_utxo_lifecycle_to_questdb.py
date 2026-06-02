@@ -12,6 +12,7 @@ spent-block catch-up runs.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 from dataclasses import dataclass
@@ -31,6 +32,8 @@ from scripts.config import UTXORACLE_DB_PATH
 logger = logging.getLogger(__name__)
 
 _DEFAULT_BATCH_SIZE = 10_000
+_DEFAULT_BLOCK_BATCH_SIZE = 1_000
+_DEFAULT_CHECKPOINT_PATH = Path("data/questdb_utxo_lifecycle_mirror_checkpoint.json")
 
 _SELECT_SQL = """
     SELECT
@@ -90,6 +93,7 @@ class MirrorStats:
     start_block: int
     end_block: int
     dry_run: bool
+    checkpoint_path: str | None = None
 
 
 def _utc_from_unix_seconds(value: Any) -> datetime | None:
@@ -175,6 +179,38 @@ def _questdb_target_count(conn: Any) -> int:
     return int(row[0] if row else 0)
 
 
+def _load_checkpoint(path: str | Path) -> dict[str, Any] | None:
+    checkpoint_path = Path(path)
+    if not checkpoint_path.exists():
+        return None
+    return json.loads(checkpoint_path.read_text(encoding="utf-8"))
+
+
+def _save_checkpoint(
+    path: str | Path,
+    *,
+    last_block: int,
+    mirrored_rows: int,
+    start_block: int,
+    end_block: int,
+) -> None:
+    checkpoint_path = Path(path)
+    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(
+        {
+            "last_block": last_block,
+            "mirrored_rows": mirrored_rows,
+            "start_block": start_block,
+            "end_block": end_block,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        },
+        indent=2,
+    )
+    tmp_path = checkpoint_path.with_suffix(checkpoint_path.suffix + ".tmp")
+    tmp_path.write_text(payload, encoding="utf-8")
+    tmp_path.replace(checkpoint_path)
+
+
 def _insert_batch(conn: Any, rows: Iterable[Sequence[Any]]) -> int:
     params = [_row_to_insert_params(row) for row in rows]
     if not params:
@@ -213,9 +249,12 @@ def mirror(
     start_block: int = 1,
     end_block: int | None = None,
     batch_size: int = _DEFAULT_BATCH_SIZE,
+    block_batch_size: int = _DEFAULT_BLOCK_BATCH_SIZE,
     dry_run: bool = False,
     allow_nonempty_target: bool = False,
     truncate_target: bool = False,
+    resume: bool = False,
+    checkpoint_path: str | Path = _DEFAULT_CHECKPOINT_PATH,
 ) -> MirrorStats:
     """Mirror DuckDB lifecycle rows into QuestDB.
 
@@ -225,54 +264,112 @@ def mirror(
     """
     if batch_size <= 0:
         raise ValueError("batch_size must be > 0")
+    if block_batch_size <= 0:
+        raise ValueError("block_batch_size must be > 0")
 
     source = duckdb.connect(str(duckdb_path), read_only=True)
     try:
         resolved_end = _resolve_end_block(source, end_block)
-        source_rows = _count_source_rows(source, start_block, resolved_end)
+        original_start = start_block
+        checkpoint = _load_checkpoint(checkpoint_path) if resume else None
+        mirrored = 0
+        checkpoint_used = False
+        if (
+            checkpoint is not None
+            and int(checkpoint.get("last_block", 0)) >= start_block
+        ):
+            checkpoint_end = int(checkpoint.get("end_block", resolved_end))
+            if checkpoint_end != resolved_end:
+                raise RuntimeError(
+                    "checkpoint end_block does not match requested end_block: "
+                    f"{checkpoint_end} != {resolved_end}"
+                )
+            start_block = int(checkpoint["last_block"]) + 1
+            mirrored = int(checkpoint.get("mirrored_rows", 0))
+            checkpoint_used = True
+            logger.info(
+                "Resuming mirror from checkpoint %s at block %s",
+                checkpoint_path,
+                start_block,
+            )
+
+        if start_block > resolved_end:
+            return MirrorStats(
+                source_rows=0,
+                mirrored_rows=mirrored,
+                start_block=start_block,
+                end_block=resolved_end,
+                dry_run=dry_run,
+                checkpoint_path=str(checkpoint_path) if resume else None,
+            )
+
+        remaining_source_rows = _count_source_rows(source, start_block, resolved_end)
+        total_source_rows = mirrored + remaining_source_rows
 
         logger.info(
             "UTXO lifecycle mirror source range %s-%s has %s rows",
             start_block,
             resolved_end,
-            f"{source_rows:,}",
+            f"{remaining_source_rows:,}",
         )
         if dry_run:
             return MirrorStats(
-                source_rows=source_rows,
+                source_rows=total_source_rows,
                 mirrored_rows=0,
                 start_block=start_block,
                 end_block=resolved_end,
                 dry_run=True,
+                checkpoint_path=str(checkpoint_path) if resume else None,
             )
 
         with _open_questdb_connection() as target:
             target_count = _questdb_target_count(target)
-            if target_count > 0 and not (allow_nonempty_target or truncate_target):
+            if target_count > 0 and not (
+                allow_nonempty_target or truncate_target or checkpoint_used
+            ):
                 raise RuntimeError(
                     "QuestDB utxo_lifecycle is non-empty "
-                    f"({target_count:,} rows); pass --allow-nonempty-target "
-                    "or --truncate-target intentionally"
+                    f"({target_count:,} rows); pass --allow-nonempty-target, "
+                    "--truncate-target, or --resume with a valid checkpoint "
+                    "intentionally"
                 )
             if truncate_target:
                 with target.cursor() as cur:
                     cur.execute("TRUNCATE TABLE utxo_lifecycle")
+                checkpoint_file = Path(checkpoint_path)
+                checkpoint_file.unlink(missing_ok=True)
+                mirrored = 0
 
-            cursor = source.execute(_SELECT_SQL, [start_block, resolved_end])
-            mirrored = 0
-            while True:
-                rows = cursor.fetchmany(batch_size)
-                if not rows:
-                    break
-                mirrored += _insert_batch(target, rows)
-                logger.info("Mirrored %s/%s rows", f"{mirrored:,}", f"{source_rows:,}")
+            current_block = start_block
+            while current_block <= resolved_end:
+                chunk_end = min(current_block + block_batch_size - 1, resolved_end)
+                cursor = source.execute(_SELECT_SQL, [current_block, chunk_end])
+                while True:
+                    rows = cursor.fetchmany(batch_size)
+                    if not rows:
+                        break
+                    mirrored += _insert_batch(target, rows)
+                    logger.info(
+                        "Mirrored %s/%s rows",
+                        f"{mirrored:,}",
+                        f"{total_source_rows:,}",
+                    )
+                _save_checkpoint(
+                    checkpoint_path,
+                    last_block=chunk_end,
+                    mirrored_rows=mirrored,
+                    start_block=original_start,
+                    end_block=resolved_end,
+                )
+                current_block = chunk_end + 1
 
         return MirrorStats(
-            source_rows=source_rows,
+            source_rows=total_source_rows,
             mirrored_rows=mirrored,
             start_block=start_block,
             end_block=resolved_end,
             dry_run=False,
+            checkpoint_path=str(checkpoint_path),
         )
     finally:
         source.close()
@@ -286,7 +383,12 @@ def main() -> None:
     parser.add_argument("--start-block", type=int, default=1)
     parser.add_argument("--end-block", type=int)
     parser.add_argument("--batch-size", type=int, default=_DEFAULT_BATCH_SIZE)
+    parser.add_argument(
+        "--block-batch-size", type=int, default=_DEFAULT_BLOCK_BATCH_SIZE
+    )
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--checkpoint-path", default=str(_DEFAULT_CHECKPOINT_PATH))
     parser.add_argument("--allow-nonempty-target", action="store_true")
     parser.add_argument(
         "--truncate-target",
@@ -305,9 +407,12 @@ def main() -> None:
         start_block=args.start_block,
         end_block=args.end_block,
         batch_size=args.batch_size,
+        block_batch_size=args.block_batch_size,
         dry_run=args.dry_run,
         allow_nonempty_target=args.allow_nonempty_target,
         truncate_target=args.truncate_target,
+        resume=args.resume,
+        checkpoint_path=args.checkpoint_path,
     )
     logger.info("Mirror complete: %s", stats)
 

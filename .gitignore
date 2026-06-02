@@ -191,6 +191,11 @@ cython_debug/
 # Ruff stuff:
 .ruff_cache/
 
+# Spec-061 operational checkpoint state
+data/backfill_checkpoint.json
+data/questdb_utxo_lifecycle_mirror_checkpoint.json
+data/questdb_utxo_lifecycle_creation_catchup_checkpoint.json
+
 # PyPI configuration file
 .pypirc
 

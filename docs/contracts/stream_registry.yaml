@@ -206,6 +206,9 @@ streams:
     table: utxo_lifecycle
     freshness_strategy: tip_lag_blocks
     block_column: spent_block
+    block_columns:
+      - creation_block
+      - spent_block
     schema_version: "1.0.0"
     sla_seconds: 259200   # 72h ≈ 432 blocks @ 10min/block
     source_spec: specs/017
@@ -217,9 +220,9 @@ streams:
       - spent_block
     notes: >
       Per-block UTXO lifecycle. Freshness measured via tip_lag_blocks because
-      the table's ts column is row-creation time, not block time (the backfill
-      writes ts ≈ now() even for blocks 150 days behind tip). Probe:
-      (getblockcount() - max(spent_block)) * 600.
+      the table's ts column is row-creation time, not block time. The endpoint
+      checks both creation_block and spent_block so a spent-only catch-up cannot
+      report OK while recent created UTXOs are missing.
 
   # ── Tier 6: research / weekly (≤168h) ─────────────────────────────────
 

@@ -112,13 +112,22 @@ def test_freshness_strategy_required_fields(registry):
                 f"{s['name']}: max_ts strategy requires timestamp_column"
             )
         elif strategy == "tip_lag_blocks":
-            assert "block_column" in s, (
-                f"{s['name']}: tip_lag_blocks strategy requires block_column"
+            assert "block_column" in s or "block_columns" in s, (
+                f"{s['name']}: tip_lag_blocks strategy requires block_column(s)"
             )
+            if "block_columns" in s:
+                assert all(isinstance(c, str) for c in s["block_columns"])
         else:
             raise AssertionError(
                 f"{s['name']}: unknown freshness_strategy {strategy!r}"
             )
+
+
+def test_utxo_lifecycle_freshness_checks_creations_and_spends(registry):
+    """Operational guard: spent freshness alone can produce a false OK."""
+    entry = next(s for s in registry["streams"] if s["name"] == "utxo_lifecycle_full")
+    assert entry["freshness_strategy"] == "tip_lag_blocks"
+    assert set(entry["block_columns"]) == {"creation_block", "spent_block"}
 
 
 def test_sla_seconds_positive(registry):
