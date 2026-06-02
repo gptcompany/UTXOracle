@@ -103,18 +103,36 @@ class BitcoinRPC:
         self.rpc_user = os.getenv("BITCOIN_RPC_USER", "")
         self.rpc_pass = os.getenv("BITCOIN_RPC_PASSWORD", "")
 
-        # Parse host/port via urllib so we handle URLs that include credentials,
-        # custom paths, or no scheme. The hand-rolled split() previously failed
-        # on URLs with embedded credentials (user:pass@host:port -> 4 colons).
+        # Parse host/port via urllib so we handle URLs that include
+        # credentials, custom paths, or no scheme. The hand-rolled split()
+        # previously failed on URLs with embedded credentials
+        # (user:pass@host:port -> 4 colons). urlparse can also raise
+        # ValueError("Invalid IPv6 URL") on garbled inputs (e.g. an env
+        # var leaked from another tool); fall back to the default in that
+        # case so the daemon stays usable.
         from urllib.parse import urlparse
 
-        parsed = urlparse(rpc_url if "://" in rpc_url else f"http://{rpc_url}")
-        self.host = parsed.hostname or "127.0.0.1"
-        self.port = parsed.port or 8332
-        if parsed.username and not self.rpc_user:
-            self.rpc_user = parsed.username
-        if parsed.password and not self.rpc_pass:
-            self.rpc_pass = parsed.password
+        candidate = rpc_url if "://" in rpc_url else f"http://{rpc_url}"
+        try:
+            parsed = urlparse(candidate)
+            self.host = parsed.hostname or "127.0.0.1"
+            self.port = parsed.port or 8332
+            if parsed.username and not self.rpc_user:
+                self.rpc_user = parsed.username
+            if parsed.password and not self.rpc_pass:
+                self.rpc_pass = parsed.password
+        except ValueError:
+            # Unparseable URL -> log and use the local default.
+            try:
+                _logger = __import__("logging").getLogger(__name__)
+                _logger.warning(
+                    "BITCOIN_RPC_URL %r is unparseable; falling back to 127.0.0.1:8332",
+                    rpc_url,
+                )
+            except Exception:  # pragma: no cover
+                pass
+            self.host = "127.0.0.1"
+            self.port = 8332
 
         # Try cookie auth if no credentials
         if not self.rpc_user or not self.rpc_pass:
