@@ -83,6 +83,15 @@ class StreamHealthReading(BaseModel):
             "failure. Consumer SHOULD NOT branch on this field."
         ),
     )
+    deprecated_at: Optional[str] = Field(
+        None,
+        description=(
+            "ISO-8601 date when soft-deprecation of this stream began. When "
+            "present, the consumer should plan migration to a successor entry "
+            "(also visible in the same response) within the 30-day window "
+            "documented in docs/SCHEMA_VERSIONING.md (FR-009)."
+        ),
+    )
 
 
 class StreamsHealthResponse(BaseModel):

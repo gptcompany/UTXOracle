@@ -45,9 +45,51 @@ log() {
     printf '[%s] %s\n' "$ts" "$*" | tee -a "$LOG" >&2
 }
 
+notify_discord() {
+    # Best-effort notification on terminal state transitions.
+    # Uses DISCORD_WEBHOOK_URL from env if present; silent no-op otherwise.
+    local msg="$1"
+    if [ -n "${DISCORD_WEBHOOK_URL:-}" ] && command -v curl >/dev/null 2>&1; then
+        curl -fsS -m 5 -H "Content-Type: application/json" \
+            -d "$(printf '{"content": "spec-061 chain: %s"}' "$msg")" \
+            "$DISCORD_WEBHOOK_URL" > /dev/null 2>&1 || true
+    fi
+}
+
 set_state() {
     echo "$1" > "$STATE"
     log "STATE=$1"
+    case "$1" in
+        complete|fatal_*|fail_*)
+            notify_discord "state=$1 (see /tmp/spec061_chain.log)"
+            ;;
+    esac
+}
+
+resolve_bitcoin_tip() {
+    # G6 (review 2026-06-02): bitcoin-cli is the primary path; fall back to
+    # the in-repo BitcoinRPC helper if the binary is missing or the daemon
+    # rejects the call. Both paths read the same RPC credentials.
+    local tip
+    if command -v bitcoin-cli >/dev/null 2>&1; then
+        tip=$(bitcoin-cli getblockcount 2>/dev/null || true)
+        if [ -n "$tip" ] && [ "$tip" -ge 1 ] 2>/dev/null; then
+            echo "$tip"
+            return 0
+        fi
+        log "bitcoin-cli getblockcount failed; trying Python BitcoinRPC fallback"
+    else
+        log "bitcoin-cli not in PATH; using Python BitcoinRPC fallback"
+    fi
+    tip=$(uv run python -c "
+from scripts.sync_utxo_lifecycle import BitcoinRPC
+print(BitcoinRPC().getblockcount())
+" 2>/dev/null)
+    if [ -n "$tip" ] && [ "$tip" -ge 1 ] 2>/dev/null; then
+        echo "$tip"
+        return 0
+    fi
+    return 1
 }
 
 require_questdb() {
@@ -122,10 +164,10 @@ fi
 
 set_state "computing_spent_backfill_range"
 
-# Resolve the live tip
-TIP=$(bitcoin-cli getblockcount 2>/dev/null || true)
+# Resolve the live tip via bitcoin-cli with Python RPC fallback (G6).
+TIP=$(resolve_bitcoin_tip || true)
 if [ -z "${TIP:-}" ]; then
-    log "FATAL: bitcoin-cli getblockcount failed"
+    log "FATAL: could not resolve Bitcoin tip via bitcoin-cli OR Python RPC"
     set_state "fatal_tip_resolve_failed"
     exit 5
 fi

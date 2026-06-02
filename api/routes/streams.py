@@ -190,6 +190,7 @@ async def _probe_stream(
         schema_version=schema_version,
         status=status,
         error=error,
+        deprecated_at=entry.get("deprecated_at"),
     )
 
 

@@ -13,7 +13,7 @@ name: Streams Consumption Contract
 # Once green it stays green on every PR — a drift back to DEGRADED is a
 # contract regression and blocks merge per spec FR-012.
 
-on:
+"on":
   push:
     branches: [main, '061-stream-consumption-contract']
     paths:
@@ -21,8 +21,12 @@ on:
       - 'api/models/streams.py'
       - 'api/questdb_repository.py'
       - 'docs/contracts/stream_registry.yaml'
-      - 'specs/061-stream-consumption-contract/contracts/**'
+      - 'docs/SCHEMA_VERSIONING.md'
+      - 'docs/NAUTILUS_DEV_ADOPTION.md'
+      - 'specs/061-stream-consumption-contract/**'
       - 'tests/integration/test_streams_health_contract.py'
+      - 'tests/test_stream*'
+      - 'tests/test_streams*'
       - '.github/workflows/streams-contract.yml'
   pull_request:
     branches: [main]
@@ -31,8 +35,12 @@ on:
       - 'api/models/streams.py'
       - 'api/questdb_repository.py'
       - 'docs/contracts/stream_registry.yaml'
-      - 'specs/061-stream-consumption-contract/contracts/**'
+      - 'docs/SCHEMA_VERSIONING.md'
+      - 'docs/NAUTILUS_DEV_ADOPTION.md'
+      - 'specs/061-stream-consumption-contract/**'
       - 'tests/integration/test_streams_health_contract.py'
+      - 'tests/test_stream*'
+      - 'tests/test_streams*'
       - '.github/workflows/streams-contract.yml'
   workflow_dispatch:
 
