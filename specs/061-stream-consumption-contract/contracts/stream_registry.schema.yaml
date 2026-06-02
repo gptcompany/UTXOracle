@@ -29,6 +29,12 @@ definitions:
       - source_spec
       - pinned_columns
     additionalProperties: false
+    # spec-061 review 2026-06-02 (F5): block_column and block_columns are mutually
+    # exclusive. Use `block_columns` when more than one block-height field gates
+    # freshness (current case: utxo_lifecycle_full); use the singular form
+    # otherwise. A misconfigured entry with both must be rejected at startup.
+    not:
+      required: [block_column, block_columns]
     properties:
       name:
         type: string

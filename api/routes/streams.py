@@ -160,12 +160,17 @@ async def _probe_stream(
                         for block_column in block_columns
                     )
                 )
-                if any(lag is None for lag in lags):
+                # Bind to a fully-resolved tuple so the type-checker sees no
+                # None after the guard. F4 (review 2026-06-02) cleanup.
+                resolved_lags: tuple[int, ...] | None = (
+                    None
+                    if any(lag is None for lag in lags)
+                    else tuple(int(lag) for lag in lags)  # type: ignore[arg-type]
+                )
+                if resolved_lags is None:
                     status = StreamStatus.MISSING
                 else:
-                    stale_seconds = max(
-                        0, *(int(lag) for lag in lags if lag is not None)
-                    )
+                    stale_seconds = max(0, *resolved_lags)
                     status = (
                         StreamStatus.OK if stale_seconds <= sla else StreamStatus.STALE
                     )

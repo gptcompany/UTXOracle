@@ -112,15 +112,50 @@ def test_freshness_strategy_required_fields(registry):
                 f"{s['name']}: max_ts strategy requires timestamp_column"
             )
         elif strategy == "tip_lag_blocks":
-            assert "block_column" in s or "block_columns" in s, (
-                f"{s['name']}: tip_lag_blocks strategy requires block_column(s)"
+            # F5 (review 2026-06-02): block_column and block_columns are
+            # mutually exclusive — the schema enforces it; we assert XOR here
+            # to keep the operational contract visible at the test layer.
+            has_single = "block_column" in s
+            has_multi = "block_columns" in s
+            assert has_single ^ has_multi, (
+                f"{s['name']}: tip_lag_blocks entry must declare exactly one of "
+                f"block_column / block_columns (got both={has_single and has_multi}, "
+                f"neither={not (has_single or has_multi)})"
             )
-            if "block_columns" in s:
+            if has_multi:
                 assert all(isinstance(c, str) for c in s["block_columns"])
         else:
             raise AssertionError(
                 f"{s['name']}: unknown freshness_strategy {strategy!r}"
             )
+
+
+def test_block_column_and_block_columns_are_mutually_exclusive(schema):
+    """F5 (review 2026-06-02): schema MUST reject entries declaring BOTH columns.
+
+    A misconfigured entry where both forms are set would silently lose either
+    block_column (because route prefers block_columns) or surface a confusing
+    inconsistency; mutual exclusion at the schema layer fails fast at startup.
+    """
+    bad_entry = {
+        "name": "fake_stream",
+        "table": "fake_table",
+        "freshness_strategy": "tip_lag_blocks",
+        "block_column": "spent_block",
+        "block_columns": ["creation_block", "spent_block"],
+        "schema_version": "1.0.0",
+        "sla_seconds": 259200,
+        "source_spec": "specs/017",
+        "pinned_columns": ["spent_block"],
+    }
+    errors = list(
+        Draft7Validator(schema).iter_errors(
+            {"version": "1.0.0", "streams": [bad_entry] * 13}
+        )
+    )
+    assert errors, (
+        "schema must reject entries with BOTH block_column and block_columns"
+    )
 
 
 def test_utxo_lifecycle_freshness_checks_creations_and_spends(registry):

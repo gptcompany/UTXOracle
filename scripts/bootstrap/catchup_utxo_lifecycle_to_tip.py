@@ -89,14 +89,22 @@ def _questdb_connection():
 
 
 def _questdb_state() -> LifecycleState:
+    """Snapshot of QuestDB utxo_lifecycle: row count and max creation_block.
+
+    F6 (review 2026-06-02): an empty table returns (0, None), which we
+    represent as `count=0, max_creation_block=None`. If the QuestDB query
+    succeeds but returns no rows at all (impossible for `count()` but the
+    psycopg API permits None), we coerce to the same empty state.
+    """
     with _questdb_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT count(), max(creation_block) FROM utxo_lifecycle")
             row = cur.fetchone()
-    return LifecycleState(
-        count=int(row[0] if row else 0),
-        max_creation_block=int(row[1]) if row and row[1] is not None else None,
-    )
+    if row is None:
+        return LifecycleState(count=0, max_creation_block=None)
+    count = int(row[0] or 0)
+    max_creation_block = int(row[1]) if row[1] is not None else None
+    return LifecycleState(count=count, max_creation_block=max_creation_block)
 
 
 def _bitcoin_tip() -> int:
@@ -167,6 +175,11 @@ def catchup(
             mirrored_rows=0,
         )
 
+    # F2 (review 2026-06-02): hot-swap of sync_utxo_lifecycle module attributes
+    # is NOT thread-safe. This catchup script MUST be invoked from a single-
+    # threaded context. If a future caller wraps catchup() in a ThreadPool, the
+    # path swap can race with concurrent run_sync() calls and corrupt either
+    # invocation's target. Wrap with a per-process mutex if that becomes a need.
     sync_module = cast(Any, importlib.import_module("scripts.sync_utxo_lifecycle"))
     previous_utxo_path = sync_module.UTXO_DB_PATH
     previous_main_path = sync_module.MAIN_DB_PATH

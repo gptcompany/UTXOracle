@@ -205,7 +205,6 @@ streams:
   - name: utxo_lifecycle_full
     table: utxo_lifecycle
     freshness_strategy: tip_lag_blocks
-    block_column: spent_block
     block_columns:
       - creation_block
       - spent_block
