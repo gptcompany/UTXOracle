@@ -109,7 +109,9 @@ async def streams_app():
 
     Auth is overridden so the test does not need a token in CI; the live
     deployment's `require_auth` is exercised by the unit test in
-    `tests/test_streams_health.py::test_auth_required`.
+    `tests/test_streams_health.py::test_auth_required`. The acceptance
+    gate is intentionally read-only: DDL/table provisioning is covered by
+    `tests/test_create_tables_ddl.py`.
     """
     if os.getenv(_RUN_ENV) != "1":
         pytest.skip(f"set {_RUN_ENV}=1 to run the live streams health gate")
@@ -120,11 +122,7 @@ async def streams_app():
     from fastapi import FastAPI
 
     from api.auth_middleware import require_auth
-    from api.questdb_repository import create_tables_if_not_exist
     from api.routes.streams import router as streams_router
-
-    # Ensure the contract tables exist before probing (spec-061 T022a).
-    await create_tables_if_not_exist()
 
     app = FastAPI()
     app.include_router(streams_router)
