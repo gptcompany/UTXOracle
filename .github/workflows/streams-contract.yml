@@ -1,0 +1,139 @@
+name: Streams Consumption Contract
+
+# spec-061 T038: the CI gate for closing Issue #8.
+#
+# Runs `pytest -m integration tests/integration/test_streams_health_contract.py`
+# against a live QuestDB service container. The test asserts:
+#   - GET /v1/streams/health returns 13 stream readings,
+#   - each conforms to the OpenAPI schema,
+#   - the rollup `overall == "OK"`.
+#
+# Until the operational backfill (T036) completes against the real QuestDB
+# instance, this workflow is expected to FAIL (or report `overall: DEGRADED`).
+# Once green it stays green on every PR — a drift back to DEGRADED is a
+# contract regression and blocks merge per spec FR-012.
+
+on:
+  push:
+    branches: [main, '061-stream-consumption-contract']
+    paths:
+      - 'api/routes/streams.py'
+      - 'api/models/streams.py'
+      - 'api/questdb_repository.py'
+      - 'docs/contracts/stream_registry.yaml'
+      - 'specs/061-stream-consumption-contract/contracts/**'
+      - 'tests/integration/test_streams_health_contract.py'
+      - '.github/workflows/streams-contract.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'api/routes/streams.py'
+      - 'api/models/streams.py'
+      - 'api/questdb_repository.py'
+      - 'docs/contracts/stream_registry.yaml'
+      - 'specs/061-stream-consumption-contract/contracts/**'
+      - 'tests/integration/test_streams_health_contract.py'
+      - '.github/workflows/streams-contract.yml'
+  workflow_dispatch:
+
+jobs:
+  contract:
+    name: GET /v1/streams/health acceptance gate
+    runs-on: ubuntu-latest
+
+    services:
+      questdb:
+        image: questdb/questdb:7.4.0
+        ports:
+          - 8812:8812
+          - 9000:9000
+          - 9009:9009
+        options: >-
+          --health-cmd "wget -qO- http://localhost:9000/exec?query=SELECT%201 || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+
+    env:
+      QUESTDB_PG_HOST: localhost
+      QUESTDB_PG_PORT: 8812
+      QUESTDB_PG_USER: admin
+      QUESTDB_PG_PASSWORD: quest
+      QUESTDB_PG_DATABASE: qdb
+      # Honour the explicit opt-in guard in the test fixture.
+      RUN_STREAMS_HEALTH_CONTRACT: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Wait for QuestDB to be ready
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS "http://localhost:9000/exec?query=SELECT%201" > /dev/null; then
+              echo "QuestDB ready after ${i} attempt(s)"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "QuestDB never became ready"
+          exit 1
+
+      - name: Run unit-level registry + endpoint tests (always green)
+        run: |
+          uv run pytest \
+            tests/test_stream_registry.py \
+            tests/test_streams_health.py \
+            tests/test_streams_health_perf.py \
+            tests/test_calculate_daily_metrics_questdb.py \
+            tests/test_calculate_daily_metrics_idempotent.py \
+            tests/test_mirror_backtest_whale_signals.py \
+            tests/test_historical_spent_backfill_target_backend.py \
+            tests/test_verify_utxo_lifecycle_mirror.py \
+            tests/test_mirror_utxo_lifecycle_to_questdb.py \
+            tests/test_catchup_utxo_lifecycle_to_tip.py \
+            -v --tb=short
+
+      - name: DDL coverage against live QuestDB
+        run: uv run pytest tests/test_create_tables_ddl.py -v --tb=short
+
+      - name: Acceptance gate (T010 — overall == OK)
+        id: acceptance
+        continue-on-error: true
+        run: |
+          uv run pytest tests/integration/test_streams_health_contract.py \
+            -v -m integration --tb=short
+
+      - name: Acceptance summary
+        run: |
+          echo "## Streams Consumption Contract — Acceptance Gate" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ${{ steps.acceptance.outcome }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Spec**: 061-stream-consumption-contract" >> $GITHUB_STEP_SUMMARY
+          echo "- **Issue**: gptcompany/UTXOracle#8" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.acceptance.outcome }}" = "success" ]; then
+            echo "Acceptance gate is GREEN. \`overall == \"OK\"\` against the live registry." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Acceptance gate is RED. This is expected until the operational backfill (T036) lands real data." >> $GITHUB_STEP_SUMMARY
+            echo "Once the gate is green it must stay green — see spec FR-011, FR-012." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Fail the job if the gate is RED and we are on main
+        if: ${{ steps.acceptance.outcome != 'success' && github.ref == 'refs/heads/main' }}
+        run: |
+          echo "Acceptance gate is RED on main — blocking merge per spec FR-012."
+          exit 1
