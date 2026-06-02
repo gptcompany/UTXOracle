@@ -4,6 +4,7 @@ Wire-level shape is defined in
 `specs/061-stream-consumption-contract/contracts/streams_health.openapi.yaml`
 and the conceptual shape in `data-model.md`.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -68,8 +69,12 @@ class StreamHealthReading(BaseModel):
             "For tip_lag_blocks: (current_tip - max(block_column)) * 600."
         ),
     )
-    sla_seconds: int = Field(..., gt=0, description="Maximum allowed staleness from the registry.")
-    schema_version: str = Field(..., description="SemVer of the stream's contract shape.")
+    sla_seconds: int = Field(
+        ..., gt=0, description="Maximum allowed staleness from the registry."
+    )
+    schema_version: str = Field(
+        ..., description="SemVer of the stream's contract shape."
+    )
     status: StreamStatus
     error: Optional[str] = Field(
         None,

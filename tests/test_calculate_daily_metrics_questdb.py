@@ -8,6 +8,7 @@ These tests run RED until:
 
 The QuestDB layer is fully mocked - no live infrastructure required.
 """
+
 from __future__ import annotations
 
 from datetime import date
@@ -62,22 +63,29 @@ def _persist(metrics: dict, duckdb_conn: MagicMock):
 
 def test_dual_write_mvrv(fake_metrics, duckdb_conn):
     """T017: persist_metrics MUST call save_mvrv_daily after DuckDB write."""
-    with patch(
-        "scripts.metrics.calculate_daily_metrics.save_mvrv_daily",
-        MagicMock(return_value=True),
-    ) as save_mvrv, patch(
-        "scripts.metrics.calculate_daily_metrics.save_nupl_daily",
-        MagicMock(return_value=True),
-    ), patch(
-        "scripts.metrics.calculate_daily_metrics.save_realized_cap_daily",
-        MagicMock(return_value=True),
+    with (
+        patch(
+            "scripts.metrics.calculate_daily_metrics.save_mvrv_daily",
+            MagicMock(return_value=True),
+        ) as save_mvrv,
+        patch(
+            "scripts.metrics.calculate_daily_metrics.save_nupl_daily",
+            MagicMock(return_value=True),
+        ),
+        patch(
+            "scripts.metrics.calculate_daily_metrics.save_realized_cap_daily",
+            MagicMock(return_value=True),
+        ),
     ):
         _persist(fake_metrics, duckdb_conn)
 
     save_mvrv.assert_called_once()
     kwargs = save_mvrv.call_args.kwargs or {}
     args = save_mvrv.call_args.args
-    payload = {**dict(zip(["ts", "mvrv", "mvrv_z", "market_cap", "realized_cap"], args)), **kwargs}
+    payload = {
+        **dict(zip(["ts", "mvrv", "mvrv_z", "market_cap", "realized_cap"], args)),
+        **kwargs,
+    }
     assert payload.get("mvrv") == fake_metrics["mvrv"]
 
 
@@ -86,22 +94,29 @@ def test_dual_write_mvrv(fake_metrics, duckdb_conn):
 
 def test_dual_write_nupl(fake_metrics, duckdb_conn):
     """T018: persist_metrics MUST call save_nupl_daily after DuckDB write."""
-    with patch(
-        "scripts.metrics.calculate_daily_metrics.save_mvrv_daily",
-        MagicMock(return_value=True),
-    ), patch(
-        "scripts.metrics.calculate_daily_metrics.save_nupl_daily",
-        MagicMock(return_value=True),
-    ) as save_nupl, patch(
-        "scripts.metrics.calculate_daily_metrics.save_realized_cap_daily",
-        MagicMock(return_value=True),
+    with (
+        patch(
+            "scripts.metrics.calculate_daily_metrics.save_mvrv_daily",
+            MagicMock(return_value=True),
+        ),
+        patch(
+            "scripts.metrics.calculate_daily_metrics.save_nupl_daily",
+            MagicMock(return_value=True),
+        ) as save_nupl,
+        patch(
+            "scripts.metrics.calculate_daily_metrics.save_realized_cap_daily",
+            MagicMock(return_value=True),
+        ),
     ):
         _persist(fake_metrics, duckdb_conn)
 
     save_nupl.assert_called_once()
     args = save_nupl.call_args.args
     kwargs = save_nupl.call_args.kwargs or {}
-    payload = {**dict(zip(["ts", "nupl", "market_cap", "realized_cap"], args)), **kwargs}
+    payload = {
+        **dict(zip(["ts", "nupl", "market_cap", "realized_cap"], args)),
+        **kwargs,
+    }
     assert payload.get("nupl") == fake_metrics["nupl"]
 
 
@@ -110,16 +125,20 @@ def test_dual_write_nupl(fake_metrics, duckdb_conn):
 
 def test_dual_write_realized_cap(fake_metrics, duckdb_conn):
     """T019: persist_metrics MUST call save_realized_cap_daily after DuckDB write."""
-    with patch(
-        "scripts.metrics.calculate_daily_metrics.save_mvrv_daily",
-        MagicMock(return_value=True),
-    ), patch(
-        "scripts.metrics.calculate_daily_metrics.save_nupl_daily",
-        MagicMock(return_value=True),
-    ), patch(
-        "scripts.metrics.calculate_daily_metrics.save_realized_cap_daily",
-        MagicMock(return_value=True),
-    ) as save_rc:
+    with (
+        patch(
+            "scripts.metrics.calculate_daily_metrics.save_mvrv_daily",
+            MagicMock(return_value=True),
+        ),
+        patch(
+            "scripts.metrics.calculate_daily_metrics.save_nupl_daily",
+            MagicMock(return_value=True),
+        ),
+        patch(
+            "scripts.metrics.calculate_daily_metrics.save_realized_cap_daily",
+            MagicMock(return_value=True),
+        ) as save_rc,
+    ):
         _persist(fake_metrics, duckdb_conn)
 
     save_rc.assert_called_once()
@@ -143,21 +162,27 @@ def test_questdb_failure_does_not_block_duckdb(fake_metrics, duckdb_conn, caplog
     def boom(*args, **kwargs):
         raise ConnectionError("simulated QuestDB pool failure")
 
-    with patch(
-        "scripts.metrics.calculate_daily_metrics.save_mvrv_daily",
-        MagicMock(side_effect=boom),
-    ), patch(
-        "scripts.metrics.calculate_daily_metrics.save_nupl_daily",
-        MagicMock(side_effect=boom),
-    ), patch(
-        "scripts.metrics.calculate_daily_metrics.save_realized_cap_daily",
-        MagicMock(side_effect=boom),
+    with (
+        patch(
+            "scripts.metrics.calculate_daily_metrics.save_mvrv_daily",
+            MagicMock(side_effect=boom),
+        ),
+        patch(
+            "scripts.metrics.calculate_daily_metrics.save_nupl_daily",
+            MagicMock(side_effect=boom),
+        ),
+        patch(
+            "scripts.metrics.calculate_daily_metrics.save_realized_cap_daily",
+            MagicMock(side_effect=boom),
+        ),
     ):
         # Should not raise.
         _persist(fake_metrics, duckdb_conn)
 
     # DuckDB must have received the INSERTs (at least one execute call).
-    assert duckdb_conn.execute.called, "DuckDB writes were skipped - strangler-fig violated"
+    assert duckdb_conn.execute.called, (
+        "DuckDB writes were skipped - strangler-fig violated"
+    )
     assert "QuestDB save_mvrv_daily failed" in caplog.text
     assert "QuestDB save_nupl_daily failed" in caplog.text
     assert "QuestDB save_realized_cap_daily failed" in caplog.text

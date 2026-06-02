@@ -15,6 +15,7 @@ spec FR-011 require the response to reflect reality, including recovery
 from STALE -> OK without a TTL gate. The Bitcoin Core tip IS cached for
 60s to bound RPC load (research.md R1 + R2).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -72,9 +73,7 @@ def _load_registry() -> List[Dict[str, Any]]:
         key=lambda e: list(e.absolute_path),
     )
     if errors:
-        detail = "; ".join(
-            f"{list(e.absolute_path)}: {e.message}" for e in errors
-        )
+        detail = "; ".join(f"{list(e.absolute_path)}: {e.message}" for e in errors)
         raise RuntimeError(f"stream_registry.yaml fails schema validation: {detail}")
     return raw["streams"]
 
@@ -147,9 +146,7 @@ async def _probe_stream(
                     0,
                     int((datetime.now(timezone.utc) - ts).total_seconds()),
                 )
-                status = (
-                    StreamStatus.OK if stale_seconds <= sla else StreamStatus.STALE
-                )
+                status = StreamStatus.OK if stale_seconds <= sla else StreamStatus.STALE
         elif strategy == "tip_lag_blocks":
             if tip_error is not None:
                 status = StreamStatus.MISSING
@@ -164,9 +161,7 @@ async def _probe_stream(
                 else:
                     stale_seconds = max(0, int(lag))
                     status = (
-                        StreamStatus.OK
-                        if stale_seconds <= sla
-                        else StreamStatus.STALE
+                        StreamStatus.OK if stale_seconds <= sla else StreamStatus.STALE
                     )
         else:
             # Schema validation should have rejected this; defensive.

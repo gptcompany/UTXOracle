@@ -8,6 +8,7 @@ preserving the pinned columns.
 
 Fully mocked - no live DuckDB or QuestDB required.
 """
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -26,12 +27,12 @@ def test_duckdb_to_questdb_roundtrip(tmp_path):
     duckdb_rows = [
         (
             1_716_500_000,  # timestamp BIGINT
-            0.5,            # net_flow_btc
-            0.8,            # confidence
-            65_000.0,       # btc_price
-            10.0,           # inflow_btc
-            9.5,            # outflow_btc
-            42,             # tx_count_relevant
+            0.5,  # net_flow_btc
+            0.8,  # confidence
+            65_000.0,  # btc_price
+            10.0,  # inflow_btc
+            9.5,  # outflow_btc
+            42,  # tx_count_relevant
         ),
         (
             1_716_600_000,
@@ -53,12 +54,15 @@ def test_duckdb_to_questdb_roundtrip(tmp_path):
         save_calls.append(kwargs)
         return True
 
-    with patch(
-        "scripts.metrics.mirror_backtest_whale_signals.duckdb.connect",
-        return_value=fake_duckdb_conn,
-    ), patch(
-        "scripts.metrics.mirror_backtest_whale_signals.save_backtest_whale_signal_row",
-        side_effect=fake_save,
+    with (
+        patch(
+            "scripts.metrics.mirror_backtest_whale_signals.duckdb.connect",
+            return_value=fake_duckdb_conn,
+        ),
+        patch(
+            "scripts.metrics.mirror_backtest_whale_signals.save_backtest_whale_signal_row",
+            side_effect=fake_save,
+        ),
     ):
         from scripts.metrics.mirror_backtest_whale_signals import mirror
 

@@ -17,6 +17,7 @@ Usage:
     python -m scripts.metrics.mirror_backtest_whale_signals
     python -m scripts.metrics.mirror_backtest_whale_signals --duckdb-path /custom/path
 """
+
 from __future__ import annotations
 
 import argparse
@@ -78,7 +79,9 @@ def mirror(duckdb_path: Optional[str] = None) -> int:
         try:
             save_backtest_whale_signal_row(
                 ts=ts,
-                net_flow_btc=(float(net_flow_btc) if net_flow_btc is not None else None),
+                net_flow_btc=(
+                    float(net_flow_btc) if net_flow_btc is not None else None
+                ),
                 confidence=(float(confidence) if confidence is not None else None),
                 btc_price=(float(btc_price) if btc_price is not None else None),
                 inflow_btc=(float(inflow_btc) if inflow_btc is not None else None),
@@ -93,7 +96,9 @@ def mirror(duckdb_path: Optional[str] = None) -> int:
                 "mirror_backtest_whale_signals: row at ts=%s failed: %s", ts, exc
             )
 
-    logger.info("mirror_backtest_whale_signals: wrote %d/%d rows to QuestDB", written, len(rows))
+    logger.info(
+        "mirror_backtest_whale_signals: wrote %d/%d rows to QuestDB", written, len(rows)
+    )
     return written
 
 

@@ -3,6 +3,7 @@
 Verifies that the .service and .timer files at the repo root pass
 `systemd-analyze verify`. Skipped on hosts without systemd.
 """
+
 from __future__ import annotations
 
 import shutil

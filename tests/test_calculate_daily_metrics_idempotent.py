@@ -7,6 +7,7 @@ inputs and assert the QuestDB save calls receive identical payloads each
 time (the producer's job is to be deterministic; the storage layer's
 dedup contract is exercised by T022a + DDL DEDUP UPSERT KEYS).
 """
+
 from __future__ import annotations
 
 from datetime import date
@@ -37,8 +38,11 @@ def metrics() -> dict:
 def duckdb_conn() -> MagicMock:
     conn = MagicMock()
     conn.execute.return_value.fetchall.return_value = [
-        (0, "date"), (1, "mvrv"), (2, "mvrv_z"),
-        (3, "market_cap"), (4, "realized_cap"),
+        (0, "date"),
+        (1, "mvrv"),
+        (2, "mvrv_z"),
+        (3, "market_cap"),
+        (4, "realized_cap"),
     ]
     return conn
 
@@ -51,12 +55,12 @@ def test_same_day_double_run(metrics, duckdb_conn):
     save_nupl = MagicMock(return_value=True)
     save_rc = MagicMock(return_value=True)
 
-    with patch(
-        "scripts.metrics.calculate_daily_metrics.save_mvrv_daily", save_mvrv
-    ), patch(
-        "scripts.metrics.calculate_daily_metrics.save_nupl_daily", save_nupl
-    ), patch(
-        "scripts.metrics.calculate_daily_metrics.save_realized_cap_daily", save_rc
+    with (
+        patch("scripts.metrics.calculate_daily_metrics.save_mvrv_daily", save_mvrv),
+        patch("scripts.metrics.calculate_daily_metrics.save_nupl_daily", save_nupl),
+        patch(
+            "scripts.metrics.calculate_daily_metrics.save_realized_cap_daily", save_rc
+        ),
     ):
         persist_metrics(dict(metrics), duckdb_conn)
         persist_metrics(dict(metrics), duckdb_conn)

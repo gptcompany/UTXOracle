@@ -101,13 +101,111 @@ def estimate_time(start_block: int, end_block: int, blocks_per_min: float = 100)
         return f"{minutes:.0f} minutes"
 
 
+# spec-061 T034: psycopg lives at module level so tests can patch
+# `scripts.bootstrap.historical_spent_backfill.psycopg.connect`. The import
+# is best-effort because the rest of the script (duckdb path) does not
+# depend on psycopg.
+try:
+    import psycopg
+except ModuleNotFoundError:  # pragma: no cover
+    psycopg = None  # type: ignore[assignment]
+
+
+def _propagate_spent_to_questdb(csv_path: "Path") -> int:
+    """Push spent-block updates from the staging CSV into QuestDB utxo_lifecycle.
+
+    spec-061 T034: when run with `--target-backend questdb`, the backfill
+    propagates `(txid, vout_index) -> spent_block` updates from the staging
+    CSV to QuestDB after the DuckDB write completes. This makes the freshness
+    probe `tip_lag_blocks` for `utxo_lifecycle_full` (spec-061 D2) return
+    truthful values as the catch-up progresses.
+
+    The staging CSV is the canonical (txid, vout, spent_block, spent_time) shape
+    produced by `process_blocks_to_csv`. We batch the updates 1000 rows at a
+    time via psycopg.executemany - UPDATE against a 164M-row table is slow
+    but acceptable for a one-shot catch-up.
+
+    Note: the QuestDB `utxo_lifecycle` schema uses `vout_index` rather than
+    DuckDB's `vout` - we map the CSV column accordingly.
+    """
+    import csv
+
+    if psycopg is None:
+        raise ModuleNotFoundError(
+            "psycopg is required for --target-backend questdb; install project deps"
+        )
+
+    from api.questdb_repository import (
+        QUESTDB_PG_DATABASE,
+        QUESTDB_PG_HOST,
+        QUESTDB_PG_PASSWORD,
+        QUESTDB_PG_PORT,
+        QUESTDB_PG_USER,
+    )
+
+    updated = 0
+    batch: list[tuple[int, str, int]] = []
+    BATCH_SIZE = 1000
+
+    with psycopg.connect(
+        host=QUESTDB_PG_HOST,
+        port=QUESTDB_PG_PORT,
+        user=QUESTDB_PG_USER,
+        password=QUESTDB_PG_PASSWORD,
+        dbname=QUESTDB_PG_DATABASE,
+        autocommit=True,
+    ) as conn:
+        with open(csv_path, newline="") as f:
+            reader = csv.reader(f)
+            for row in reader:
+                if len(row) < 3:
+                    continue
+                txid, vout_str, spent_block_str = row[0], row[1], row[2]
+                try:
+                    batch.append((int(spent_block_str), txid, int(vout_str)))
+                except ValueError:
+                    continue
+                if len(batch) >= BATCH_SIZE:
+                    with conn.cursor() as cur:
+                        cur.executemany(
+                            "UPDATE utxo_lifecycle "
+                            "SET spent_block = %s, is_spent = true "
+                            "WHERE txid = %s AND vout_index = %s",
+                            batch,
+                        )
+                    updated += len(batch)
+                    batch = []
+            if batch:
+                with conn.cursor() as cur:
+                    cur.executemany(
+                        "UPDATE utxo_lifecycle "
+                        "SET spent_block = %s, is_spent = true "
+                        "WHERE txid = %s AND vout_index = %s",
+                        batch,
+                    )
+                updated += len(batch)
+
+    logger.info(
+        "QuestDB propagation: %d UPDATEs issued from %s", updated, csv_path.name
+    )
+    return updated
+
+
 def run_backfill(
     start_block: int,
     end_block: int,
     workers: int = 20,
     dry_run: bool = False,
+    target_backend: str = "duckdb",
 ) -> None:
-    """Run the backfill process."""
+    """Run the backfill process.
+
+    `target_backend` selects where the spent-block updates land.
+    - `duckdb` (default, legacy behaviour): only the DuckDB table is updated.
+    - `questdb`: DuckDB is still updated first (the CSV path requires it for
+      the temp staging table), then the same updates are replicated to
+      QuestDB via psycopg in batches of 1000. See spec-061 T034 / R6.
+    """
     from scripts.bootstrap.fast_spent_sync_v2 import BitcoinRPC, process_blocks_to_csv
     from scripts.config import UTXORACLE_DB_PATH
 
@@ -182,6 +280,21 @@ def run_backfill(
 
             logger.info(f"Updated {updated:,} UTXOs as spent")
 
+            # spec-061 T034: replicate to QuestDB before deleting the CSV.
+            if target_backend == "questdb":
+                try:
+                    _propagate_spent_to_questdb(csv_path)
+                except Exception as exc:
+                    # Fail before deleting the CSV or advancing the checkpoint.
+                    # Otherwise QuestDB catch-up can silently lose this chunk.
+                    logger.error(
+                        "QuestDB propagation failed for chunk %s-%s: %s",
+                        chunk_start,
+                        chunk_end,
+                        exc,
+                    )
+                    raise
+
             # Cleanup CSV
             csv_path.unlink(missing_ok=True)
 
@@ -224,6 +337,17 @@ def main():
     parser.add_argument(
         "--check", action="store_true", help="Check Bitcoin Core status"
     )
+    parser.add_argument(
+        "--target-backend",
+        choices=["duckdb", "questdb"],
+        default="duckdb",
+        help=(
+            "Where to land spent-block updates. 'duckdb' (default) preserves "
+            "legacy behaviour. 'questdb' additionally replicates each chunk's "
+            "updates to QuestDB so the spec-061 freshness probe for "
+            "utxo_lifecycle_full advances during catch-up."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -246,6 +370,7 @@ def main():
         end_block=args.end_block,
         workers=args.workers,
         dry_run=args.dry_run,
+        target_backend=args.target_backend,
     )
 
 

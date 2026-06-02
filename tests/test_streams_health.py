@@ -5,6 +5,7 @@ All tests fully mock the QuestDB repository — no live infrastructure
 required. These run RED until api.routes.streams + api.models.streams
 exist; that's the expected TDD cycle.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -69,7 +70,9 @@ async def test_all_ok(client: AsyncClient):
         return 0
 
     with (
-        patch("api.routes.streams.read_stream_max_ts", AsyncMock(side_effect=fake_max_ts)),
+        patch(
+            "api.routes.streams.read_stream_max_ts", AsyncMock(side_effect=fake_max_ts)
+        ),
         patch(
             "api.routes.streams.read_stream_tip_lag_seconds",
             AsyncMock(side_effect=fake_tip_lag),
@@ -105,7 +108,9 @@ async def test_one_stale(client: AsyncClient):
         return 0
 
     with (
-        patch("api.routes.streams.read_stream_max_ts", AsyncMock(side_effect=fake_max_ts)),
+        patch(
+            "api.routes.streams.read_stream_max_ts", AsyncMock(side_effect=fake_max_ts)
+        ),
         patch(
             "api.routes.streams.read_stream_tip_lag_seconds",
             AsyncMock(side_effect=fake_tip_lag),
@@ -141,7 +146,9 @@ async def test_table_empty(client: AsyncClient):
         return 0
 
     with (
-        patch("api.routes.streams.read_stream_max_ts", AsyncMock(side_effect=fake_max_ts)),
+        patch(
+            "api.routes.streams.read_stream_max_ts", AsyncMock(side_effect=fake_max_ts)
+        ),
         patch(
             "api.routes.streams.read_stream_tip_lag_seconds",
             AsyncMock(side_effect=fake_tip_lag),
@@ -179,7 +186,9 @@ async def test_backend_unreachable(client: AsyncClient):
         return 0
 
     with (
-        patch("api.routes.streams.read_stream_max_ts", AsyncMock(side_effect=fake_max_ts)),
+        patch(
+            "api.routes.streams.read_stream_max_ts", AsyncMock(side_effect=fake_max_ts)
+        ),
         patch(
             "api.routes.streams.read_stream_tip_lag_seconds",
             AsyncMock(side_effect=fake_tip_lag),
@@ -249,7 +258,9 @@ async def test_schema_version_echoed_in_response(client: AsyncClient):
         return 0
 
     with (
-        patch("api.routes.streams.read_stream_max_ts", AsyncMock(side_effect=fake_max_ts)),
+        patch(
+            "api.routes.streams.read_stream_max_ts", AsyncMock(side_effect=fake_max_ts)
+        ),
         patch(
             "api.routes.streams.read_stream_tip_lag_seconds",
             AsyncMock(side_effect=fake_tip_lag),
@@ -326,7 +337,9 @@ async def test_tip_lag_blocks_strategy(client: AsyncClient):
         return 100 * 600  # 60_000 seconds
 
     with (
-        patch("api.routes.streams.read_stream_max_ts", AsyncMock(side_effect=fake_max_ts)),
+        patch(
+            "api.routes.streams.read_stream_max_ts", AsyncMock(side_effect=fake_max_ts)
+        ),
         patch(
             "api.routes.streams.read_stream_tip_lag_seconds",
             AsyncMock(side_effect=lag_ok),
@@ -345,7 +358,9 @@ async def test_tip_lag_blocks_strategy(client: AsyncClient):
         return 500 * 600  # 300_000 seconds > 259_200 SLA
 
     with (
-        patch("api.routes.streams.read_stream_max_ts", AsyncMock(side_effect=fake_max_ts)),
+        patch(
+            "api.routes.streams.read_stream_max_ts", AsyncMock(side_effect=fake_max_ts)
+        ),
         patch(
             "api.routes.streams.read_stream_tip_lag_seconds",
             AsyncMock(side_effect=lag_stale),
@@ -364,7 +379,9 @@ async def test_tip_lag_blocks_strategy(client: AsyncClient):
         return None
 
     with (
-        patch("api.routes.streams.read_stream_max_ts", AsyncMock(side_effect=fake_max_ts)),
+        patch(
+            "api.routes.streams.read_stream_max_ts", AsyncMock(side_effect=fake_max_ts)
+        ),
         patch(
             "api.routes.streams.read_stream_tip_lag_seconds",
             AsyncMock(side_effect=lag_missing),
@@ -384,7 +401,9 @@ async def test_tip_lag_blocks_strategy(client: AsyncClient):
         raise RuntimeError("bitcoind RPC unreachable")
 
     with (
-        patch("api.routes.streams.read_stream_max_ts", AsyncMock(side_effect=fake_max_ts)),
+        patch(
+            "api.routes.streams.read_stream_max_ts", AsyncMock(side_effect=fake_max_ts)
+        ),
         patch(
             "api.routes.streams.read_stream_tip_lag_seconds",
             AsyncMock(side_effect=lag_ok),

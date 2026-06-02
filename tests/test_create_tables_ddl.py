@@ -7,6 +7,7 @@ and backtest_whale_signals).
 
 Runs against a live QuestDB on localhost:8812 - skipped if unreachable.
 """
+
 from __future__ import annotations
 
 import asyncio

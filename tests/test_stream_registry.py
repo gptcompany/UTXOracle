@@ -3,6 +3,7 @@
 T004 (schema validation), T004b (name immutability), T027 (schema_version
 presence). RED first, then GREEN by aligning the registry YAML.
 """
+
 from __future__ import annotations
 
 import copy
@@ -56,7 +57,9 @@ def test_registry_validates_against_schema(registry, schema):
         Draft7Validator(schema).iter_errors(registry),
         key=lambda e: list(e.absolute_path),
     )
-    assert not errors, "\n".join(f"{list(e.absolute_path)}: {e.message}" for e in errors)
+    assert not errors, "\n".join(
+        f"{list(e.absolute_path)}: {e.message}" for e in errors
+    )
 
 
 def test_registry_has_exactly_13_streams(registry):
@@ -113,7 +116,9 @@ def test_freshness_strategy_required_fields(registry):
                 f"{s['name']}: tip_lag_blocks strategy requires block_column"
             )
         else:
-            raise AssertionError(f"{s['name']}: unknown freshness_strategy {strategy!r}")
+            raise AssertionError(
+                f"{s['name']}: unknown freshness_strategy {strategy!r}"
+            )
 
 
 def test_sla_seconds_positive(registry):
