@@ -607,6 +607,90 @@ Comprehensive UTXO lifecycle tracking for Realized Cap, MVRV, NUPL, and HODL Wav
 | spec-036 | models/custom_price | ✅ Complete | 4 |
 | spec-037 | database/consolidation | ✅ Complete | 6 |
 | spec-038 | data/exchange_addresses | ✅ Complete | 2 |
+| spec-061 | api/routes/streams + stream_registry | In Progress | 17+ |
+
+---
+
+## Consumer Stream Consumption Contract (spec-061)
+
+`nautilus_dev` consumes 13 onchain streams from UTXOracle. Spec-061
+exposes them as a single contractual surface so the consumer can gate
+strict-mode runs on a single boolean instead of inferring freshness from
+13 independent reads.
+
+**Public surface**: `GET /v1/streams/health` (registered in
+`api/main.py` next to `questdb_router`). Authenticated via the existing
+`api/auth_middleware.HTTPBearer`. Returns per-stream
+`{name, last_row_ts, stale_seconds, sla_seconds, schema_version, status,
+error?}` plus an `overall` rollup. `overall == "OK"` iff every stream is
+`OK`. The wire shape is pinned in
+`specs/061-stream-consumption-contract/contracts/streams_health.openapi.yaml`.
+
+**SSOT**: `docs/contracts/stream_registry.yaml` (13 entries, validated
+against `stream_registry.schema.yaml` at FastAPI startup; the route
+fails to import if the YAML drifts from the schema). Each entry pins
+`name`, backing `table`, `freshness_strategy`, `schema_version`,
+`sla_seconds`, `pinned_columns`, and the source spec that owns the
+producer side.
+
+**Two freshness strategies**:
+
+- `max_ts` - 12 of 13 streams; `stale_seconds = now() - max(timestamp_column)`.
+- `tip_lag_blocks` - `utxo_lifecycle_full` only;
+  `stale_seconds = (getblockcount() - max(spent_block)) * 600`. Required
+  because the table's `ts` is row-creation time, not block time -
+  `max(ts)` would falsely report OK during a backfill. See decisions.md
+  D2 for the full rationale.
+
+**Backend**: QuestDB single-tenant via PG-wire. All 13 streams resolve
+to QuestDB tables. `backtest_whale_signals` is mirrored from DuckDB by
+`utxoracle-backtest-mirror.timer` (03:00 UTC) until the producer is
+rewritten - see decisions.md D3.
+
+**Scheduled producers**:
+
+- `utxoracle-daily-aggregator.timer` - `02:30 UTC Persistent=true`.
+  Wraps `scripts.metrics.calculate_daily_metrics`, which now
+  dual-writes `mvrv_daily` / `nupl_daily` / `realized_cap_daily` to
+  QuestDB after the legacy DuckDB writes (strangler-fig per
+  research.md R5: QuestDB failures log but do not roll back DuckDB).
+- `utxoracle-backtest-mirror.timer` - `03:00 UTC Persistent=true`.
+  Mirrors `backtest_whale_signals` DuckDB->QuestDB with BIGINT->TIMESTAMP
+  conversion.
+
+**Schema versioning**: `docs/SCHEMA_VERSIONING.md` documents change
+classes, the 30-day soft-deprecation rule (FR-009), and the worked
+migration example. The project-wide policy in
+`docs/contracts/CHANGE_POLICY.md` (spec-058) still governs; spec-061
+specializes it for the stream registry surface.
+
+**Tests**: `tests/test_stream_registry.py` (registry + schema +
+immutability), `tests/test_streams_health.py` (route handler with mocked
+probes, 4-status state machine, auth gate, tip_lag_blocks edge cases),
+`tests/test_calculate_daily_metrics_questdb.py` (dual-write),
+`tests/test_calculate_daily_metrics_idempotent.py` (FR-010 same-day
+re-run), `tests/test_create_tables_ddl.py` (live QuestDB DDL coverage +
+WAL/DEDUP verification), `tests/test_daily_aggregator_timer.py`
+(`systemd-analyze verify`), `tests/test_mirror_backtest_whale_signals.py`
+(DuckDB->QuestDB roundtrip).
+
+**Pending operational gate**: `T010` integration test against live
+QuestDB depends on the `utxo_lifecycle` catch-up backfill completing
+(T036, `historical_spent_backfill.py --target-backend questdb`). The
+acceptance test asserts `overall == "OK"` and is the CI gate for
+closing Issue #8.
+
+**Files**:
+
+- `api/routes/streams.py` - handler + registry loader + tip cache
+- `api/models/streams.py` - Pydantic response models
+- `docs/contracts/stream_registry.yaml` - SSOT
+- `docs/SCHEMA_VERSIONING.md` - change-class policy
+- `utxoracle-daily-aggregator.{service,timer}` - scheduled producer
+- `utxoracle-backtest-mirror.{service,timer}` - scheduled DuckDB->QuestDB mirror
+- `scripts/metrics/mirror_backtest_whale_signals.py` - mirror script
+- `specs/061-stream-consumption-contract/` - spec, plan, research,
+  data-model, decisions, contracts, quickstart, tasks
 
 ---
 

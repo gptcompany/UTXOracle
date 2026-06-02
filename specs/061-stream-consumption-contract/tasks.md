@@ -136,7 +136,7 @@ Single FastAPI project. Repo root: `/media/sam/1TB/UTXOracle/`. All paths below 
 
 ### Implementation for US4 (no separate tests — documentation only)
 
-- [ ] T033 [US4] Author `specs/061-stream-consumption-contract/decisions.md` with one section per decision: (1) Backend target = QuestDB single-tenant via PG-wire, (2) Why (per `research.md` § R1: column-store fits `max(ts)` shape, pool already exists, transport is JWT-bearer over existing FastAPI), (3) Alternatives rejected (REST per-stream — duplicated routes; Parquet shared volume — no atomic transactional shape), (4) Reversibility (the registry's `table` field is the only coupling; switching backend is a registry change + route swap).
+- [x] T033 [US4] Author `specs/061-stream-consumption-contract/decisions.md` with one section per decision: (1) Backend target = QuestDB single-tenant via PG-wire, (2) Why (per `research.md` section R1: column-store fits `max(ts)` shape, pool already exists, transport is JWT-bearer over existing FastAPI), (3) Alternatives rejected (REST per-stream - duplicated routes; Parquet shared volume - no atomic transactional shape), (4) Reversibility (the registry's `table` field is the only coupling; switching backend is a registry change + route swap).
 
 **Checkpoint US4**: decision is in writing; consumer team has one authoritative reference.
 
@@ -153,7 +153,7 @@ Single FastAPI project. Repo root: `/media/sam/1TB/UTXOracle/`. All paths below 
 - [ ] T038 Add the integration test to CI: append `tests/integration/test_streams_health_contract.py` to the existing pytest invocation in the project's CI workflow (or local pre-commit gate), with `-m integration` markers honored.
 - [ ] T038b [P] Add perf test at `tests/test_streams_health_perf.py::test_p95_under_500ms` using `pytest-benchmark` (add to `pyproject.toml` dev-deps if absent). Mock `read_stream_max_ts` with a 5ms artificial delay per call to simulate QuestDB RTT. Invoke the route 100 times via `httpx.AsyncClient`. Assert p95 < 500ms per plan.md `Performance Goals`. Enforces Constitution Principle IV.
 - [ ] T039 [P] Run `uv run ruff check . && uv run ruff format .` over the changed files (`api/routes/streams.py`, `api/models/streams.py`, `api/questdb_repository.py`, `scripts/metrics/calculate_daily_metrics.py`, `scripts/bootstrap/historical_spent_backfill.py`).
-- [ ] T040 [P] Update `docs/ARCHITECTURE.md` with one paragraph naming `/v1/streams/health` as the consumer-facing freshness surface, plus a pointer to `docs/contracts/stream_registry.yaml`.
+- [x] T040 [P] Update `docs/ARCHITECTURE.md` with one paragraph naming `/v1/streams/health` as the consumer-facing freshness surface, plus a pointer to `docs/contracts/stream_registry.yaml`.
 - [ ] T041 Comment on Issue #8 (gptcompany/UTXOracle) with the commit hash per deliverable: (1) registry → commit hash, (2) endpoint → commit hash, (3) backend decision → commit hash, (4) schema_version → commit hash, (5) timer → commit hash. Close Issue #8 only after `T010` is GREEN against live data.
 
 **Final checkpoint**: SC-001 satisfied (`overall == "OK"` against live data); SC-003 measurable from day 0 of timer (will materialize over 14-day window); Issue #8 closed; nautilus_dev PR #146 unblocked.
