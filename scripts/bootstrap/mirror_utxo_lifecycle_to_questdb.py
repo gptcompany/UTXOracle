@@ -52,7 +52,6 @@ _SELECT_SQL = """
         is_spent
     FROM utxo_lifecycle_full
     WHERE creation_block BETWEEN ? AND ?
-    ORDER BY creation_block, txid, vout
 """
 
 _INSERT_SQL = """
