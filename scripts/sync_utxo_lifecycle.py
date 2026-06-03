@@ -75,6 +75,22 @@ def _clean_env_value(value: str | None) -> str | None:
     return value
 
 
+def _load_bitcoin_conf(path: Path | None = None) -> dict[str, str]:
+    """Load simple key=value entries from bitcoin.conf."""
+    config_path = path or (Path.home() / ".bitcoin" / "bitcoin.conf")
+    if not config_path.exists():
+        return {}
+
+    values: dict[str, str] = {}
+    for raw_line in config_path.read_text().splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip()
+    return values
+
+
 logging.basicConfig(
     level=_resolve_log_level(os.getenv("LOG_LEVEL", "INFO")),
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -120,11 +136,18 @@ class BitcoinRPC:
         self._json = __import__("json")
 
         # Get connection settings from env
+        bitcoin_conf = _load_bitcoin_conf()
+        rpc_host = bitcoin_conf.get("rpcconnect", "127.0.0.1")
+        rpc_port = bitcoin_conf.get("rpcport", "8332")
         rpc_url = _clean_env_value(os.getenv("BITCOIN_RPC_URL")) or (
-            "http://127.0.0.1:8332"
+            f"http://{rpc_host}:{rpc_port}"
         )
-        self.rpc_user = _clean_env_value(os.getenv("BITCOIN_RPC_USER")) or ""
-        self.rpc_pass = _clean_env_value(os.getenv("BITCOIN_RPC_PASSWORD")) or ""
+        self.rpc_user = _clean_env_value(os.getenv("BITCOIN_RPC_USER")) or (
+            bitcoin_conf.get("rpcuser", "")
+        )
+        self.rpc_pass = _clean_env_value(os.getenv("BITCOIN_RPC_PASSWORD")) or (
+            bitcoin_conf.get("rpcpassword", "")
+        )
 
         # Parse host/port via urllib so we handle URLs that include
         # credentials, custom paths, or no scheme. The hand-rolled split()
@@ -159,8 +182,10 @@ class BitcoinRPC:
 
         # Try cookie auth if no credentials
         if not self.rpc_user or not self.rpc_pass:
-            datadir = _clean_env_value(os.getenv("BITCOIN_DATADIR")) or (
-                os.path.expanduser("~/.bitcoin")
+            datadir = (
+                _clean_env_value(os.getenv("BITCOIN_DATADIR"))
+                or bitcoin_conf.get("datadir")
+                or os.path.expanduser("~/.bitcoin")
             )
             cookie_path = Path(datadir) / ".cookie"
             if cookie_path.exists():

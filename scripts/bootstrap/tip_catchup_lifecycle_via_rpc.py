@@ -34,8 +34,9 @@ import logging
 import os
 import subprocess
 import sys
+import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime, timezone
 from typing import Iterator
 
@@ -44,9 +45,21 @@ logger = logging.getLogger(__name__)
 # Skip OP_RETURN outputs — provably unspendable, never appear in utxo_lifecycle_full
 # in DuckDB either. Filtering reduces ILP traffic by ~30% on recent blocks.
 _UNSPENDABLE_SCRIPT_TYPES = {"nulldata"}
+_THREAD_STATE = threading.local()
 
 # Outpoint format reuses what `utxo_lifecycle_full` already uses:
 # `<txid>:<vout_index>` (no length restriction beyond the txid hex shape).
+
+
+def _resolve_log_level(raw_level: str | None) -> int:
+    if (
+        not raw_level
+        or raw_level.startswith("ENC[")
+        or raw_level.startswith("encrypted:")
+    ):
+        return logging.INFO
+    level = getattr(logging, raw_level.upper(), None)
+    return level if isinstance(level, int) else logging.INFO
 
 
 def _resolve_tip() -> int:
@@ -54,7 +67,10 @@ def _resolve_tip() -> int:
     try:
         result = subprocess.run(
             ["bitcoin-cli", "getblockcount"],
-            capture_output=True, text=True, timeout=10, check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
         )
         return int(result.stdout.strip())
     except Exception as exc:
@@ -92,24 +108,22 @@ def _resolve_questdb_max_creation() -> int:
     return int(row[0])
 
 
+def _thread_rpc_client():
+    """Return one BitcoinRPC client per worker thread."""
+    rpc = getattr(_THREAD_STATE, "rpc", None)
+    if rpc is None:
+        from scripts.sync_utxo_lifecycle import BitcoinRPC
+
+        rpc = BitcoinRPC()
+        _THREAD_STATE.rpc = rpc
+    return rpc
+
+
 def _fetch_block_via_rpc(height: int) -> tuple[int, datetime, dict]:
-    """Fetch one block (verbosity=3) via the bitcoin-cli subprocess.
-
-    The Python BitcoinRPC client requires reading the .cookie file, which
-    fails when BITCOIN_DATADIR is contaminated (e.g. SOPS-encrypted
-    placeholder in the watchdog env). bitcoin-cli has its own config
-    resolution that ignores environment poisoning. ThreadPoolExecutor
-    amortises the ~10 ms fork cost across workers.
-    """
-    import json
-
-    block_hash = subprocess.check_output(
-        ["bitcoin-cli", "getblockhash", str(height)], text=True, timeout=15
-    ).strip()
-    block_json = subprocess.check_output(
-        ["bitcoin-cli", "getblock", block_hash, "3"], text=True, timeout=30
-    )
-    block = json.loads(block_json)
+    """Fetch one block via Bitcoin Core RPC verbosity=3."""
+    rpc = _thread_rpc_client()
+    block_hash = rpc.getblockhash(height)
+    block = rpc.getblock(block_hash, 3)
     block_time = datetime.fromtimestamp(int(block["time"]), tz=timezone.utc)
     return height, block_time, block
 
@@ -122,25 +136,43 @@ def _iter_block_outputs(
     Uses a thread pool to overlap RPC latency. Workers fetch eagerly but
     we re-order results so consumers see strictly ascending heights.
     """
-    heights = list(range(start_block, end_block + 1))
     with ThreadPoolExecutor(max_workers=workers) as pool:
         pending: dict[int, tuple[int, datetime, dict]] = {}
-        futures = {pool.submit(_fetch_block_via_rpc, h): h for h in heights}
+        futures = {}
+        next_submit = start_block
         next_height = start_block
-        for fut in futures:
-            try:
-                h, ts, b = fut.result()
-                pending[h] = (h, ts, b)
-            except Exception as exc:
-                raise RuntimeError(
-                    f"RPC fetch failed for block {futures[fut]}: {exc}"
-                ) from exc
+
+        def submit_until_full() -> None:
+            nonlocal next_submit
+            max_in_flight = max(1, workers * 2)
+            while next_submit <= end_block and len(futures) < max_in_flight:
+                futures[pool.submit(_fetch_block_via_rpc, next_submit)] = next_submit
+                next_submit += 1
+
+        submit_until_full()
+        while futures:
+            done, _not_done = wait(futures, return_when=FIRST_COMPLETED)
+            for fut in done:
+                expected_height = futures.pop(fut)
+                try:
+                    h, ts, b = fut.result()
+                    pending[h] = (h, ts, b)
+                except Exception as exc:
+                    raise RuntimeError(
+                        f"RPC fetch failed for block {expected_height}: {exc}"
+                    ) from exc
+
             while next_height in pending:
                 yield pending.pop(next_height)
                 next_height += 1
+            submit_until_full()
+
         while pending:
-            yield pending.pop(next_height)
-            next_height += 1
+            try:
+                yield pending.pop(next_height)
+                next_height += 1
+            except KeyError as exc:
+                raise RuntimeError(f"missing fetched block {next_height}") from exc
 
 
 def _ilp_sender():
@@ -160,9 +192,7 @@ def catchup(start_block: int, end_block: int) -> int:
     sender = _ilp_sender()
     try:
         sender.establish()
-        for height, block_time, block in _iter_block_outputs(
-            start_block, end_block
-        ):
+        for height, block_time, block in _iter_block_outputs(start_block, end_block):
             for tx in block.get("tx", []):
                 txid = tx["txid"]
                 for vout in tx.get("vout", []):
@@ -201,7 +231,8 @@ def catchup(start_block: int, end_block: int) -> int:
                         "Catch-up progress: block %d/%d (%.1f%%); rows=%d",
                         height,
                         end_block,
-                        100 * (height - start_block + 1)
+                        100
+                        * (height - start_block + 1)
                         / max(1, end_block - start_block + 1),
                         rows_emitted,
                     )
@@ -219,7 +250,7 @@ def main() -> int:
     args = parser.parse_args()
 
     logging.basicConfig(
-        level=os.getenv("LOG_LEVEL", "INFO"),
+        level=_resolve_log_level(os.getenv("LOG_LEVEL", "INFO")),
         format="%(asctime)s - %(levelname)s - %(message)s",
     )
 
