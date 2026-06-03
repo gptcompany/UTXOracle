@@ -23,8 +23,9 @@ Usage:
     uv run python -m scripts.bootstrap.tip_catchup_lifecycle_via_rpc \\
         --start-block 927968 --end-block 952000
 
-Performance: ~50 ms / block RPC + ~10 us / row ILP. Expected ~25 min for
-24k blocks (~4M rows) on the production host.
+Performance depends on Bitcoin Core disk/cache state. The script uses
+``getblock`` verbosity=2 because creation rows only need transaction
+outputs, not prevout data.
 """
 
 from __future__ import annotations
@@ -120,10 +121,10 @@ def _thread_rpc_client():
 
 
 def _fetch_block_via_rpc(height: int) -> tuple[int, datetime, dict]:
-    """Fetch one block via Bitcoin Core RPC verbosity=3."""
+    """Fetch one block via Bitcoin Core RPC verbosity=2."""
     rpc = _thread_rpc_client()
     block_hash = rpc.getblockhash(height)
-    block = rpc.getblock(block_hash, 3)
+    block = rpc.getblock(block_hash, 2)
     block_time = datetime.fromtimestamp(int(block["time"]), tz=timezone.utc)
     return height, block_time, block
 
@@ -185,14 +186,16 @@ def _ilp_sender():
     return Sender.from_conf(f"tcp::addr={host}:{port};")
 
 
-def catchup(start_block: int, end_block: int) -> int:
+def catchup(start_block: int, end_block: int, workers: int = 8) -> int:
     """Run the tip catch-up. Returns the count of rows emitted to QuestDB."""
     rows_emitted = 0
     last_log = time.monotonic()
     sender = _ilp_sender()
     try:
         sender.establish()
-        for height, block_time, block in _iter_block_outputs(start_block, end_block):
+        for height, block_time, block in _iter_block_outputs(
+            start_block, end_block, workers=workers
+        ):
             for tx in block.get("tx", []):
                 txid = tx["txid"]
                 for vout in tx.get("vout", []):
@@ -247,6 +250,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--start-block", type=int, default=None)
     parser.add_argument("--end-block", type=int, default=None)
+    parser.add_argument("--workers", type=int, default=8)
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -266,13 +270,14 @@ def main() -> int:
         return 0
 
     logger.info(
-        "Tip catch-up range: blocks %d..%d (%d blocks)",
+        "Tip catch-up range: blocks %d..%d (%d blocks, workers=%d)",
         start,
         end,
         end - start + 1,
+        max(1, args.workers),
     )
     t0 = time.monotonic()
-    rows = catchup(start, end)
+    rows = catchup(start, end, workers=max(1, args.workers))
     elapsed = time.monotonic() - t0
     logger.info(
         "Tip catch-up complete: %d rows in %.1fs (%.0f rows/s)",
