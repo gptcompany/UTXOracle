@@ -185,6 +185,10 @@ class WebSocketAuthenticator:
             logger.error(f"Invalid token: {e}")
             return None
 
+    def check_rate_limit(self, client_id: str) -> bool:
+        """Check whether a client is within the configured request rate."""
+        return self.rate_limiter.check_rate_limit(client_id)
+
     def refresh_token(self, old_token: str) -> Optional[str]:
         """Refresh an existing token if it's still valid"""
         token = self.validate_token(old_token)
@@ -291,7 +295,6 @@ class WebSocketAuthenticator:
 
     def cleanup_expired_tokens(self):
         """Remove expired tokens from active set"""
-        now = datetime.now(timezone.utc)
         expired = [
             client_id
             for client_id, token in self.active_tokens.items()

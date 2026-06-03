@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
+import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -87,6 +89,20 @@ _TIP_CACHE: Dict[str, Tuple[float, int]] = {}
 _TIP_CACHE_TTL_SECONDS = 60
 
 
+def _get_current_tip_with_bitcoin_cli() -> int:
+    """Resolve Bitcoin tip via bitcoin-cli using node-local config/cookie auth."""
+    if shutil.which("bitcoin-cli") is None:
+        raise FileNotFoundError("bitcoin-cli not found on PATH")
+    result = subprocess.run(
+        ["bitcoin-cli", "getblockcount"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    )
+    return int(result.stdout.strip())
+
+
 async def get_current_tip() -> int:
     """Return the current Bitcoin Core block height.
 
@@ -100,11 +116,21 @@ async def get_current_tip() -> int:
     if cached is not None and now - cached[0] < _TIP_CACHE_TTL_SECONDS:
         return cached[1]
 
-    # Import lazily so test collection does not require a configured
-    # Bitcoin Core endpoint.
-    from scripts.sync_utxo_lifecycle import BitcoinRPC
+    def _resolve_tip() -> int:
+        try:
+            return _get_current_tip_with_bitcoin_cli()
+        except Exception as cli_exc:
+            logger.warning(
+                "bitcoin-cli getblockcount failed (%s); using Python RPC fallback",
+                cli_exc,
+            )
+            # Import lazily so test collection does not require a configured
+            # Bitcoin Core endpoint.
+            from scripts.sync_utxo_lifecycle import BitcoinRPC
 
-    tip = await asyncio.to_thread(lambda: BitcoinRPC().getblockcount())
+            return int(BitcoinRPC().getblockcount())
+
+    tip = await asyncio.to_thread(_resolve_tip)
     _TIP_CACHE["tip"] = (now, int(tip))
     return int(tip)
 

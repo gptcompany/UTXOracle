@@ -15,6 +15,7 @@ Security features:
 """
 
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Set, Callable
 from fastapi import HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -99,6 +100,18 @@ class RestApiAuth:
 _auth_instance: Optional[RestApiAuth] = None
 
 
+def _development_auth_token() -> AuthToken:
+    """Return a stable development-mode token object."""
+    issued_at = datetime.now(timezone.utc)
+    return AuthToken(
+        token="NO_AUTH_DEVELOPMENT_MODE",
+        client_id="dev-client",
+        issued_at=issued_at,
+        expires_at=issued_at + timedelta(days=365),
+        permissions={"read", "write"},
+    )
+
+
 def get_auth_instance() -> RestApiAuth:
     """Get or create global auth instance (singleton)"""
     global _auth_instance
@@ -139,12 +152,7 @@ async def require_auth(
     # Development mode bypass
     if auth.development_mode:
         logger.debug("Auth bypass (development mode)")
-        return AuthToken(
-            client_id="dev-client",
-            expires_at=None,
-            permissions={"read", "write"},
-            issued_at=None,
-        )
+        return _development_auth_token()
 
     # Check if credentials provided
     if not credentials:
@@ -235,12 +243,7 @@ def optional_auth(
 
     # Development mode
     if auth.development_mode:
-        return AuthToken(
-            client_id="dev-client",
-            expires_at=None,
-            permissions={"read", "write"},
-            issued_at=None,
-        )
+        return _development_auth_token()
 
     # No credentials provided - this is OK for optional auth
     if not credentials:

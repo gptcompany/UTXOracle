@@ -9,6 +9,7 @@ exist; that's the expected TDD cycle.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -53,6 +54,21 @@ def client(app: FastAPI) -> AsyncClient:
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+async def test_get_current_tip_with_bitcoin_cli(monkeypatch: pytest.MonkeyPatch):
+    from api.routes import streams
+
+    monkeypatch.setattr(streams.shutil, "which", lambda name: "/usr/bin/bitcoin-cli")
+
+    def fake_run(*args, **kwargs):
+        assert args[0] == ["bitcoin-cli", "getblockcount"]
+        assert kwargs["timeout"] == 60
+        return SimpleNamespace(stdout="952201\n")
+
+    monkeypatch.setattr(streams.subprocess, "run", fake_run)
+
+    assert streams._get_current_tip_with_bitcoin_cli() == 952_201
 
 
 # ── T005: all OK ──────────────────────────────────────────────────────────────

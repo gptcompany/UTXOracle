@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Optional
 
 import duckdb
+
 # Use SOPS-encrypted secrets
 sys.path.insert(0, "/media/sam/1TB/claude-hooks-shared/scripts")
 from secrets_loader import load_secrets
@@ -50,17 +51,39 @@ from scripts.config import UTXORACLE_DB_PATH
 
 load_secrets()
 
+
+def _resolve_log_level(raw_level: str | None) -> int:
+    """Return a safe logging level even when encrypted env values leak in."""
+    if not raw_level or _is_encrypted_placeholder(raw_level):
+        return logging.INFO
+    normalized = raw_level.upper()
+    level = getattr(logging, normalized, None)
+    return level if isinstance(level, int) else logging.INFO
+
+
+def _is_encrypted_placeholder(value: str | None) -> bool:
+    """Return True for undecrypted env placeholders from SOPS/legacy secrets."""
+    if value is None:
+        return False
+    return value.startswith("ENC[") or value.startswith("encrypted:")
+
+
+def _clean_env_value(value: str | None) -> str | None:
+    """Drop empty or encrypted-placeholder environment values."""
+    if not value or _is_encrypted_placeholder(value):
+        return None
+    return value
+
+
 logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO"),
+    level=_resolve_log_level(os.getenv("LOG_LEVEL", "INFO")),
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
 # Database paths
 UTXO_DB_PATH = str(UTXORACLE_DB_PATH)
-MAIN_DB_PATH = os.getenv(
-    "DUCKDB_PATH", str(UTXORACLE_DB_PATH)
-)
+MAIN_DB_PATH = os.getenv("DUCKDB_PATH", str(UTXORACLE_DB_PATH))
 
 # Processing configuration
 DEFAULT_BATCH_SIZE = int(os.getenv("UTXO_BATCH_SIZE", "10000"))
@@ -97,11 +120,11 @@ class BitcoinRPC:
         self._json = __import__("json")
 
         # Get connection settings from env
-        rpc_url = os.getenv("BITCOIN_RPC_URL", "http://127.0.0.1:8332")
-        if not rpc_url:
-            rpc_url = "http://127.0.0.1:8332"
-        self.rpc_user = os.getenv("BITCOIN_RPC_USER", "")
-        self.rpc_pass = os.getenv("BITCOIN_RPC_PASSWORD", "")
+        rpc_url = _clean_env_value(os.getenv("BITCOIN_RPC_URL")) or (
+            "http://127.0.0.1:8332"
+        )
+        self.rpc_user = _clean_env_value(os.getenv("BITCOIN_RPC_USER")) or ""
+        self.rpc_pass = _clean_env_value(os.getenv("BITCOIN_RPC_PASSWORD")) or ""
 
         # Parse host/port via urllib so we handle URLs that include
         # credentials, custom paths, or no scheme. The hand-rolled split()
@@ -136,7 +159,9 @@ class BitcoinRPC:
 
         # Try cookie auth if no credentials
         if not self.rpc_user or not self.rpc_pass:
-            datadir = os.getenv("BITCOIN_DATADIR", os.path.expanduser("~/.bitcoin"))
+            datadir = _clean_env_value(os.getenv("BITCOIN_DATADIR")) or (
+                os.path.expanduser("~/.bitcoin")
+            )
             cookie_path = Path(datadir) / ".cookie"
             if cookie_path.exists():
                 cookie = cookie_path.read_text().strip()
