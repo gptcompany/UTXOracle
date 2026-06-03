@@ -68,10 +68,10 @@ def get_blocks_for_date(
         [start_ts, end_ts],
     ).fetchone()
 
-    if result[0] is None:
+    if result is None or result[0] is None or result[1] is None:
         raise ValueError(f"No blocks found for date {target_date}")
 
-    return result[0], result[1]
+    return int(result[0]), int(result[1])
 
 
 def get_price_for_date(
@@ -190,6 +190,7 @@ def calculate_daily_mvrv(
     )
 
     from scripts.metrics.mvrv_variants import calculate_both_mvrv_z
+
     variants = calculate_both_mvrv_z(
         conn,
         market_cap,
@@ -501,7 +502,27 @@ def _persist_to_questdb(metrics: dict) -> None:
                 total_supply=metrics.get("total_supply"),
             )
         except Exception as exc:
-            logger.error("QuestDB save_realized_cap_daily failed for %s: %s", target_date, exc)
+            logger.error(
+                "QuestDB save_realized_cap_daily failed for %s: %s", target_date, exc
+            )
+
+
+def persist_metrics_for_target(
+    metrics: dict, conn: duckdb.DuckDBPyConnection, *, questdb_only: bool = False
+) -> None:
+    """Persist metrics for the selected operational target.
+
+    The live wave1 materializer can hold an exclusive DuckDB writer lock for
+    long periods. The scheduled spec-061 consumer surface only needs QuestDB
+    rows, so ``--questdb-only`` lets the timer read DuckDB in read-only mode
+    and update the QuestDB contract tables without disturbing that writer.
+    """
+    if questdb_only:
+        _persist_to_questdb(metrics)
+        logger.info("QuestDB-only metrics mirrored for %s", metrics["date"])
+        return
+
+    persist_metrics(metrics, conn)
 
 
 def backfill_metrics(
@@ -509,6 +530,7 @@ def backfill_metrics(
     conn: duckdb.DuckDBPyConnection,
     dry_run: bool = False,
     end_date: Optional[date] = None,
+    questdb_only: bool = False,
 ) -> int:
     """Backfill metrics for the last N days.
 
@@ -535,7 +557,7 @@ def backfill_metrics(
             metrics = calculate_daily_metrics(current_date, conn)
 
             if not dry_run:
-                persist_metrics(metrics, conn)
+                persist_metrics_for_target(metrics, conn, questdb_only=questdb_only)
 
             success_count += 1
         except Exception as e:
@@ -562,12 +584,17 @@ def main():
         "--dry-run", action="store_true", help="Calculate without persisting"
     )
     parser.add_argument(
+        "--questdb-only",
+        action="store_true",
+        help="Persist only QuestDB contract tables; open DuckDB read-only",
+    )
+    parser.add_argument(
         "--recalculate", action="store_true", help="Recalculate entire history"
     )
     parser.add_argument("--db-path", type=str, default=str(UTXORACLE_DB_PATH))
     args = parser.parse_args()
 
-    conn = duckdb.connect(args.db_path)
+    conn = duckdb.connect(args.db_path, read_only=args.questdb_only or args.dry_run)
 
     try:
         if args.recalculate:
@@ -584,14 +611,20 @@ def main():
             if args.end_date:
                 end_date = datetime.strptime(args.end_date, "%Y-%m-%d").date()
             backfill_metrics(
-                args.backfill, conn, dry_run=args.dry_run, end_date=end_date
+                args.backfill,
+                conn,
+                dry_run=args.dry_run,
+                end_date=end_date,
+                questdb_only=args.questdb_only,
             )
         elif args.date:
             target_date = datetime.strptime(args.date, "%Y-%m-%d").date()
             metrics = calculate_daily_metrics(target_date, conn)
 
             if not args.dry_run:
-                persist_metrics(metrics, conn)
+                persist_metrics_for_target(
+                    metrics, conn, questdb_only=args.questdb_only
+                )
                 logger.info(f"Metrics persisted for {target_date}")
             else:
                 logger.info("Dry run - metrics calculated but not persisted")
@@ -603,7 +636,9 @@ def main():
             metrics = calculate_daily_metrics(yesterday, conn)
 
             if not args.dry_run:
-                persist_metrics(metrics, conn)
+                persist_metrics_for_target(
+                    metrics, conn, questdb_only=args.questdb_only
+                )
                 logger.info(f"Metrics persisted for {yesterday}")
     finally:
         conn.close()

@@ -45,8 +45,12 @@ def test_duckdb_to_questdb_roundtrip(tmp_path):
         ),
     ]
 
+    exists_result = MagicMock()
+    exists_result.fetchone.return_value = (1,)
+    rows_result = MagicMock()
+    rows_result.fetchall.return_value = duckdb_rows
     fake_duckdb_conn = MagicMock()
-    fake_duckdb_conn.execute.return_value.fetchall.return_value = duckdb_rows
+    fake_duckdb_conn.execute.side_effect = [exists_result, rows_result]
 
     save_calls = []
 
@@ -84,3 +88,29 @@ def test_duckdb_to_questdb_roundtrip(tmp_path):
     second = save_calls[1]
     assert int(second["ts"].timestamp()) == 1_716_600_000
     assert second["confidence"] == 0.7
+
+
+def test_missing_duckdb_source_table_is_non_fatal(tmp_path):
+    """A missing producer table leaves health MISSING but must not fail the timer."""
+    exists_result = MagicMock()
+    exists_result.fetchone.return_value = (0,)
+    fake_duckdb_conn = MagicMock()
+    fake_duckdb_conn.execute.return_value = exists_result
+
+    with (
+        patch(
+            "scripts.metrics.mirror_backtest_whale_signals.duckdb.connect",
+            return_value=fake_duckdb_conn,
+        ),
+        patch(
+            "scripts.metrics.mirror_backtest_whale_signals.save_backtest_whale_signal_row",
+            MagicMock(),
+        ) as save_row,
+    ):
+        from scripts.metrics.mirror_backtest_whale_signals import mirror
+
+        written = mirror(duckdb_path=str(tmp_path / "fake.duckdb"))
+
+    assert written == 0
+    save_row.assert_not_called()
+    fake_duckdb_conn.close.assert_called_once()

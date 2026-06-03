@@ -186,3 +186,24 @@ def test_questdb_failure_does_not_block_duckdb(fake_metrics, duckdb_conn, caplog
     assert "QuestDB save_mvrv_daily failed" in caplog.text
     assert "QuestDB save_nupl_daily failed" in caplog.text
     assert "QuestDB save_realized_cap_daily failed" in caplog.text
+
+
+def test_questdb_only_skips_duckdb_writes(fake_metrics, duckdb_conn):
+    """The systemd timer can mirror QuestDB rows while DuckDB is writer-locked."""
+    from scripts.metrics.calculate_daily_metrics import persist_metrics_for_target
+
+    with (
+        patch(
+            "scripts.metrics.calculate_daily_metrics._persist_to_questdb",
+            MagicMock(return_value=None),
+        ) as persist_qdb,
+        patch(
+            "scripts.metrics.calculate_daily_metrics.persist_metrics",
+            MagicMock(side_effect=AssertionError("DuckDB write path used")),
+        ) as persist_duckdb,
+    ):
+        persist_metrics_for_target(fake_metrics, duckdb_conn, questdb_only=True)
+
+    persist_qdb.assert_called_once_with(fake_metrics)
+    persist_duckdb.assert_not_called()
+    duckdb_conn.execute.assert_not_called()

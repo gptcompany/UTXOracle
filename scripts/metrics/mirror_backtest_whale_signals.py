@@ -56,6 +56,21 @@ def mirror(duckdb_path: Optional[str] = None) -> int:
     path = duckdb_path or str(UTXORACLE_DB_PATH)
     conn = duckdb.connect(path, read_only=True)
     try:
+        table_exists = conn.execute(
+            """
+            SELECT count(*)
+            FROM information_schema.tables
+            WHERE table_schema = 'main'
+              AND table_name = 'backtest_whale_signals'
+            """
+        ).fetchone()
+        if not table_exists or int(table_exists[0]) == 0:
+            logger.warning(
+                "mirror_backtest_whale_signals: DuckDB source table is missing; "
+                "nothing to mirror"
+            )
+            return 0
+
         rows = conn.execute(
             f"SELECT {', '.join(_SELECT_COLUMNS)} FROM backtest_whale_signals "
             f"ORDER BY timestamp"
