@@ -1,7 +1,63 @@
 # spec-061 — Operational Runbook
 
 **Audience**: on-call operator finishing spec-061 rollout, or reviewing a
-post-mortem of the post-mirror chain. Last updated 2026-06-02.
+post-mortem of the post-mirror chain. Last updated 2026-06-03.
+
+## Diagnose `overall: DEGRADED`
+
+When `GET /v1/streams/health` reports `overall: DEGRADED`, run:
+
+```bash
+uv run python -m scripts.diagnose_streams_health
+```
+
+The output shows, per stream:
+
+- whether the backing QuestDB table exists, is empty, or has rows
+- for `tip_lag_blocks` streams, the actual block lag vs SLA
+- DuckDB upstream producer freshness (`block_heights`, `daily_prices`)
+
+Three common patterns the diagnostic surfaces:
+
+1. **All 13 streams MISSING** → no producer pipeline running on this host.
+   Spec-061 code is healthy; this is a deployment state. Run the
+   appropriate producer services (live worker, BRK sync, daily aggregator
+   timer, etc.) and re-run the diagnostic.
+
+2. **`mvrv_daily` / `nupl_daily` / `realized_cap_daily` empty + DuckDB
+   `block_heights.max_ts` stale** → upstream producer (DuckDB block
+   ingest pipeline) hasn't run recently. The daily aggregator timer
+   cannot compute fresh metrics from stale source data. Restart the
+   upstream pipeline before expecting the daily streams to populate.
+
+3. **`utxo_lifecycle_full` lag > 432 blocks (72h)** → the creation or
+   spent backfill is incomplete. Run the two RPC catch-up paths
+   concurrently:
+
+   ```bash
+   nohup uv run python -m scripts.bootstrap.tip_catchup_lifecycle_via_rpc \
+     > /tmp/tip_catchup.log 2>&1 &
+   nohup uv run python -m scripts.bootstrap.tip_spent_backfill_via_rpc \
+     > /tmp/spent_backfill.log 2>&1 &
+   ```
+
+   Neither requires a DuckDB lock; they coexist with the production
+   `wave1_materializer` and `urpd_features` writers.
+
+## Spec gate split (T010)
+
+The original `T010` acceptance gate combined "the contract is honoured"
+with "all 13 backing tables are fresh in production". As of 2026-06-03
+these are split into two pytest files, both gated on
+`RUN_STREAMS_HEALTH_CONTRACT=1` + the `integration` marker:
+
+| File | Asserts | When green |
+|---|---|---|
+| `tests/integration/test_streams_health_contract_shape.py` | OpenAPI conformance, every registry stream present, status enum honoured, rollup consistent, `deprecated_at` echo, `sla_seconds` mirror | Whenever the endpoint is reachable, even with empty backing tables |
+| `tests/integration/test_streams_health_contract.py` | `overall == "OK"` against live data | Only when every producer is running and every backing table is within SLA |
+
+The shape gate validates the spec-061 deliverable; the data gate
+validates the deployment.
 
 ## State machine
 
