@@ -18,6 +18,26 @@ import pytest
 
 pytestmark = pytest.mark.asyncio
 
+SOURCE_FRESHNESS_DDLS = (
+    """
+    CREATE TABLE IF NOT EXISTS block_heights (
+        height LONG,
+        ts TIMESTAMP,
+        fetched_at TIMESTAMP
+    ) timestamp(ts) PARTITION BY YEAR WAL
+      DEDUP UPSERT KEYS(ts, height);
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS daily_prices (
+        date TIMESTAMP,
+        price_usd DOUBLE,
+        source SYMBOL,
+        fetched_at TIMESTAMP
+    ) timestamp(date) PARTITION BY YEAR WAL
+      DEDUP UPSERT KEYS(date);
+    """,
+)
+
 EXPECTED_TABLES = {
     "block_heights",
     "daily_prices",
@@ -57,24 +77,29 @@ async def _questdb_reachable() -> bool:
         return False
 
 
-async def test_required_tables_exist():
-    """T022a: every contract-required table must be created by `create_tables_if_not_exist`."""
-    if not await _questdb_reachable():
-        pytest.skip("QuestDB not reachable on :8812")
-
+async def _connect_questdb():
     import asyncpg
 
-    from api.questdb_repository import create_tables_if_not_exist
-
-    await create_tables_if_not_exist()
-
-    conn = await asyncpg.connect(
+    return await asyncpg.connect(
         host=os.getenv("QUESTDB_PG_HOST", "localhost"),
         port=int(os.getenv("QUESTDB_PG_PORT", 8812)),
         user=os.getenv("QUESTDB_PG_USER", "admin"),
         password=os.getenv("QUESTDB_PG_PASSWORD", "quest"),
         database=os.getenv("QUESTDB_PG_DATABASE", "main"),
     )
+
+
+async def _ensure_source_freshness_tables(conn) -> None:
+    for ddl in SOURCE_FRESHNESS_DDLS:
+        await conn.execute(ddl)
+
+
+async def test_required_tables_exist():
+    """T022a: every contract-required table must be created by `create_tables_if_not_exist`."""
+    if not await _questdb_reachable():
+        pytest.skip("QuestDB not reachable on :8812")
+
+    conn = await _connect_questdb()
     try:
         rows = await conn.fetch("SHOW TABLES")
     finally:
@@ -93,19 +118,7 @@ async def test_daily_aggregate_tables_are_deduplicated():
     if not await _questdb_reachable():
         pytest.skip("QuestDB not reachable on :8812")
 
-    import asyncpg
-
-    from api.questdb_repository import create_tables_if_not_exist
-
-    await create_tables_if_not_exist()
-
-    conn = await asyncpg.connect(
-        host=os.getenv("QUESTDB_PG_HOST", "localhost"),
-        port=int(os.getenv("QUESTDB_PG_PORT", 8812)),
-        user=os.getenv("QUESTDB_PG_USER", "admin"),
-        password=os.getenv("QUESTDB_PG_PASSWORD", "quest"),
-        database=os.getenv("QUESTDB_PG_DATABASE", "main"),
-    )
+    conn = await _connect_questdb()
     try:
         rows = await conn.fetch(
             """
@@ -135,3 +148,29 @@ async def test_daily_aggregate_tables_are_deduplicated():
     ):
         assert by_name[table_name]["walEnabled"] is True
         assert by_name[table_name]["dedup"] is True
+
+
+async def test_source_freshness_tables_are_deduplicated():
+    """Phase 1.5-v2: QuestDB reference tables must be WAL + DEDUP."""
+    if not await _questdb_reachable():
+        pytest.skip("QuestDB not reachable on :8812")
+
+    conn = await _connect_questdb()
+    try:
+        await _ensure_source_freshness_tables(conn)
+        rows = await conn.fetch(
+            """
+            SELECT table_name, walEnabled, dedup
+            FROM tables()
+            WHERE table_name IN ('block_heights', 'daily_prices')
+            """
+        )
+    finally:
+        await conn.close()
+
+    by_name = {r["table_name"]: r for r in rows}
+    assert set(by_name) == {"block_heights", "daily_prices"}
+    assert by_name["block_heights"]["walEnabled"] is True
+    assert by_name["block_heights"]["dedup"] is True
+    assert by_name["daily_prices"]["walEnabled"] is True
+    assert by_name["daily_prices"]["dedup"] is True
