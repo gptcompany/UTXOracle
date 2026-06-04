@@ -21,7 +21,7 @@ Environment=PYTHONUNBUFFERED=1
 Environment="PATH=/home/sam/.local/bin:/usr/local/bin:/usr/bin:/bin"
 EnvironmentFile=-/media/sam/1TB/UTXOracle/.env
 ExecStart=/usr/bin/env bash /media/sam/1TB/UTXOracle/scripts/bootstrap/utxo_lifecycle_supervisor.sh spent
-ExecStopPost=/bin/sh -c 'if [ "$SERVICE_RESULT" != "success" ] && [ -n "$DISCORD_WEBHOOK_URL" ]; then payload="{\"content\":\"%n failed: result=$SERVICE_RESULT exit=$EXIT_CODE/$EXIT_STATUS\"}"; /usr/bin/curl -fsS -H "Content-Type: application/json" -d "$payload" "$DISCORD_WEBHOOK_URL" || true; fi'
+ExecStopPost=/bin/sh -c 'if [ "$SERVICE_RESULT" != "success" ] && [ -n "$DISCORD_WEBHOOK_URL" ]; then payload=$(/usr/bin/printf "{\"content\":\"%%s failed: result=%%s exit=%%s/%%s\"}" "%n" "$SERVICE_RESULT" "$EXIT_CODE" "$EXIT_STATUS"); /usr/bin/curl -fsS -H "Content-Type: application/json" --data-raw "$payload" "$DISCORD_WEBHOOK_URL" || true; fi'
 Restart=on-failure
 RestartSec=60s
 StandardOutput=journal
