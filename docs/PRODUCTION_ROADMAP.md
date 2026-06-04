@@ -260,15 +260,23 @@ WantedBy=multi-user.target
 - journald → Loki (or Promtail → existing log infra). One file in
   `docs/grafana/` for the log query templates.
 
-### 3c. Backup strategy
+### 3c. Backup strategy — DEFERRED
 
-- **QuestDB**: `BACKUP TABLE` for each spec-061 table daily, rsync to
+Owner decision 2026-06-04: backup destination is not chosen yet, so this
+sub-phase is removed from the critical path. Tracked as a follow-up
+under the eventual spec-063 (operational readiness).
+
+When it returns, the candidate scope (kept here for reference):
+- **QuestDB**: `BACKUP TABLE` per spec-061 table daily, rsync to
   cold storage. Retention: 30 days hot, 12 months cold.
-- **DuckDB**: `EXPORT DATABASE 'path/'` daily; the host disk is 60 GB so
-  this is significant. Consider an incremental approach via Litestream
-  or just rotating EXPORT outputs weekly with monthly retention.
+- **DuckDB**: `EXPORT DATABASE 'path/'` daily (host disk is 60 GB so
+  this is significant — likely an incremental approach via Litestream
+  or rotating EXPORT outputs weekly with monthly retention).
 - **stream_registry.yaml**: source-controlled, no separate backup
   needed.
+
+Phase 3 still ships **3a observability + 3b log aggregation + 3d source
+pipeline + 3e DR procedures** without 3c.
 
 ### 3d. Source data pipeline (also runs as a mini-pass between Phase 1 and Phase 2)
 
@@ -476,8 +484,12 @@ Before any code work starts, the owner should confirm:
       `/media/sam/1TB/UTXOracle`.)
 - [ ] **2.** Alerting channel: Discord webhook URL (default for Phase 1),
       PagerDuty, or other.
-- [ ] **3.** Backup destination: S3 bucket name, NAS path, or separate
-      disk. Must be settled before Phase 3 restore tests.
+- [x] **3. DEFERRED (owner decision 2026-06-04).** Backup destination
+      is explicitly deferred. §3.c (backup strategy) is removed from
+      the critical path and tracked as a follow-up under the eventual
+      spec-063 (operational readiness). This does NOT block Phase 1,
+      Phase 1.5, Phase 2, or the rest of Phase 3 (3a observability,
+      3b log aggregation, 3d source pipeline, 3e DR procedures).
 - [ ] **4.** Expected p95 WS concurrent connections. (If unknown:
       "instrument first, don't choose Rust yet" — Codex's stance, which
       I endorse.)
