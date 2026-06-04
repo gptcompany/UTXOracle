@@ -1,0 +1,19 @@
+[Unit]
+Description=UTXOracle mirror live QuestDB (:9912) -> host (:8812) for spec-061
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/media/sam/1TB/UTXOracle
+Environment="PATH=/home/sam/.local/bin:/usr/local/bin:/usr/bin:/bin"
+Environment=LIVE_QUESTDB_PG_HOST=127.0.0.1
+Environment=LIVE_QUESTDB_PG_PORT=9912
+Environment=QUESTDB_PG_HOST=127.0.0.1
+Environment=QUESTDB_PG_PORT=8812
+Environment=QUESTDB_ILP_HOST=127.0.0.1
+Environment=QUESTDB_ILP_PORT=9009
+ExecStart=/usr/bin/env uv run python -m scripts.bootstrap.mirror_live_questdb_to_host --batch-limit 20000
+
+[Install]
+WantedBy=multi-user.target

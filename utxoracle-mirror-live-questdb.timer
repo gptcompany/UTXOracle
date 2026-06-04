@@ -1,0 +1,11 @@
+[Unit]
+Description=Mirror live QuestDB streams to host QuestDB every minute (spec-061)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Unit=utxoracle-mirror-live-questdb.service
+
+[Install]
+WantedBy=timers.target
