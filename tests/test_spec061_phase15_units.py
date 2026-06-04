@@ -11,6 +11,8 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BLOCK_HEIGHTS_SERVICE = REPO_ROOT / "utxoracle-block-heights-catchup.service"
 BLOCK_HEIGHTS_TIMER = REPO_ROOT / "utxoracle-block-heights-catchup.timer"
+DAILY_PRICES_SERVICE = REPO_ROOT / "utxoracle-daily-prices-refresh.service"
+DAILY_PRICES_TIMER = REPO_ROOT / "utxoracle-daily-prices-refresh.timer"
 
 _HAS_SYSTEMD_ANALYZE = shutil.which("systemd-analyze") is not None
 
@@ -48,3 +50,32 @@ def test_block_heights_catchup_unit_contract():
     assert "Persistent=true" in timer
     assert "AccuracySec=5min" in timer
     assert "Unit=utxoracle-block-heights-catchup.service" in timer
+
+
+@pytest.mark.skipif(
+    not _HAS_SYSTEMD_ANALYZE, reason="systemd-analyze not present"
+)
+def test_daily_prices_refresh_units_valid():
+    assert DAILY_PRICES_SERVICE.exists()
+    assert DAILY_PRICES_TIMER.exists()
+    result = _verify(DAILY_PRICES_SERVICE, DAILY_PRICES_TIMER)
+    assert result.returncode == 0, (
+        f"systemd-analyze verify failed:\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+
+
+def test_daily_prices_refresh_unit_contract():
+    service = DAILY_PRICES_SERVICE.read_text()
+    timer = DAILY_PRICES_TIMER.read_text()
+
+    assert "Type=oneshot" in service
+    assert "Restart=" not in service
+    assert "EnvironmentFile=-/media/sam/1TB/UTXOracle/.env" in service
+    assert (
+        "ExecStart=/usr/bin/env uv run python -m "
+        "scripts.bootstrap.build_price_table"
+    ) in service
+    assert "OnCalendar=*-*-* 01:00:00" in timer
+    assert "Persistent=true" in timer
+    assert "Unit=utxoracle-daily-prices-refresh.service" in timer

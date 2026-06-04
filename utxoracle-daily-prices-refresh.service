@@ -1,0 +1,20 @@
+[Unit]
+Description=UTXOracle DuckDB daily_prices refresh (spec-061 Phase 1.5)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=sam
+Group=sam
+WorkingDirectory=/media/sam/1TB/UTXOracle
+Environment=PYTHONUNBUFFERED=1
+Environment="PATH=/home/sam/.local/bin:/usr/local/bin:/usr/bin:/bin"
+EnvironmentFile=-/media/sam/1TB/UTXOracle/.env
+ExecStart=/usr/bin/env uv run python -m scripts.bootstrap.build_price_table
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=utxoracle-daily-prices-refresh
+
+[Install]
+WantedBy=multi-user.target
