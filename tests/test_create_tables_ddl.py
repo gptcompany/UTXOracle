@@ -19,6 +19,8 @@ import pytest
 pytestmark = pytest.mark.asyncio
 
 EXPECTED_TABLES = {
+    "block_heights",
+    "daily_prices",
     "live_snapshots",
     "entity_flows_daily",
     "whale_transactions",
@@ -110,6 +112,8 @@ async def test_daily_aggregate_tables_are_deduplicated():
             SELECT table_name, walEnabled, dedup
             FROM tables()
             WHERE table_name IN (
+                'block_heights',
+                'daily_prices',
                 'mvrv_daily',
                 'nupl_daily',
                 'realized_cap_daily',
@@ -122,6 +126,8 @@ async def test_daily_aggregate_tables_are_deduplicated():
 
     by_name = {r["table_name"]: r for r in rows}
     for table_name in (
+        "block_heights",
+        "daily_prices",
         "mvrv_daily",
         "nupl_daily",
         "realized_cap_daily",

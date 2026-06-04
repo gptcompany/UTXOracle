@@ -434,6 +434,44 @@ async def create_tables_if_not_exist():
             """
         )
 
+        # Phase 1.5-v2 source freshness tables. These replace the deprecated
+        # DuckDB production refresh path for block timestamps and daily prices.
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS block_heights (
+                height LONG,
+                ts TIMESTAMP,
+                fetched_at TIMESTAMP
+            ) timestamp(ts) PARTITION BY YEAR WAL
+              DEDUP UPSERT KEYS(ts, height);
+            """
+        )
+
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS daily_prices (
+                date TIMESTAMP,
+                price_usd DOUBLE,
+                source SYMBOL,
+                fetched_at TIMESTAMP
+            ) timestamp(date) PARTITION BY YEAR WAL
+              DEDUP UPSERT KEYS(date);
+            """
+        )
+
+        for table_name, dedup_keys in (
+            ("block_heights", "ts, height"),
+            ("daily_prices", "date"),
+        ):
+            for ddl in (
+                f"ALTER TABLE {table_name} SET TYPE WAL",
+                f"ALTER TABLE {table_name} DEDUP ENABLE UPSERT KEYS({dedup_keys})",
+            ):
+                try:
+                    await conn.execute(ddl)
+                except Exception:
+                    pass
+
         await conn.execute(
             """
             CREATE TABLE IF NOT EXISTS utxo_snapshots (
