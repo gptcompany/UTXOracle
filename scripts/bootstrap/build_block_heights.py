@@ -1,5 +1,8 @@
 """Build block heights table from electrs API or Bitcoin Core RPC.
 
+DEPRECATED: production path is build_block_heights_questdb.py; this script is
+for historical one-shot backfills only.
+
 Maps block height -> timestamp for UTXO lifecycle price lookups.
 
 Primary: Bitcoin Core RPC (getblockhash + getblockheader, 2 calls per block, local)
