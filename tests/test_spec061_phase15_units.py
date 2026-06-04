@@ -44,8 +44,10 @@ def test_block_heights_catchup_unit_contract():
     assert "EnvironmentFile=-/media/sam/1TB/UTXOracle/.env" in service
     assert (
         "ExecStart=/usr/bin/env uv run python -m "
-        "scripts.bootstrap.build_block_heights --use-rpc"
+        "scripts.bootstrap.build_block_heights_questdb"
     ) in service
+    assert "scripts.bootstrap.build_block_heights --use-rpc" not in service
+    assert "After=questdb.service" in service
     assert "OnCalendar=hourly" in timer
     assert "Persistent=true" in timer
     assert "AccuracySec=5min" in timer
@@ -74,8 +76,10 @@ def test_daily_prices_refresh_unit_contract():
     assert "EnvironmentFile=-/media/sam/1TB/UTXOracle/.env" in service
     assert (
         "ExecStart=/usr/bin/env uv run python -m "
-        "scripts.bootstrap.build_price_table"
+        "scripts.bootstrap.build_price_table_questdb"
     ) in service
-    assert "OnCalendar=*-*-* 01:00:00" in timer
+    assert "scripts.bootstrap.build_price_table\n" not in service
+    assert "After=questdb.service docker-api-1.service" in service
+    assert "OnCalendar=*-*-* 01:00:00 UTC" in timer
     assert "Persistent=true" in timer
     assert "Unit=utxoracle-daily-prices-refresh.service" in timer

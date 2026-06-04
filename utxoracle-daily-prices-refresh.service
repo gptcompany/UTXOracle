@@ -1,7 +1,7 @@
 [Unit]
-Description=UTXOracle DuckDB daily_prices refresh (spec-061 Phase 1.5)
-After=network-online.target
-Wants=network-online.target
+Description=UTXOracle QuestDB daily_prices refresh (spec-061 Phase 1.5-v2)
+After=questdb.service docker-api-1.service
+Wants=questdb.service docker-api-1.service
 
 [Service]
 Type=oneshot
@@ -11,7 +11,7 @@ WorkingDirectory=/media/sam/1TB/UTXOracle
 Environment=PYTHONUNBUFFERED=1
 Environment="PATH=/home/sam/.local/bin:/usr/local/bin:/usr/bin:/bin"
 EnvironmentFile=-/media/sam/1TB/UTXOracle/.env
-ExecStart=/usr/bin/env uv run python -m scripts.bootstrap.build_price_table
+ExecStart=/usr/bin/env uv run python -m scripts.bootstrap.build_price_table_questdb
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=utxoracle-daily-prices-refresh

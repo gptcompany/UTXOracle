@@ -2,7 +2,7 @@
 Description=Run UTXOracle daily_prices refresh daily (spec-061 Phase 1.5)
 
 [Timer]
-OnCalendar=*-*-* 01:00:00
+OnCalendar=*-*-* 01:00:00 UTC
 Persistent=true
 Unit=utxoracle-daily-prices-refresh.service
 
