@@ -7,6 +7,21 @@
 **Out of scope**: spec-062 (utxo_lifecycle producer migration to QuestDB
 SSOT) is referenced but not detailed here — it deserves its own spec.
 
+**Gate status snapshot (2026-06-04 — post Codex sign-off)**:
+
+| # | Gate | Status |
+|---|---|---|
+| 1 | Target host | ✅ RESOLVED: same single Linux host for Phase 1/2 |
+| 2 | Alerting channel | ✅ RESOLVED: Discord webhook via `DISCORD_WEBHOOK_URL` for Phase 1 |
+| 3 | Backup destination | ⏸️ DEFERRED: tracked under spec-063, not blocking Phase 1/1.5/2/3a/3b/3d/3e |
+| 4 | WS p95 connections | ✅ RESOLVED as "unknown, instrument first" — no Rust decision before §4a |
+| 5 | BRK :7071 | ✅ RESOLVED: keep local, restart/harden, unless owner provides a remote BRK endpoint |
+| 6 | block_heights + daily_prices upstream | ✅ RESOLVED: `build_block_heights.py --use-rpc` + `build_price_table.py` |
+| 7 | Phase ordering | ✅ RESOLVED: Phase 1 → Phase 1.5 → Phase 2 → Phase 3 (observability allowed in parallel once producers are underway) |
+
+**Phase 1 and Phase 1.5 are signed off. Implementation can start.**
+Phase 3.c (backup) stays deferred and does not block green production.
+
 **Changelog vs r1**:
 - §1 Phase 1: dropped the "add Restart=on-failure" task — already
   present on the two long-lived units (`utxoracle-api.service:24` has
@@ -68,10 +83,12 @@ Upstream issues:
   `scripts/bootstrap/build_block_heights.py` walks Bitcoin Core RPC
   (`getblockhash` + `getblockheader`, 2 calls per block, local). It is
   not currently scheduled. §3.d schedules it.
-- DuckDB `daily_prices` ferma a 2025-12-14 (5,462 rows). The producer is
-  TBD — Phase 1 audit must identify it. Likely an external price-API
-  fetch script in `scripts/clustering/` or `scripts/metrics/`. §3.d
-  schedules it once identified.
+- DuckDB `daily_prices` ferma a 2025-12-14 (5,462 rows). The producer
+  exists and works: `scripts/bootstrap/build_price_table.py` fetches
+  BTC/USD from the mempool.space `/api/v1/historical-price` endpoint
+  (2011 → present). It is idempotent: creates `daily_prices` if absent,
+  skips existing dates, defaults `--end-date` to yesterday. Phase 1.5
+  schedules it.
 - BRK on host:7071 intermittently disconnects (observed in live worker
   logs). Not blocking but noisy. Likely a BRK config / restart loop.
 - Two QuestDB instances coexist (:8812 host + :9912 docker). The mirror
@@ -90,9 +107,11 @@ Upstream issues:
    decision in §4. If unknown, the answer is "measure first".
 5. **BRK on :7071**: keep local, restart, or repoint to remote? The
    7071 connection issues block daily metrics indefinitely.
-6. **`block_heights` upstream**: confirm
-   `scripts/bootstrap/build_block_heights.py --use-rpc` is the intended
-   refresher. If something else used to populate it, name it.
+6. **`block_heights` + `daily_prices` upstream**: RESOLVED 2026-06-04.
+   - `block_heights`: `scripts/bootstrap/build_block_heights.py --use-rpc`.
+   - `daily_prices`: `scripts/bootstrap/build_price_table.py` (idempotent,
+     skips existing dates, defaults end-date to yesterday).
+   Phase 1.5 wraps both in hourly/daily systemd timers.
 7. **Phase ordering**: parallel or sequential? Codex's recommendation
    (which I endorse): Phase 1 → source-freshness mini-pass for
    `block_heights` and `daily_prices` → Phase 2 → rest of Phase 3.
@@ -483,10 +502,9 @@ Before any code work starts, the owner should confirm:
       I endorse.)
 - [ ] **5.** BRK on :7071: keep local, restart, or repoint to a remote
       healthy BRK.
-- [ ] **6.** `block_heights` upstream: confirm
-      `scripts/bootstrap/build_block_heights.py --use-rpc` is the
-      intended refresher and identify the corresponding `daily_prices`
-      refresher.
+- [x] **6. RESOLVED 2026-06-04.** Both refreshers identified:
+      `scripts/bootstrap/build_block_heights.py --use-rpc` and
+      `scripts/bootstrap/build_price_table.py`. Phase 1.5 schedules both.
 - [ ] **7.** Phase ordering: Codex's recommendation —
       Phase 1 → source-freshness mini-pass (block_heights + daily_prices)
       → Phase 2 → Phase 3 observability in parallel with Phase 2.
