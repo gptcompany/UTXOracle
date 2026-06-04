@@ -1,0 +1,32 @@
+# UTXOracle UTXO spent backfill supervisor.
+#
+# This wraps scripts/bootstrap/utxo_lifecycle_supervisor.sh spent.
+# The supervisor retries the RPC spent-backfill path and self-exits with
+# status 0 once its log shows "Already at tip" or "backfill complete";
+# systemd records the clean terminal state and does not restart it.
+
+[Unit]
+Description=UTXOracle UTXO spent backfill supervisor (spec-061 Phase 1)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=sam
+Group=sam
+WorkingDirectory=/media/sam/1TB/UTXOracle
+Environment=PYTHONUNBUFFERED=1
+Environment="PATH=/home/sam/.local/bin:/usr/local/bin:/usr/bin:/bin"
+EnvironmentFile=-/media/sam/1TB/UTXOracle/.env
+ExecStart=/usr/bin/env bash /media/sam/1TB/UTXOracle/scripts/bootstrap/utxo_lifecycle_supervisor.sh spent
+ExecStopPost=/bin/sh -c 'if [ "$SERVICE_RESULT" != "success" ] && [ -n "$DISCORD_WEBHOOK_URL" ]; then payload="{\"content\":\"%n failed: result=$SERVICE_RESULT exit=$EXIT_CODE/$EXIT_STATUS\"}"; /usr/bin/curl -fsS -H "Content-Type: application/json" -d "$payload" "$DISCORD_WEBHOOK_URL" || true; fi'
+Restart=on-failure
+RestartSec=60s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=utxoracle-utxo-spent-backfill
+
+[Install]
+WantedBy=multi-user.target

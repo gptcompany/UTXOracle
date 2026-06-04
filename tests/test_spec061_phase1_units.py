@@ -10,6 +10,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CREATION_CATCHUP_SERVICE = REPO_ROOT / "utxoracle-utxo-creation-catchup.service"
+SPENT_BACKFILL_SERVICE = REPO_ROOT / "utxoracle-utxo-spent-backfill.service"
 
 _HAS_SYSTEMD_ANALYZE = shutil.which("systemd-analyze") is not None
 
@@ -36,6 +37,31 @@ def test_utxo_creation_catchup_service_contract():
 
     assert "Already at tip" in content
     assert "utxo_lifecycle_supervisor.sh creation" in content
+    assert "EnvironmentFile=-/media/sam/1TB/UTXOracle/.env" in content
+    assert "Restart=on-failure" in content
+    assert "RestartSec=60s" in content
+    assert "ExecStopPost=" in content
+    assert "DISCORD_WEBHOOK_URL" in content
+
+
+@pytest.mark.skipif(
+    not _HAS_SYSTEMD_ANALYZE, reason="systemd-analyze not present"
+)
+def test_utxo_spent_backfill_service_valid():
+    assert SPENT_BACKFILL_SERVICE.exists()
+    result = _verify(SPENT_BACKFILL_SERVICE)
+    assert result.returncode == 0, (
+        f"systemd-analyze verify failed:\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+
+
+def test_utxo_spent_backfill_service_contract():
+    content = SPENT_BACKFILL_SERVICE.read_text()
+
+    assert "Already at tip" in content
+    assert "backfill complete" in content
+    assert "utxo_lifecycle_supervisor.sh spent" in content
     assert "EnvironmentFile=-/media/sam/1TB/UTXOracle/.env" in content
     assert "Restart=on-failure" in content
     assert "RestartSec=60s" in content
