@@ -19,8 +19,32 @@ SSOT) is referenced but not detailed here — it deserves its own spec.
 | 6 | block_heights + daily_prices upstream | ✅ RESOLVED: `build_block_heights.py --use-rpc` + `build_price_table.py` |
 | 7 | Phase ordering | ✅ RESOLVED: Phase 1 → Phase 1.5 → Phase 2 → Phase 3 (observability allowed in parallel once producers are underway) |
 
-**Phase 1 and Phase 1.5 are signed off. Implementation can start.**
-Phase 3.c (backup) stays deferred and does not block green production.
+**Sign-off state (revised 2026-06-04, post-implementation review):**
+- ✅ **Phase 1**: signed off, **implemented**. The two UTXO supervisors
+  (`utxoracle-utxo-creation-catchup.service`,
+  `utxoracle-utxo-spent-backfill.service`) wrap QuestDB-direct scripts
+  (`tip_catchup_lifecycle_via_rpc.py`,
+  `tip_spent_backfill_via_rpc.py`); no DuckDB write path. Mirror timer
+  documented for operator install.
+- ⛔ **Phase 1.5 sign-off REVOKED** after Codex review of the
+  implementation. The new units
+  `utxoracle-block-heights-catchup.service` and
+  `utxoracle-daily-prices-refresh.service` schedule **DuckDB writers**
+  (`build_block_heights.py` and `build_price_table.py` both default to
+  `data/utxoracle.duckdb` in write mode via
+  `scripts/config/database.py:24`). The smoke run in
+  `docs/PRODUCTION_PHASE1_SMOKE.md:135` already proved the failure mode
+  — DuckDB lock conflict with the live wave1 materializer — and the
+  current report's "BLOCKED ... not by the new unit definitions" line at
+  `docs/PRODUCTION_PHASE1_SMOKE.md:150` understates the cause: the unit
+  definitions ARE what schedules the conflicting DuckDB writes.
+  - The two Phase 1.5 services and timers MUST NOT be installed in
+    production as-is.
+  - Phase 1.5 is replaced by **Phase 1.5-v2** below: QuestDB-native
+    `block_heights` and `daily_prices` producers, plus a reader
+    migration in `calculate_daily_metrics`.
+- ⏸️ Phase 3.c (backup) stays deferred and does not block green
+  production.
 
 **Changelog vs r1**:
 - §1 Phase 1: dropped the "add Restart=on-failure" task — already
@@ -183,6 +207,147 @@ Upstream issues:
 - Code/file authoring: 2 hours.
 - Operator install + smoke test: 30 min.
 - Soak window: 6 h passive observation.
+
+---
+
+## 1.5-v2. Source freshness on QuestDB (replaces revoked Phase 1.5) — 2–3 days
+
+**Why v2:** the original Phase 1.5 routed `block_heights` and
+`daily_prices` refresh through DuckDB writers, reintroducing the very
+DuckDB write-lock bottleneck spec-061 eliminated for `utxo_lifecycle`.
+v2 removes DuckDB from the daily-metrics critical path entirely. The
+daily aggregator (`mvrv_daily`, `nupl_daily`, `realized_cap_daily`) is
+the last component that depends on DuckDB reference data; after v2 it
+reads from QuestDB.
+
+### Deliverables
+
+1. **QuestDB DDL** for two new reference tables, added to
+   `api/questdb_repository.py::create_tables_if_not_exist`:
+
+   ```sql
+   -- height -> wall-clock timestamp (UTC). Idempotent on height.
+   CREATE TABLE IF NOT EXISTS block_heights (
+       height LONG,
+       ts TIMESTAMP,
+       fetched_at TIMESTAMP
+   ) TIMESTAMP(ts) PARTITION BY YEAR WAL
+     DEDUP UPSERT KEYS(ts, height);
+
+   -- date -> BTC/USD price. Idempotent on date.
+   CREATE TABLE IF NOT EXISTS daily_prices (
+       date TIMESTAMP,
+       price_usd DOUBLE,
+       source SYMBOL,
+       fetched_at TIMESTAMP
+   ) TIMESTAMP(date) PARTITION BY YEAR WAL
+     DEDUP UPSERT KEYS(date);
+   ```
+
+   `DEDUP UPSERT KEYS` makes re-runs absorb cleanly without any explicit
+   "skip existing date" logic on the writer side.
+
+2. **NEW QuestDB-native writers** under `scripts/bootstrap/`:
+
+   - `scripts/bootstrap/build_block_heights_questdb.py` — same RPC
+     walking logic as the existing `build_block_heights.py`, but writes
+     to QuestDB via ILP. CLI: `--start-block N` (defaults to
+     `max(height)+1 FROM block_heights`), `--end-block N` (defaults to
+     `bitcoin-cli getblockcount`), `--workers N`.
+   - `scripts/bootstrap/build_price_table_questdb.py` — same
+     mempool.space `/api/v1/historical-price` fetch as the existing
+     `build_price_table.py`, but writes to QuestDB. CLI: `--start-date
+     YYYY-MM-DD` (defaults to `max(date)+1d FROM daily_prices`),
+     `--end-date` (defaults to yesterday).
+
+   Both scripts are unit-tested with mocked QuestDB Sender and RPC/HTTP
+   clients. The existing DuckDB scripts stay in the repo as the
+   historical-only path (manual one-shot for backfills); they get a
+   docstring banner pointing to the QuestDB variants as the production
+   path.
+
+3. **Reader migration in `calculate_daily_metrics.py`**:
+
+   - `get_blocks_for_date(target_date, conn)` rewritten to query QuestDB
+     `block_heights` via psycopg (the same sync path the daily metrics
+     code already uses for `save_*_daily`). Falls back to DuckDB only
+     in the legacy `--no-questdb-reads` flag (default OFF in
+     production, ON in unit tests that mock the DuckDB conn).
+   - `get_price_for_date(target_date, conn)` rewritten analogously
+     against QuestDB `daily_prices`.
+   - The aggregator no longer opens DuckDB in read mode for these two
+     lookups; DuckDB only stays open for `utxo_lifecycle_full` reads
+     until spec-062 lands.
+
+4. **Replace the two REVOKED Phase 1.5 timers** with QuestDB-only
+   versions:
+
+   - `utxoracle-block-heights-catchup.{service,timer}` — same cadence
+     (hourly), but `ExecStart` points to the new
+     `scripts.bootstrap.build_block_heights_questdb` module.
+     `After=questdb.service` instead of `network-online.target` is
+     enough; Bitcoin Core is implicitly available via bitcoin-cli at
+     the host level.
+   - `utxoracle-daily-prices-refresh.{service,timer}` — same cadence
+     (daily 01:00 UTC), `ExecStart` points to the new
+     `scripts.bootstrap.build_price_table_questdb` module.
+     `After=questdb.service docker-api-1.service` (the latter being the
+     mempool API that supplies historical prices).
+
+   Both timers do **not** touch DuckDB. The old service files
+   (`utxoracle-block-heights-catchup.service` and
+   `utxoracle-daily-prices-refresh.service`) are **removed from the
+   repo** in the same commit that adds the v2 versions, so there is no
+   risk of an operator installing the wrong file.
+
+5. **Update `docs/PRODUCTION_PHASE1_SMOKE.md`** to reflect the revoked
+   sign-off and explicitly attribute the row-count blocker to the unit
+   definitions themselves, not to "external lock contention".
+
+### Sequencing inside v2
+
+a → c → b → d → e:
+
+- **a** DDL ships first; CI tests cover idempotent re-creation.
+- **c** Reader migration in `calculate_daily_metrics` ships with a
+  feature flag (`--questdb-reads` default false in this commit) so the
+  legacy DuckDB path still works for unit tests.
+- **b** Writer scripts ship. Smoke runs against a live QuestDB on dev
+  prove monotonic `max(height)` and `max(date)` advance.
+- **d** Timers ship. Operator installs.
+- **e** Smoke report rewrite + sign-off vote.
+
+### Success criteria
+
+- After 24 h of running both v2 timers: QuestDB `block_heights.max(ts)`
+  is within 1 h of `bitcoin-cli getblockcount`-implied wall time; QuestDB
+  `daily_prices.max(date)` equals yesterday.
+- The systemd timer for `utxoracle-daily-aggregator` produces a row
+  into `mvrv_daily` for today **with no DuckDB write occurring** during
+  the run (verified by `fuser data/utxoracle.duckdb` returning empty
+  while the aggregator runs).
+
+### Risks
+
+- Writer rewrites are not 1:1 — the original DuckDB scripts use the
+  DuckDB CSV bulk insert path; the QuestDB variants stream rows via
+  ILP. Behaviour parity must be verified per row count and per
+  edge-case (e.g. blocks with the same height re-emitted on chain
+  reorg).
+- `calculate_daily_metrics` reader migration changes the SQL dialect
+  (DuckDB SQL → QuestDB PG-wire dialect). Most queries are simple
+  `SELECT WHERE date = ?` style and port directly; ones that use
+  DuckDB-specific functions (`EPOCH_MS`, `DATE_TRUNC` quirks) need
+  attention.
+
+### Estimated effort
+
+- DDL + DDL tests: 2 hours.
+- 2 NEW writer scripts + unit tests + smoke: 1 day.
+- Reader migration in `calculate_daily_metrics` + tests: 1 day.
+- New timers + replacing the revoked files: 2 hours.
+- Smoke report rewrite: 1 hour.
+- **Total: 2–3 working days.**
 
 ---
 
