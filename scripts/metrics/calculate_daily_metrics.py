@@ -31,6 +31,7 @@ from scripts.config import UTXORACLE_DB_PATH
 # Strangler-fig per research.md R5: QuestDB write failure logs but does not
 # raise; DuckDB remains the source of truth during the transition.
 from api.questdb_repository import (
+    _open_pg_sync,
     save_mvrv_daily,
     save_nupl_daily,
     save_realized_cap_daily,
@@ -43,30 +44,51 @@ logger = logging.getLogger(__name__)
 
 
 def get_blocks_for_date(
-    target_date: date, conn: duckdb.DuckDBPyConnection
+    target_date: date,
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    questdb_reads: bool = False,
 ) -> tuple[int, int]:
     """Get block range for a specific date.
 
     Args:
         target_date: The date to get blocks for
         conn: DuckDB connection
+        questdb_reads: Read block_heights from QuestDB instead of DuckDB
 
     Returns:
         (start_block, end_block) tuple
     """
     # Convert date to Unix timestamp range
-    start_ts = int(datetime.combine(target_date, datetime.min.time()).timestamp())
-    end_ts = start_ts + 86400  # +24 hours
+    start_dt = datetime.combine(target_date, datetime.min.time())
+    end_dt = start_dt + timedelta(days=1)
 
-    # Query block_heights table for date range (timestamp is Unix integer)
-    result = conn.execute(
-        """
-        SELECT MIN(height), MAX(height)
-        FROM block_heights
-        WHERE timestamp >= ? AND timestamp < ?
-        """,
-        [start_ts, end_ts],
-    ).fetchone()
+    if questdb_reads:
+        with _open_pg_sync() as qdb:
+            with qdb.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT MIN(height), MAX(height)
+                    FROM block_heights
+                    WHERE ts >= %s AND ts < %s
+                    """,
+                    (start_dt, end_dt),
+                )
+                result = cur.fetchone()
+    else:
+        start_ts = int(start_dt.timestamp())
+        end_ts = int(end_dt.timestamp())
+
+        # Query block_heights table for date range (timestamp is Unix integer)
+        result = conn.execute(
+            """
+            SELECT MIN(height), MAX(height)
+            FROM block_heights
+            WHERE timestamp >= ? AND timestamp < ?
+            """,
+            [start_ts, end_ts],
+        ).fetchone()
+
 
     if result is None or result[0] is None or result[1] is None:
         raise ValueError(f"No blocks found for date {target_date}")
@@ -75,17 +97,36 @@ def get_blocks_for_date(
 
 
 def get_price_for_date(
-    target_date: date, conn: duckdb.DuckDBPyConnection
+    target_date: date,
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    questdb_reads: bool = False,
 ) -> Optional[float]:
     """Get BTC price for a specific date from daily_prices table."""
-    result = conn.execute(
-        """
-        SELECT price_usd
-        FROM daily_prices
-        WHERE date = ?
-        """,
-        [target_date],
-    ).fetchone()
+    if questdb_reads:
+        target_ts = datetime.combine(target_date, datetime.min.time())
+        with _open_pg_sync() as qdb:
+            with qdb.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT price_usd
+                    FROM daily_prices
+                    WHERE date = %s
+                    ORDER BY fetched_at DESC
+                    LIMIT 1
+                    """,
+                    (target_ts,),
+                )
+                result = cur.fetchone()
+    else:
+        result = conn.execute(
+            """
+            SELECT price_usd
+            FROM daily_prices
+            WHERE date = ?
+            """,
+            [target_date],
+        ).fetchone()
 
     return result[0] if result else None
 
@@ -278,7 +319,12 @@ def calculate_cointime_daily(conn: duckdb.DuckDBPyConnection, as_of_block: int) 
     }
 
 
-def calculate_daily_metrics(target_date: date, conn: duckdb.DuckDBPyConnection) -> dict:
+def calculate_daily_metrics(
+    target_date: date,
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    questdb_reads: bool = False,
+) -> dict:
     """Calculate all metrics for a single day.
 
     Args:
@@ -291,11 +337,15 @@ def calculate_daily_metrics(target_date: date, conn: duckdb.DuckDBPyConnection) 
     logger.info(f"Calculating metrics for {target_date}...")
 
     # Get block range for date
-    start_block, end_block = get_blocks_for_date(target_date, conn)
+    start_block, end_block = get_blocks_for_date(
+        target_date,
+        conn,
+        questdb_reads=questdb_reads,
+    )
     logger.debug(f"  Block range: {start_block} - {end_block}")
 
     # Get price
-    price = get_price_for_date(target_date, conn)
+    price = get_price_for_date(target_date, conn, questdb_reads=questdb_reads)
     if price is None:
         logger.warning(f"  No price found for {target_date}")
 
@@ -531,6 +581,7 @@ def backfill_metrics(
     dry_run: bool = False,
     end_date: Optional[date] = None,
     questdb_only: bool = False,
+    questdb_reads: bool = False,
 ) -> int:
     """Backfill metrics for the last N days.
 
@@ -554,7 +605,11 @@ def backfill_metrics(
 
     while current_date <= end_date:
         try:
-            metrics = calculate_daily_metrics(current_date, conn)
+            metrics = calculate_daily_metrics(
+                current_date,
+                conn,
+                questdb_reads=questdb_reads,
+            )
 
             if not dry_run:
                 persist_metrics_for_target(metrics, conn, questdb_only=questdb_only)
@@ -589,6 +644,11 @@ def main():
         help="Persist only QuestDB contract tables; open DuckDB read-only",
     )
     parser.add_argument(
+        "--questdb-reads",
+        action="store_true",
+        help="Read block_heights and daily_prices from QuestDB",
+    )
+    parser.add_argument(
         "--recalculate", action="store_true", help="Recalculate entire history"
     )
     parser.add_argument("--db-path", type=str, default=str(UTXORACLE_DB_PATH))
@@ -616,10 +676,15 @@ def main():
                 dry_run=args.dry_run,
                 end_date=end_date,
                 questdb_only=args.questdb_only,
+                questdb_reads=args.questdb_reads,
             )
         elif args.date:
             target_date = datetime.strptime(args.date, "%Y-%m-%d").date()
-            metrics = calculate_daily_metrics(target_date, conn)
+            metrics = calculate_daily_metrics(
+                target_date,
+                conn,
+                questdb_reads=args.questdb_reads,
+            )
 
             if not args.dry_run:
                 persist_metrics_for_target(
@@ -633,7 +698,11 @@ def main():
         else:
             # Default: calculate yesterday
             yesterday = date.today() - timedelta(days=1)
-            metrics = calculate_daily_metrics(yesterday, conn)
+            metrics = calculate_daily_metrics(
+                yesterday,
+                conn,
+                questdb_reads=args.questdb_reads,
+            )
 
             if not args.dry_run:
                 persist_metrics_for_target(

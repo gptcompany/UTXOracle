@@ -11,7 +11,7 @@ The QuestDB layer is fully mocked - no live infrastructure required.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -207,3 +207,81 @@ def test_questdb_only_skips_duckdb_writes(fake_metrics, duckdb_conn):
     persist_qdb.assert_called_once_with(fake_metrics)
     persist_duckdb.assert_not_called()
     duckdb_conn.execute.assert_not_called()
+
+
+class _FakeCursor:
+    def __init__(self, row):
+        self.row = row
+        self.executed = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def execute(self, query, params):
+        self.executed.append((query, params))
+
+    def fetchone(self):
+        return self.row
+
+
+class _FakeQuestDBConnection:
+    def __init__(self, row):
+        self.cursor_obj = _FakeCursor(row)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def cursor(self):
+        return self.cursor_obj
+
+
+def test_get_blocks_for_date_can_read_questdb(duckdb_conn):
+    """QuestDB reader path uses block_heights over psycopg, not DuckDB."""
+    from scripts.metrics.calculate_daily_metrics import get_blocks_for_date
+
+    qdb = _FakeQuestDBConnection((928_139, 928_282))
+
+    with patch("scripts.metrics.calculate_daily_metrics._open_pg_sync", return_value=qdb):
+        result = get_blocks_for_date(
+            date(2025, 12, 15),
+            duckdb_conn,
+            questdb_reads=True,
+        )
+
+    assert result == (928_139, 928_282)
+    duckdb_conn.execute.assert_not_called()
+
+    query, params = qdb.cursor_obj.executed[0]
+    assert "FROM block_heights" in query
+    assert params == (
+        datetime(2025, 12, 15, 0, 0),
+        datetime(2025, 12, 16, 0, 0),
+    )
+
+
+def test_get_price_for_date_can_read_questdb(duckdb_conn):
+    """QuestDB reader path uses daily_prices over psycopg, not DuckDB."""
+    from scripts.metrics.calculate_daily_metrics import get_price_for_date
+
+    qdb = _FakeQuestDBConnection((42_000.25,))
+
+    with patch("scripts.metrics.calculate_daily_metrics._open_pg_sync", return_value=qdb):
+        result = get_price_for_date(
+            date(2025, 12, 15),
+            duckdb_conn,
+            questdb_reads=True,
+        )
+
+    assert result == 42_000.25
+    duckdb_conn.execute.assert_not_called()
+
+    query, params = qdb.cursor_obj.executed[0]
+    assert "FROM daily_prices" in query
+    assert "ORDER BY fetched_at DESC" in query
+    assert params == (datetime(2025, 12, 15, 0, 0),)
