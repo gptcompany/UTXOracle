@@ -1,12 +1,30 @@
 # UTXOracle Production Roadmap
 
 **Audience**: project owner reviewing before approval.
-**Status**: draft 2026-06-04. To be confirmed/edited by the operator
-before any work starts.
+**Status**: draft revision 2 — 2026-06-04 (revised after codex review).
 **Scope**: take spec-061 from "code-complete + 2/13 streams live" to
 "all 13 streams green in production, with monitoring and recovery".
 **Out of scope**: spec-062 (utxo_lifecycle producer migration to QuestDB
 SSOT) is referenced but not detailed here — it deserves its own spec.
+
+**Changelog vs r1**:
+- §1 Phase 1: dropped the "add Restart=on-failure" task — already
+  present on the two long-lived units (`utxoracle-api.service:24` has
+  `Restart=on-failure`; `utxoracle-live-wave1-materializer.service:22`
+  has `Restart=always`). Replaced with a unit-state audit distinguishing
+  `absent` vs `not enabled` vs `not running`.
+- §2 Phase 2: rewrote the producer mapping after verifying each script
+  by hand. 4 of the 7 streams need NEW writer code (not just a systemd
+  unit). Effort revised from 1 week to ~2 weeks.
+- §3.d: `block_heights` upstream is NOT unknown —
+  `scripts/bootstrap/build_block_heights.py` exists and writes via
+  Bitcoin Core RPC. Added `daily_prices` as the second stale DuckDB
+  source.
+- §4: measurement spec moves from psutil to app-level counters
+  (active_connections, broadcast p50/p95/p99, dropped, msg/s, bytes).
+  Flagged that switching from `send_text` to `send_bytes` is a breaking
+  client-side change unless every consumer handles binary frames.
+- §0.3 and §7: aligned to a single 7-question gate (was 5 vs 7).
 
 ## 0. Ground truth at 2026-06-04 13:50 UTC
 
@@ -32,40 +50,53 @@ SSOT) is referenced but not detailed here — it deserves its own spec.
 
 ### What does not work
 
-| Stream | Reason MISSING | Producer script |
-|---|---|---|
-| `whale_transactions` | no systemd unit | `scripts/whale_flow_detector.py` |
-| `mempool_predictions` | no systemd unit | `scripts/mempool_whale_monitor.py` |
-| `net_flow_metrics` | no systemd unit | `scripts/live/flow_aggregator.py` |
-| `entity_flows_daily` | no systemd unit + needs cluster registry seeded | `scripts/clustering/*` |
-| `price_analysis` | no systemd unit | `scripts/metrics/exchange_netflow.py` (or dedicated) |
-| `utxo_snapshots` | no producer wired to QuestDB | derive from `utxo_lifecycle` at EOD |
-| `backtest_whale_signals` | source DuckDB table doesn't exist | `scripts/whale_flow_backtest.py` (manual run, then timer mirrors) |
+| Stream | Reason MISSING | Existing script (verified) | What is actually missing |
+|---|---|---|---|
+| `whale_transactions` | no producer writes to QuestDB | `scripts/whale_flow_detector.py` is a CLI/block analyzer that prints a signal (line 914); no `Sender`, no `save_whale_transaction`, no `repo.async_send_row` anywhere in it | **NEW writer** + systemd unit |
+| `mempool_predictions` | producer exists but is not running as a service | `scripts/mempool_whale_monitor.py` writes via `repo.async_send_row("mempool_predictions", ...)` at line 400 — already QuestDB-ready | **Systemd unit only** (the existing `utxoracle-whale-detection.service` may already cover this — verify in Phase 1 audit) |
+| `net_flow_metrics` | producer writes the wrong table to the wrong store | `scripts/live/flow_aggregator.py:121` writes `entity_flows_daily` to **DuckDB**, not `net_flow_metrics` to QuestDB | **NEW writer** + systemd unit |
+| `entity_flows_daily` | producer writes DuckDB; QuestDB target is empty | `scripts/live/flow_aggregator.py:121` writes DuckDB `entity_flows_daily` | **Mirror DuckDB→QuestDB** (analogous to `mirror_backtest_whale_signals.py`) + systemd timer; OR teach `flow_aggregator.py` to dual-write |
+| `price_analysis` | no producer writes QuestDB | `scripts/metrics/exchange_netflow.py` has no QuestDB calls; no other script writes `price_analysis` | **NEW writer** + systemd unit |
+| `utxo_snapshots` | no producer wired | derive from `utxo_lifecycle` at EOD | **NEW writer** + systemd timer |
+| `backtest_whale_signals` | source DuckDB table doesn't exist | `scripts/whale_flow_backtest.py` (manual run); mirror timer exists | Manual one-shot of the backtest, then the existing `utxoracle-backtest-mirror.timer` keeps QuestDB synced |
 
 Upstream issues:
 
-- DuckDB `block_heights` ferma a 2025-12-16. Daily aggregator can't
-  produce metrics for any date past that. Whatever pipeline writes
-  `block_heights` is not running on this host.
+- DuckDB `block_heights` ferma a 2025-12-16 14:55:50 UTC (928,139 rows,
+  max height 928,138). Daily aggregator cannot produce metrics for any
+  date past that. The producer exists and works:
+  `scripts/bootstrap/build_block_heights.py` walks Bitcoin Core RPC
+  (`getblockhash` + `getblockheader`, 2 calls per block, local). It is
+  not currently scheduled. §3.d schedules it.
+- DuckDB `daily_prices` ferma a 2025-12-14 (5,462 rows). The producer is
+  TBD — Phase 1 audit must identify it. Likely an external price-API
+  fetch script in `scripts/clustering/` or `scripts/metrics/`. §3.d
+  schedules it once identified.
 - BRK on host:7071 intermittently disconnects (observed in live worker
   logs). Not blocking but noisy. Likely a BRK config / restart loop.
 - Two QuestDB instances coexist (:8812 host + :9912 docker). The mirror
   bridges them. A future unification is preferred but not blocking.
 
-### Open questions for the owner
+### Open questions for the owner (7 — same set as §7)
 
-1. Production deployment target: same host as dev? Separate Linux box?
-   Kubernetes? The systemd units below assume single-host Linux.
-2. Acceptable downtime for cutover (Phase 1 install)? The endpoint is
-   already deployed; new timers can install without restart.
-3. Discord webhook or another alerting channel? The runbook expects
-   `DISCORD_WEBHOOK_URL` env var; if a different channel is preferred,
-   say so.
-4. How many concurrent WebSocket clients are expected at p95? This
-   gates the Rust/Python decision in §4. We can also instrument first.
-5. Is BRK supposed to be running on this host, or is the live worker
-   meant to talk to a remote BRK? The 7071 connection issues block
-   daily metrics indefinitely otherwise.
+1. **Deployment target**: same host as dev, separate Linux box, or
+   Kubernetes? The systemd units below assume single-host Linux and
+   hard-code `User=sam` + `WorkingDirectory=/media/sam/1TB/UTXOracle`.
+2. **Alerting channel**: Discord webhook, PagerDuty, or other? Phase 1
+   defaults to Discord via `DISCORD_WEBHOOK_URL` env var.
+3. **Backup destination**: S3 bucket name, NAS path, or separate disk?
+   Must be settled before Phase 3 backup tests.
+4. **Expected WS p95 concurrent connections**: gates the Rust/Python
+   decision in §4. If unknown, the answer is "measure first".
+5. **BRK on :7071**: keep local, restart, or repoint to remote? The
+   7071 connection issues block daily metrics indefinitely.
+6. **`block_heights` upstream**: confirm
+   `scripts/bootstrap/build_block_heights.py --use-rpc` is the intended
+   refresher. If something else used to populate it, name it.
+7. **Phase ordering**: parallel or sequential? Codex's recommendation
+   (which I endorse): Phase 1 → source-freshness mini-pass for
+   `block_heights` and `daily_prices` → Phase 2 → rest of Phase 3.
+   Observability work in Phase 3 can run in parallel.
 
 ---
 
@@ -73,8 +104,24 @@ Upstream issues:
 
 ### Deliverables
 
-1. **Install the live → host mirror timer.**
-   Authored in repo as `utxoracle-mirror-live-questdb.{service,timer}`.
+1. **Unit-state audit** — produce `docs/PRODUCTION_UNIT_AUDIT.md`
+   classifying every `utxoracle-*` unit found in the repo against three
+   states:
+
+   - `absent`: no unit file exists yet (the 7 producer streams in §2).
+   - `present-not-enabled`: file exists, `systemctl is-enabled` returns
+     `disabled` (e.g. `utxoracle-snapshot-refresh.service`, the new
+     `utxoracle-mirror-live-questdb.{service,timer}`).
+   - `present-enabled-not-running`: enabled but `is-active` returns
+     `inactive` (timers waiting for next fire, or a oneshot between runs).
+   - `present-enabled-running`: green (`utxoracle-api.service`,
+     `utxoracle-live-wave1-materializer.service`).
+
+   No restart-policy change in Phase 1 — existing units already carry
+   `Restart=on-failure` / `Restart=always` (see Changelog).
+
+2. **Install the live → host mirror timer.**
+   Already authored: `utxoracle-mirror-live-questdb.{service,timer}`.
 
    ```bash
    sudo cp utxoracle-mirror-live-questdb.{service,timer} /etc/systemd/system/
@@ -82,34 +129,22 @@ Upstream issues:
    sudo systemctl enable --now utxoracle-mirror-live-questdb.timer
    ```
 
-2. **Replace the ad-hoc nohup supervisors with systemd units.**
+3. **Replace the ad-hoc nohup supervisors with systemd units.**
    New files (to be added in this phase, with paired tests):
 
-   - `utxoracle-utxo-creation-catchup.service` — wraps the existing
-     `scripts/bootstrap/utxo_lifecycle_supervisor.sh creation`, restart
-     on failure, exits cleanly when `Already at tip`.
-   - `utxoracle-utxo-spent-backfill.service` — symmetric for the
-     spent backfill.
-
-   Both `Type=simple Restart=on-failure RestartSec=60s`. They self-exit
-   when caught up; systemd records the final state.
-
-3. **Add `Restart=on-failure` to all existing units** that don't have
-   it. Audit:
-
-   - `utxoracle-api.service` (currently `Type=simple`, no Restart) → add
-     `Restart=on-failure RestartSec=10s`.
-   - `utxoracle-live-wave1-materializer.service` → same.
-   - All `oneshot` services (timers) — no change needed; the timer itself
-     re-triggers.
+   - `utxoracle-utxo-creation-catchup.service` — wraps
+     `scripts/bootstrap/utxo_lifecycle_supervisor.sh creation`,
+     `Restart=on-failure RestartSec=60s`. Self-exits when `Already at
+     tip`.
+   - `utxoracle-utxo-spent-backfill.service` — symmetric.
 
 4. **Add structured logging to the supervisor scripts** so journald can
    ship them to whatever log aggregator the operator chooses.
 
-5. **Discord webhook on terminal state**.
-   Already wired in `spec061_post_mirror_chain.sh` (G4). Extend the same
-   pattern to the new supervisor units via an `ExecStopPost=` hook that
-   curl-pings the webhook on non-zero exit.
+5. **Discord webhook on terminal state.** Already wired in
+   `spec061_post_mirror_chain.sh` (G4). Extend the same pattern to the
+   new supervisor units via an `ExecStopPost=` hook that curl-pings the
+   webhook on non-zero exit.
 
 ### Success criteria
 
@@ -132,29 +167,33 @@ Upstream issues:
 
 ---
 
-## 2. Phase 2 — Bring up the 7 missing producers (1 week)
+## 2. Phase 2 — Bring up the 7 missing producers (~2 weeks)
 
 ### Approach
 
-For each producer: write a `utxoracle-<name>.service` (continuous) or
-`utxoracle-<name>.timer` (periodic) following the template of the
-existing `utxoracle-live-wave1-materializer.service`. One commit per
-producer with: the unit file, a smoke test against an empty QuestDB
-table, and a docstring update on the producer.
+The deliverable per stream is now **producer/writer code + unit file +
+smoke test**, not just a systemd unit. 4 of the 7 streams have no
+QuestDB writer at all today; they require new code, not just packaging.
+
+One commit per stream: the writer code (if needed), the systemd unit,
+a smoke test against an empty target table, and a docstring trail.
 
 ### Producer-by-producer plan
 
-| # | Stream | Cadence | Unit | Notes |
-|---|---|---|---|---|
-| 1 | whale_transactions | continuous | `utxoracle-whale-flow-detector.service` | Reads mempool API + Bitcoin Core RPC; writes to QuestDB. Depends on mempool API on :8999. |
-| 2 | mempool_predictions | continuous | `utxoracle-mempool-whale-monitor.service` | ZMQ subscribe to Bitcoin Core; emit predicted whale flows. |
-| 3 | net_flow_metrics | continuous | `utxoracle-flow-aggregator.service` | Aggregates whale_transactions into rolling 1h/6h/24h windows. Depends on #1. |
-| 4 | entity_flows_daily | daily 02:00 UTC | `utxoracle-entity-flows-daily.timer` | Joins `address_clusters` against `utxo_lifecycle` per-day. Depends on a seeded `address_clusters` table — current dev DB has it (see `tests/test_create_tables_ddl.py`). |
-| 5 | price_analysis | daily 02:15 UTC | `utxoracle-price-analysis.timer` | Compares exchange API price vs `live_snapshots.utxoracle_price` daily. |
-| 6 | utxo_snapshots | daily 02:30 UTC | `utxoracle-utxo-snapshots.timer` | EOD aggregate of `utxo_lifecycle` into one row per day. Must follow utxo_lifecycle backfill (Phase 1). |
-| 7 | backtest_whale_signals | manual + daily mirror | (mirror timer exists) | Operator runs `scripts/whale_flow_backtest.py` once to populate DuckDB; the existing `utxoracle-backtest-mirror.timer` then keeps QuestDB synced. |
+| # | Stream | What's needed | Cadence | Unit | Effort |
+|---|---|---|---|---|---|
+| 1 | `whale_transactions` | **NEW writer** (`scripts/live/whale_transactions_writer.py`): reads mempool API + Bitcoin Core RPC, classifies whale tx (≥100 BTC), writes to QuestDB. Existing `whale_flow_detector.py` provides the classification logic; the new module ports it to a long-running async loop with `repo.async_send_row("whale_transactions", ...)`. | continuous | `utxoracle-whale-transactions.service` | 3 d |
+| 2 | `mempool_predictions` | **Systemd unit only.** `scripts/mempool_whale_monitor.py` already calls `repo.async_send_row("mempool_predictions", ...)` at line 400. Verify it isn't already running under the existing `utxoracle-whale-detection.service` first. | continuous | `utxoracle-mempool-predictions.service` (or reuse `utxoracle-whale-detection.service`) | 0.5 d |
+| 3 | `net_flow_metrics` | **NEW writer** (`scripts/metrics/net_flow_writer.py`): aggregate from `whale_transactions` into rolling 1h/6h/24h windows; emit one row per closed window to QuestDB `net_flow_metrics`. Depends on #1 being live. | continuous | `utxoracle-net-flow-metrics.service` | 2 d |
+| 4 | `entity_flows_daily` | **Mirror DuckDB → QuestDB.** Existing `scripts/live/flow_aggregator.py:121` writes DuckDB `entity_flows_daily`. Write a mirror analogous to `mirror_backtest_whale_signals.py`. Alternatively dual-write inside `flow_aggregator.py` itself — leaves it to the implementer's preference. | daily 02:00 UTC | `utxoracle-entity-flows-mirror.timer` | 1 d |
+| 5 | `price_analysis` | **NEW writer** (`scripts/metrics/price_analysis_writer.py`): compares exchange API price vs `live_snapshots.utxoracle_price` daily, writes one row to QuestDB `price_analysis`. No existing producer touches this table. | daily 02:15 UTC | `utxoracle-price-analysis.timer` | 1.5 d |
+| 6 | `utxo_snapshots` | **NEW writer** (`scripts/metrics/utxo_snapshots_writer.py`): EOD aggregate of `utxo_lifecycle` into one row per day. Must follow utxo_lifecycle backfill in Phase 1. | daily 02:30 UTC | `utxoracle-utxo-snapshots.timer` | 1.5 d |
+| 7 | `backtest_whale_signals` | Manual one-shot of `scripts/whale_flow_backtest.py` populates DuckDB; the existing `utxoracle-backtest-mirror.timer` already mirrors to QuestDB and was hardened to be non-fatal on missing source (commit 256eac9). | manual + daily mirror | (mirror timer exists) | 0.5 d |
 
-### Per-producer template
+Total writer code + units: **~10 working days** (≈ 2 weeks with smoke +
+review).
+
+### Per-producer systemd template
 
 ```ini
 # utxoracle-<name>.service
@@ -184,22 +223,19 @@ WantedBy=multi-user.target
 
 - After 24 h of running all 7 units: every stream reports rows in
   QuestDB, and `/v1/streams/health::overall == "OK"` (or only stale
-  streams are those gated by upstream DuckDB freshness — see §3).
+  streams are those gated by upstream DuckDB freshness — see §3.d).
 
 ### Risks
 
-- Producers `whale_flow_detector` and `mempool_whale_monitor` depend
-  on the mempool API being stable. The mempool stack restart loop
-  observed today (docker-db-1 exited) needs a separate hardening pass
-  (see §3).
+- Producers #1 and #2 depend on the mempool API being stable. The
+  mempool stack restart loop observed today (docker-db-1 exited) needs
+  a separate hardening pass — see §3.
 - `entity_flows_daily` requires `address_clusters` to be populated. If
-  the test DB is empty in production, a `scripts/clustering/init_entity_registry.py`
+  the production DB is empty, a `scripts/clustering/init_entity_registry.py`
   run is required first (manual one-shot).
-
-### Estimated effort
-
-- 7 producer units + tests + smoke runs: 5 working days
-  (~5 h / producer).
+- For #2: avoid double-running mempool_whale_monitor if
+  `utxoracle-whale-detection.service` already covers it. Phase 1 audit
+  surfaces this.
 
 ---
 
@@ -234,22 +270,33 @@ WantedBy=multi-user.target
 - **stream_registry.yaml**: source-controlled, no separate backup
   needed.
 
-### 3d. Source data pipeline
+### 3d. Source data pipeline (also runs as a mini-pass between Phase 1 and Phase 2)
 
-The single biggest production blocker right now:
+The single biggest production blocker right now is DuckDB source
+freshness. Two tables are stale:
 
-- `block_heights` in DuckDB ferma a 2025-12-16. Without a fresh feeder,
-  `calculate_daily_metrics` cannot produce metrics for any recent date,
-  so `mvrv_daily / nupl_daily / realized_cap_daily` will report STALE
-  forever.
-- Investigation needed: which script previously kept block_heights
-  fresh? It must be brought back online OR replaced with a Bitcoin Core
-  RPC walker that maintains it.
+- `block_heights` ferma a 2025-12-16 14:55:50 UTC (928,139 rows, max
+  height 928,138).
+- `daily_prices` ferma a 2025-12-14 (5,462 rows).
 
-Concrete deliverable: `scripts/bootstrap/block_heights_catchup_via_rpc.py`
-that walks Bitcoin Core blocks from `max(block_heights.timestamp)+1` to
-tip and writes (height, timestamp) to DuckDB. Idempotent. Run hourly via
-timer.
+Without both refreshed, `calculate_daily_metrics` cannot produce
+metrics for any recent date, so `mvrv_daily / nupl_daily /
+realized_cap_daily` will report STALE forever.
+
+Producers identified — scheduling needed:
+
+- **block_heights**: `scripts/bootstrap/build_block_heights.py` exists
+  and uses Bitcoin Core RPC (`getblockhash` + `getblockheader`, 2 calls
+  per block, local). Wrap it in a thin hourly timer
+  `utxoracle-block-heights-catchup.timer` that runs
+  `build_block_heights.py --use-rpc` with `--start max(block_heights.height)+1`.
+- **daily_prices**: producer TBD — Phase 1 audit must identify it
+  (probably under `scripts/metrics/` or `scripts/clustering/`). Once
+  identified, wrap in a daily timer.
+
+This work belongs **between Phase 1 and Phase 2** per Codex's
+recommendation: without it, the §2 daily aggregator producers can't
+emit fresh rows even after their writer code lands.
 
 ### 3e. Disaster recovery procedures
 
@@ -290,22 +337,36 @@ instrument.
 
 ### 4a. Measure before deciding (1 day)
 
-New script `scripts/observe_ws_load.py` that connects to each WS
-endpoint as a synthetic client and records:
+Counters live **inside the app**, not via psutil. The MempoolWhaleMonitor
+runs inside FastAPI (`api/apps/live.py:132`) and broadcasts via
+`api/routes/execution.py::stream_manager.broadcast` (current
+implementation at `api/routes/execution.py:41` does `json.dumps(message)`
+then `connection.send_text(payload)` with a 100 ms `asyncio.wait_for`
+timeout).
 
-- `ws_concurrent_connections` (poll via psutil on uvicorn process)
-- `ws_messages_per_second` (count receives in a 60 s window)
-- `ws_message_size_bytes_p95`
-- `ws_cpu_utilization` (per-process)
+Add the following Prometheus counters/gauges to `stream_manager`:
 
-Run for 1 h during peak. Write the numbers into
-`docs/WS_BASELINE_2026-06.md`. **Owner reviews** the numbers and picks
-the path below.
+- `utxoracle_ws_active_connections` (gauge)
+- `utxoracle_ws_broadcast_messages_total` (counter)
+- `utxoracle_ws_broadcast_latency_seconds` (histogram p50/p95/p99)
+- `utxoracle_ws_dropped_clients_total` (counter)
+- `utxoracle_ws_broadcast_message_bytes` (histogram)
+
+Also expose `utxoracle_ws_send_text_timeouts_total` so the current
+100 ms timeout's blast radius is visible.
+
+New helper script `scripts/observe_ws_load.py` connects N synthetic
+clients (configurable) and records the same counters from the Prometheus
+endpoint over a 1 h window. Output to `docs/WS_BASELINE_2026-06.md`.
+**Owner reviews** the numbers and picks the path below.
 
 ### 4b. Option A — Python tuning (1 day, 3–5× gain typical)
 
-- `pip install uvloop orjson`
-- Replace the broadcast loop:
+- `uv add uvloop orjson`
+- Replace the broadcast loop. **The simplest variant keeps `send_text`**
+  to avoid a client-side breaking change (binary frames are not
+  guaranteed to be handled by every consumer; switching to `send_bytes`
+  must be a coordinated migration with the clients):
 
   ```python
   import orjson
@@ -313,18 +374,26 @@ the path below.
   async def broadcast(self, message: dict):
       if not self.active_connections:
           return
-      payload = orjson.dumps(message)
+      payload = orjson.dumps(message).decode("utf-8")  # serialise once
       await asyncio.gather(
-          *(ws.send_bytes(payload) for ws in self.active_connections),
+          *(
+              asyncio.wait_for(ws.send_text(payload), timeout=0.1)
+              for ws in self.active_connections
+          ),
           return_exceptions=True,
       )
   ```
 
+- If a client migration to binary frames is feasible, the bigger gain
+  comes from `send_bytes(payload)` (skip the encode round-trip). Track
+  that as a separate change with a client compatibility matrix.
+
 - Configure uvicorn with `--loop uvloop --http httptools`.
+
 - Re-measure after deploy. If the new numbers fit the SLA, stop here.
 
-**When to choose**: < 100 concurrent connections, p99 latency
-acceptable, simple op model preferred.
+**When to choose**: < 100 concurrent connections per measurement, p99
+latency acceptable, simple op model preferred.
 
 ### 4c. Option B — Rust sidecar broadcaster (5–10 days, 5–15× gain)
 
@@ -385,27 +454,42 @@ separately.
 
 | Phase | Effort | Owner | Blockers |
 |---|---|---|---|
-| 1. Stabilize | 1–2 d | Code + Operator | none |
-| 2. Producers | 1 wk | Code | mempool stack, address_clusters seed |
-| 3. Hardening | 1 wk | Code + Operator | Grafana access |
-| 4. WS perf | 1 d → up to 4 wk | Code | measurement first |
+| 1. Stabilize + unit audit | 1–2 d | Code + Operator | none |
+| 1.5. Source freshness (block_heights + daily_prices) | 1 d | Code + Operator | identify daily_prices producer |
+| 2. Producers (4 NEW writers + 3 packaging) | ~2 wk | Code | mempool stack stability, address_clusters seed |
+| 3. Hardening (Prometheus, Grafana, backups, DR) | 1 wk | Code + Operator | Grafana access, backup destination |
+| 4. WS perf | 1 d measure → 1 d Option A → up to 4 wk Option C | Code | numbers from §4a measurement |
 
-Total to "everything green in production": **2–3 weeks** assuming the
-owner gives the missing ground-truth answers in §0.
+Total to "everything green in production": **3–4 weeks** assuming the
+owner gives the missing ground-truth answers in §0 and Codex's
+sequencing (Phase 1 → Phase 1.5 → Phase 2 → Phase 3) is approved.
 
 ---
 
-## 7. Sign-off checklist
+## 7. Sign-off checklist (the same 7 as §0.3)
 
 Before any code work starts, the owner should confirm:
 
-- [ ] Target deployment host (this dev box, separate, k8s, etc.)
-- [ ] Alerting channel (Discord webhook URL, PagerDuty, etc.)
-- [ ] Backup destination (S3 bucket name, local disk path)
-- [ ] Expected p95 WS concurrent connections
-- [ ] BRK on :7071: keep, restart, or repoint to remote
-- [ ] DuckDB `block_heights` upstream: who/what restores it?
-- [ ] Phase 2 / Phase 3 ordering: parallel or sequential?
+- [ ] **1.** Target deployment host: same single Linux host as dev,
+      separate Linux box, or Kubernetes. (Codex default: same single
+      host for Phase 1/2; units hard-code `sam` +
+      `/media/sam/1TB/UTXOracle`.)
+- [ ] **2.** Alerting channel: Discord webhook URL (default for Phase 1),
+      PagerDuty, or other.
+- [ ] **3.** Backup destination: S3 bucket name, NAS path, or separate
+      disk. Must be settled before Phase 3 restore tests.
+- [ ] **4.** Expected p95 WS concurrent connections. (If unknown:
+      "instrument first, don't choose Rust yet" — Codex's stance, which
+      I endorse.)
+- [ ] **5.** BRK on :7071: keep local, restart, or repoint to a remote
+      healthy BRK.
+- [ ] **6.** `block_heights` upstream: confirm
+      `scripts/bootstrap/build_block_heights.py --use-rpc` is the
+      intended refresher and identify the corresponding `daily_prices`
+      refresher.
+- [ ] **7.** Phase ordering: Codex's recommendation —
+      Phase 1 → source-freshness mini-pass (block_heights + daily_prices)
+      → Phase 2 → Phase 3 observability in parallel with Phase 2.
 
-Once these are settled, Phase 1 can start immediately; Phase 2 follows
-the day after.
+Once these are settled, Phase 1 can start immediately; Phase 1.5 the
+same day; Phase 2 in series after Phase 1.5 lands.
