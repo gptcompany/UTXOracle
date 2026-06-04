@@ -1,0 +1,11 @@
+[Unit]
+Description=Run UTXOracle block_heights catch-up hourly (spec-061 Phase 1.5)
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+AccuracySec=5min
+Unit=utxoracle-block-heights-catchup.service
+
+[Install]
+WantedBy=timers.target
