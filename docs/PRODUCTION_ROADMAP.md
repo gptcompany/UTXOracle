@@ -1,7 +1,7 @@
 # UTXOracle Production Roadmap
 
 **Audience**: project owner reviewing before approval.
-**Status**: draft revision 5 — 2026-06-05 (Phase 1.5-v2 implemented, QuestDB-native).
+**Status**: draft revision 6 — 2026-06-05 (Phase 1.5-v2 installed, spec-062 aggregator zero-DuckDB landed).
 **Scope**: take spec-061 from "code-complete + 2/13 streams live" to
 "all 13 streams green in production, with monitoring and recovery".
 **Out of scope**: spec-062 (utxo_lifecycle producer migration to QuestDB
@@ -48,6 +48,20 @@ SSOT) is referenced but not detailed here — it deserves its own spec.
     completed 1100+ rows from 2011-01-01 in <1 min via mempool.space.
   - Unit files now point to v2 modules with `After=questdb.service`;
     operator can `systemctl enable --now` once backfills converge.
+  - **Installed and enabled** on host (2026-06-05): both timers active
+    via `scripts/bootstrap/install_phase15_v2_timers.sh`. Verified via
+    `systemctl list-timers`.
+- ✅ **Spec-062 aggregator zero-DuckDB read path** signed off,
+  implemented (2026-06-05, commit 6f27cbb). The aggregator with
+  `--questdb-reads --questdb-only` opens ZERO DuckDB files:
+  `calculate_daily_realized_cap`, `calculate_daily_sopr`,
+  `calculate_cointime_daily`, the inline supply query and
+  `mvrv_variants.get_market_cap_history_all_time` all gain a QuestDB
+  branch reading `utxo_lifecycle` / `utxo_snapshots`. `main()` skips
+  `duckdb.connect` entirely when both flags are set. Live smoke
+  2026-06-04: 174M-row aggregation in ~25 s, mvrv=1.631 written to
+  QuestDB `mvrv_daily`, `fuser data/utxoracle.duckdb` empty. 12/12
+  tests green (5 new spec-062 guards).
 - ⏸️ Phase 3.c (backup) stays deferred and does not block green
   production.
 
