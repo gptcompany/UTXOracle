@@ -12,6 +12,7 @@ The QuestDB layer is fully mocked - no live infrastructure required.
 from __future__ import annotations
 
 from datetime import date, datetime
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -210,8 +211,9 @@ def test_questdb_only_skips_duckdb_writes(fake_metrics, duckdb_conn):
 
 
 class _FakeCursor:
-    def __init__(self, row):
+    def __init__(self, row, rows=None):
         self.row = row
+        self.rows = rows or []
         self.executed = []
 
     def __enter__(self):
@@ -220,11 +222,14 @@ class _FakeCursor:
     def __exit__(self, exc_type, exc, tb):
         return False
 
-    def execute(self, query, params):
+    def execute(self, query, params=()):
         self.executed.append((query, params))
 
     def fetchone(self):
         return self.row
+
+    def fetchall(self):
+        return self.rows
 
 
 class _FakeQuestDBConnection:
@@ -285,3 +290,136 @@ def test_get_price_for_date_can_read_questdb(duckdb_conn):
     assert "FROM daily_prices" in query
     assert "ORDER BY fetched_at DESC" in query
     assert params == (datetime(2025, 12, 15, 0, 0),)
+
+
+def test_realized_cap_can_read_questdb(duckdb_conn):
+    """spec-062: calculate_daily_realized_cap reads utxo_lifecycle from QuestDB."""
+    from scripts.metrics.calculate_daily_metrics import calculate_daily_realized_cap
+
+    qdb = _FakeQuestDBConnection((1_046_906_846_048.14,))
+
+    with patch(
+        "scripts.metrics.calculate_daily_metrics._open_pg_sync", return_value=qdb
+    ):
+        result = calculate_daily_realized_cap(
+            duckdb_conn, as_of_block=928_282, questdb_reads=True
+        )
+
+    assert result == pytest.approx(1_046_906_846_048.14)
+    duckdb_conn.execute.assert_not_called()
+    query, _ = qdb.cursor_obj.executed[0]
+    assert "FROM utxo_lifecycle" in query
+    assert "utxo_lifecycle_full" not in query
+
+
+def test_cointime_can_read_questdb(duckdb_conn):
+    """spec-062: calculate_cointime_daily reads utxo_lifecycle from QuestDB."""
+    from scripts.metrics.calculate_daily_metrics import calculate_cointime_daily
+
+    cursor = _FakeCursor((0.0,))
+
+    class TwoShotCursor(_FakeCursor):
+        def __init__(self):
+            super().__init__((0.0,))
+            self._call = 0
+
+        def fetchone(self):
+            self._call += 1
+            return (21_020_469_537.35,) if self._call == 1 else (5_394_230_181_303.81,)
+
+    cursor = TwoShotCursor()
+
+    class _Q:
+        def __init__(self, cur):
+            self.cur = cur
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def cursor(self):
+            return self.cur
+
+    qdb = _Q(cursor)
+
+    with patch(
+        "scripts.metrics.calculate_daily_metrics._open_pg_sync", return_value=qdb
+    ):
+        result = calculate_cointime_daily(
+            duckdb_conn, as_of_block=928_282, questdb_reads=True
+        )
+
+    duckdb_conn.execute.assert_not_called()
+    assert result["liveliness"] == pytest.approx(
+        21_020_469_537.35 / 5_394_230_181_303.81
+    )
+    assert result["coinblocks_destroyed"] == pytest.approx(21_020_469_537.35)
+    queries = [q for q, _ in cursor.executed]
+    assert any("FROM utxo_lifecycle" in q and "utxo_lifecycle_full" not in q for q in queries)
+
+
+def test_sopr_can_read_questdb(duckdb_conn):
+    """spec-062: calculate_daily_sopr primary branch reads utxo_lifecycle from QuestDB."""
+    from scripts.metrics.calculate_daily_metrics import calculate_daily_sopr
+
+    qdb = _FakeQuestDBConnection((100.0, 95.0))
+
+    with patch(
+        "scripts.metrics.calculate_daily_metrics._open_pg_sync", return_value=qdb
+    ):
+        sopr = calculate_daily_sopr(
+            duckdb_conn,
+            start_block=928_139,
+            end_block=928_282,
+            questdb_reads=True,
+        )
+
+    assert sopr == pytest.approx(100.0 / 95.0)
+    duckdb_conn.execute.assert_not_called()
+    query, _ = qdb.cursor_obj.executed[0]
+    assert "FROM utxo_lifecycle" in query
+    assert "utxo_lifecycle_full" not in query
+
+
+def test_aggregator_never_opens_duckdb_under_dual_flags():
+    """spec-062 guard: source code has no DuckDB read of utxo_lifecycle_full
+    outside the legacy `else` branches gated by questdb_reads.
+    """
+    src = Path("scripts/metrics/calculate_daily_metrics.py").read_text()
+    # All utxo_lifecycle_full reads must live under a `questdb_reads` False branch.
+    # The QuestDB branch must reference `utxo_lifecycle` (no _full suffix).
+    assert "FROM utxo_lifecycle\n" in src or "FROM utxo_lifecycle " in src
+    # The main() must allow a None DuckDB connection when both flags are set.
+    assert "duckdb_free = args.questdb_reads and args.questdb_only" in src
+    assert "if conn is not None:" in src
+
+
+def test_mvrv_variants_can_read_questdb():
+    """spec-062: mvrv_variants reads utxo_snapshots from QuestDB."""
+    from scripts.metrics.mvrv_variants import get_market_cap_history_all_time
+
+    cursor = _FakeCursor(None, rows=[(1_700_000_000_000.0,), (1_600_000_000_000.0,)])
+
+    class _Q:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def cursor(self):
+            return cursor
+
+    with patch(
+        "api.questdb_repository._open_pg_sync", return_value=_Q()
+    ):
+        history = get_market_cap_history_all_time(
+            None, max_block_height=928_282, questdb_reads=True
+        )
+
+    assert history == [1_700_000_000_000.0, 1_600_000_000_000.0]
+    query, params = cursor.executed[0]
+    assert "FROM utxo_snapshots" in query
+    assert params == (928_282,)

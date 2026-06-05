@@ -40,32 +40,44 @@ class MVRVZVariants:
 
 
 def get_market_cap_history_all_time(
-    conn: duckdb.DuckDBPyConnection,
+    conn: Optional[duckdb.DuckDBPyConnection],
     max_block_height: Optional[int] = None,
+    *,
+    questdb_reads: bool = False,
 ) -> list[float]:
     """Get complete market cap history for all-time stdev.
 
-    Args:
-        conn: DuckDB connection.
-        max_block_height: Optional upper bound for historical cutoff.
-
-    Returns:
-        List of all market cap values (most recent first).
+    Reads from QuestDB ``utxo_snapshots`` when ``questdb_reads`` is True,
+    otherwise from the legacy DuckDB connection.
     """
+    if questdb_reads:
+        from api.questdb_repository import _open_pg_sync
+
+        query = "SELECT market_cap_usd FROM utxo_snapshots"
+        params: tuple = ()
+        if max_block_height is not None:
+            query += " WHERE block_height <= %s"
+            params = (max_block_height,)
+        query += " ORDER BY block_height DESC"
+
+        with _open_pg_sync() as qdb:
+            with qdb.cursor() as cur:
+                cur.execute(query, params)
+                rows = cur.fetchall()
+        return [row[0] for row in rows if row[0] is not None]
+
+    assert conn is not None, "DuckDB conn required when questdb_reads=False"
     query = """
         SELECT market_cap_usd
         FROM utxo_snapshots
     """
-    params: list[int] = []
-
+    params_list: list[int] = []
     if max_block_height is not None:
         query += " WHERE block_height <= ?"
-        params.append(max_block_height)
-
+        params_list.append(max_block_height)
     query += " ORDER BY block_height DESC"
 
-    result = conn.execute(query, params).fetchall()
-
+    result = conn.execute(query, params_list).fetchall()
     return [row[0] for row in result if row[0] is not None]
 
 
@@ -107,27 +119,19 @@ def calculate_mvrv_z_with_stdev(
 
 
 def calculate_both_mvrv_z(
-    conn: duckdb.DuckDBPyConnection,
+    conn: Optional[duckdb.DuckDBPyConnection],
     market_cap: float,
     realized_cap: float,
     days_1y: int = 365,
     max_block_height: Optional[int] = None,
+    *,
+    questdb_reads: bool = False,
 ) -> MVRVZVariants:
-    """Calculate both MVRV-Z variants.
-
-    Args:
-        conn: DuckDB connection with utxo_snapshots table.
-        market_cap: Current market cap in USD.
-        realized_cap: Current realized cap in USD.
-        days_1y: Days for 1-year variant (default 365).
-        max_block_height: Optional upper bound for historical cutoff.
-
-    Returns:
-        MVRVZVariants with both scores and metadata.
-    """
-    # Get all-time history
+    """Calculate both MVRV-Z variants."""
     all_history = get_market_cap_history_all_time(
-        conn, max_block_height=max_block_height
+        conn,
+        max_block_height=max_block_height,
+        questdb_reads=questdb_reads,
     )
 
     # 1-year subset

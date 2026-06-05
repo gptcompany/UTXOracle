@@ -132,33 +132,60 @@ def get_price_for_date(
 
 
 def calculate_daily_realized_cap(
-    conn: duckdb.DuckDBPyConnection, as_of_block: int
+    conn: Optional[duckdb.DuckDBPyConnection],
+    as_of_block: int,
+    *,
+    questdb_reads: bool = False,
 ) -> float:
     """Calculate Realized Cap as of a specific block.
 
     Realized Cap = Sum of (UTXO value × creation price) for all unspent UTXOs.
-    Uses utxo_lifecycle_full which has realized_value_usd pre-computed.
+    Uses utxo_lifecycle (QuestDB SSOT) or utxo_lifecycle_full (legacy DuckDB).
     """
-    result = conn.execute(
-        """
-        SELECT COALESCE(SUM(
-            CASE
-                WHEN is_spent = FALSE OR (is_spent = TRUE AND spent_block > ?)
-                THEN realized_value_usd
-                ELSE 0
-            END
-        ), 0)
-        FROM utxo_lifecycle_full
-        WHERE creation_block <= ?
-        """,
-        [as_of_block, as_of_block],
-    ).fetchone()
+    if questdb_reads:
+        with _open_pg_sync() as qdb:
+            with qdb.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT COALESCE(SUM(
+                        CASE
+                            WHEN is_spent = FALSE OR (is_spent = TRUE AND spent_block > %s)
+                            THEN realized_value_usd
+                            ELSE 0
+                        END
+                    ), 0)
+                    FROM utxo_lifecycle
+                    WHERE creation_block <= %s
+                    """,
+                    (as_of_block, as_of_block),
+                )
+                result = cur.fetchone()
+    else:
+        assert conn is not None, "DuckDB conn required when questdb_reads=False"
+        result = conn.execute(
+            """
+            SELECT COALESCE(SUM(
+                CASE
+                    WHEN is_spent = FALSE OR (is_spent = TRUE AND spent_block > ?)
+                    THEN realized_value_usd
+                    ELSE 0
+                END
+            ), 0)
+            FROM utxo_lifecycle_full
+            WHERE creation_block <= ?
+            """,
+            [as_of_block, as_of_block],
+        ).fetchone()
 
-    return result[0] if result else 0.0
+    return float(result[0]) if result and result[0] is not None else 0.0
 
 
 def calculate_daily_sopr(
-    conn: duckdb.DuckDBPyConnection, start_block: int, end_block: int
+    conn: Optional[duckdb.DuckDBPyConnection],
+    start_block: int,
+    end_block: int,
+    *,
+    questdb_reads: bool = False,
 ) -> Optional[float]:
     """Calculate SOPR for a block range.
 
@@ -167,7 +194,57 @@ def calculate_daily_sopr(
     If spent_price_usd is not available, we join with block_heights and daily_prices
     to get the price at which the UTXO was spent.
     """
-    # First try with pre-computed spent_price_usd
+    if questdb_reads:
+        with _open_pg_sync() as qdb:
+            with qdb.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        COALESCE(SUM(btc_value * spent_price_usd), 0) AS total_spent,
+                        COALESCE(SUM(realized_value_usd), 0) AS total_realized
+                    FROM utxo_lifecycle
+                    WHERE is_spent = TRUE
+                      AND spent_block BETWEEN %s AND %s
+                      AND realized_value_usd > 0
+                      AND spent_price_usd IS NOT NULL
+                    """,
+                    (start_block, end_block),
+                )
+                result = cur.fetchone()
+                if (
+                    result
+                    and result[0] is not None
+                    and result[1] is not None
+                    and float(result[0]) > 0
+                    and float(result[1]) > 0
+                ):
+                    return float(result[0]) / float(result[1])
+
+                cur.execute(
+                    """
+                    SELECT
+                        COALESCE(SUM(u.btc_value * dp.price_usd), 0) AS total_spent,
+                        COALESCE(SUM(u.realized_value_usd), 0) AS total_realized
+                    FROM utxo_lifecycle u
+                    JOIN block_heights bh ON u.spent_block = bh.height
+                    JOIN daily_prices dp ON cast(bh.ts AS DATE) = cast(dp.date AS DATE)
+                    WHERE u.is_spent = TRUE
+                      AND u.spent_block BETWEEN %s AND %s
+                      AND u.realized_value_usd > 0
+                    """,
+                    (start_block, end_block),
+                )
+                result = cur.fetchone()
+        if (
+            result
+            and result[1] is not None
+            and float(result[1]) > 0
+        ):
+            return float(result[0]) / float(result[1])
+        return None
+
+    # Legacy DuckDB path
+    assert conn is not None, "DuckDB conn required when questdb_reads=False"
     result = conn.execute(
         """
         SELECT
@@ -208,10 +285,12 @@ def calculate_daily_sopr(
 
 
 def calculate_daily_mvrv(
-    conn: duckdb.DuckDBPyConnection,
+    conn: Optional[duckdb.DuckDBPyConnection],
     market_cap: float,
     realized_cap: float,
     as_of_block: Optional[int] = None,
+    *,
+    questdb_reads: bool = False,
 ) -> tuple[Optional[float], Optional[float], Optional[float]]:
     """Calculate MVRV, MVRV-Z (simplified), and MVRV-Z (RBN).
 
@@ -237,6 +316,7 @@ def calculate_daily_mvrv(
         market_cap,
         realized_cap,
         max_block_height=as_of_block,
+        questdb_reads=questdb_reads,
     )
     mvrv_z_rbn = (
         variants.mvrv_z_rbn
@@ -258,44 +338,73 @@ def calculate_daily_nupl(market_cap: float, realized_cap: float) -> Optional[flo
     return (market_cap - realized_cap) / market_cap
 
 
-def calculate_cointime_daily(conn: duckdb.DuckDBPyConnection, as_of_block: int) -> dict:
+def calculate_cointime_daily(
+    conn: Optional[duckdb.DuckDBPyConnection],
+    as_of_block: int,
+    *,
+    questdb_reads: bool = False,
+) -> dict:
     """Calculate Cointime metrics as of a specific block.
 
     Uses coinblocks formula per Cointime Economics (spec-018):
     - Liveliness = cumulative_coinblocks_destroyed / cumulative_coinblocks_created
     - Vaultedness = 1 - Liveliness
-
-    Where:
-    - Coinblocks destroyed = SUM(btc_value * age_blocks) for spent UTXOs
-    - Coinblocks created = SUM(btc_value * (as_of_block - creation_block)) for all UTXOs
-
-    Returns:
-        dict with liveliness, vaultedness, coinblocks_destroyed, coinblocks_created
     """
-    # Coinblocks destroyed: sum of (btc_value * age at spending) for all spent UTXOs
-    destroyed_result = conn.execute(
-        """
-        SELECT COALESCE(SUM(btc_value * COALESCE(age_blocks, spent_block - creation_block)), 0)
-        FROM utxo_lifecycle_full
-        WHERE is_spent = TRUE
-        AND spent_block <= ?
-        AND creation_block > 0
-        """,
-        [as_of_block],
-    ).fetchone()
-    coinblocks_destroyed = float(destroyed_result[0]) if destroyed_result else 0.0
+    if questdb_reads:
+        with _open_pg_sync() as qdb:
+            with qdb.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT COALESCE(SUM(btc_value * COALESCE(age_blocks, spent_block - creation_block)), 0)
+                    FROM utxo_lifecycle
+                    WHERE is_spent = TRUE
+                      AND spent_block <= %s
+                      AND creation_block > 0
+                    """,
+                    (as_of_block,),
+                )
+                destroyed_result = cur.fetchone()
+                cur.execute(
+                    """
+                    SELECT COALESCE(SUM(btc_value * (%s - creation_block)), 0)
+                    FROM utxo_lifecycle
+                    WHERE creation_block <= %s
+                      AND creation_block > 0
+                    """,
+                    (as_of_block, as_of_block),
+                )
+                created_result = cur.fetchone()
+    else:
+        assert conn is not None, "DuckDB conn required when questdb_reads=False"
+        # Coinblocks destroyed: sum of (btc_value * age at spending) for all spent UTXOs
+        destroyed_result = conn.execute(
+            """
+            SELECT COALESCE(SUM(btc_value * COALESCE(age_blocks, spent_block - creation_block)), 0)
+            FROM utxo_lifecycle_full
+            WHERE is_spent = TRUE
+            AND spent_block <= ?
+            AND creation_block > 0
+            """,
+            [as_of_block],
+        ).fetchone()
 
-    # Coinblocks created: sum of (btc_value * age) for all UTXOs existing at as_of_block
-    created_result = conn.execute(
-        """
-        SELECT COALESCE(SUM(btc_value * (? - creation_block)), 0)
-        FROM utxo_lifecycle_full
-        WHERE creation_block <= ?
-        AND creation_block > 0
-        """,
-        [as_of_block, as_of_block],
-    ).fetchone()
-    coinblocks_created = float(created_result[0]) if created_result else 0.0
+        # Coinblocks created: sum of (btc_value * age) for all UTXOs existing at as_of_block
+        created_result = conn.execute(
+            """
+            SELECT COALESCE(SUM(btc_value * (? - creation_block)), 0)
+            FROM utxo_lifecycle_full
+            WHERE creation_block <= ?
+            AND creation_block > 0
+            """,
+            [as_of_block, as_of_block],
+        ).fetchone()
+
+    coinblocks_destroyed = (
+        float(destroyed_result[0]) if destroyed_result and destroyed_result[0] is not None else 0.0
+    )
+    coinblocks_created = (
+        float(created_result[0]) if created_result and created_result[0] is not None else 0.0
+    )
 
     if coinblocks_created > 0:
         liveliness = min(1.0, max(0.0, coinblocks_destroyed / coinblocks_created))
@@ -350,25 +459,48 @@ def calculate_daily_metrics(
         logger.warning(f"  No price found for {target_date}")
 
     # Calculate Realized Cap
-    realized_cap = calculate_daily_realized_cap(conn, end_block)
+    realized_cap = calculate_daily_realized_cap(
+        conn, end_block, questdb_reads=questdb_reads
+    )
 
     # Get total supply (approximate from UTXO sum)
-    supply_result = conn.execute(
-        """
-        SELECT COALESCE(SUM(btc_value), 0)
-        FROM utxo_lifecycle_full
-        WHERE (is_spent = FALSE OR spent_block > ?)
-        AND creation_block <= ?
-        """,
-        [end_block, end_block],
-    ).fetchone()
-    total_supply = supply_result[0] if supply_result else 0
+    if questdb_reads:
+        with _open_pg_sync() as qdb:
+            with qdb.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT COALESCE(SUM(btc_value), 0)
+                    FROM utxo_lifecycle
+                    WHERE (is_spent = FALSE OR spent_block > %s)
+                      AND creation_block <= %s
+                    """,
+                    (end_block, end_block),
+                )
+                supply_result = cur.fetchone()
+    else:
+        assert conn is not None, "DuckDB conn required when questdb_reads=False"
+        supply_result = conn.execute(
+            """
+            SELECT COALESCE(SUM(btc_value), 0)
+            FROM utxo_lifecycle_full
+            WHERE (is_spent = FALSE OR spent_block > ?)
+            AND creation_block <= ?
+            """,
+            [end_block, end_block],
+        ).fetchone()
+    total_supply = (
+        float(supply_result[0])
+        if supply_result and supply_result[0] is not None
+        else 0.0
+    )
 
     # Calculate Market Cap
     market_cap = total_supply * price if price else 0
 
     # Calculate SOPR
-    sopr = calculate_daily_sopr(conn, start_block, end_block)
+    sopr = calculate_daily_sopr(
+        conn, start_block, end_block, questdb_reads=questdb_reads
+    )
 
     # Calculate MVRV
     mvrv, mvrv_z, mvrv_z_rbn = calculate_daily_mvrv(
@@ -376,13 +508,16 @@ def calculate_daily_metrics(
         market_cap,
         realized_cap,
         as_of_block=end_block,
+        questdb_reads=questdb_reads,
     )
 
     # Calculate NUPL
     nupl = calculate_daily_nupl(market_cap, realized_cap)
 
     # Calculate Cointime
-    cointime = calculate_cointime_daily(conn, end_block)
+    cointime = calculate_cointime_daily(
+        conn, end_block, questdb_reads=questdb_reads
+    )
 
     metrics = {
         "date": target_date,
@@ -577,7 +712,7 @@ def persist_metrics_for_target(
 
 def backfill_metrics(
     days: int,
-    conn: duckdb.DuckDBPyConnection,
+    conn: Optional[duckdb.DuckDBPyConnection],
     dry_run: bool = False,
     end_date: Optional[date] = None,
     questdb_only: bool = False,
@@ -654,16 +789,36 @@ def main():
     parser.add_argument("--db-path", type=str, default=str(UTXORACLE_DB_PATH))
     args = parser.parse_args()
 
-    conn = duckdb.connect(args.db_path, read_only=args.questdb_only or args.dry_run)
+    # spec-062: when --questdb-reads --questdb-only, no DuckDB connection is
+    # ever needed: reads come from QuestDB and writes target QuestDB only.
+    duckdb_free = args.questdb_reads and args.questdb_only
+    conn: Optional[duckdb.DuckDBPyConnection] = (
+        None
+        if duckdb_free
+        else duckdb.connect(args.db_path, read_only=args.questdb_only or args.dry_run)
+    )
 
     try:
         if args.recalculate:
-            # Recalculate all days in daily_prices
-            result = conn.execute("SELECT count(*) FROM daily_prices").fetchone()
-            total_days = result[0] if result else 0
+            if duckdb_free:
+                with _open_pg_sync() as qdb:
+                    with qdb.cursor() as cur:
+                        cur.execute("SELECT count(*) FROM daily_prices")
+                        row = cur.fetchone()
+                        total_days = int(row[0]) if row else 0
+            else:
+                assert conn is not None
+                result = conn.execute("SELECT count(*) FROM daily_prices").fetchone()
+                total_days = result[0] if result else 0
             if total_days > 0:
                 logger.info(f"Recalculating {total_days} days of metrics")
-                backfill_metrics(total_days, conn, dry_run=args.dry_run)
+                backfill_metrics(
+                    total_days,
+                    conn,
+                    dry_run=args.dry_run,
+                    questdb_only=args.questdb_only,
+                    questdb_reads=args.questdb_reads,
+                )
             else:
                 logger.warning("No daily prices found to recalculate")
         elif args.backfill:
@@ -710,7 +865,8 @@ def main():
                 )
                 logger.info(f"Metrics persisted for {yesterday}")
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 
 if __name__ == "__main__":
