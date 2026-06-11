@@ -86,7 +86,7 @@ class _FakeCursor:
     def __exit__(self, exc_type, exc, tb):
         return False
 
-    def execute(self, query: str, params: tuple):
+    def execute(self, query: str, params: tuple = ()):
         self._captured.append((query, params))
 
 
@@ -118,12 +118,75 @@ def test_sync_save_methods_use_deterministic_created_at(monkeypatch):
     monkeypatch.setattr(repo, "_open_pg_sync", fake_open_pg_sync)
     ts = datetime(2026, 5, 30, tzinfo=timezone.utc)
 
-    repo.save_mvrv_daily(ts, 2.1, mvrv_z=1.8, market_cap=100.0, realized_cap=50.0)
-    repo.save_mvrv_daily(ts, 2.1, mvrv_z=1.8, market_cap=100.0, realized_cap=50.0)
+    repo.save_mvrv_daily(
+        ts,
+        2.1,
+        mvrv_z=1.8,
+        mvrv_z_rbn=0.9,
+        market_cap=100.0,
+        realized_cap=50.0,
+    )
+    repo.save_mvrv_daily(
+        ts,
+        2.1,
+        mvrv_z=1.8,
+        mvrv_z_rbn=0.9,
+        market_cap=100.0,
+        realized_cap=50.0,
+    )
     repo.save_backtest_whale_signal_row(ts, net_flow_btc=0.5, confidence=0.8)
     repo.save_backtest_whale_signal_row(ts, net_flow_btc=0.5, confidence=0.8)
 
     assert captured[0][1] == captured[1][1]
     assert captured[2][1] == captured[3][1]
+    assert captured[0][1][3] == 0.9
     assert captured[0][1][-1] == ts
     assert captured[2][1][-1] == ts
+
+
+def test_save_mvrv_daily_adds_rbn_column_when_missing(monkeypatch):
+    """Existing QuestDB tables without mvrv_z_rbn are migrated lazily."""
+    from datetime import datetime, timezone
+
+    import api.questdb_repository as repo
+
+    captured: list[tuple[str, tuple]] = []
+
+    class _MissingColumnCursor:
+        def __init__(self):
+            self.insert_attempts = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, query: str, params: tuple = ()):
+            captured.append((query, params))
+            if "INSERT INTO mvrv_daily" in query:
+                self.insert_attempts += 1
+                if self.insert_attempts == 1:
+                    raise RuntimeError("column mvrv_z_rbn does not exist")
+
+    class _MissingColumnConnection:
+        def __init__(self):
+            self.cursor_obj = _MissingColumnCursor()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def cursor(self):
+            return self.cursor_obj
+
+    monkeypatch.setattr(repo, "_open_pg_sync", lambda: _MissingColumnConnection())
+    ts = datetime(2026, 5, 30, tzinfo=timezone.utc)
+
+    assert repo.save_mvrv_daily(ts, 2.1, mvrv_z_rbn=0.9) is True
+    queries = [query for query, _ in captured]
+    assert "INSERT INTO mvrv_daily" in queries[0]
+    assert queries[1] == "ALTER TABLE mvrv_daily ADD COLUMN mvrv_z_rbn DOUBLE"
+    assert "INSERT INTO mvrv_daily" in queries[2]

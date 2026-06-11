@@ -48,6 +48,18 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+class QuestDBPersistenceError(RuntimeError):
+    """Raised when strict QuestDB persistence leaves one or more rows unwritten."""
+
+    def __init__(self, target_date: date, failures: list[tuple[str, BaseException]]):
+        self.target_date = target_date
+        self.failures = failures
+        detail = ", ".join(f"{name}: {type(exc).__name__}" for name, exc in failures)
+        super().__init__(
+            f"QuestDB persistence failed for {target_date}: {detail}"
+        )
+
+
 def get_blocks_for_date(
     target_date: date,
     conn: Optional[duckdb.DuckDBPyConnection],
@@ -552,7 +564,7 @@ def calculate_daily_metrics(
     return metrics
 
 
-def persist_metrics(metrics: dict, conn: Optional[duckdb.DuckDBPyConnection]) -> None:
+def persist_metrics(metrics: dict, conn: Optional[duckdb.DuckDBPyConnection]) -> int:
     """Persist calculated metrics to respective daily tables.
 
     Uses INSERT OR REPLACE for upsert behavior. Requires a non-None DuckDB
@@ -655,10 +667,14 @@ def persist_metrics(metrics: dict, conn: Optional[duckdb.DuckDBPyConnection]) ->
 
     # spec-061 T023: dual-write to QuestDB after DuckDB writes complete.
     # Strangler-fig per research.md R5: failure logged, not raised.
-    _persist_to_questdb(metrics)
+    return _persist_to_questdb(metrics)
 
 
-def _persist_to_questdb(metrics: dict) -> int:
+def _persist_to_questdb(
+    metrics: dict,
+    *,
+    raise_on_failure: bool = False,
+) -> int:
     """Mirror the three daily aggregates into QuestDB for the consumer contract.
 
     Failure isolated per call so a transient QuestDB issue does not block
@@ -667,10 +683,13 @@ def _persist_to_questdb(metrics: dict) -> int:
     goes STALE and the consumer sees the truth - no silent success.
 
     Returns the count of rows successfully written (0..3) for FR-011 logging.
+    In strict QuestDB-only mode, raises after attempting all eligible sibling
+    rows if any write failed.
     """
     target_date = metrics["date"]
     ts = datetime(target_date.year, target_date.month, target_date.day)
     rows_written = 0
+    failures: list[tuple[str, BaseException]] = []
 
     if metrics.get("mvrv") is not None:
         try:
@@ -678,12 +697,14 @@ def _persist_to_questdb(metrics: dict) -> int:
                 ts,
                 float(metrics["mvrv"]),
                 mvrv_z=metrics.get("mvrv_z"),
+                mvrv_z_rbn=metrics.get("mvrv_z_rbn"),
                 market_cap=metrics.get("market_cap"),
                 realized_cap=metrics.get("realized_cap"),
             )
             rows_written += 1
         except Exception as exc:
             logger.error("QuestDB save_mvrv_daily failed for %s: %s", target_date, exc)
+            failures.append(("save_mvrv_daily", exc))
 
     if metrics.get("nupl") is not None:
         try:
@@ -696,6 +717,7 @@ def _persist_to_questdb(metrics: dict) -> int:
             rows_written += 1
         except Exception as exc:
             logger.error("QuestDB save_nupl_daily failed for %s: %s", target_date, exc)
+            failures.append(("save_nupl_daily", exc))
 
     if metrics.get("realized_cap") is not None:
         try:
@@ -709,6 +731,10 @@ def _persist_to_questdb(metrics: dict) -> int:
             logger.error(
                 "QuestDB save_realized_cap_daily failed for %s: %s", target_date, exc
             )
+            failures.append(("save_realized_cap_daily", exc))
+
+    if failures and raise_on_failure:
+        raise QuestDBPersistenceError(target_date, failures)
 
     return rows_written
 
@@ -778,10 +804,9 @@ def _run_single_date(
             return 0
         rows_written = 0
         if questdb_only:
-            rows_written = _persist_to_questdb(metrics)
+            rows_written = _persist_to_questdb(metrics, raise_on_failure=True)
         else:
-            persist_metrics(metrics, conn)
-            rows_written = _persist_to_questdb(metrics)
+            rows_written = persist_metrics(metrics, conn)
         logger.info(
             "spec-062 aggregator success: date=%s duration_s=%.2f rows_written=%d",
             target_date.isoformat(),
@@ -806,7 +831,7 @@ def persist_metrics_for_target(
     conn: Optional[duckdb.DuckDBPyConnection],
     *,
     questdb_only: bool = False,
-) -> None:
+) -> int:
     """Persist metrics for the selected operational target.
 
     The live wave1 materializer can hold an exclusive DuckDB writer lock for
@@ -815,11 +840,11 @@ def persist_metrics_for_target(
     and update the QuestDB contract tables without disturbing that writer.
     """
     if questdb_only:
-        _persist_to_questdb(metrics)
+        rows_written = _persist_to_questdb(metrics, raise_on_failure=True)
         logger.info("QuestDB-only metrics mirrored for %s", metrics["date"])
-        return
+        return rows_written
 
-    persist_metrics(metrics, conn)
+    return persist_metrics(metrics, conn)
 
 
 def backfill_metrics(
@@ -849,20 +874,26 @@ def backfill_metrics(
 
     success_count = 0
     current_date = start_date
+    strict_backfill = questdb_reads and questdb_only
 
     while current_date <= end_date:
         try:
-            metrics = calculate_daily_metrics(
+            _run_single_date(
                 current_date,
                 conn,
+                dry_run=dry_run,
+                questdb_only=questdb_only,
                 questdb_reads=questdb_reads,
             )
-
-            if not dry_run:
-                persist_metrics_for_target(metrics, conn, questdb_only=questdb_only)
-
             success_count += 1
         except Exception as e:
+            if strict_backfill:
+                logger.error(
+                    "Backfill aborted after failure for %s: %s",
+                    current_date,
+                    e,
+                )
+                raise
             logger.warning(f"Failed to calculate metrics for {current_date}: {e}")
 
         current_date += timedelta(days=1)

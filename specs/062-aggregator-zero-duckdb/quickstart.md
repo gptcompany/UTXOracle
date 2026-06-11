@@ -22,8 +22,7 @@ Expected output (truncated):
 ```
 2026-06-05 00:36:25 - INFO - Calculating metrics for 2026-06-04...
 2026-06-05 00:36:50 - INFO -   Realized Cap: $1.047T, MVRV: 1.631
-2026-06-05 00:36:51 - INFO - QuestDB-only metrics mirrored for 2026-06-04
-2026-06-05 00:36:51 - INFO - Metrics persisted for 2026-06-04
+2026-06-05 00:36:51 - INFO - spec-062 aggregator success: date=2026-06-04 duration_s=26.14 rows_written=3
 ```
 
 Verify zero DuckDB holders during/after:
@@ -46,7 +45,7 @@ uv run python -m scripts.metrics.calculate_daily_metrics \
     --questdb-reads --questdb-only --dry-run
 ```
 
-Prints all computed metrics to stdout; writes nothing.
+Logs a dry-run completion line and writes nothing.
 
 ## Historical backfill (last 30 days)
 
@@ -63,7 +62,7 @@ uv run python -m scripts.metrics.calculate_daily_metrics \
     --questdb-reads --questdb-only
 ```
 
-Each failed date logs an ERROR and continues to the next; the script does not abort the backfill on per-date errors.
+In production mode (`--questdb-reads --questdb-only`), the first failed date logs an ERROR with traceback, sends the Discord failure webhook, and aborts the backfill with a non-zero exit code. Legacy/non-production backfills keep the historical best-effort behavior.
 
 ## Legacy DuckDB mode (still supported during transition)
 
@@ -116,10 +115,14 @@ A concurrent timer fire targeting the same date is safe (FR-013): both runs conv
 
 ```bash
 # Unit tests (all mocked, fast)
-uv run pytest tests/test_calculate_daily_metrics_questdb.py -q
+uv run pytest \
+    tests/test_calculate_daily_metrics.py \
+    tests/test_calculate_daily_metrics_questdb.py \
+    tests/test_calculate_daily_metrics_idempotent.py \
+    -q
 
 # Source-grep guard alone (catches duckdb_free regression)
 uv run pytest tests/test_calculate_daily_metrics_questdb.py::test_aggregator_never_opens_duckdb_under_dual_flags -v
 ```
 
-12 tests expected to pass. The source-grep guard (`test_aggregator_never_opens_duckdb_under_dual_flags`) is the load-bearing one: it fails the build if a future refactor removes the `duckdb_free` shortcut in `main()`.
+29 tests are expected to pass across the mocked aggregator suites. The source-grep guard (`test_aggregator_never_opens_duckdb_under_dual_flags`) is the load-bearing one: it fails the build if a future refactor removes the `duckdb_free` shortcut in `main()`.

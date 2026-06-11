@@ -46,8 +46,7 @@ The script does NOT use distinct numeric exit codes per error class. The structu
 ```
 2026-06-05 00:36:25 - INFO - Calculating metrics for 2026-06-04...
 2026-06-05 00:36:50 - INFO -   Realized Cap: $1.047T, MVRV: 1.631
-2026-06-05 00:36:51 - INFO - QuestDB-only metrics mirrored for 2026-06-04
-2026-06-05 00:36:51 - INFO - Metrics persisted for 2026-06-04
+2026-06-05 00:36:51 - INFO - spec-062 aggregator success: date=2026-06-04 duration_s=26.14 rows_written=3
 ```
 
 **stderr / journal (ERROR on failure, FR-011)**:
@@ -74,8 +73,8 @@ No webhook is sent on success.
 | Successful single-date run | yes | no | no |
 | Failed single-date run | (initial INFO may exist) | yes (with traceback) | yes (one-line) |
 | Successful backfill range | yes per date | no | no |
-| Failed date inside backfill | yes for prior dates | yes for failing date | yes |
-| Dry-run | yes (computed values) | only on calc failure | only on calc failure |
+| Failed date inside production backfill | yes for prior dates | yes for failing date; aborts non-zero | yes |
+| Dry-run | yes (completion line) | only on calc failure | only on calc failure |
 
 ## Daily-table write contract (consumed by spec-061 health endpoint)
 
@@ -83,11 +82,11 @@ Each successful single-date run MUST write at most one row per target table per 
 
 | Table | Required columns written | DEDUP key |
 |---|---|---|
-| `mvrv_daily` | `ts`, `mvrv`, `mvrv_z`, `market_cap`, `realized_cap` | `ts` |
+| `mvrv_daily` | `ts`, `mvrv`, `mvrv_z`, `mvrv_z_rbn`, `market_cap`, `realized_cap` | `ts` |
 | `nupl_daily` | `ts`, `nupl`, `market_cap`, `realized_cap` | `ts` |
 | `realized_cap_daily` | `ts`, `realized_cap` | `ts` |
 
-`mvrv_z_rbn` is NOT a required column at the write contract level — when the snapshot history is too short, the field is absent from the payload (spec FR-005). The consumer-facing `mvrv_daily` schema either has the column nullable, or the writer omits it from the INSERT — both are acceptable; the contract is "absent, not fabricated".
+`mvrv_z_rbn` is a nullable column on `mvrv_daily`. When the QuestDB snapshot history is too short, the writer persists `NULL` (spec FR-005). When Phase 2 populates `utxo_snapshots` with enough history, the same writer persists the computed value without further aggregator code changes.
 
 ## Concurrency contract (FR-013)
 

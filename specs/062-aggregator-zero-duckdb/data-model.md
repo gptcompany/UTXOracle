@@ -58,7 +58,7 @@ Returns: `list[float]`. Empty list when target table is empty (current QuestDB s
 ## Write surface
 
 Unchanged from spec-061. The aggregator writes via:
-- `api.questdb_repository.save_mvrv_daily(ts, mvrv, mvrv_z, market_cap, realized_cap)`
+- `api.questdb_repository.save_mvrv_daily(ts, mvrv, mvrv_z, mvrv_z_rbn, market_cap, realized_cap)`
 - `api.questdb_repository.save_nupl_daily(ts, nupl, market_cap, realized_cap)`
 - `api.questdb_repository.save_realized_cap_daily(ts, realized_cap)`
 

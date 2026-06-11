@@ -64,6 +64,7 @@ def _persist(metrics: dict, duckdb_conn: MagicMock):
 
 def test_dual_write_mvrv(fake_metrics, duckdb_conn):
     """T017: persist_metrics MUST call save_mvrv_daily after DuckDB write."""
+    fake_metrics["mvrv_z_rbn"] = 0.91
     with (
         patch(
             "scripts.metrics.calculate_daily_metrics.save_mvrv_daily",
@@ -84,10 +85,16 @@ def test_dual_write_mvrv(fake_metrics, duckdb_conn):
     kwargs = save_mvrv.call_args.kwargs or {}
     args = save_mvrv.call_args.args
     payload = {
-        **dict(zip(["ts", "mvrv", "mvrv_z", "market_cap", "realized_cap"], args)),
+        **dict(
+            zip(
+                ["ts", "mvrv", "mvrv_z", "mvrv_z_rbn", "market_cap", "realized_cap"],
+                args,
+            )
+        ),
         **kwargs,
     }
     assert payload.get("mvrv") == fake_metrics["mvrv"]
+    assert payload.get("mvrv_z_rbn") == fake_metrics["mvrv_z_rbn"]
 
 
 # T018: dual-write nupl
@@ -205,9 +212,107 @@ def test_questdb_only_skips_duckdb_writes(fake_metrics, duckdb_conn):
     ):
         persist_metrics_for_target(fake_metrics, duckdb_conn, questdb_only=True)
 
-    persist_qdb.assert_called_once_with(fake_metrics)
+    persist_qdb.assert_called_once_with(fake_metrics, raise_on_failure=True)
     persist_duckdb.assert_not_called()
     duckdb_conn.execute.assert_not_called()
+
+
+def test_questdb_only_write_failure_raises_and_notifies(
+    fake_metrics,
+    monkeypatch,
+):
+    """QuestDB-only mode must not report success when contract writes fail."""
+    from scripts.metrics.calculate_daily_metrics import (
+        QuestDBPersistenceError,
+        _run_single_date,
+    )
+
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord.invalid/webhook/abc")
+    posted: list = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self, _):
+            return b""
+
+    def fake_urlopen(request, timeout=None):
+        posted.append((request.full_url, request.data, timeout))
+        return _FakeResponse()
+
+    def boom(*args, **kwargs):
+        raise ConnectionError("simulated QuestDB write failure")
+
+    monkeypatch.setattr(
+        "scripts.metrics.calculate_daily_metrics.urllib.request.urlopen",
+        fake_urlopen,
+    )
+
+    with patch(
+        "scripts.metrics.calculate_daily_metrics.calculate_daily_metrics",
+        MagicMock(return_value=fake_metrics),
+    ), patch(
+        "scripts.metrics.calculate_daily_metrics.save_mvrv_daily",
+        MagicMock(side_effect=boom),
+    ), patch(
+        "scripts.metrics.calculate_daily_metrics.save_nupl_daily",
+        MagicMock(side_effect=boom),
+    ), patch(
+        "scripts.metrics.calculate_daily_metrics.save_realized_cap_daily",
+        MagicMock(side_effect=boom),
+    ):
+        with pytest.raises(QuestDBPersistenceError):
+            _run_single_date(
+                fake_metrics["date"],
+                None,
+                dry_run=False,
+                questdb_only=True,
+                questdb_reads=True,
+            )
+
+    assert len(posted) == 1
+    payload = __import__("json").loads(posted[0][1].decode("utf-8"))
+    assert "QuestDBPersistenceError" in payload["content"]
+    assert fake_metrics["date"].isoformat() in payload["content"]
+
+
+def test_legacy_single_date_dual_write_happens_once(fake_metrics, duckdb_conn):
+    """Single-date legacy writes must not mirror to QuestDB twice."""
+    from scripts.metrics.calculate_daily_metrics import _run_single_date
+
+    save_mvrv = MagicMock(return_value=True)
+    save_nupl = MagicMock(return_value=True)
+    save_rc = MagicMock(return_value=True)
+
+    with patch(
+        "scripts.metrics.calculate_daily_metrics.calculate_daily_metrics",
+        MagicMock(return_value=fake_metrics),
+    ), patch(
+        "scripts.metrics.calculate_daily_metrics.save_mvrv_daily",
+        save_mvrv,
+    ), patch(
+        "scripts.metrics.calculate_daily_metrics.save_nupl_daily",
+        save_nupl,
+    ), patch(
+        "scripts.metrics.calculate_daily_metrics.save_realized_cap_daily",
+        save_rc,
+    ):
+        rows = _run_single_date(
+            fake_metrics["date"],
+            duckdb_conn,
+            dry_run=False,
+            questdb_only=False,
+            questdb_reads=False,
+        )
+
+    assert rows == 3
+    assert save_mvrv.call_count == 1
+    assert save_nupl.call_count == 1
+    assert save_rc.call_count == 1
 
 
 class _FakeCursor:
@@ -518,6 +623,53 @@ def test_success_does_not_emit_discord_webhook(monkeypatch):
 
     assert rows == 0
     assert posted == []
+
+
+def test_questdb_only_backfill_aborts_on_first_failure(monkeypatch):
+    """Production backfills must exit non-zero instead of hiding date failures."""
+    from scripts.metrics.calculate_daily_metrics import backfill_metrics
+
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord.invalid/webhook/abc")
+    posted: list = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self, _):
+            return b""
+
+    def fake_urlopen(request, timeout=None):
+        posted.append((request.full_url, request.data, timeout))
+        return _FakeResponse()
+
+    calculate = MagicMock(side_effect=ConnectionError("QuestDB down"))
+    monkeypatch.setattr(
+        "scripts.metrics.calculate_daily_metrics.urllib.request.urlopen",
+        fake_urlopen,
+    )
+
+    with patch(
+        "scripts.metrics.calculate_daily_metrics.calculate_daily_metrics",
+        calculate,
+    ):
+        with pytest.raises(ConnectionError, match="QuestDB down"):
+            backfill_metrics(
+                2,
+                None,
+                end_date=date(2026, 6, 4),
+                questdb_only=True,
+                questdb_reads=True,
+            )
+
+    assert calculate.call_count == 1
+    assert len(posted) == 1
+    payload = __import__("json").loads(posted[0][1].decode("utf-8"))
+    assert "2026-06-03" in payload["content"]
+    assert "ConnectionError" in payload["content"]
 
 
 def test_concurrent_runs_converge_via_dedup(fake_metrics, duckdb_conn):
