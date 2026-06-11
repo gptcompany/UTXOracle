@@ -423,3 +423,127 @@ def test_mvrv_variants_can_read_questdb():
     query, params = cursor.executed[0]
     assert "FROM utxo_snapshots" in query
     assert params == (928_282,)
+
+
+# spec-062 analyze remediation T046/T047/T048
+
+
+def test_questdb_unreachable_fails_fast(duckdb_conn):
+    """T047 / FR-006: QuestDB unreachable in questdb_reads mode must propagate
+    without silently falling back to DuckDB."""
+    from scripts.metrics.calculate_daily_metrics import calculate_daily_realized_cap
+
+    class _Boom:
+        def __enter__(self):
+            raise ConnectionError("simulated QuestDB unreachable")
+
+        def __exit__(self, *a):
+            return False
+
+    with patch(
+        "scripts.metrics.calculate_daily_metrics._open_pg_sync", return_value=_Boom()
+    ):
+        with pytest.raises(ConnectionError, match="simulated QuestDB unreachable"):
+            calculate_daily_realized_cap(
+                duckdb_conn, as_of_block=928_282, questdb_reads=True
+            )
+
+    duckdb_conn.execute.assert_not_called()
+
+
+def test_failure_emits_discord_webhook(monkeypatch):
+    """T046 / FR-012: failure path POSTs to DISCORD_WEBHOOK_URL once."""
+    from scripts.metrics.calculate_daily_metrics import _post_discord_failure
+
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord.invalid/webhook/abc")
+    posted: list = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self, _):
+            return b""
+
+    def fake_urlopen(request, timeout=None):
+        posted.append((request.full_url, request.data, timeout))
+        return _FakeResponse()
+
+    monkeypatch.setattr(
+        "scripts.metrics.calculate_daily_metrics.urllib.request.urlopen",
+        fake_urlopen,
+    )
+
+    _post_discord_failure(date(2026, 6, 4), RuntimeError("simulated failure"))
+
+    assert len(posted) == 1
+    url, body, timeout = posted[0]
+    assert url == "https://discord.invalid/webhook/abc"
+    assert timeout == 3
+    payload = __import__("json").loads(body.decode("utf-8"))
+    assert "2026-06-04" in payload["content"]
+    assert "RuntimeError" in payload["content"]
+    assert "simulated failure" in payload["content"]
+
+
+def test_success_does_not_emit_discord_webhook(monkeypatch):
+    """FR-012: successful runs MUST NOT POST to the webhook."""
+    from scripts.metrics.calculate_daily_metrics import _run_single_date
+
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord.invalid/webhook/abc")
+    posted: list = []
+
+    def _record(*args, **kwargs):
+        posted.append((args, kwargs))
+        raise AssertionError("webhook MUST NOT be POSTed on success")
+
+    monkeypatch.setattr(
+        "scripts.metrics.calculate_daily_metrics.urllib.request.urlopen",
+        _record,
+    )
+
+    with patch(
+        "scripts.metrics.calculate_daily_metrics.calculate_daily_metrics",
+        MagicMock(return_value={"date": date(2026, 6, 4)}),
+    ), patch(
+        "scripts.metrics.calculate_daily_metrics._persist_to_questdb",
+        MagicMock(return_value=0),
+    ):
+        rows = _run_single_date(
+            date(2026, 6, 4), None, dry_run=False, questdb_only=True, questdb_reads=True
+        )
+
+    assert rows == 0
+    assert posted == []
+
+
+def test_concurrent_runs_converge_via_dedup(fake_metrics, duckdb_conn):
+    """T048 / FR-013: two persist calls with identical metrics emit
+    byte-identical save_* arguments (deterministic computation; DEDUP
+    collapses to one row on the QuestDB side)."""
+    from scripts.metrics.calculate_daily_metrics import _persist_to_questdb
+
+    calls: list[tuple] = []
+
+    def record(*args, **kwargs):
+        calls.append((args, frozenset(kwargs.items())))
+
+    with patch(
+        "scripts.metrics.calculate_daily_metrics.save_mvrv_daily", side_effect=record
+    ), patch(
+        "scripts.metrics.calculate_daily_metrics.save_nupl_daily", side_effect=record
+    ), patch(
+        "scripts.metrics.calculate_daily_metrics.save_realized_cap_daily",
+        side_effect=record,
+    ):
+        _persist_to_questdb(fake_metrics)
+        _persist_to_questdb(fake_metrics)
+
+    # Two runs => 6 calls (3 saves x 2 runs), each pair byte-identical.
+    assert len(calls) == 6
+    assert calls[0] == calls[3]  # mvrv first vs second run
+    assert calls[1] == calls[4]  # nupl
+    assert calls[2] == calls[5]  # realized_cap

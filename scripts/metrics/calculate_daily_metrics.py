@@ -18,7 +18,12 @@ This module aggregates UTXO data into daily metric tables:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
+import os
+import time
+import urllib.error
+import urllib.request
 from datetime import date, datetime, timedelta
 from typing import Optional
 
@@ -45,7 +50,7 @@ logger = logging.getLogger(__name__)
 
 def get_blocks_for_date(
     target_date: date,
-    conn: duckdb.DuckDBPyConnection,
+    conn: Optional[duckdb.DuckDBPyConnection],
     *,
     questdb_reads: bool = False,
 ) -> tuple[int, int]:
@@ -76,6 +81,7 @@ def get_blocks_for_date(
                 )
                 result = cur.fetchone()
     else:
+        assert conn is not None, "DuckDB conn required when questdb_reads=False"
         start_ts = int(start_dt.timestamp())
         end_ts = int(end_dt.timestamp())
 
@@ -98,7 +104,7 @@ def get_blocks_for_date(
 
 def get_price_for_date(
     target_date: date,
-    conn: duckdb.DuckDBPyConnection,
+    conn: Optional[duckdb.DuckDBPyConnection],
     *,
     questdb_reads: bool = False,
 ) -> Optional[float]:
@@ -119,6 +125,7 @@ def get_price_for_date(
                 )
                 result = cur.fetchone()
     else:
+        assert conn is not None, "DuckDB conn required when questdb_reads=False"
         result = conn.execute(
             """
             SELECT price_usd
@@ -430,7 +437,7 @@ def calculate_cointime_daily(
 
 def calculate_daily_metrics(
     target_date: date,
-    conn: duckdb.DuckDBPyConnection,
+    conn: Optional[duckdb.DuckDBPyConnection],
     *,
     questdb_reads: bool = False,
 ) -> dict:
@@ -545,11 +552,17 @@ def calculate_daily_metrics(
     return metrics
 
 
-def persist_metrics(metrics: dict, conn: duckdb.DuckDBPyConnection) -> None:
+def persist_metrics(metrics: dict, conn: Optional[duckdb.DuckDBPyConnection]) -> None:
     """Persist calculated metrics to respective daily tables.
 
-    Uses INSERT OR REPLACE for upsert behavior.
+    Uses INSERT OR REPLACE for upsert behavior. Requires a non-None DuckDB
+    connection; the QuestDB-only write path goes through `_persist_to_questdb`
+    via `persist_metrics_for_target(..., questdb_only=True)`.
     """
+    assert conn is not None, (
+        "DuckDB conn required for persist_metrics; "
+        "use persist_metrics_for_target(..., questdb_only=True) for QuestDB-only writes"
+    )
     target_date = metrics["date"]
 
     # sopr_daily
@@ -645,16 +658,19 @@ def persist_metrics(metrics: dict, conn: duckdb.DuckDBPyConnection) -> None:
     _persist_to_questdb(metrics)
 
 
-def _persist_to_questdb(metrics: dict) -> None:
+def _persist_to_questdb(metrics: dict) -> int:
     """Mirror the three daily aggregates into QuestDB for the consumer contract.
 
     Failure isolated per call so a transient QuestDB issue does not block
     the DuckDB write that already succeeded (research.md R5). The endpoint
     reads ONLY from QuestDB; if writes silently fail, the affected stream
     goes STALE and the consumer sees the truth - no silent success.
+
+    Returns the count of rows successfully written (0..3) for FR-011 logging.
     """
     target_date = metrics["date"]
     ts = datetime(target_date.year, target_date.month, target_date.day)
+    rows_written = 0
 
     if metrics.get("mvrv") is not None:
         try:
@@ -665,6 +681,7 @@ def _persist_to_questdb(metrics: dict) -> None:
                 market_cap=metrics.get("market_cap"),
                 realized_cap=metrics.get("realized_cap"),
             )
+            rows_written += 1
         except Exception as exc:
             logger.error("QuestDB save_mvrv_daily failed for %s: %s", target_date, exc)
 
@@ -676,6 +693,7 @@ def _persist_to_questdb(metrics: dict) -> None:
                 market_cap=metrics.get("market_cap"),
                 realized_cap=metrics.get("realized_cap"),
             )
+            rows_written += 1
         except Exception as exc:
             logger.error("QuestDB save_nupl_daily failed for %s: %s", target_date, exc)
 
@@ -686,14 +704,108 @@ def _persist_to_questdb(metrics: dict) -> None:
                 float(metrics["realized_cap"]),
                 total_supply=metrics.get("total_supply"),
             )
+            rows_written += 1
         except Exception as exc:
             logger.error(
                 "QuestDB save_realized_cap_daily failed for %s: %s", target_date, exc
             )
 
+    return rows_written
+
+
+def _post_discord_failure(target_date: date, exc: BaseException) -> None:
+    """FR-012: Discord webhook notification on failure only.
+
+    Posts a one-line summary on failure. Webhook errors are swallowed -- they
+    MUST NOT mask the original aggregator exception.
+    """
+    webhook = os.environ.get("DISCORD_WEBHOOK_URL", "").strip()
+    if not webhook or webhook.startswith("ENC[") or webhook.startswith("encrypted:"):
+        return
+    summary = str(exc).splitlines()[0] if str(exc) else ""
+    if len(summary) > 200:
+        summary = summary[:197] + "..."
+    payload = json.dumps(
+        {
+            "content": (
+                f":rotating_light: UTXOracle aggregator failed for "
+                f"{target_date.isoformat()}: {type(exc).__name__} - {summary}"
+            )
+        }
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        webhook,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=3) as response:
+            response.read(0)
+    except (urllib.error.URLError, OSError, TimeoutError) as webhook_exc:
+        logger.warning(
+            "Discord webhook post failed for %s (suppressed): %s",
+            target_date,
+            webhook_exc,
+        )
+
+
+def _run_single_date(
+    target_date: date,
+    conn: Optional[duckdb.DuckDBPyConnection],
+    *,
+    dry_run: bool,
+    questdb_only: bool,
+    questdb_reads: bool,
+) -> int:
+    """FR-011 single-date wrapper.
+
+    Measures wall-clock duration, counts metric rows written, emits ONE INFO
+    log on success and ONE ERROR log + Discord webhook on failure (FR-012).
+    Returns the count of rows written (0 when dry-run).
+    """
+    started = time.monotonic()
+    try:
+        metrics = calculate_daily_metrics(
+            target_date, conn, questdb_reads=questdb_reads
+        )
+        if dry_run:
+            logger.info(
+                "spec-062 dry-run complete: date=%s duration_s=%.2f rows_written=0",
+                target_date.isoformat(),
+                time.monotonic() - started,
+            )
+            return 0
+        rows_written = 0
+        if questdb_only:
+            rows_written = _persist_to_questdb(metrics)
+        else:
+            persist_metrics(metrics, conn)
+            rows_written = _persist_to_questdb(metrics)
+        logger.info(
+            "spec-062 aggregator success: date=%s duration_s=%.2f rows_written=%d",
+            target_date.isoformat(),
+            time.monotonic() - started,
+            rows_written,
+        )
+        return rows_written
+    except Exception as exc:
+        logger.error(
+            "spec-062 aggregator failure: date=%s duration_s=%.2f exc=%s",
+            target_date.isoformat(),
+            time.monotonic() - started,
+            type(exc).__name__,
+            exc_info=True,
+        )
+        _post_discord_failure(target_date, exc)
+        raise
+
 
 def persist_metrics_for_target(
-    metrics: dict, conn: duckdb.DuckDBPyConnection, *, questdb_only: bool = False
+    metrics: dict,
+    conn: Optional[duckdb.DuckDBPyConnection],
+    *,
+    questdb_only: bool = False,
 ) -> None:
     """Persist metrics for the selected operational target.
 
@@ -835,35 +947,23 @@ def main():
             )
         elif args.date:
             target_date = datetime.strptime(args.date, "%Y-%m-%d").date()
-            metrics = calculate_daily_metrics(
+            _run_single_date(
                 target_date,
                 conn,
+                dry_run=args.dry_run,
+                questdb_only=args.questdb_only,
                 questdb_reads=args.questdb_reads,
             )
-
-            if not args.dry_run:
-                persist_metrics_for_target(
-                    metrics, conn, questdb_only=args.questdb_only
-                )
-                logger.info(f"Metrics persisted for {target_date}")
-            else:
-                logger.info("Dry run - metrics calculated but not persisted")
-                for key, value in metrics.items():
-                    logger.info(f"  {key}: {value}")
         else:
             # Default: calculate yesterday
             yesterday = date.today() - timedelta(days=1)
-            metrics = calculate_daily_metrics(
+            _run_single_date(
                 yesterday,
                 conn,
+                dry_run=args.dry_run,
+                questdb_only=args.questdb_only,
                 questdb_reads=args.questdb_reads,
             )
-
-            if not args.dry_run:
-                persist_metrics_for_target(
-                    metrics, conn, questdb_only=args.questdb_only
-                )
-                logger.info(f"Metrics persisted for {yesterday}")
     finally:
         if conn is not None:
             conn.close()
