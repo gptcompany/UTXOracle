@@ -164,14 +164,21 @@ echo
 
 # Step 3: Verify Bitcoin Core is running
 echo "🔍 Verifying Bitcoin Core..."
-if bitcoin-cli getblockcount &>/dev/null; then
-    BLOCK_HEIGHT=$(bitcoin-cli getblockcount)
-    echo "✅ Bitcoin Core running (height: $BLOCK_HEIGHT)"
-else
-    echo "❌ Bitcoin Core not responding!"
-    echo "   Start bitcoind first: bitcoind -daemon"
-    exit 1
-fi
+RETRIES=10
+for i in $(seq 1 $RETRIES); do
+    if bitcoin-cli getblockcount &>/dev/null; then
+        BLOCK_HEIGHT=$(bitcoin-cli getblockcount)
+        echo "✅ Bitcoin Core running (height: $BLOCK_HEIGHT)"
+        break
+    fi
+    if [ $i -eq $RETRIES ]; then
+        echo "❌ Bitcoin Core not responding after $RETRIES attempts!"
+        echo "   Start bitcoind first: bitcoind -daemon"
+        exit 1
+    fi
+    echo "   ...waiting for Bitcoin Core (attempt $i/$RETRIES)..."
+    sleep 5
+done
 
 # Step 4: Detect actual Bitcoin datadir
 echo

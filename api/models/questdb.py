@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional, Dict
+from typing import Any, List, Optional, Dict
 
 from pydantic import BaseModel, Field
 
@@ -121,16 +121,19 @@ class CostBasisResponse(BaseModel):
 
 class URPDFeaturesResponse(BaseModel):
     timestamp: datetime
+    availability_timestamp: Optional[datetime] = None
+    schema_version: Optional[str] = None
     block_height: int
-    current_price_usd: float
+    current_price_usd: Optional[float]
     bucket_size_usd: float
-    total_supply_btc: float
-    supply_below_price_pct: float
-    supply_above_price_pct: float
-    top_bucket_concentration: float
-    dominant_bucket_distance_pct: float
-    distribution_entropy: float
+    total_supply_btc: Optional[float]
+    supply_below_price_pct: Optional[float]
+    supply_above_price_pct: Optional[float]
+    top_bucket_concentration: Optional[float]
+    dominant_bucket_distance_pct: Optional[float]
+    distribution_entropy: Optional[float]
     confidence: float
+    source_health: Optional[Dict[str, Any]] = None
 
 
 class WalletBandMetricsResponse(BaseModel):

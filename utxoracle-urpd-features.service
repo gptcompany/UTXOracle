@@ -1,0 +1,13 @@
+[Unit]
+Description=UTXOracle URPD feature materializer
+After=network-online.target questdb.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/media/sam/1TB/UTXOracle
+Environment=UTXORACLE_DB_PATH=/media/sam/1TB/UTXOracle/data/utxoracle.duckdb
+ExecStart=/usr/bin/env uv run python -m scripts.metrics.materialize_urpd_features
+
+[Install]
+WantedBy=multi-user.target

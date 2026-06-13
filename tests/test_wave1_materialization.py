@@ -96,6 +96,8 @@ async def test_materialize_daily_snapshot_returns_false_on_partial_write_failure
     repo.save_wallet_waves.return_value = True
     repo.save_absorption_rates.return_value = False
     repo.save_address_cohorts.return_value = True
+    repo.save_cost_basis.return_value = True
+    repo.save_urpd_features.return_value = True
 
     conn = duckdb.connect(":memory:")
     conn.execute("CREATE TABLE utxo_lifecycle (creation_block INTEGER, is_spent BOOLEAN, creation_price_usd DOUBLE, realized_value_usd DOUBLE, btc_value DOUBLE)")
@@ -105,6 +107,8 @@ async def test_materialize_daily_snapshot_returns_false_on_partial_write_failure
     wallet_waves = MagicMock()
     absorption = MagicMock()
     address_cohorts = MagicMock()
+    cost_basis = MagicMock()
+    urpd_features = MagicMock()
 
     target_date = datetime.now(timezone.utc)
 
@@ -117,6 +121,12 @@ async def test_materialize_daily_snapshot_returns_false_on_partial_write_failure
     ), patch(
         "scripts.metrics.materialize_wave1.calculate_address_cohorts",
         return_value=address_cohorts,
+    ), patch(
+        "scripts.metrics.materialize_wave1.calculate_cost_basis_signal",
+        return_value=cost_basis,
+    ), patch(
+        "scripts.metrics.materialize_wave1.calculate_urpd_features_signal",
+        return_value=urpd_features,
     ):
         success = await materialize_daily_snapshot(repo, conn, target_date)
 
@@ -126,6 +136,8 @@ async def test_materialize_daily_snapshot_returns_false_on_partial_write_failure
     repo.save_wallet_waves.assert_called_once_with(wallet_waves)
     repo.save_absorption_rates.assert_called_once_with(absorption)
     repo.save_address_cohorts.assert_not_called()
+    repo.save_cost_basis.assert_not_called()
+    repo.save_urpd_features.assert_not_called()
     repo.abort_ingestion.assert_called_once()
 
 

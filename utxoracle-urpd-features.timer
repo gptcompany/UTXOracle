@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily UTXOracle URPD feature materialization
+
+[Timer]
+OnCalendar=*-*-* 00:20:00 UTC
+Persistent=true
+Unit=utxoracle-urpd-features.service
+
+[Install]
+WantedBy=timers.target

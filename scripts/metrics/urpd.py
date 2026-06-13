@@ -38,6 +38,37 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _utxo_lifecycle_columns(conn: duckdb.DuckDBPyConnection) -> set[str]:
+    """Return visible columns on the lifecycle surface."""
+    cursor = conn.execute("SELECT * FROM utxo_lifecycle_full LIMIT 0")
+    return {column[0] for column in cursor.description or []}
+
+
+def _point_in_time_predicates(
+    columns: set[str],
+    as_of_block: int | None,
+) -> tuple[list[str], list[int]]:
+    """Build predicates for the UTXO set visible at ``as_of_block``."""
+    predicates: list[str] = []
+    params: list[int] = []
+
+    if as_of_block is not None and "creation_block" in columns:
+        predicates.append("creation_block <= ?")
+        params.append(as_of_block)
+
+    if "is_spent" in columns:
+        if as_of_block is not None and "spent_block" in columns:
+            predicates.append(
+                "(is_spent = FALSE OR is_spent IS NULL OR "
+                "(spent_block IS NOT NULL AND spent_block > ?))"
+            )
+            params.append(as_of_block)
+        else:
+            predicates.append("(is_spent = FALSE OR is_spent IS NULL)")
+
+    return predicates, params
+
+
 def calculate_urpd(
     conn: duckdb.DuckDBPyConnection,
     current_price_usd: float,
@@ -70,24 +101,34 @@ def calculate_urpd(
         f"bucket_size=${bucket_size_usd:,.0f}, block={block_height}"
     )
 
-    # Query: Group unspent UTXOs by price bucket
+    columns = _utxo_lifecycle_columns(conn)
+    state_predicates, state_params = _point_in_time_predicates(columns, block_height)
+    predicates = [
+        *state_predicates,
+        "creation_price_usd IS NOT NULL",
+        "creation_price_usd > 0",
+    ]
+    where_clause = " AND ".join(predicates)
+
+    # Query: Group point-in-time unspent UTXOs by price bucket
     # FLOOR(price / bucket_size) * bucket_size gives the bucket's lower bound
     # B1 fix: Filter out NULL creation_price_usd to prevent crash
     # B3 fix: Filter out negative creation_price_usd to prevent ValueError in URPDBucket
-    query = """
+    query = f"""
         SELECT
             FLOOR(creation_price_usd / ?) * ? AS price_bucket,
             SUM(btc_value) AS btc_in_bucket,
             COUNT(*) AS utxo_count
         FROM utxo_lifecycle_full
-        WHERE is_spent = FALSE
-          AND creation_price_usd IS NOT NULL
-          AND creation_price_usd > 0
+        WHERE {where_clause}
         GROUP BY price_bucket
         ORDER BY price_bucket DESC
     """
 
-    result = conn.execute(query, [bucket_size_usd, bucket_size_usd]).fetchall()
+    result = conn.execute(
+        query,
+        [bucket_size_usd, bucket_size_usd, *state_params],
+    ).fetchall()
 
     # Calculate total supply for percentage calculation
     total_supply = sum(row[1] for row in result)
@@ -156,7 +197,7 @@ def calculate_urpd(
     supply_below_pct = (supply_below / total_supply) * 100 if total_supply > 0 else 0.0
 
     # Calculate cost basis percentiles
-    percentiles = calculate_cost_basis_percentiles(conn)
+    percentiles = calculate_cost_basis_percentiles(conn, as_of_block=block_height)
 
     if max_btc_bucket:
         logger.info(
@@ -187,6 +228,7 @@ def calculate_urpd(
 
 def calculate_cost_basis_percentiles(
     conn: duckdb.DuckDBPyConnection,
+    as_of_block: int | None = None,
 ) -> CostBasisPercentiles | None:
     """Calculate cost basis percentiles weighted by BTC value.
 
@@ -209,21 +251,28 @@ def calculate_cost_basis_percentiles(
     """
     logger.debug("Calculating cost basis percentiles")
 
-    # Query: Get all unspent UTXOs sorted by creation price
+    columns = _utxo_lifecycle_columns(conn)
+    state_predicates, state_params = _point_in_time_predicates(columns, as_of_block)
+    predicates = [
+        *state_predicates,
+        "creation_price_usd IS NOT NULL",
+        "creation_price_usd > 0",
+    ]
+    where_clause = " AND ".join(predicates)
+
+    # Query: Get all point-in-time unspent UTXOs sorted by creation price
     # We'll calculate percentiles client-side for flexibility
     # B3 fix: Filter out negative creation_price_usd to prevent ValueError
-    query = """
+    query = f"""
         SELECT
             creation_price_usd,
             btc_value
         FROM utxo_lifecycle_full
-        WHERE is_spent = FALSE
-          AND creation_price_usd IS NOT NULL
-          AND creation_price_usd > 0
+        WHERE {where_clause}
         ORDER BY creation_price_usd ASC
     """
 
-    result = conn.execute(query).fetchall()
+    result = conn.execute(query, state_params).fetchall()
 
     if not result:
         logger.warning("No unspent UTXOs found for percentile calculation")

@@ -82,8 +82,55 @@ def test_empty_utxo_set_returns_zero_confidence():
 
     assert result.confidence == pytest.approx(0.0)
     assert result.total_supply_btc == pytest.approx(0.0)
-    assert result.top_bucket_concentration == pytest.approx(0.0)
-    assert result.distribution_entropy == pytest.approx(0.0)
+    assert result.supply_below_price_pct is None
+    assert result.supply_above_price_pct is None
+    assert result.top_bucket_concentration is None
+    assert result.dominant_bucket_distance_pct is None
+    assert result.distribution_entropy is None
+    assert result.source_health["status"] == "degraded"
+
+
+def test_missing_current_price_keeps_distribution_features_but_nulls_price_dependent_metrics():
+    conn = duckdb.connect(":memory:")
+    conn.execute(
+        """
+        CREATE TABLE utxo_lifecycle (
+            txid VARCHAR,
+            vout_index INTEGER,
+            creation_block INTEGER,
+            btc_value DOUBLE,
+            creation_price_usd DOUBLE,
+            realized_value_usd DOUBLE,
+            is_spent BOOLEAN
+        )
+        """
+    )
+    conn.execute("CREATE VIEW utxo_lifecycle_full AS SELECT * FROM utxo_lifecycle")
+    conn.execute(
+        """
+        INSERT INTO utxo_lifecycle VALUES
+        ('a', 0, 880000, 1.0, 40000.0, 40000.0, FALSE),
+        ('b', 0, 870000, 2.0, 60000.0, 120000.0, FALSE)
+        """
+    )
+
+    result = calculate_urpd_features_signal(
+        conn=conn,
+        current_price_usd=None,
+        current_block=900000,
+        bucket_size_usd=10000.0,
+        timestamp=datetime(2026, 4, 17, tzinfo=timezone.utc),
+    )
+
+    conn.close()
+
+    assert result.current_price_usd is None
+    assert result.supply_below_price_pct is None
+    assert result.supply_above_price_pct is None
+    assert result.dominant_bucket_distance_pct is None
+    assert result.top_bucket_concentration == pytest.approx(66.666666, rel=0.01)
+    assert result.distribution_entropy is not None
+    assert result.confidence == pytest.approx(0.5)
 
 
 def test_multi_bucket_dominant_is_single_bucket_not_cluster():

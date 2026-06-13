@@ -108,6 +108,32 @@ def _questdb_state() -> LifecycleState:
 
 
 def _bitcoin_tip() -> int:
+    """Resolve the current Bitcoin Core block height.
+
+    Two-path resolution (added 2026-06-03 after watchdog incident):
+    1. Try `bitcoin-cli getblockcount` via subprocess. The CLI reads its
+       own config + cookie auth from the standard locations, so it
+       sidesteps Python-process env contamination (the watchdog environment
+       had SOPS-encrypted env vars leaking into BITCOIN_DATADIR).
+    2. Fall back to the in-repo BitcoinRPC client if the binary is
+       missing.
+    """
+    import shutil
+    import subprocess
+
+    if shutil.which("bitcoin-cli") is not None:
+        try:
+            result = subprocess.run(
+                ["bitcoin-cli", "getblockcount"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=True,
+            )
+            return int(result.stdout.strip())
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError) as exc:
+            logger.warning("bitcoin-cli getblockcount failed (%s); using Python RPC fallback", exc)
+
     from scripts.sync_utxo_lifecycle import get_current_block_height
 
     return int(get_current_block_height())

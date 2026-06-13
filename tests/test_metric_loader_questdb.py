@@ -103,6 +103,33 @@ def test_load_from_questdb_skips_null_values():
     assert result.data[1].value == pytest.approx(42.5)
 
 
+def test_load_from_questdb_dedupes_same_day_to_latest_value():
+    loader = MetricLoader()
+    dataset = [
+        ["2026-04-17T00:00:00.000000Z", 71.3],
+        ["2026-04-17T12:34:56.000000Z", 72.1],
+        ["2026-04-18T00:00:00.000000Z", 73.0],
+    ]
+
+    with patch(
+        "scripts.integrations.metric_loader.urlopen",
+        return_value=_fake_questdb_response(dataset),
+    ):
+        result = loader.load_metric(
+            "supply_below_price_pct",
+            start_date=date(2026, 4, 17),
+            end_date=date(2026, 4, 18),
+            source="questdb",
+        )
+
+    assert result.source == "questdb"
+    assert len(result.data) == 2
+    assert result.data[0].date == date(2026, 4, 17)
+    assert result.data[0].value == pytest.approx(72.1)
+    assert result.data[1].date == date(2026, 4, 18)
+    assert result.data[1].value == pytest.approx(73.0)
+
+
 def test_load_from_questdb_falls_back_on_connection_error():
     loader = MetricLoader()
 

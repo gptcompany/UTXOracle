@@ -1850,17 +1850,20 @@ class URPDFeaturesResult:
     backtest-friendly features with stable semantics.
     """
 
-    supply_below_price_pct: float
-    supply_above_price_pct: float
-    top_bucket_concentration: float
-    dominant_bucket_distance_pct: float
-    distribution_entropy: float
-    current_price_usd: float
+    supply_below_price_pct: Optional[float]
+    supply_above_price_pct: Optional[float]
+    top_bucket_concentration: Optional[float]
+    dominant_bucket_distance_pct: Optional[float]
+    distribution_entropy: Optional[float]
+    current_price_usd: Optional[float]
     bucket_size_usd: float
-    total_supply_btc: float
+    total_supply_btc: Optional[float]
     block_height: int
     timestamp: datetime = field(default_factory=datetime.utcnow)
+    availability_timestamp: datetime = field(default_factory=datetime.utcnow)
     confidence: float = 0.85
+    schema_version: str = "urpd_features_daily.v1"
+    source_health: dict = field(default_factory=dict)
 
     def __post_init__(self):
         """Validate derived feature bounds."""
@@ -1870,21 +1873,26 @@ class URPDFeaturesResult:
             "top_bucket_concentration": self.top_bucket_concentration,
         }
         for field_name, value in bounded_percentages.items():
+            if value is None:
+                continue
             if not 0.0 <= value <= 100.0:
                 raise ValueError(f"{field_name} must be in [0, 100]: {value}")
 
-        if not 0.0 <= self.distribution_entropy <= 1.0:
+        if (
+            self.distribution_entropy is not None
+            and not 0.0 <= self.distribution_entropy <= 1.0
+        ):
             raise ValueError(
                 "distribution_entropy must be in [0, 1]: "
                 f"{self.distribution_entropy}"
             )
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError(f"confidence must be in [0, 1]: {self.confidence}")
-        if self.current_price_usd <= 0:
+        if self.current_price_usd is not None and self.current_price_usd <= 0:
             raise ValueError(f"current_price_usd must be > 0: {self.current_price_usd}")
         if self.bucket_size_usd <= 0:
             raise ValueError(f"bucket_size_usd must be > 0: {self.bucket_size_usd}")
-        if self.total_supply_btc < 0:
+        if self.total_supply_btc is not None and self.total_supply_btc < 0:
             raise ValueError(f"total_supply_btc must be >= 0: {self.total_supply_btc}")
         if self.block_height < 0:
             raise ValueError(f"block_height must be >= 0: {self.block_height}")
@@ -1904,7 +1912,12 @@ class URPDFeaturesResult:
             "timestamp": self.timestamp.isoformat()
             if hasattr(self.timestamp, "isoformat")
             else str(self.timestamp),
+            "availability_timestamp": self.availability_timestamp.isoformat()
+            if hasattr(self.availability_timestamp, "isoformat")
+            else str(self.availability_timestamp),
             "confidence": self.confidence,
+            "schema_version": self.schema_version,
+            "source_health": self.source_health,
         }
 
 

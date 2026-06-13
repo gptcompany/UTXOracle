@@ -385,15 +385,21 @@ class MetricLoader:
                 source="questdb",
             )
 
-        data_points = []
+        # Daily materializations may be re-run intraday; keep the latest value
+        # observed for each date so the backtest path sees a single daily point.
+        latest_by_date: dict[date, MetricDataPoint] = {}
         for row in body.get("dataset", []):
             ts_str, val = row[0], row[1]
             if val is not None:
                 # QuestDB returns ISO timestamps like "2026-04-17T00:00:00.000000Z"
                 dt = date.fromisoformat(ts_str[:10])
-                data_points.append(
-                    MetricDataPoint(date=dt, value=float(val), source="questdb")
+                latest_by_date[dt] = MetricDataPoint(
+                    date=dt,
+                    value=float(val),
+                    source="questdb",
                 )
+
+        data_points = [latest_by_date[key] for key in sorted(latest_by_date)]
 
         return MetricSeries(
             metric_id=metric_id,

@@ -262,7 +262,7 @@ def test_brk_sync_status(result: ValidationResult) -> bool:
     # Get Bitcoin Core height
     try:
         bc_result = subprocess.run(
-            ["bitcoin-cli", "getblockcount"], capture_output=True, text=True, timeout=10
+            ["bitcoin-cli", "getblockcount"], capture_output=True, text=True, timeout=30
         )
         bc_height = int(bc_result.stdout.strip())
     except Exception:

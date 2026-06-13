@@ -527,7 +527,8 @@ entries:
     known_caveats:
       - top_bucket_concentration measures a single dominant bucket, not
         adjacent-cluster aggregation.
-      - Backtest loader integration remains a declared follow-up (FR6).
+      - Historical backtest loading is wired through MetricLoader; remaining
+        work is downstream signal design and validation, not data access.
       - Source is locally derived; does not claim equivalence to BRK
         cost-basis distribution.
     owner: scripts.metrics.urpd_features + scripts.metrics.materialize_wave1

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import logging
+import json
 import os
 from datetime import datetime, timedelta, timezone
-from typing import Annotated, List, Any, Dict
+from typing import Annotated, List, Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
-from pydantic import BaseModel
 
 from api.models.questdb import (
     PriceEntry,
@@ -409,8 +409,24 @@ async def get_urpd_features(
         if not row:
             raise HTTPException(status_code=404, detail="No URPD feature data found")
 
+        def row_get(key: str, default=None):
+            try:
+                return row[key]
+            except (KeyError, IndexError, TypeError):
+                return default
+
+        source_health = None
+        source_health_json = row_get("source_health_json")
+        if source_health_json:
+            try:
+                source_health = json.loads(source_health_json)
+            except (TypeError, json.JSONDecodeError):
+                source_health = {"status": "degraded", "reason": "invalid_source_health_json"}
+
         return URPDFeaturesResponse(
             timestamp=row["ts"],
+            availability_timestamp=row_get("availability_timestamp") or row_get("created_at"),
+            schema_version=row_get("schema_version"),
             block_height=row["block_height"],
             current_price_usd=row["current_price_usd"],
             bucket_size_usd=row["bucket_size_usd"],
@@ -421,6 +437,7 @@ async def get_urpd_features(
             dominant_bucket_distance_pct=row["dominant_bucket_distance_pct"],
             distribution_entropy=row["distribution_entropy"],
             confidence=row["confidence"],
+            source_health=source_health,
         )
     except HTTPException:
         raise

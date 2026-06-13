@@ -15,7 +15,7 @@ Environment="PATH=/home/sam/.local/bin:/usr/local/bin:/usr/bin:/bin"
 EnvironmentFile=-/media/sam/1TB/UTXOracle/.env
 
 # Main process (legacy mixed surface; production uses api.apps.live:app on 8011)
-ExecStart=/home/sam/.local/bin/uv run uvicorn api.apps.legacy:app \
+ExecStart=/media/sam/1TB/UTXOracle/.venv/bin/uvicorn api.apps.legacy:app \
   --host 0.0.0.0 \
   --port 8001 \
   --workers 2 \
@@ -41,7 +41,7 @@ SyslogIdentifier=utxoracle-api-legacy
 PrivateTmp=true
 NoNewPrivileges=true
 ProtectSystem=strict
-ProtectHome=true
+ProtectHome=read-only
 ReadWritePaths=/media/sam/1TB/UTXOracle/data /media/sam/1TB/UTXOracle/logs
 ProtectKernelTunables=true
 ProtectKernelModules=true
@@ -49,6 +49,9 @@ ProtectControlGroups=true
 RestrictRealtime=true
 RestrictNamespaces=true
 RestrictSUIDSGID=true
+
+# Environment (fallback for missing .env keys)
+Environment="JWT_SECRET=jBqveFvsr4ifuLX3Gf6CIyJCujuLSYiIUD437Hntf60HbRSlWmF7U0HXnVnvulSn"
 
 # Graceful shutdown
 TimeoutStopSec=15s

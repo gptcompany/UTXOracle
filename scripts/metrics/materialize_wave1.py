@@ -28,6 +28,7 @@ from scripts.metrics.absorption_rates import calculate_absorption_rates
 from scripts.metrics.wallet_waves import calculate_wallet_waves
 from scripts.metrics.address_cohorts import calculate_address_cohorts
 from scripts.metrics.cost_basis import calculate_cost_basis_signal
+from scripts.metrics.urpd_features import calculate_urpd_features_signal
 
 DUCKDB_PATH = os.getenv("DUCKDB_PATH") or os.getenv("UTXORACLE_DB_PATH") or "data/utxoracle.duckdb"
 
@@ -127,6 +128,13 @@ async def materialize_daily_snapshot(
             current_price_usd=current_price,
             timestamp=target_date
         )
+
+        urpd_features = calculate_urpd_features_signal(
+            conn=conn,
+            current_price_usd=current_price,
+            current_block=latest_height,
+            timestamp=target_date,
+        )
         
         # 5. Save to QuestDB
         wallet_waves_written = repo.save_wallet_waves(wallet_waves)
@@ -158,6 +166,15 @@ async def materialize_daily_snapshot(
                 "Wave 1 materialization write failure: wallet_waves=True absorption_rates=True address_cohorts=True cost_basis=False"
             )
             return False
+
+        urpd_features_written = repo.save_urpd_features(urpd_features)
+        if not urpd_features_written:
+            repo.abort_ingestion()
+            logger.error(
+                "Wave 1 materialization write failure: wallet_waves=True absorption_rates=True "
+                "address_cohorts=True cost_basis=True urpd_features=False"
+            )
+            return False
         
         logger.info(f"✅ Successfully materialized Wave 1 for {target_date.date()}")
         return True
@@ -177,6 +194,9 @@ async def run_materialization_pass(
     A write failure aborts the current ILP sender; using a new repository for each
     pass keeps the optional backfill retry path isolated.
     """
+    # Limit memory usage for large DuckDB scans on 57GB database
+    conn.execute("SET max_memory='8GB'")
+    
     repo = QuestDBRepository()
     await repo.initialize()
 
@@ -204,6 +224,7 @@ async def main():
         return
 
     conn = duckdb.connect(DUCKDB_PATH, read_only=True)
+    conn.execute("SET max_memory='8GB'")
     
     try:
         # Run for today
