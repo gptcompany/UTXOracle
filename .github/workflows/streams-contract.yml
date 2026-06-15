@@ -56,11 +56,16 @@ jobs:
           - 8812:8812
           - 9000:9000
           - 9009:9009
+        # QuestDB 7.4.0 cold-start on GitHub-hosted ubuntu24 occasionally
+        # exceeds the original 2-minute health window (120s = 10s × 12).
+        # Bumped to 5 minutes so a slow startup is not reported as an
+        # acceptance-contract regression. NOT continue-on-error: a genuine
+        # contract failure must still block.
         options: >-
           --health-cmd "wget -qO- http://localhost:9000/exec?query=SELECT%201 || exit 1"
           --health-interval 10s
           --health-timeout 5s
-          --health-retries 12
+          --health-retries 30
 
     env:
       QUESTDB_PG_HOST: localhost
