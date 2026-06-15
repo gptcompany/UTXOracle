@@ -74,13 +74,13 @@ A regression introduced by the QuestDB write path (e.g. a save method that raise
 
 ### Functional Requirements
 
-- **FR-001**: Every successful `aggregate_flows()` invocation MUST write the same set of `(entity_id, date)` rows to QuestDB `entity_flows_daily` that it writes to DuckDB `entity_flows_daily`, with byte-identical numerical payload (inflow_btc, outflow_btc, net_flow_btc, transaction_count where applicable).
+- **FR-001**: Every successful `aggregate_flows()` invocation MUST write the same set of `(entity_id, date)` rows to QuestDB `entity_flows_daily` that it writes to DuckDB `entity_flows_daily`, with byte-identical numerical payload across the six canonical columns enumerated in `data-model.md` (`inflow_btc`, `outflow_btc`, `netflow_btc`, `is_exchange`, plus the identity tuple `entity_id`, `date`).
 - **FR-002**: The legacy DuckDB write MUST remain the source of truth during the transition window. A QuestDB write failure MUST NOT roll back, retry, or in any way affect the DuckDB write that has already succeeded.
 - **FR-003**: A QuestDB write failure MUST produce a structured ERROR log identifying the failing per-row payload (or the count of failing rows), the exception class, and a one-line summary suitable for the Discord webhook (FR-007).
 - **FR-004**: The producer MUST emit a structured INFO log per successful invocation including `rows_written_duckdb`, `rows_written_questdb`, the date range covered, and the wall-clock duration of each write half.
 - **FR-005**: The producer MUST expose a rollback configuration toggle via the environment variable `SPEC063_QUESTDB_WRITE`. Default is ON. The variable is treated as OFF when its value (case-insensitive, whitespace-trimmed) is exactly `0`, `false`, or `no`. Any other value, including unset, is treated as ON. With the toggle OFF, `aggregate_flows()` MUST NOT open any QuestDB connection and MUST NOT modify any pre-existing QuestDB rows.
 - **FR-006**: QuestDB `entity_flows_daily` MUST have `DEDUP UPSERT KEYS(date, entity_id)` configured so re-runs of the same date are idempotent and concurrent invocations converge.
-- **FR-007**: A QuestDB write failure MUST post exactly one Discord webhook notification per `aggregate_flows()` run (re-using the spec-062 FR-012 surface) with `entity_flows_daily` as the stream identifier, the target date(s), the count of failed rows, and the exception class. Per-row failure detail lives in the structured ERROR logs (FR-003), NOT in the webhook payload. Successful runs MUST NOT post. A run where some rows succeed and others fail MUST still post exactly one webhook summarising the failure count.
+- **FR-007**: A QuestDB write failure MUST post exactly one Discord webhook notification per `aggregate_flows()` run conforming to the canonical payload schema in `contracts/webhook_payload.md` (one-line summary including stream identifier, target date or `min(date)..max(date)` range, count of failed rows, and exception class — with `MultipleFailureClasses` when ≥ 2 distinct exception classes are observed). Per-row failure detail lives in the structured ERROR logs (FR-003), NOT in the webhook payload. Successful runs MUST NOT post. A run where some rows succeed and others fail MUST still post exactly one webhook summarising the failure count.
 - **FR-008**: The automated test suite MUST include a guard that fails CI if the producer is invoked under nominal conditions and the QuestDB write half is silently skipped (e.g. because of a missing import or a typo'd config key).
 - **FR-009**: The automated test suite MUST include a guard that fails CI if a future refactor removes the DuckDB write half before the legacy-removal follow-up spec authorises it.
 - **FR-010**: Schema parity: the QuestDB `entity_flows_daily` columns MUST be a 1:1 mirror of the DuckDB columns as observed at the start of spec-063, with column-by-column casts enumerated in `data-model.md`. Lossless casts (round-trip preserves the original value at the documented precision for the domain) are applied silently. Materially lossy casts MUST be enumerated in `decisions.md` with column, direction, and residual error bound before plan is frozen — and MUST be re-confirmed by the owner during `/speckit.plan`.
@@ -96,11 +96,13 @@ A regression introduced by the QuestDB write path (e.g. a save method that raise
 
 ### Measurable Outcomes
 
-- **SC-001**: After spec-063 lands and a single `aggregate_flows()` invocation runs in production, `/v1/streams/health` reports `entity_flows_daily` as OK with `stale_seconds` ≤ the declared SLA for ≥ 95 % of polls over a one-hour window.
+**Verification model**: SC-001, SC-005 are **operator-side gates** (no CI automation). spec-063 does not ship a scheduler; the operator manually invokes `aggregate_flows()` per [quickstart.md](./quickstart.md). SC-002, SC-003, SC-004 are CI-or-smoke-gateable inside this spec.
+
+- **SC-001** *(operator-side)*: After spec-063 lands and a single `aggregate_flows()` invocation runs in production, `/v1/streams/health` reports `entity_flows_daily` as OK with `stale_seconds` ≤ the declared SLA for ≥ 95 % of polls over a one-hour window.
 - **SC-002**: For any date D where the DuckDB `entity_flows_daily` table holds N rows, the QuestDB `entity_flows_daily` table also holds N rows for date D within 5 seconds of the `aggregate_flows()` invocation completing.
 - **SC-003**: A simulated QuestDB write failure during `aggregate_flows()` MUST NOT cause a missing or corrupted row in the DuckDB legacy table; 100 % of pre-failure DuckDB writes persist.
 - **SC-004**: An engineer migrating the next Phase 2 producer (e.g. `mempool_predictions`) reuses the spec-063 deliverables as a working template and completes the equivalent write-side migration in under one working day end-to-end (spec + code + tests + smoke), with no new entries needing to be added to the spec-062 Appendix A pattern document.
-- **SC-005**: For seven consecutive days after spec-063 deployment, the `entity_flows_daily` stream in `/v1/streams/health` reports OK at every poll and the producer emits zero ERROR logs from the QuestDB write path.
+- **SC-005** *(operator-side)*: For seven consecutive days after spec-063 deployment, the `entity_flows_daily` stream in `/v1/streams/health` reports OK at every poll and the producer emits zero ERROR logs from the QuestDB write path.
 
 ## Assumptions
 

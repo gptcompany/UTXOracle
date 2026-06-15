@@ -58,6 +58,7 @@ Apply the canonical strangler-fig pattern from `specs/062-aggregator-zero-duckdb
 
 **Notes**:
 - **Production runtime gap**: `aggregate_flows()` is invoked ONLY by tests today. AC4 / SC-001 / SC-005 from spec.md cannot be verified by automatic scheduling — they require an operator-driven manual smoke (run the script once, observe `/v1/streams/health`). This is documented in the rollback runbook and in the spec-063 PR description. A separate spec will own the scheduling decision; spec-063 ships the dual-write half so the next spec only needs to add a timer.
+- **Integration-test CI gap (analyze F7)**: The two integration-marked tests `test_entity_flows_daily_dedup_ddl_applied` (T006) and `test_rollback_OFF_does_not_delete_pre_existing_questdb_rows` (T020) require a live QuestDB instance. The spec-061 streams-contract CI workflow is currently flaky on GitHub-hosted runners (independent of spec-063 — see PR #9 thread). spec-063 accepts this gap: the DDL adjustment in T009 (ALTER TABLE … DEDUP ENABLE UPSERT KEYS) is verified by local smoke against the host QuestDB during T029, NOT in CI. A future spec MAY add a mocked-DDL syntactic test that runs in CI without QuestDB; out of scope here.
 - **Re-check post-design**: PASS — no design-phase additions introduce constitutional concerns.
 
 ## Project Structure

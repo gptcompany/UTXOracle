@@ -65,7 +65,7 @@ description: "Task list for spec-063 entity_flows_daily QuestDB Producer Pilot"
 
 ### RED phase — guards (b) and (e) from plan Constitution Check
 
-- [ ] T010 [RED] [US1] Add `test_dual_write_payload_byte_identity` in `tests/test_flow_aggregator_questdb.py`: patch `save_entity_flows_daily` to record calls, invoke `aggregate_flows()` against a fixture DuckDB containing 3 known entities × 1 day, assert each call's kwargs exactly match the row produced by the SELECT (entity_id, date, inflow_btc, outflow_btc, netflow_btc, is_exchange). Commit; verify it fails (dual-write block does not exist yet).
+- [ ] T010 [RED] [US1] Add `test_dual_write_payload_byte_identity` in `tests/test_flow_aggregator_questdb.py`: patch `save_entity_flows_daily` at **the caller binding** `scripts.live.flow_aggregator.save_entity_flows_daily` (NOT at `api.questdb_repository.save_entity_flows_daily` — patching the source would not intercept the producer's bound name) to record calls; invoke `aggregate_flows()` against a fixture DuckDB containing 3 known entities × 1 day, assert each call's kwargs exactly match the row produced by the SELECT (entity_id, date, inflow_btc, outflow_btc, netflow_btc, is_exchange). Commit; verify it fails (dual-write block does not exist yet).
 - [ ] T011 [RED] [US1] Add `test_cast_contract_matches_data_model` in `tests/test_flow_aggregator_questdb.py`: assert that for each known row, the value passed to `save_entity_flows_daily` for `date` is a `datetime.date` (not a string, not a datetime), `entity_id` is `str`, `*_btc` are `float`, `is_exchange` is `bool`. Commit; verify it fails.
 
 ### GREEN phase
@@ -74,7 +74,7 @@ description: "Task list for spec-063 entity_flows_daily QuestDB Producer Pilot"
 
 ### Live verification
 
-- [ ] T013 [US1] Run the quickstart manual smoke (Step 1–4 of `quickstart.md`) against the host QuestDB. Confirm row-count parity between DuckDB and QuestDB for `current_date`. Record the duration and row count in a smoke log at `validation/reports/$(date +%F)_spec063_smoke.md`.
+- [ ] T013 [US1] Run the quickstart manual smoke (Step 1–4 of `quickstart.md`) against the host QuestDB. Confirm row-count parity between DuckDB and QuestDB for `current_date`. **Measure SC-002 5-second visibility window**: capture `t0` immediately after `aggregate_flows()` returns; then poll QuestDB count every 500 ms for up to 10 s; assert parity observed within 5 000 ms of `t0`; record the actual observed delta. Save smoke log with duration, row count, and t0-to-parity delta in `validation/reports/$(date +%F)_spec063_smoke.md`.
 
 ---
 
@@ -107,9 +107,9 @@ description: "Task list for spec-063 entity_flows_daily QuestDB Producer Pilot"
 
 ### RED phase — guard (d) — aggregated webhook + forward-only rollback
 
-- [ ] T018 [RED] [US3] Add `test_aggregated_webhook_fires_exactly_once_per_failing_run` in `tests/test_flow_aggregator_questdb.py`: simulate 47 row failures spanning a single date, patch `urllib.request.urlopen`, invoke `aggregate_flows()`, assert `urlopen` was called exactly once, parse the JSON body, regex-match the payload against `^:rotating_light: entity_flows_daily QuestDB write failed for \d{4}-\d{2}-\d{2}: 47 rows failed \([\w\.]+\)$`. Commit; verify it fails.
-- [ ] T019 [RED] [US3] Add `test_webhook_NOT_fired_on_successful_run` in `tests/test_flow_aggregator_questdb.py`: simulate all rows succeeding, patch `urllib.request.urlopen`, invoke `aggregate_flows()`, assert `urlopen` was NOT called. Commit; verify it fails (no helper yet wired).
-- [ ] T020 [RED] [US3] Add `test_rollback_OFF_does_not_delete_pre_existing_questdb_rows` in `tests/test_flow_aggregator_questdb.py`: seed QuestDB `entity_flows_daily` with 2 known rows via direct INSERT, set `SPEC063_QUESTDB_WRITE=0`, invoke `aggregate_flows()`, assert the 2 pre-existing rows still exist in QuestDB unchanged. Mark `@pytest.mark.integration`. Commit; verify it fails (no env-var gating yet — but T014 GREEN already lands this, so T020 may turn green simultaneously with T016).
+- [ ] T018 [RED] [US3] Add `test_aggregated_webhook_fires_exactly_once_per_failing_run` in `tests/test_flow_aggregator_questdb.py`: simulate 47 row failures spanning a single date, patch `urllib.request.urlopen` at **the caller binding** `scripts.live.flow_aggregator.urllib.request.urlopen`, invoke `aggregate_flows()`, assert `urlopen` was called exactly once, parse the JSON body, regex-match the payload against `^:rotating_light: entity_flows_daily QuestDB write failed for \d{4}-\d{2}-\d{2}: 47 rows failed \([\w\.]+\)$`. Commit; verify it fails.
+- [ ] T019 [RED] [US3] Add `test_webhook_NOT_fired_on_successful_run` in `tests/test_flow_aggregator_questdb.py`: simulate all rows succeeding, patch `urllib.request.urlopen` (same caller-binding target as T018), invoke `aggregate_flows()`, assert `urlopen` was NOT called. Commit; verify it fails (no helper yet wired).
+- [ ] T020 [RED] [US3] Add `test_rollback_OFF_preserves_pre_existing_questdb_row_values` in `tests/test_flow_aggregator_questdb.py`: seed QuestDB `entity_flows_daily` with 2 known rows via direct INSERT carrying **distinct sentinel values** (e.g. `inflow_btc = 999.123456`, `outflow_btc = -999.654321`). Set `SPEC063_QUESTDB_WRITE=0`. Invoke `aggregate_flows()` against a fixture DuckDB whose row set would, if written, produce **different** values for the same `(entity_id, date)` keys. Assert: (a) the 2 pre-existing rows still exist; (b) their `inflow_btc` and `outflow_btc` values are still the sentinels (NOT overwritten by aggregate values) — this proves forward-only rollback semantics beyond what T014's "no connection opened" guard tests. Mark `@pytest.mark.integration`. Commit; verify it fails (no env-var gating yet).
 
 ### GREEN phase
 
@@ -133,7 +133,10 @@ description: "Task list for spec-063 entity_flows_daily QuestDB Producer Pilot"
 
 ### Observability
 
-- [ ] T026 At the end of `aggregate_flows()` in `scripts/live/flow_aggregator.py`, emit the structured INFO log per FR-004: `spec-063 entity_flows_daily dual-write success: date=... duration_s=... rows_written_duckdb=... rows_written_questdb=...`. Include both counts even when env var OFF (rows_written_questdb=0). Commit; spot-check by running the function.
+- [ ] T026 At the end of `aggregate_flows()` in `scripts/live/flow_aggregator.py`, emit the structured INFO log per FR-004. Two shapes:
+  - **ON** (default): `spec-063 entity_flows_daily dual-write success: date=... duration_s=... rows_written_duckdb=N rows_written_questdb=M`
+  - **OFF** (`SPEC063_QUESTDB_WRITE` set to `0`/`false`/`no`): `spec-063 entity_flows_daily dual-write success: date=... duration_s=... rows_written_duckdb=N rows_written_questdb=disabled`
+  The literal token `disabled` (not `0`) disambiguates "operator disabled the write half" from "tried zero rows" or "all rows failed". Commit; spot-check by running the function under both env-var states.
 
 ### Final verification
 
@@ -141,6 +144,10 @@ description: "Task list for spec-063 entity_flows_daily QuestDB Producer Pilot"
 - [ ] T028 Run `ruff check scripts/live/flow_aggregator.py api/questdb_repository.py tests/test_flow_aggregator_questdb.py`. Resolve any findings. Commit fixes if any.
 - [ ] T029 Live end-to-end smoke from `quickstart.md`: manual smoke success path + rollback verification + re-enable. Capture the full transcript into `validation/reports/$(date +%F)_spec063_smoke.md`.
 - [ ] T030 Update PR description with: link to `quickstart.md`, summary of D1–D6 from `decisions.md`, link to smoke report from T029, confirmation that all spec-062 Appendix A six steps map to tasks (cross-reference in `decisions.md` T017 lessons section).
+
+### FR-011 health endpoint guard (analyze F2 remediation)
+
+- [ ] T031 Add `test_entity_flows_daily_appears_OK_in_streams_health` in `tests/test_flow_aggregator_questdb.py`: `@pytest.mark.integration` (live QuestDB + live API). Seed QuestDB `entity_flows_daily` with one row via the production `save_entity_flows_daily(...)`; POST to local `/v1/streams/health` with `RUN_STREAMS_HEALTH_CONTRACT=1`; parse response; assert the `entity_flows_daily` stream entry has `status == "OK"` and `stale_seconds <= 129600`. Catches a regression where the producer writes successfully but the registry mapping drifts (FR-011 + Story 1 acceptance scenario 1). Skipped in plain CI (consistent with F7 acknowledgement); runs in T029 smoke and in any future spec that re-enables the streams-contract workflow.
 
 ---
 
@@ -151,10 +158,10 @@ Phase 1 Setup (T001 → T002 → T003)
     └── Phase 2 Foundational
           T004,T005,T006 (RED — parallel within file but same file so serial commits)
               └── T007,T008,T009 (GREEN — serial commits, different files OK to parallel)
-                    └── Phase 3 US1 (T010,T011 RED → T012 GREEN → T013 smoke)
+                    └── Phase 3 US1 (T010,T011 RED → T012 GREEN → T013 smoke with SC-002 5s latency measurement)
                         Phase 4 US2 (T014,T015 RED → T016 GREEN → T017 docs)
                         Phase 5 US3 (T018,T019,T020 RED → T021,T022 GREEN → T023 smoke)
-                              └── Phase 6 Polish (T024–T030)
+                              └── Phase 6 Polish (T024–T031, incl. T031 FR-011 health endpoint guard)
 ```
 
 All three user stories depend on Phase 2 completion. Within each story, RED tests must commit before GREEN implementation. Phase 6 depends on all stories.
@@ -206,7 +213,7 @@ Estimated 26–28 commits total. Branch is `063-entity-flows-daily-questdb`. Fin
 | 3 — US1 | 4 | 2 | 1 | 1 |
 | 4 — US2 | 4 | 2 | 1 | 1 |
 | 5 — US3 | 6 | 3 | 2 | 1 |
-| 6 — Polish | 7 | 2 | 1 | 4 |
-| **Total** | **30** | **12** | **8** | **10** |
+| 6 — Polish | 8 | 3 | 1 | 4 |
+| **Total** | **31** | **13** | **8** | **10** |
 
-12 RED tasks committed before any GREEN task — Constitution II TDD discipline observable in git history.
+13 RED tasks committed before any GREEN task — Constitution II TDD discipline observable in git history. T031 is the FR-011 health-endpoint guard added during analyze remediation (F2); it is integration-marked and skipped in plain CI per the F7 acknowledgement.
