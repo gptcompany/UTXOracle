@@ -1,5 +1,8 @@
 """Build daily price table from mempool.space historical API.
 
+DEPRECATED: production path is build_price_table_questdb.py; this script is
+for historical one-shot backfills only.
+
 Fetches BTC/USD prices from 2011 to present using the mempool.space
 /api/v1/historical-price endpoint. Stores in DuckDB for UTXO lifecycle
 price lookups.

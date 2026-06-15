@@ -1,7 +1,7 @@
 # UTXOracle Production Roadmap
 
 **Audience**: project owner reviewing before approval.
-**Status**: draft revision 2 — 2026-06-04 (revised after codex review).
+**Status**: draft revision 6 — 2026-06-05 (Phase 1.5-v2 installed, spec-062 aggregator zero-DuckDB landed).
 **Scope**: take spec-061 from "code-complete + 2/13 streams live" to
 "all 13 streams green in production, with monitoring and recovery".
 **Out of scope**: spec-062 (utxo_lifecycle producer migration to QuestDB
@@ -26,23 +26,42 @@ SSOT) is referenced but not detailed here — it deserves its own spec.
   (`tip_catchup_lifecycle_via_rpc.py`,
   `tip_spent_backfill_via_rpc.py`); no DuckDB write path. Mirror timer
   documented for operator install.
-- ⛔ **Phase 1.5 sign-off REVOKED** after Codex review of the
-  implementation. The new units
-  `utxoracle-block-heights-catchup.service` and
-  `utxoracle-daily-prices-refresh.service` schedule **DuckDB writers**
-  (`build_block_heights.py` and `build_price_table.py` both default to
-  `data/utxoracle.duckdb` in write mode via
-  `scripts/config/database.py:24`). The smoke run in
-  `docs/PRODUCTION_PHASE1_SMOKE.md:135` already proved the failure mode
-  — DuckDB lock conflict with the live wave1 materializer — and the
-  current report's "BLOCKED ... not by the new unit definitions" line at
-  `docs/PRODUCTION_PHASE1_SMOKE.md:150` understates the cause: the unit
-  definitions ARE what schedules the conflicting DuckDB writes.
-  - The two Phase 1.5 services and timers MUST NOT be installed in
-    production as-is.
-  - Phase 1.5 is replaced by **Phase 1.5-v2** below: QuestDB-native
-    `block_heights` and `daily_prices` producers, plus a reader
-    migration in `calculate_daily_metrics`.
+- ⛔ **Phase 1.5 (v1) sign-off REVOKED** on 2026-06-04 after Codex
+  review found that the original units scheduled DuckDB writers. v1 is
+  superseded by Phase 1.5-v2 below.
+- ✅ **Phase 1.5-v2 signed off, implemented** (2026-06-05). Commits
+  148ae3c (DDL), 0b0778e (reader migration with `--questdb-reads`),
+  fdfdb1e (QuestDB-native writers
+  `scripts/bootstrap/build_block_heights_questdb.py` and
+  `scripts/bootstrap/build_price_table_questdb.py`), b1e6bee (unit files
+  repointed to v2 writers). Verification:
+  - DDL applied to host QuestDB: `block_heights` and `daily_prices`
+    tables created with WAL + DEDUP UPSERT KEYS (confirmed via
+    `tables()` query).
+  - 14/14 unit + writer + reader tests green
+    (`tests/test_spec061_phase15_writers.py`,
+    `tests/test_spec061_phase15_units.py`,
+    `tests/test_calculate_daily_metrics_questdb.py`).
+  - Writer guard test asserts no `import duckdb` in the new modules.
+  - First v2 backfill verified live: `build_block_heights_questdb` is
+    walking Bitcoin Core RPC to QuestDB; `build_price_table_questdb`
+    completed 1100+ rows from 2011-01-01 in <1 min via mempool.space.
+  - Unit files now point to v2 modules with `After=questdb.service`;
+    operator can `systemctl enable --now` once backfills converge.
+  - **Installed and enabled** on host (2026-06-05): both timers active
+    via `scripts/bootstrap/install_phase15_v2_timers.sh`. Verified via
+    `systemctl list-timers`.
+- ✅ **Spec-062 aggregator zero-DuckDB read path** signed off,
+  implemented (2026-06-05, commit 6f27cbb). The aggregator with
+  `--questdb-reads --questdb-only` opens ZERO DuckDB files:
+  `calculate_daily_realized_cap`, `calculate_daily_sopr`,
+  `calculate_cointime_daily`, the inline supply query and
+  `mvrv_variants.get_market_cap_history_all_time` all gain a QuestDB
+  branch reading `utxo_lifecycle` / `utxo_snapshots`. `main()` skips
+  `duckdb.connect` entirely when both flags are set. Live smoke
+  2026-06-04: 174M-row aggregation in ~25 s, mvrv=1.631 written to
+  QuestDB `mvrv_daily`, `fuser data/utxoracle.duckdb` empty. 12/12
+  tests green (5 new spec-062 guards).
 - ⏸️ Phase 3.c (backup) stays deferred and does not block green
   production.
 

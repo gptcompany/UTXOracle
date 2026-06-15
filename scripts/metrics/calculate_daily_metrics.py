@@ -18,7 +18,12 @@ This module aggregates UTXO data into daily metric tables:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
+import os
+import time
+import urllib.error
+import urllib.request
 from datetime import date, datetime, timedelta
 from typing import Optional
 
@@ -31,6 +36,7 @@ from scripts.config import UTXORACLE_DB_PATH
 # Strangler-fig per research.md R5: QuestDB write failure logs but does not
 # raise; DuckDB remains the source of truth during the transition.
 from api.questdb_repository import (
+    _open_pg_sync,
     save_mvrv_daily,
     save_nupl_daily,
     save_realized_cap_daily,
@@ -42,31 +48,65 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+class QuestDBPersistenceError(RuntimeError):
+    """Raised when strict QuestDB persistence leaves one or more rows unwritten."""
+
+    def __init__(self, target_date: date, failures: list[tuple[str, BaseException]]):
+        self.target_date = target_date
+        self.failures = failures
+        detail = ", ".join(f"{name}: {type(exc).__name__}" for name, exc in failures)
+        super().__init__(
+            f"QuestDB persistence failed for {target_date}: {detail}"
+        )
+
+
 def get_blocks_for_date(
-    target_date: date, conn: duckdb.DuckDBPyConnection
+    target_date: date,
+    conn: Optional[duckdb.DuckDBPyConnection],
+    *,
+    questdb_reads: bool = False,
 ) -> tuple[int, int]:
     """Get block range for a specific date.
 
     Args:
         target_date: The date to get blocks for
         conn: DuckDB connection
+        questdb_reads: Read block_heights from QuestDB instead of DuckDB
 
     Returns:
         (start_block, end_block) tuple
     """
     # Convert date to Unix timestamp range
-    start_ts = int(datetime.combine(target_date, datetime.min.time()).timestamp())
-    end_ts = start_ts + 86400  # +24 hours
+    start_dt = datetime.combine(target_date, datetime.min.time())
+    end_dt = start_dt + timedelta(days=1)
 
-    # Query block_heights table for date range (timestamp is Unix integer)
-    result = conn.execute(
-        """
-        SELECT MIN(height), MAX(height)
-        FROM block_heights
-        WHERE timestamp >= ? AND timestamp < ?
-        """,
-        [start_ts, end_ts],
-    ).fetchone()
+    if questdb_reads:
+        with _open_pg_sync() as qdb:
+            with qdb.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT MIN(height), MAX(height)
+                    FROM block_heights
+                    WHERE ts >= %s AND ts < %s
+                    """,
+                    (start_dt, end_dt),
+                )
+                result = cur.fetchone()
+    else:
+        assert conn is not None, "DuckDB conn required when questdb_reads=False"
+        start_ts = int(start_dt.timestamp())
+        end_ts = int(end_dt.timestamp())
+
+        # Query block_heights table for date range (timestamp is Unix integer)
+        result = conn.execute(
+            """
+            SELECT MIN(height), MAX(height)
+            FROM block_heights
+            WHERE timestamp >= ? AND timestamp < ?
+            """,
+            [start_ts, end_ts],
+        ).fetchone()
+
 
     if result is None or result[0] is None or result[1] is None:
         raise ValueError(f"No blocks found for date {target_date}")
@@ -75,49 +115,96 @@ def get_blocks_for_date(
 
 
 def get_price_for_date(
-    target_date: date, conn: duckdb.DuckDBPyConnection
+    target_date: date,
+    conn: Optional[duckdb.DuckDBPyConnection],
+    *,
+    questdb_reads: bool = False,
 ) -> Optional[float]:
     """Get BTC price for a specific date from daily_prices table."""
-    result = conn.execute(
-        """
-        SELECT price_usd
-        FROM daily_prices
-        WHERE date = ?
-        """,
-        [target_date],
-    ).fetchone()
+    if questdb_reads:
+        target_ts = datetime.combine(target_date, datetime.min.time())
+        with _open_pg_sync() as qdb:
+            with qdb.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT price_usd
+                    FROM daily_prices
+                    WHERE date = %s
+                    ORDER BY fetched_at DESC
+                    LIMIT 1
+                    """,
+                    (target_ts,),
+                )
+                result = cur.fetchone()
+    else:
+        assert conn is not None, "DuckDB conn required when questdb_reads=False"
+        result = conn.execute(
+            """
+            SELECT price_usd
+            FROM daily_prices
+            WHERE date = ?
+            """,
+            [target_date],
+        ).fetchone()
 
     return result[0] if result else None
 
 
 def calculate_daily_realized_cap(
-    conn: duckdb.DuckDBPyConnection, as_of_block: int
+    conn: Optional[duckdb.DuckDBPyConnection],
+    as_of_block: int,
+    *,
+    questdb_reads: bool = False,
 ) -> float:
     """Calculate Realized Cap as of a specific block.
 
     Realized Cap = Sum of (UTXO value × creation price) for all unspent UTXOs.
-    Uses utxo_lifecycle_full which has realized_value_usd pre-computed.
+    Uses utxo_lifecycle (QuestDB SSOT) or utxo_lifecycle_full (legacy DuckDB).
     """
-    result = conn.execute(
-        """
-        SELECT COALESCE(SUM(
-            CASE
-                WHEN is_spent = FALSE OR (is_spent = TRUE AND spent_block > ?)
-                THEN realized_value_usd
-                ELSE 0
-            END
-        ), 0)
-        FROM utxo_lifecycle_full
-        WHERE creation_block <= ?
-        """,
-        [as_of_block, as_of_block],
-    ).fetchone()
+    if questdb_reads:
+        with _open_pg_sync() as qdb:
+            with qdb.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT COALESCE(SUM(
+                        CASE
+                            WHEN is_spent = FALSE OR (is_spent = TRUE AND spent_block > %s)
+                            THEN realized_value_usd
+                            ELSE 0
+                        END
+                    ), 0)
+                    FROM utxo_lifecycle
+                    WHERE creation_block <= %s
+                    """,
+                    (as_of_block, as_of_block),
+                )
+                result = cur.fetchone()
+    else:
+        assert conn is not None, "DuckDB conn required when questdb_reads=False"
+        result = conn.execute(
+            """
+            SELECT COALESCE(SUM(
+                CASE
+                    WHEN is_spent = FALSE OR (is_spent = TRUE AND spent_block > ?)
+                    THEN realized_value_usd
+                    ELSE 0
+                END
+            ), 0)
+            FROM utxo_lifecycle_full
+            WHERE creation_block <= ?
+            """,
+            [as_of_block, as_of_block],
+        ).fetchone()
 
-    return result[0] if result else 0.0
+    return float(result[0]) if result and result[0] is not None else 0.0
 
 
 def calculate_daily_sopr(
-    conn: duckdb.DuckDBPyConnection, start_block: int, end_block: int
+    conn: Optional[duckdb.DuckDBPyConnection],
+    start_block: int,
+    end_block: int,
+    *,
+    questdb_reads: bool = False,
 ) -> Optional[float]:
     """Calculate SOPR for a block range.
 
@@ -126,7 +213,57 @@ def calculate_daily_sopr(
     If spent_price_usd is not available, we join with block_heights and daily_prices
     to get the price at which the UTXO was spent.
     """
-    # First try with pre-computed spent_price_usd
+    if questdb_reads:
+        with _open_pg_sync() as qdb:
+            with qdb.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        COALESCE(SUM(btc_value * spent_price_usd), 0) AS total_spent,
+                        COALESCE(SUM(realized_value_usd), 0) AS total_realized
+                    FROM utxo_lifecycle
+                    WHERE is_spent = TRUE
+                      AND spent_block BETWEEN %s AND %s
+                      AND realized_value_usd > 0
+                      AND spent_price_usd IS NOT NULL
+                    """,
+                    (start_block, end_block),
+                )
+                result = cur.fetchone()
+                if (
+                    result
+                    and result[0] is not None
+                    and result[1] is not None
+                    and float(result[0]) > 0
+                    and float(result[1]) > 0
+                ):
+                    return float(result[0]) / float(result[1])
+
+                cur.execute(
+                    """
+                    SELECT
+                        COALESCE(SUM(u.btc_value * dp.price_usd), 0) AS total_spent,
+                        COALESCE(SUM(u.realized_value_usd), 0) AS total_realized
+                    FROM utxo_lifecycle u
+                    JOIN block_heights bh ON u.spent_block = bh.height
+                    JOIN daily_prices dp ON cast(bh.ts AS DATE) = cast(dp.date AS DATE)
+                    WHERE u.is_spent = TRUE
+                      AND u.spent_block BETWEEN %s AND %s
+                      AND u.realized_value_usd > 0
+                    """,
+                    (start_block, end_block),
+                )
+                result = cur.fetchone()
+        if (
+            result
+            and result[1] is not None
+            and float(result[1]) > 0
+        ):
+            return float(result[0]) / float(result[1])
+        return None
+
+    # Legacy DuckDB path
+    assert conn is not None, "DuckDB conn required when questdb_reads=False"
     result = conn.execute(
         """
         SELECT
@@ -167,10 +304,12 @@ def calculate_daily_sopr(
 
 
 def calculate_daily_mvrv(
-    conn: duckdb.DuckDBPyConnection,
+    conn: Optional[duckdb.DuckDBPyConnection],
     market_cap: float,
     realized_cap: float,
     as_of_block: Optional[int] = None,
+    *,
+    questdb_reads: bool = False,
 ) -> tuple[Optional[float], Optional[float], Optional[float]]:
     """Calculate MVRV, MVRV-Z (simplified), and MVRV-Z (RBN).
 
@@ -196,6 +335,7 @@ def calculate_daily_mvrv(
         market_cap,
         realized_cap,
         max_block_height=as_of_block,
+        questdb_reads=questdb_reads,
     )
     mvrv_z_rbn = (
         variants.mvrv_z_rbn
@@ -217,44 +357,73 @@ def calculate_daily_nupl(market_cap: float, realized_cap: float) -> Optional[flo
     return (market_cap - realized_cap) / market_cap
 
 
-def calculate_cointime_daily(conn: duckdb.DuckDBPyConnection, as_of_block: int) -> dict:
+def calculate_cointime_daily(
+    conn: Optional[duckdb.DuckDBPyConnection],
+    as_of_block: int,
+    *,
+    questdb_reads: bool = False,
+) -> dict:
     """Calculate Cointime metrics as of a specific block.
 
     Uses coinblocks formula per Cointime Economics (spec-018):
     - Liveliness = cumulative_coinblocks_destroyed / cumulative_coinblocks_created
     - Vaultedness = 1 - Liveliness
-
-    Where:
-    - Coinblocks destroyed = SUM(btc_value * age_blocks) for spent UTXOs
-    - Coinblocks created = SUM(btc_value * (as_of_block - creation_block)) for all UTXOs
-
-    Returns:
-        dict with liveliness, vaultedness, coinblocks_destroyed, coinblocks_created
     """
-    # Coinblocks destroyed: sum of (btc_value * age at spending) for all spent UTXOs
-    destroyed_result = conn.execute(
-        """
-        SELECT COALESCE(SUM(btc_value * COALESCE(age_blocks, spent_block - creation_block)), 0)
-        FROM utxo_lifecycle_full
-        WHERE is_spent = TRUE
-        AND spent_block <= ?
-        AND creation_block > 0
-        """,
-        [as_of_block],
-    ).fetchone()
-    coinblocks_destroyed = float(destroyed_result[0]) if destroyed_result else 0.0
+    if questdb_reads:
+        with _open_pg_sync() as qdb:
+            with qdb.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT COALESCE(SUM(btc_value * COALESCE(age_blocks, spent_block - creation_block)), 0)
+                    FROM utxo_lifecycle
+                    WHERE is_spent = TRUE
+                      AND spent_block <= %s
+                      AND creation_block > 0
+                    """,
+                    (as_of_block,),
+                )
+                destroyed_result = cur.fetchone()
+                cur.execute(
+                    """
+                    SELECT COALESCE(SUM(btc_value * (%s - creation_block)), 0)
+                    FROM utxo_lifecycle
+                    WHERE creation_block <= %s
+                      AND creation_block > 0
+                    """,
+                    (as_of_block, as_of_block),
+                )
+                created_result = cur.fetchone()
+    else:
+        assert conn is not None, "DuckDB conn required when questdb_reads=False"
+        # Coinblocks destroyed: sum of (btc_value * age at spending) for all spent UTXOs
+        destroyed_result = conn.execute(
+            """
+            SELECT COALESCE(SUM(btc_value * COALESCE(age_blocks, spent_block - creation_block)), 0)
+            FROM utxo_lifecycle_full
+            WHERE is_spent = TRUE
+            AND spent_block <= ?
+            AND creation_block > 0
+            """,
+            [as_of_block],
+        ).fetchone()
 
-    # Coinblocks created: sum of (btc_value * age) for all UTXOs existing at as_of_block
-    created_result = conn.execute(
-        """
-        SELECT COALESCE(SUM(btc_value * (? - creation_block)), 0)
-        FROM utxo_lifecycle_full
-        WHERE creation_block <= ?
-        AND creation_block > 0
-        """,
-        [as_of_block, as_of_block],
-    ).fetchone()
-    coinblocks_created = float(created_result[0]) if created_result else 0.0
+        # Coinblocks created: sum of (btc_value * age) for all UTXOs existing at as_of_block
+        created_result = conn.execute(
+            """
+            SELECT COALESCE(SUM(btc_value * (? - creation_block)), 0)
+            FROM utxo_lifecycle_full
+            WHERE creation_block <= ?
+            AND creation_block > 0
+            """,
+            [as_of_block, as_of_block],
+        ).fetchone()
+
+    coinblocks_destroyed = (
+        float(destroyed_result[0]) if destroyed_result and destroyed_result[0] is not None else 0.0
+    )
+    coinblocks_created = (
+        float(created_result[0]) if created_result and created_result[0] is not None else 0.0
+    )
 
     if coinblocks_created > 0:
         liveliness = min(1.0, max(0.0, coinblocks_destroyed / coinblocks_created))
@@ -278,7 +447,12 @@ def calculate_cointime_daily(conn: duckdb.DuckDBPyConnection, as_of_block: int) 
     }
 
 
-def calculate_daily_metrics(target_date: date, conn: duckdb.DuckDBPyConnection) -> dict:
+def calculate_daily_metrics(
+    target_date: date,
+    conn: Optional[duckdb.DuckDBPyConnection],
+    *,
+    questdb_reads: bool = False,
+) -> dict:
     """Calculate all metrics for a single day.
 
     Args:
@@ -291,34 +465,61 @@ def calculate_daily_metrics(target_date: date, conn: duckdb.DuckDBPyConnection) 
     logger.info(f"Calculating metrics for {target_date}...")
 
     # Get block range for date
-    start_block, end_block = get_blocks_for_date(target_date, conn)
+    start_block, end_block = get_blocks_for_date(
+        target_date,
+        conn,
+        questdb_reads=questdb_reads,
+    )
     logger.debug(f"  Block range: {start_block} - {end_block}")
 
     # Get price
-    price = get_price_for_date(target_date, conn)
+    price = get_price_for_date(target_date, conn, questdb_reads=questdb_reads)
     if price is None:
         logger.warning(f"  No price found for {target_date}")
 
     # Calculate Realized Cap
-    realized_cap = calculate_daily_realized_cap(conn, end_block)
+    realized_cap = calculate_daily_realized_cap(
+        conn, end_block, questdb_reads=questdb_reads
+    )
 
     # Get total supply (approximate from UTXO sum)
-    supply_result = conn.execute(
-        """
-        SELECT COALESCE(SUM(btc_value), 0)
-        FROM utxo_lifecycle_full
-        WHERE (is_spent = FALSE OR spent_block > ?)
-        AND creation_block <= ?
-        """,
-        [end_block, end_block],
-    ).fetchone()
-    total_supply = supply_result[0] if supply_result else 0
+    if questdb_reads:
+        with _open_pg_sync() as qdb:
+            with qdb.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT COALESCE(SUM(btc_value), 0)
+                    FROM utxo_lifecycle
+                    WHERE (is_spent = FALSE OR spent_block > %s)
+                      AND creation_block <= %s
+                    """,
+                    (end_block, end_block),
+                )
+                supply_result = cur.fetchone()
+    else:
+        assert conn is not None, "DuckDB conn required when questdb_reads=False"
+        supply_result = conn.execute(
+            """
+            SELECT COALESCE(SUM(btc_value), 0)
+            FROM utxo_lifecycle_full
+            WHERE (is_spent = FALSE OR spent_block > ?)
+            AND creation_block <= ?
+            """,
+            [end_block, end_block],
+        ).fetchone()
+    total_supply = (
+        float(supply_result[0])
+        if supply_result and supply_result[0] is not None
+        else 0.0
+    )
 
     # Calculate Market Cap
     market_cap = total_supply * price if price else 0
 
     # Calculate SOPR
-    sopr = calculate_daily_sopr(conn, start_block, end_block)
+    sopr = calculate_daily_sopr(
+        conn, start_block, end_block, questdb_reads=questdb_reads
+    )
 
     # Calculate MVRV
     mvrv, mvrv_z, mvrv_z_rbn = calculate_daily_mvrv(
@@ -326,13 +527,16 @@ def calculate_daily_metrics(target_date: date, conn: duckdb.DuckDBPyConnection) 
         market_cap,
         realized_cap,
         as_of_block=end_block,
+        questdb_reads=questdb_reads,
     )
 
     # Calculate NUPL
     nupl = calculate_daily_nupl(market_cap, realized_cap)
 
     # Calculate Cointime
-    cointime = calculate_cointime_daily(conn, end_block)
+    cointime = calculate_cointime_daily(
+        conn, end_block, questdb_reads=questdb_reads
+    )
 
     metrics = {
         "date": target_date,
@@ -360,11 +564,17 @@ def calculate_daily_metrics(target_date: date, conn: duckdb.DuckDBPyConnection) 
     return metrics
 
 
-def persist_metrics(metrics: dict, conn: duckdb.DuckDBPyConnection) -> None:
+def persist_metrics(metrics: dict, conn: Optional[duckdb.DuckDBPyConnection]) -> int:
     """Persist calculated metrics to respective daily tables.
 
-    Uses INSERT OR REPLACE for upsert behavior.
+    Uses INSERT OR REPLACE for upsert behavior. Requires a non-None DuckDB
+    connection; the QuestDB-only write path goes through `_persist_to_questdb`
+    via `persist_metrics_for_target(..., questdb_only=True)`.
     """
+    assert conn is not None, (
+        "DuckDB conn required for persist_metrics; "
+        "use persist_metrics_for_target(..., questdb_only=True) for QuestDB-only writes"
+    )
     target_date = metrics["date"]
 
     # sopr_daily
@@ -457,19 +667,29 @@ def persist_metrics(metrics: dict, conn: duckdb.DuckDBPyConnection) -> None:
 
     # spec-061 T023: dual-write to QuestDB after DuckDB writes complete.
     # Strangler-fig per research.md R5: failure logged, not raised.
-    _persist_to_questdb(metrics)
+    return _persist_to_questdb(metrics)
 
 
-def _persist_to_questdb(metrics: dict) -> None:
+def _persist_to_questdb(
+    metrics: dict,
+    *,
+    raise_on_failure: bool = False,
+) -> int:
     """Mirror the three daily aggregates into QuestDB for the consumer contract.
 
     Failure isolated per call so a transient QuestDB issue does not block
     the DuckDB write that already succeeded (research.md R5). The endpoint
     reads ONLY from QuestDB; if writes silently fail, the affected stream
     goes STALE and the consumer sees the truth - no silent success.
+
+    Returns the count of rows successfully written (0..3) for FR-011 logging.
+    In strict QuestDB-only mode, raises after attempting all eligible sibling
+    rows if any write failed.
     """
     target_date = metrics["date"]
     ts = datetime(target_date.year, target_date.month, target_date.day)
+    rows_written = 0
+    failures: list[tuple[str, BaseException]] = []
 
     if metrics.get("mvrv") is not None:
         try:
@@ -477,11 +697,14 @@ def _persist_to_questdb(metrics: dict) -> None:
                 ts,
                 float(metrics["mvrv"]),
                 mvrv_z=metrics.get("mvrv_z"),
+                mvrv_z_rbn=metrics.get("mvrv_z_rbn"),
                 market_cap=metrics.get("market_cap"),
                 realized_cap=metrics.get("realized_cap"),
             )
+            rows_written += 1
         except Exception as exc:
             logger.error("QuestDB save_mvrv_daily failed for %s: %s", target_date, exc)
+            failures.append(("save_mvrv_daily", exc))
 
     if metrics.get("nupl") is not None:
         try:
@@ -491,8 +714,10 @@ def _persist_to_questdb(metrics: dict) -> None:
                 market_cap=metrics.get("market_cap"),
                 realized_cap=metrics.get("realized_cap"),
             )
+            rows_written += 1
         except Exception as exc:
             logger.error("QuestDB save_nupl_daily failed for %s: %s", target_date, exc)
+            failures.append(("save_nupl_daily", exc))
 
     if metrics.get("realized_cap") is not None:
         try:
@@ -501,15 +726,112 @@ def _persist_to_questdb(metrics: dict) -> None:
                 float(metrics["realized_cap"]),
                 total_supply=metrics.get("total_supply"),
             )
+            rows_written += 1
         except Exception as exc:
             logger.error(
                 "QuestDB save_realized_cap_daily failed for %s: %s", target_date, exc
             )
+            failures.append(("save_realized_cap_daily", exc))
+
+    if failures and raise_on_failure:
+        raise QuestDBPersistenceError(target_date, failures)
+
+    return rows_written
+
+
+def _post_discord_failure(target_date: date, exc: BaseException) -> None:
+    """FR-012: Discord webhook notification on failure only.
+
+    Posts a one-line summary on failure. Webhook errors are swallowed -- they
+    MUST NOT mask the original aggregator exception.
+    """
+    webhook = os.environ.get("DISCORD_WEBHOOK_URL", "").strip()
+    if not webhook or webhook.startswith("ENC[") or webhook.startswith("encrypted:"):
+        return
+    summary = str(exc).splitlines()[0] if str(exc) else ""
+    if len(summary) > 200:
+        summary = summary[:197] + "..."
+    payload = json.dumps(
+        {
+            "content": (
+                f":rotating_light: UTXOracle aggregator failed for "
+                f"{target_date.isoformat()}: {type(exc).__name__} - {summary}"
+            )
+        }
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        webhook,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=3) as response:
+            response.read(0)
+    except (urllib.error.URLError, OSError, TimeoutError) as webhook_exc:
+        logger.warning(
+            "Discord webhook post failed for %s (suppressed): %s",
+            target_date,
+            webhook_exc,
+        )
+
+
+def _run_single_date(
+    target_date: date,
+    conn: Optional[duckdb.DuckDBPyConnection],
+    *,
+    dry_run: bool,
+    questdb_only: bool,
+    questdb_reads: bool,
+) -> int:
+    """FR-011 single-date wrapper.
+
+    Measures wall-clock duration, counts metric rows written, emits ONE INFO
+    log on success and ONE ERROR log + Discord webhook on failure (FR-012).
+    Returns the count of rows written (0 when dry-run).
+    """
+    started = time.monotonic()
+    try:
+        metrics = calculate_daily_metrics(
+            target_date, conn, questdb_reads=questdb_reads
+        )
+        if dry_run:
+            logger.info(
+                "spec-062 dry-run complete: date=%s duration_s=%.2f rows_written=0",
+                target_date.isoformat(),
+                time.monotonic() - started,
+            )
+            return 0
+        rows_written = 0
+        if questdb_only:
+            rows_written = _persist_to_questdb(metrics, raise_on_failure=True)
+        else:
+            rows_written = persist_metrics(metrics, conn)
+        logger.info(
+            "spec-062 aggregator success: date=%s duration_s=%.2f rows_written=%d",
+            target_date.isoformat(),
+            time.monotonic() - started,
+            rows_written,
+        )
+        return rows_written
+    except Exception as exc:
+        logger.error(
+            "spec-062 aggregator failure: date=%s duration_s=%.2f exc=%s",
+            target_date.isoformat(),
+            time.monotonic() - started,
+            type(exc).__name__,
+            exc_info=True,
+        )
+        _post_discord_failure(target_date, exc)
+        raise
 
 
 def persist_metrics_for_target(
-    metrics: dict, conn: duckdb.DuckDBPyConnection, *, questdb_only: bool = False
-) -> None:
+    metrics: dict,
+    conn: Optional[duckdb.DuckDBPyConnection],
+    *,
+    questdb_only: bool = False,
+) -> int:
     """Persist metrics for the selected operational target.
 
     The live wave1 materializer can hold an exclusive DuckDB writer lock for
@@ -518,19 +840,20 @@ def persist_metrics_for_target(
     and update the QuestDB contract tables without disturbing that writer.
     """
     if questdb_only:
-        _persist_to_questdb(metrics)
+        rows_written = _persist_to_questdb(metrics, raise_on_failure=True)
         logger.info("QuestDB-only metrics mirrored for %s", metrics["date"])
-        return
+        return rows_written
 
-    persist_metrics(metrics, conn)
+    return persist_metrics(metrics, conn)
 
 
 def backfill_metrics(
     days: int,
-    conn: duckdb.DuckDBPyConnection,
+    conn: Optional[duckdb.DuckDBPyConnection],
     dry_run: bool = False,
     end_date: Optional[date] = None,
     questdb_only: bool = False,
+    questdb_reads: bool = False,
 ) -> int:
     """Backfill metrics for the last N days.
 
@@ -551,16 +874,26 @@ def backfill_metrics(
 
     success_count = 0
     current_date = start_date
+    strict_backfill = questdb_reads and questdb_only
 
     while current_date <= end_date:
         try:
-            metrics = calculate_daily_metrics(current_date, conn)
-
-            if not dry_run:
-                persist_metrics_for_target(metrics, conn, questdb_only=questdb_only)
-
+            _run_single_date(
+                current_date,
+                conn,
+                dry_run=dry_run,
+                questdb_only=questdb_only,
+                questdb_reads=questdb_reads,
+            )
             success_count += 1
         except Exception as e:
+            if strict_backfill:
+                logger.error(
+                    "Backfill aborted after failure for %s: %s",
+                    current_date,
+                    e,
+                )
+                raise
             logger.warning(f"Failed to calculate metrics for {current_date}: {e}")
 
         current_date += timedelta(days=1)
@@ -589,21 +922,46 @@ def main():
         help="Persist only QuestDB contract tables; open DuckDB read-only",
     )
     parser.add_argument(
+        "--questdb-reads",
+        action="store_true",
+        help="Read block_heights and daily_prices from QuestDB",
+    )
+    parser.add_argument(
         "--recalculate", action="store_true", help="Recalculate entire history"
     )
     parser.add_argument("--db-path", type=str, default=str(UTXORACLE_DB_PATH))
     args = parser.parse_args()
 
-    conn = duckdb.connect(args.db_path, read_only=args.questdb_only or args.dry_run)
+    # spec-062: when --questdb-reads --questdb-only, no DuckDB connection is
+    # ever needed: reads come from QuestDB and writes target QuestDB only.
+    duckdb_free = args.questdb_reads and args.questdb_only
+    conn: Optional[duckdb.DuckDBPyConnection] = (
+        None
+        if duckdb_free
+        else duckdb.connect(args.db_path, read_only=args.questdb_only or args.dry_run)
+    )
 
     try:
         if args.recalculate:
-            # Recalculate all days in daily_prices
-            result = conn.execute("SELECT count(*) FROM daily_prices").fetchone()
-            total_days = result[0] if result else 0
+            if duckdb_free:
+                with _open_pg_sync() as qdb:
+                    with qdb.cursor() as cur:
+                        cur.execute("SELECT count(*) FROM daily_prices")
+                        row = cur.fetchone()
+                        total_days = int(row[0]) if row else 0
+            else:
+                assert conn is not None
+                result = conn.execute("SELECT count(*) FROM daily_prices").fetchone()
+                total_days = result[0] if result else 0
             if total_days > 0:
                 logger.info(f"Recalculating {total_days} days of metrics")
-                backfill_metrics(total_days, conn, dry_run=args.dry_run)
+                backfill_metrics(
+                    total_days,
+                    conn,
+                    dry_run=args.dry_run,
+                    questdb_only=args.questdb_only,
+                    questdb_reads=args.questdb_reads,
+                )
             else:
                 logger.warning("No daily prices found to recalculate")
         elif args.backfill:
@@ -616,32 +974,30 @@ def main():
                 dry_run=args.dry_run,
                 end_date=end_date,
                 questdb_only=args.questdb_only,
+                questdb_reads=args.questdb_reads,
             )
         elif args.date:
             target_date = datetime.strptime(args.date, "%Y-%m-%d").date()
-            metrics = calculate_daily_metrics(target_date, conn)
-
-            if not args.dry_run:
-                persist_metrics_for_target(
-                    metrics, conn, questdb_only=args.questdb_only
-                )
-                logger.info(f"Metrics persisted for {target_date}")
-            else:
-                logger.info("Dry run - metrics calculated but not persisted")
-                for key, value in metrics.items():
-                    logger.info(f"  {key}: {value}")
+            _run_single_date(
+                target_date,
+                conn,
+                dry_run=args.dry_run,
+                questdb_only=args.questdb_only,
+                questdb_reads=args.questdb_reads,
+            )
         else:
             # Default: calculate yesterday
             yesterday = date.today() - timedelta(days=1)
-            metrics = calculate_daily_metrics(yesterday, conn)
-
-            if not args.dry_run:
-                persist_metrics_for_target(
-                    metrics, conn, questdb_only=args.questdb_only
-                )
-                logger.info(f"Metrics persisted for {yesterday}")
+            _run_single_date(
+                yesterday,
+                conn,
+                dry_run=args.dry_run,
+                questdb_only=args.questdb_only,
+                questdb_reads=args.questdb_reads,
+            )
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 
 if __name__ == "__main__":

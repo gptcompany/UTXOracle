@@ -1,14 +1,15 @@
 [Unit]
-Description=UTXOracle daily metrics aggregator (spec-061 T024)
+Description=UTXOracle daily metrics aggregator (spec-061 T024; spec-062 zero-DuckDB read path)
 After=network-online.target questdb.service
 Wants=network-online.target
 
 [Service]
 Type=oneshot
 WorkingDirectory=/media/sam/1TB/UTXOracle
+EnvironmentFile=-/media/sam/1TB/UTXOracle/.env
 Environment="PATH=/home/sam/.local/bin:/usr/local/bin:/usr/bin:/bin"
 Environment=UTXORACLE_DB_PATH=/media/sam/1TB/UTXOracle/data/utxoracle.duckdb
-ExecStart=/usr/bin/env uv run python -m scripts.metrics.calculate_daily_metrics --questdb-only
+ExecStart=/usr/bin/env uv run python -m scripts.metrics.calculate_daily_metrics --questdb-reads --questdb-only
 
 [Install]
 WantedBy=multi-user.target

@@ -56,11 +56,12 @@ jobs:
           - 8812:8812
           - 9000:9000
           - 9009:9009
-        options: >-
-          --health-cmd "wget -qO- http://localhost:9000/exec?query=SELECT%201 || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 12
+        # No service-level --health-cmd: the QuestDB 7.4.0 image ships
+        # without `wget`, so the previous probe never reported healthy and
+        # Docker timed out the container on every CI run. The job's
+        # "Wait for QuestDB to be ready" step below performs the same
+        # SELECT 1 probe from the runner side and is the authoritative
+        # readiness gate (30 × 2s = 60 s window before the job fails).
 
     env:
       QUESTDB_PG_HOST: localhost

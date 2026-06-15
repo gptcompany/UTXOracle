@@ -2,8 +2,9 @@
 Repository for interacting with QuestDB.
 """
 
-import os
 import logging
+import json
+import os
 import re
 from api.models.data import WhaleTransaction, NetFlowMetrics, Alert
 from scripts.models.metrics_models import (
@@ -11,9 +12,11 @@ from scripts.models.metrics_models import (
     AbsorptionRatesResult,
     AddressCohortsResult,
 )
-from decimal import Decimal
-from typing import Optional, List, Dict, Any, Union
+from typing import TYPE_CHECKING, Optional, List, Dict, Any, Union
 from datetime import datetime, timedelta
+
+if TYPE_CHECKING:
+    from scripts.models.metrics_models import CostBasisResult, URPDFeaturesResult
 
 try:
     import asyncpg
@@ -113,7 +116,7 @@ async def read_stream_tip_lag_seconds(
     """Return `(current_tip - max(block_column)) * 600` from `table`, or None if empty.
 
     Used by streams whose registry entry declares
-    `freshness_strategy: tip_lag_blocks` — currently only `utxo_lifecycle_full`,
+    `freshness_strategy: tip_lag_blocks` - currently only `utxo_lifecycle_full`,
     where the row's `ts` is creation-time and `max(ts)` would falsely report
     `OK` during a backfill. Block lag is the authoritative freshness signal.
     Raises on backend failure; caller maps to MISSING with `error`.
@@ -165,19 +168,34 @@ def save_mvrv_daily(
     ts: datetime,
     mvrv: float,
     mvrv_z: Optional[float] = None,
+    mvrv_z_rbn: Optional[float] = None,
     market_cap: Optional[float] = None,
     realized_cap: Optional[float] = None,
 ) -> bool:
     """Persist one row to QuestDB mvrv_daily. Idempotent per FR-010 + DEDUP."""
+    def insert_row(cur):
+        cur.execute(
+            """
+            INSERT INTO mvrv_daily (ts, mvrv, mvrv_z, mvrv_z_rbn,
+                                    market_cap, realized_cap, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """,
+            (ts, mvrv, mvrv_z, mvrv_z_rbn, market_cap, realized_cap, ts),
+        )
+
     with _open_pg_sync() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO mvrv_daily (ts, mvrv, mvrv_z, market_cap, realized_cap, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                """,
-                (ts, mvrv, mvrv_z, market_cap, realized_cap, ts),
-            )
+            try:
+                insert_row(cur)
+            except Exception as exc:
+                try:
+                    cur.execute(
+                        "ALTER TABLE mvrv_daily ADD COLUMN mvrv_z_rbn DOUBLE",
+                        (),
+                    )
+                except Exception:
+                    raise exc
+                insert_row(cur)
     return True
 
 
@@ -434,6 +452,44 @@ async def create_tables_if_not_exist():
             """
         )
 
+        # Phase 1.5-v2 source freshness tables. These replace the deprecated
+        # DuckDB production refresh path for block timestamps and daily prices.
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS block_heights (
+                height LONG,
+                ts TIMESTAMP,
+                fetched_at TIMESTAMP
+            ) timestamp(ts) PARTITION BY YEAR WAL
+              DEDUP UPSERT KEYS(ts, height);
+            """
+        )
+
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS daily_prices (
+                date TIMESTAMP,
+                price_usd DOUBLE,
+                source SYMBOL,
+                fetched_at TIMESTAMP
+            ) timestamp(date) PARTITION BY YEAR WAL
+              DEDUP UPSERT KEYS(date);
+            """
+        )
+
+        for table_name, dedup_keys in (
+            ("block_heights", "ts, height"),
+            ("daily_prices", "date"),
+        ):
+            for ddl in (
+                f"ALTER TABLE {table_name} SET TYPE WAL",
+                f"ALTER TABLE {table_name} DEDUP ENABLE UPSERT KEYS({dedup_keys})",
+            ):
+                try:
+                    await conn.execute(ddl)
+                except Exception:
+                    pass
+
         await conn.execute(
             """
             CREATE TABLE IF NOT EXISTS utxo_snapshots (
@@ -662,6 +718,7 @@ async def create_tables_if_not_exist():
                 ts TIMESTAMP,
                 mvrv DOUBLE,
                 mvrv_z DOUBLE,
+                mvrv_z_rbn DOUBLE,
                 market_cap DOUBLE,
                 realized_cap DOUBLE,
                 created_at TIMESTAMP
@@ -679,6 +736,11 @@ async def create_tables_if_not_exist():
                     await conn.execute(ddl)
                 except Exception:
                     pass
+
+        try:
+            await conn.execute("ALTER TABLE mvrv_daily ADD COLUMN mvrv_z_rbn DOUBLE")
+        except Exception:
+            pass
 
         # spec-061 T022: realized_cap_daily - added because the pre-existing DDL
         # set covered mvrv_daily + nupl_daily but not realized_cap_daily, which
@@ -863,6 +925,7 @@ async def create_tables_if_not_exist():
             """
             CREATE TABLE IF NOT EXISTS urpd_features_daily (
                 ts TIMESTAMP,
+                schema_version SYMBOL,
                 block_height LONG,
                 current_price_usd DOUBLE,
                 bucket_size_usd DOUBLE,
@@ -873,10 +936,25 @@ async def create_tables_if_not_exist():
                 dominant_bucket_distance_pct DOUBLE,
                 distribution_entropy DOUBLE,
                 confidence DOUBLE,
+                availability_timestamp TIMESTAMP,
+                source_health_json STRING,
+                source_freshness_seconds DOUBLE,
                 created_at TIMESTAMP
             ) timestamp(ts) PARTITION BY MONTH;
             """
         )
+        for column_name, column_type in (
+            ("schema_version", "SYMBOL"),
+            ("availability_timestamp", "TIMESTAMP"),
+            ("source_health_json", "STRING"),
+            ("source_freshness_seconds", "DOUBLE"),
+        ):
+            try:
+                await conn.execute(
+                    f"ALTER TABLE urpd_features_daily ADD COLUMN {column_name} {column_type}"
+                )
+            except Exception:
+                pass
 
         logger.info("QuestDB tables verified/created successfully.")
 
@@ -1458,22 +1536,39 @@ class QuestDBRepository:
         Save scalar features derived from the URPD / cost-basis distribution.
         """
         created_at = datetime.utcnow()
+        source_health = dict(result.source_health or {})
+        source_freshness_seconds = source_health.get("source_freshness_seconds")
+
+        def optional_float(value):
+            return None if value is None else float(value)
+
         return self._send_row(
             "urpd_features_daily",
-            symbols={},
+            symbols={
+                "schema_version": result.schema_version,
+            },
             columns={
                 "block_height": result.block_height,
-                "current_price_usd": float(result.current_price_usd),
+                "current_price_usd": optional_float(result.current_price_usd),
                 "bucket_size_usd": float(result.bucket_size_usd),
-                "total_supply_btc": float(result.total_supply_btc),
-                "supply_below_price_pct": float(result.supply_below_price_pct),
-                "supply_above_price_pct": float(result.supply_above_price_pct),
-                "top_bucket_concentration": float(result.top_bucket_concentration),
-                "dominant_bucket_distance_pct": float(
+                "total_supply_btc": optional_float(result.total_supply_btc),
+                "supply_below_price_pct": optional_float(
+                    result.supply_below_price_pct
+                ),
+                "supply_above_price_pct": optional_float(
+                    result.supply_above_price_pct
+                ),
+                "top_bucket_concentration": optional_float(
+                    result.top_bucket_concentration
+                ),
+                "dominant_bucket_distance_pct": optional_float(
                     result.dominant_bucket_distance_pct
                 ),
-                "distribution_entropy": float(result.distribution_entropy),
+                "distribution_entropy": optional_float(result.distribution_entropy),
                 "confidence": float(result.confidence),
+                "availability_timestamp": result.availability_timestamp,
+                "source_health_json": json.dumps(source_health, sort_keys=True),
+                "source_freshness_seconds": optional_float(source_freshness_seconds),
                 "created_at": created_at,
             },
             at=result.timestamp,
@@ -1581,12 +1676,7 @@ class QuestDBRepository:
         Performance tuning: Use QuestDB's time-series functions.
         """
         # simplified version for migration
-        cutoff = datetime.utcnow() - timedelta(hours=window_hours)
-        query = """
-        SELECT sum(btc_value) as inflow
-        FROM utxo_lifecycle u
-        WHERE u.ts > $1
-        """
+        _ = window_hours
         # This would be expanded with actual exchange address filtering
         return None
 
@@ -1637,10 +1727,24 @@ class QuestDBRepository:
         query = """
         SELECT *
         FROM urpd_features_daily
-        ORDER BY ts DESC
+        ORDER BY ts DESC, block_height DESC, created_at DESC
         LIMIT 1;
         """
         return await self.fetchrow(query)
+
+    async def get_urpd_features_at_or_before(
+        self,
+        timestamp: datetime,
+    ) -> Optional[AsyncpgRecord]:
+        """Fetch the latest URPD-derived scalar features at or before timestamp."""
+        query = """
+        SELECT *
+        FROM urpd_features_daily
+        WHERE ts <= $1
+        ORDER BY ts DESC, block_height DESC, created_at DESC
+        LIMIT 1;
+        """
+        return await self.fetchrow(query, timestamp)
 
 
     async def get_latest_feature_bundle(self, bundle_id: str) -> dict | None:

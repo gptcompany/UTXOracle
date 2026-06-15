@@ -1,0 +1,13 @@
+# Gitleaks configuration.
+# Extends the default rule set; adds path-anchored allowlist for two files
+# where the "generic-api-key" rule emits false positives on Bitcoin address
+# fixtures (Base58 addresses share entropy characteristics with API keys).
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Bitcoin address fixtures — high-entropy Base58 strings are not API keys"
+paths = [
+  '''^tests/integration/test_whale_integration\.py$''',
+  '''^examples/whale-flow-references/bitcoinlib-address-parsing\.py$''',
+]
