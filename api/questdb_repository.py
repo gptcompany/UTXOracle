@@ -13,7 +13,7 @@ from scripts.models.metrics_models import (
     AddressCohortsResult,
 )
 from typing import TYPE_CHECKING, Optional, List, Dict, Any, Union
-from datetime import datetime, timedelta
+from datetime import date as _date, datetime, timedelta
 
 if TYPE_CHECKING:
     from scripts.models.metrics_models import CostBasisResult, URPDFeaturesResult
@@ -162,6 +162,38 @@ def _open_pg_sync():
         dbname=QUESTDB_PG_DATABASE,
         autocommit=True,
     )
+
+
+def save_entity_flows_daily(
+    *,
+    entity_id: str,
+    date: _date,
+    inflow_btc: float,
+    outflow_btc: float,
+    netflow_btc: float,
+    is_exchange: bool,
+) -> None:
+    """Persist one entity_flows_daily row to QuestDB."""
+    date_ts = datetime.combine(date, datetime.min.time())
+    with _open_pg_sync() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO entity_flows_daily (
+                    entity_id, date, inflow_btc, outflow_btc,
+                    netflow_btc, is_exchange
+                )
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    entity_id,
+                    date_ts,
+                    inflow_btc,
+                    outflow_btc,
+                    netflow_btc,
+                    is_exchange,
+                ),
+            )
 
 
 def save_mvrv_daily(
