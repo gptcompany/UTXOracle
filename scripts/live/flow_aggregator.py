@@ -8,6 +8,7 @@ from pathlib import Path
 # Add project root to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from api.config import DUCKDB_PATH
+from api.questdb_repository import save_entity_flows_daily
 from scripts.live.init_flow_artifacts import create_flow_artifact_tables
 
 
@@ -159,6 +160,24 @@ def aggregate_flows(db_path: str | None = None, sample_limit: int | None = None)
             GROUP BY entity_id, date
             """
         )
+
+        if _should_write_questdb():
+            rows = conn.execute(
+                """
+                SELECT entity_id, date, inflow_btc, outflow_btc, netflow_btc, is_exchange
+                FROM entity_flows_daily
+                ORDER BY date, entity_id
+                """
+            ).fetchall()
+            for row in rows:
+                save_entity_flows_daily(
+                    entity_id=row[0],
+                    date=row[1],
+                    inflow_btc=row[2],
+                    outflow_btc=row[3],
+                    netflow_btc=row[4],
+                    is_exchange=row[5],
+                )
 
         print("Calculating daily balance snapshots...")
         conn.execute(
