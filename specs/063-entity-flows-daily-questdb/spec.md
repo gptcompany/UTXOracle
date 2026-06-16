@@ -17,11 +17,11 @@
 
 ### User Story 1 — `entity_flows_daily` consumer-facing stream stops being empty (Priority: P1)
 
-The nautilus_dev consumer (and any other reader of `/v1/streams/health`) currently sees `entity_flows_daily` as MISSING in QuestDB because the producer only writes DuckDB. After spec-063 lands, every successful `flow_aggregator` invocation populates the QuestDB consumer-facing table in addition to the DuckDB legacy table, and the stream transitions to OK with `stale_seconds` within its declared SLA.
+The nautilus_dev consumer (and any other reader of `/v1/streams/health`) currently sees `entity_flows_daily` as MISSING in QuestDB because the producer only writes DuckDB. After spec-063 lands, every successful `flow_aggregator` invocation populates the QuestDB consumer-facing table in addition to the DuckDB legacy table. When the latest logical `date` written is within the declared 36 h SLA, the stream transitions to OK.
 
 **Why this priority**: This is the user-visible outcome that unblocks the consumer contract. Without this slice, the consumer cannot read `entity_flows_daily` from the QuestDB consumer surface and falls back to the inaccessible DuckDB file. The remaining six Phase 2 producers will reuse whatever pattern spec-063 validates here.
 
-**Independent Test**: Invoke `aggregate_flows()` against a real DuckDB source containing entity events for at least one day. Then query QuestDB `SELECT count(*) FROM entity_flows_daily WHERE date = <today>` and assert the row count matches the DuckDB count for the same date. `/v1/streams/health` reports the stream OK.
+**Independent Test**: Invoke `aggregate_flows()` against a real DuckDB source containing entity events for at least one day, including one logical `date` within the 36 h SLA. Then compare the DuckDB and QuestDB `entity_flows_daily` row counts grouped by every logical `date` present after the run. `/v1/streams/health` reports the stream OK.
 
 **Acceptance Scenarios**:
 
@@ -52,7 +52,7 @@ A regression introduced by the QuestDB write path (e.g. a save method that raise
 
 **Why this priority**: Strangler-fig migrations are valuable because they preserve a rollback option. spec-063 must keep that option exercisable for the duration of the 7-day green observation gate.
 
-**Independent Test**: Setting an explicit feature flag (env var or CLI flag, defined in plan) to disable the QuestDB write half makes `aggregate_flows()` produce zero QuestDB rows and only DuckDB rows. Existing tests remain green.
+**Independent Test**: Setting `SPEC063_QUESTDB_WRITE=0` to disable the QuestDB write half makes `aggregate_flows()` produce zero QuestDB rows for that invocation and only DuckDB rows. Existing tests remain green.
 
 **Acceptance Scenarios**:
 
@@ -63,7 +63,7 @@ A regression introduced by the QuestDB write path (e.g. a save method that raise
 
 ### Edge Cases
 
-- What happens when QuestDB `entity_flows_daily` table does not yet exist? The producer's first run MUST create it via the same `create_tables_if_not_exist` pattern that spec-061/062 use; first invocation provisions the table, subsequent invocations are idempotent via `DEDUP UPSERT KEYS`.
+- What happens when QuestDB `entity_flows_daily` table does not yet exist or still has the pre-spec-063 `timestamp(ts)` shape? The producer's first run MUST rely on the same `create_tables_if_not_exist` pattern that spec-061/062 use to provision or normalize the table to `timestamp(date) WAL DEDUP UPSERT KEYS(date, entity_id)`. Existing non-empty legacy-shaped tables MUST fail fast with an operator migration message rather than dropping data silently.
 - What happens when DuckDB write fails (disk full, schema drift, etc.)? Per Story 1 acceptance scenario 3 inverted: the legacy SSOT failure surfaces as a Python exception out of `aggregate_flows()`, the QuestDB write is NOT attempted, and the process exits non-zero. DuckDB integrity is non-negotiable during the transition window.
 - What happens when DuckDB and QuestDB report different row counts at end of run? The structured INFO log carries both counts; any divergence > 0 fires the Discord webhook for operator attention and is logged at WARNING. The run still exits zero (rows are reconcilable via re-run idempotency).
 - What happens when `aggregate_flows()` is invoked with `sample_limit` set? Both writes honour the same limit — DuckDB legacy and QuestDB pilot produce identical row sets for the limited sample.
@@ -79,7 +79,7 @@ A regression introduced by the QuestDB write path (e.g. a save method that raise
 - **FR-003**: A QuestDB write failure MUST produce a structured ERROR log identifying the failing per-row payload (or the count of failing rows), the exception class, and a one-line summary suitable for the Discord webhook (FR-007).
 - **FR-004**: The producer MUST emit a structured INFO log per successful invocation including `rows_written_duckdb`, `rows_written_questdb`, the date range covered, and the wall-clock duration of each write half.
 - **FR-005**: The producer MUST expose a rollback configuration toggle via the environment variable `SPEC063_QUESTDB_WRITE`. Default is ON. The variable is treated as OFF when its value (case-insensitive, whitespace-trimmed) is exactly `0`, `false`, or `no`. Any other value, including unset, is treated as ON. With the toggle OFF, `aggregate_flows()` MUST NOT open any QuestDB connection and MUST NOT modify any pre-existing QuestDB rows.
-- **FR-006**: QuestDB `entity_flows_daily` MUST have `DEDUP UPSERT KEYS(date, entity_id)` configured so re-runs of the same date are idempotent and concurrent invocations converge.
+- **FR-006**: QuestDB `entity_flows_daily` MUST use `date` as its designated timestamp and have `DEDUP UPSERT KEYS(date, entity_id)` configured so re-runs of the same logical date are idempotent and concurrent invocations converge.
 - **FR-007**: A QuestDB write failure MUST post exactly one Discord webhook notification per `aggregate_flows()` run conforming to the canonical payload schema in `contracts/webhook_payload.md` (one-line summary including stream identifier, target date or `min(date)..max(date)` range, count of failed rows, and exception class — with `MultipleFailureClasses` when ≥ 2 distinct exception classes are observed). Per-row failure detail lives in the structured ERROR logs (FR-003), NOT in the webhook payload. Successful runs MUST NOT post. A run where some rows succeed and others fail MUST still post exactly one webhook summarising the failure count.
 - **FR-008**: The automated test suite MUST include a guard that fails CI if the producer is invoked under nominal conditions and the QuestDB write half is silently skipped (e.g. because of a missing import or a typo'd config key).
 - **FR-009**: The automated test suite MUST include a guard that fails CI if a future refactor removes the DuckDB write half before the legacy-removal follow-up spec authorises it.
@@ -89,7 +89,7 @@ A regression introduced by the QuestDB write path (e.g. a save method that raise
 ### Key Entities *(include if feature involves data)*
 
 - **`entity_flows_daily` (DuckDB)**: The legacy SSOT table. Schema is what `aggregate_flows()` currently produces via the `INSERT OR REPLACE` statement at the producer site. Spec-063 does NOT change this schema.
-- **`entity_flows_daily` (QuestDB)**: The new consumer-facing target. Schema mirrors DuckDB columns 1:1, designated timestamp on `date`, `DEDUP UPSERT KEYS(date, entity_id)`. Schema details captured in `data-model.md` during planning.
+- **`entity_flows_daily` (QuestDB)**: The new consumer-facing target. Schema mirrors the six DuckDB columns 1:1, uses `date` as the designated timestamp and `/v1/streams/health` freshness column, and enables `DEDUP UPSERT KEYS(date, entity_id)`. No ingestion-time `ts` column participates in freshness for this daily stream.
 - **`entity_movement_events` (DuckDB)**: The source table from which `entity_flows_daily` is computed. spec-063 does NOT migrate this — it stays DuckDB. Only the *result* table (`entity_flows_daily`) is dual-written.
 
 ## Success Criteria *(mandatory)*

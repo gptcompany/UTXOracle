@@ -35,7 +35,7 @@ After spec-063 lands and clears its 7-day green gate, follow-up Phase 2 specs wi
 - `inflow_btc / outflow_btc / netflow_btc DOUBLE` → `DOUBLE` — identity (IEEE 754 binary64 on both engines).
 - `is_exchange BOOLEAN` → `BOOLEAN` — identity.
 
-The new QuestDB-only column `ts TIMESTAMP` (designated timestamp for partitioning) has no DuckDB twin and is therefore N/A for the round-trip check.
+The pre-spec-063 QuestDB-only column `ts TIMESTAMP` has no DuckDB twin and is removed from the target contract. The target QuestDB schema mirrors the six DuckDB columns, with `date` serving as the designated timestamp.
 
 **Rejected alternative**: *Force a lossy-cast entry anyway for "future-proofing"* — rejected. Adding a fictional lossy entry would mislead reviewers of the next Phase 2 spec who use spec-063 as a template; the precedent must be honest.
 
@@ -72,7 +72,7 @@ None of the disqualifying conditions are present. Option B remains the baseline.
 
 ## D5 — psycopg PG-wire transport, NOT ILP
 
-**Decision**: Writes go through psycopg sync `INSERT ... ON CONFLICT ... DO UPDATE` via `_open_pg_sync()`. ILP is rejected.
+**Decision**: Writes go through psycopg sync `INSERT` via `_open_pg_sync()`. ILP is rejected. Idempotency is handled by QuestDB WAL DEDUP `UPSERT KEYS(date, entity_id)`.
 
 **Rationale**: Per [research.md](./research.md) R5. Per-row error isolation (FR-002, FR-003) maps cleanly to psycopg's per-`cur.execute` semantics; ILP's batched flush model would make per-row attribution harder. spec-061 Phase 1.5-v2 sets the precedent (psycopg sync for `block_heights`, `daily_prices`).
 

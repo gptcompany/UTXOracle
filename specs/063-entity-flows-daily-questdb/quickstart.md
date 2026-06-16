@@ -10,6 +10,7 @@ Operator-facing runbook. Three workflows: manual smoke, rollback, re-enable.
 
 - QuestDB host instance reachable on `:8812` (PG-wire). Already verified by spec-062 daily aggregator runs.
 - `data/utxoracle.duckdb` present with the source tables `entity_movement_events`, `entity_transfer_edges` populated (pre-condition for `aggregate_flows()` to produce non-empty output).
+- The latest logical `date` in DuckDB `entity_flows_daily` after the run is within the 36 h SLA if Step 3 is expected to report OK. If the source data is historical only, row parity can pass while `/v1/streams/health` correctly reports STALE.
 - `DISCORD_WEBHOOK_URL` set in environment (operator's responsibility; if unset, the helper logs a WARNING and skips webhook posts).
 
 ## Manual smoke (FR-011 + AC4 verification)
@@ -26,7 +27,7 @@ SPEC063_QUESTDB_WRITE=1 uv run python -m scripts.live.flow_aggregator
 Expected stdout (or systemd journal if invoked via service):
 - `Aggregating flows in /media/sam/1TB/UTXOracle/data/utxoracle.duckdb...`
 - `Calculating daily flow aggregates...`
-- `spec-063 entity_flows_daily dual-write success: date=YYYY-MM-DD duration_s=X.XX rows_written_duckdb=N rows_written_questdb=N`
+- `spec-063 entity_flows_daily dual-write success: date_range=YYYY-MM-DD..YYYY-MM-DD duration_s=X.XX rows_written_duckdb=N rows_written_questdb=N`
 
 Expected exit code: 0.
 
@@ -34,13 +35,14 @@ Expected exit code: 0.
 
 ```bash
 # DuckDB side
-duckdb data/utxoracle.duckdb "SELECT count(*) FROM entity_flows_daily WHERE date = current_date"
+duckdb data/utxoracle.duckdb \
+  "SELECT date, count(*) FROM entity_flows_daily GROUP BY date ORDER BY date"
 # QuestDB side
-curl -s "http://localhost:9000/exec?query=SELECT+count(*)+FROM+entity_flows_daily+WHERE+date%3Dcurrent_date()" \
-  | python3 -c "import json,sys; print(json.load(sys.stdin)['dataset'][0][0])"
+curl -s "http://localhost:9000/exec?query=SELECT+date%2C+count()+FROM+entity_flows_daily+GROUP+BY+date+ORDER+BY+date" \
+  | python3 -c "import json,sys; [print(r) for r in json.load(sys.stdin)['dataset']]"
 ```
 
-Both queries MUST return the same integer.
+Both queries MUST return the same `(date, count)` rows.
 
 ### Step 3 — Verify `/v1/streams/health`
 
@@ -56,12 +58,12 @@ Expected: `status: "OK"`, `stale_seconds` ≤ `sla_seconds` (`129600` = 36 h).
 
 ```bash
 duckdb data/utxoracle.duckdb \
-  "SELECT entity_id, inflow_btc, outflow_btc, netflow_btc FROM entity_flows_daily ORDER BY entity_id LIMIT 5"
-curl -s "http://localhost:9000/exec?query=SELECT+entity_id%2C+inflow_btc%2C+outflow_btc%2C+netflow_btc+FROM+entity_flows_daily+ORDER+BY+entity_id+LIMIT+5" \
+  "SELECT entity_id, date, inflow_btc, outflow_btc, netflow_btc FROM entity_flows_daily ORDER BY date, entity_id LIMIT 5"
+curl -s "http://localhost:9000/exec?query=SELECT+entity_id%2C+date%2C+inflow_btc%2C+outflow_btc%2C+netflow_btc+FROM+entity_flows_daily+ORDER+BY+date%2C+entity_id+LIMIT+5" \
   | python3 -c "import json,sys; [print(r) for r in json.load(sys.stdin)['dataset']]"
 ```
 
-The five rows MUST match by `entity_id` and the three DOUBLE values MUST be byte-identical (no rounding, no NaN coercion).
+The five rows MUST match by `(entity_id, date)` and the three DOUBLE values MUST be byte-identical (no rounding, no NaN coercion).
 
 ## Rollback runbook (Story 3 / FR-005)
 

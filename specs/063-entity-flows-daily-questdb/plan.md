@@ -92,14 +92,16 @@ scripts/live/
 api/
 └── questdb_repository.py                # MODIFIED:
                                          # - add save_entity_flows_daily(...) sync method
-                                         # - add lazy DEDUP UPSERT KEYS(date, entity_id) via ALTER TABLE inside create_tables_if_not_exist
+                                         # - normalize entity_flows_daily to timestamp(date) WAL DEDUP UPSERT KEYS(date, entity_id)
                                          # - reuse _open_pg_sync (already used by spec-061 Phase 1.5-v2 writers)
+
+docs/contracts/
+└── stream_registry.yaml                  # MODIFIED: entity_flows_daily timestamp_column becomes date
 
 tests/
 └── test_flow_aggregator_questdb.py      # NEW — 5 RED guards (a–e), all committed before implementation lands
 
 # NOT modified (per discovery):
-# - docs/contracts/stream_registry.yaml — entry already present at line 94, freshness/SLA/timestamp_column correct
 # - any systemd unit — aggregate_flows is invoked by tests only today; scheduling deferred to a separate spec
 # - DuckDB schema in scripts/live/init_flow_artifacts.py — legacy schema unchanged per FR-002
 ```
@@ -114,7 +116,7 @@ See [research.md](./research.md). Six decisions consolidated:
 2. **Webhook aggregation pattern** — Clarify Q2 + exact JSON payload schema + one-shot-per-run guarantee.
 3. **Cast strategy** — Clarify Q3 + discovery; all six columns lossless, no `decisions.md` escalation.
 4. **Save method placement** — `api/questdb_repository.save_entity_flows_daily` per existing spec-061/062 convention. Sync (psycopg) to match producer sync context.
-5. **Write transport: ILP vs PG-wire** — psycopg sync `INSERT ... ON CONFLICT ... DO UPDATE` (matches spec-061 Phase 1.5-v2 writers). ILP rejected: batch size is typically tiny (≤ 1 000 rows / run); PG-wire INSERT matches the per-row error model spec.md FR-007 mandates; spec-062 reader migration uses psycopg sync.
+5. **Write transport: ILP vs PG-wire** — psycopg sync `INSERT` via `_open_pg_sync()` (matches spec-061 Phase 1.5-v2 writers). Idempotency is provided by QuestDB WAL DEDUP, not PostgreSQL `ON CONFLICT`. ILP rejected: batch size is typically tiny (≤ 1 000 rows / run); PG-wire INSERT matches the per-row error model spec.md FR-007 mandates; spec-062 reader migration uses psycopg sync.
 6. **Batch size + back-pressure** — bound is the row count SELECT returns; memory ceiling ≈ 4 MB for N = 10 000 — trivial, no streaming required.
 
 ## Phase 1 — Design & Contracts
@@ -123,30 +125,36 @@ See [research.md](./research.md). Six decisions consolidated:
 
 See [data-model.md](./data-model.md). Summary:
 
-**Read surface** (where the rows come from): existing DuckDB `INSERT OR REPLACE INTO entity_flows_daily SELECT ... FROM entity_transfer_edges` — unchanged. After the DuckDB INSERT, spec-063 reads back the affected rows from DuckDB via `SELECT * FROM entity_flows_daily WHERE date IN (...)` and pushes them to QuestDB. This avoids re-running the aggregation SQL in QuestDB (which would require migrating `entity_transfer_edges` too — out of scope per spec.md).
+**Read surface** (where the rows come from): existing DuckDB `INSERT OR REPLACE INTO entity_flows_daily SELECT ... FROM entity_transfer_edges` — unchanged. After the DuckDB INSERT, spec-063 reads back the full DuckDB `entity_flows_daily` row set via `SELECT * FROM entity_flows_daily ORDER BY date, entity_id` and pushes it to QuestDB. This avoids re-running the aggregation SQL in QuestDB (which would require migrating `entity_transfer_edges` too — out of scope per spec.md).
 
 **Write surface** (target):
 
 | Column | DuckDB type | QuestDB type | Cast | Lossy? |
 |---|---|---|---|---|
 | `entity_id` | `VARCHAR` | `SYMBOL INDEX` | implicit string interning | No (SYMBOL preserves string identity) |
-| `date` | `DATE` | `TIMESTAMP` | `cast(date as timestamp)` at midnight UTC | No |
+| `date` | `DATE` | `TIMESTAMP` | `cast(date as timestamp)` at midnight UTC; QuestDB designated timestamp and freshness column | No |
 | `inflow_btc` | `DOUBLE` | `DOUBLE` | identity | No |
 | `outflow_btc` | `DOUBLE` | `DOUBLE` | identity | No |
 | `netflow_btc` | `DOUBLE` | `DOUBLE` | identity | No |
 | `is_exchange` | `BOOLEAN` | `BOOLEAN` | identity | No |
-| `ts` (new) | — (not in DuckDB) | `TIMESTAMP` | `datetime.utcnow()` at write time, used as the designated timestamp for QuestDB partitioning | N/A (write-only) |
 
 **No materially lossy cast detected during discovery.** `decisions.md` will record this verdict explicitly (FR-010 + Clarify Q3 compliance).
 
-**DDL adjustment**: existing `CREATE TABLE IF NOT EXISTS entity_flows_daily (...) timestamp(ts) PARTITION BY DAY` at `api/questdb_repository.py:572` is missing `DEDUP UPSERT KEYS`. spec-063 adds the following inside `create_tables_if_not_exist` after the CREATE TABLE call:
+**DDL adjustment**: existing `CREATE TABLE IF NOT EXISTS entity_flows_daily (...) timestamp(ts) PARTITION BY DAY` at `api/questdb_repository.py:572` is a legacy pre-spec-063 shape. spec-063 normalizes it to:
 
 ```sql
-ALTER TABLE entity_flows_daily SET TYPE WAL;
-ALTER TABLE entity_flows_daily DEDUP ENABLE UPSERT KEYS(date, entity_id);
+CREATE TABLE IF NOT EXISTS entity_flows_daily (
+    entity_id SYMBOL INDEX,
+    date TIMESTAMP,
+    inflow_btc DOUBLE,
+    outflow_btc DOUBLE,
+    netflow_btc DOUBLE,
+    is_exchange BOOLEAN
+) timestamp(date) PARTITION BY DAY WAL
+  DEDUP UPSERT KEYS(date, entity_id);
 ```
 
-Both wrapped in `try/except` to keep them idempotent on existing tables that already have WAL or DEDUP enabled (matches spec-061 Phase 1.5-v2 pattern).
+If the legacy `timestamp(ts)` table already exists and is empty, `create_tables_if_not_exist()` may drop/recreate it. If it is non-empty, the implementation MUST fail fast with an operator migration message and MUST NOT drop data silently. This is required because QuestDB does not support altering a table's designated timestamp in place, and DEDUP keys must include the designated timestamp.
 
 ### Contracts
 
@@ -180,7 +188,7 @@ See [contracts/](./contracts/). Three artifacts:
 ### Quickstart
 
 See [quickstart.md](./quickstart.md). Operator runbook covering:
-- Manual smoke: invoke `aggregate_flows()` once, verify QuestDB row count matches DuckDB row count for the target date.
+- Manual smoke: invoke `aggregate_flows()` once, verify QuestDB grouped row counts by `date` match DuckDB grouped row counts.
 - Rollback: `export SPEC063_QUESTDB_WRITE=0`, `sudo systemctl restart <invoker>`, verify no QuestDB connection opened.
 - Re-enable: `unset SPEC063_QUESTDB_WRITE` (default ON), `sudo systemctl restart <invoker>`, verify next run writes both stores.
 
@@ -217,4 +225,4 @@ The six steps from `specs/062-aggregator-zero-duckdb/plan.md` Appendix A apply v
 - [x] decisions.md: no lossy cast escalation needed; Option A escape hatch NOT triggered (discovery confirmed no disqualifying conditions)
 - [x] contracts/ outline complete (3 files)
 - [x] Production runtime gap explicitly noted (aggregate_flows invoked only by tests; spec-063 ships code, scheduling deferred to separate spec)
-- [x] Hard constraints honoured (no new timer, no extra files outside the 4 enumerated)
+- [x] Hard constraints honoured (no new timer; code changes limited to producer/repository/tests plus the existing stream registry contract)

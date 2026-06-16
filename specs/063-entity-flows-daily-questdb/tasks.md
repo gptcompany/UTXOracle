@@ -47,13 +47,13 @@ description: "Task list for spec-063 entity_flows_daily QuestDB Producer Pilot"
 
 - [ ] T004 [RED] Add `test_should_write_questdb_parser_table` in `tests/test_flow_aggregator_questdb.py` covering all rows of the env var behaviour table in `contracts/envvars.md`. Test imports `_should_write_questdb` from `scripts.live.flow_aggregator`. Commit; verify it fails with `ImportError` (the helper does not exist yet).
 - [ ] T005 [RED] Add `test_save_entity_flows_daily_signature` in `tests/test_flow_aggregator_questdb.py` that imports `save_entity_flows_daily` from `api.questdb_repository` and asserts the signature matches `contracts/save_entity_flows_daily.md` (keyword-only args: `entity_id, date, inflow_btc, outflow_btc, netflow_btc, is_exchange`; return type `None`). Use `inspect.signature`. Commit; verify it fails with `ImportError`.
-- [ ] T006 [RED] Add `test_entity_flows_daily_dedup_ddl_applied` in `tests/test_create_tables_ddl.py` (extends spec-061 ddl test) asserting that after `create_tables_if_not_exist()` runs against a live QuestDB, `tables()` reports `entity_flows_daily.walEnabled == true` and `entity_flows_daily.dedup == true`. Mark `@pytest.mark.integration` and skip if `QUESTDB_PG_HOST` unset. Commit; verify it fails (DEDUP not yet enabled).
+- [ ] T006 [RED] Add `test_entity_flows_daily_dedup_ddl_applied` in `tests/test_create_tables_ddl.py` (extends spec-061 ddl test) asserting that after the test explicitly calls `await create_tables_if_not_exist()` against a live QuestDB, metadata reports `entity_flows_daily` as `timestamp(date)`, `walEnabled == true`, and `dedup == true`. Mark `@pytest.mark.integration` and skip only when QuestDB is unreachable (use the existing localhost/default env connection helper, not "env var unset"). Commit; verify it fails against the current legacy `timestamp(ts)` DDL.
 
 ### GREEN phase — minimum implementation to pass
 
 - [ ] T007 [GREEN] Implement `_should_write_questdb()` helper at the top of `scripts/live/flow_aggregator.py` per `contracts/envvars.md`. Commit; verify T004 passes.
-- [ ] T008 [GREEN] Implement `save_entity_flows_daily(*, entity_id, date, inflow_btc, outflow_btc, netflow_btc, is_exchange) -> None` as a sync module-level function in `api/questdb_repository.py`, modelled on `save_mvrv_daily`. Use `_open_pg_sync()`. The SQL is `INSERT INTO entity_flows_daily (entity_id, date, inflow_btc, outflow_btc, netflow_btc, is_exchange, ts) VALUES (%s, %s, %s, %s, %s, %s, %s)`; `ts` is `datetime.utcnow()`. Commit; verify T005 passes.
-- [ ] T009 [GREEN] Inside `create_tables_if_not_exist()` in `api/questdb_repository.py`, immediately after the existing `CREATE TABLE IF NOT EXISTS entity_flows_daily` block, add two `try/except` ALTER statements: `ALTER TABLE entity_flows_daily SET TYPE WAL` and `ALTER TABLE entity_flows_daily DEDUP ENABLE UPSERT KEYS(date, entity_id)`. Both wrapped to swallow `psycopg.errors.*` for idempotency. Commit; verify T006 passes against live QuestDB.
+- [ ] T008 [GREEN] Implement `save_entity_flows_daily(*, entity_id, date, inflow_btc, outflow_btc, netflow_btc, is_exchange) -> None` as a sync module-level function in `api/questdb_repository.py`, modelled on `save_mvrv_daily`. Use `_open_pg_sync()`. The SQL is `INSERT INTO entity_flows_daily (entity_id, date, inflow_btc, outflow_btc, netflow_btc, is_exchange) VALUES (%s, %s, %s, %s, %s, %s)`; `date` is cast to a midnight-UTC timestamp and is the QuestDB designated timestamp/freshness column. Commit; verify T005 passes.
+- [ ] T009 [GREEN] Inside `create_tables_if_not_exist()` in `api/questdb_repository.py`, replace the existing legacy `CREATE TABLE IF NOT EXISTS entity_flows_daily (...) timestamp(ts) PARTITION BY DAY` block with the target DDL from `data-model.md`: six columns only, `timestamp(date) PARTITION BY DAY WAL DEDUP UPSERT KEYS(date, entity_id)`. If a legacy `timestamp(ts)` table exists and is empty, drop/recreate it; if it exists and is non-empty, fail fast with an operator migration error and do not drop data. Confirm `docs/contracts/stream_registry.yaml` uses `timestamp_column: date` for `entity_flows_daily`. Commit; verify T006 passes against live QuestDB.
 
 ---
 
@@ -61,7 +61,7 @@ description: "Task list for spec-063 entity_flows_daily QuestDB Producer Pilot"
 
 **Story goal**: After `aggregate_flows()` runs, both DuckDB and QuestDB contain the same row set for `entity_flows_daily`. The stream transitions from MISSING to OK on `/v1/streams/health`.
 
-**Independent test**: Invoke `aggregate_flows()` against a populated DuckDB. Query QuestDB `SELECT count(*) FROM entity_flows_daily WHERE date = current_date()` and assert the count equals the DuckDB count. `/v1/streams/health` reports OK.
+**Independent test**: Invoke `aggregate_flows()` against a populated DuckDB whose latest logical `date` is within the 36 h SLA. Compare DuckDB and QuestDB `SELECT date, count(*) FROM entity_flows_daily GROUP BY date ORDER BY date` results and assert they match for every logical date present. `/v1/streams/health` reports OK.
 
 ### RED phase — guards (b) and (e) from plan Constitution Check
 
@@ -70,11 +70,11 @@ description: "Task list for spec-063 entity_flows_daily QuestDB Producer Pilot"
 
 ### GREEN phase
 
-- [ ] T012 [GREEN] [US1] Inside `aggregate_flows()` in `scripts/live/flow_aggregator.py`, after the existing `INSERT OR REPLACE INTO entity_flows_daily` block at line ~121, add the dual-write block per `contracts/save_entity_flows_daily.md` pseudocode: read back via `SELECT entity_id, date, inflow_btc, outflow_btc, netflow_btc, is_exchange FROM entity_flows_daily WHERE date = current_date`, iterate, call `save_entity_flows_daily(...)` per row. Gated by `_should_write_questdb()`. Commit; verify T010 and T011 pass.
+- [ ] T012 [GREEN] [US1] Inside `aggregate_flows()` in `scripts/live/flow_aggregator.py`, after the existing `INSERT OR REPLACE INTO entity_flows_daily` block at line ~121, add the dual-write block per `contracts/save_entity_flows_daily.md` pseudocode: read back via `SELECT entity_id, date, inflow_btc, outflow_btc, netflow_btc, is_exchange FROM entity_flows_daily ORDER BY date, entity_id`, iterate, call `save_entity_flows_daily(...)` per row. Gated by `_should_write_questdb()`. Commit; verify T010 and T011 pass.
 
 ### Live verification
 
-- [ ] T013 [US1] Run the quickstart manual smoke (Step 1–4 of `quickstart.md`) against the host QuestDB. Confirm row-count parity between DuckDB and QuestDB for `current_date`. **Measure SC-002 5-second visibility window**: capture `t0` immediately after `aggregate_flows()` returns; then poll QuestDB count every 500 ms for up to 10 s; assert parity observed within 5 000 ms of `t0`; record the actual observed delta. Save smoke log with duration, row count, and t0-to-parity delta in `validation/reports/$(date +%F)_spec063_smoke.md`.
+- [ ] T013 [US1] Run the quickstart manual smoke (Step 1–4 of `quickstart.md`) against the host QuestDB. Confirm row-count parity between DuckDB and QuestDB for every `date` present in DuckDB `entity_flows_daily`. **Measure SC-002 5-second visibility window**: capture `t0` immediately after `aggregate_flows()` returns; then poll QuestDB grouped counts every 500 ms for up to 10 s; assert full grouped parity is observed within 5 000 ms of `t0`; record the actual observed delta. Save smoke log with duration, row count, date range, and t0-to-parity delta in `validation/reports/$(date +%F)_spec063_smoke.md`.
 
 ---
 
@@ -113,7 +113,7 @@ description: "Task list for spec-063 entity_flows_daily QuestDB Producer Pilot"
 
 ### GREEN phase
 
-- [ ] T021 [GREEN] [US3] Implement `_post_aggregated_webhook(target_date, failed_rows)` helper in `scripts/live/flow_aggregator.py` per `contracts/webhook_payload.md`. Use `urllib.request.urlopen` with 3s timeout; swallow webhook errors per spec-062 FR-012. Commit; verify T018 and T019 pass.
+- [ ] T021 [GREEN] [US3] Implement `_post_aggregated_webhook(failed_rows)` helper in `scripts/live/flow_aggregator.py` per `contracts/webhook_payload.md`. Derive the single-date or `min(date)..max(date)` token from `failed_rows`. Use `urllib.request.urlopen` with 3s timeout; swallow webhook errors per spec-062 FR-012. Commit; verify T018 and T019 pass.
 - [ ] T022 [GREEN] [US3] In `scripts/live/flow_aggregator.py`, at the end of the dual-write block (after the `for row in rows:` loop), call `_post_aggregated_webhook(...)` iff `failed_rows` is non-empty. Wrap in a `try/except` so a webhook failure does not affect the function exit code. Commit; verify T018 and T019 remain green after integration.
 
 ### Live verification
@@ -134,8 +134,8 @@ description: "Task list for spec-063 entity_flows_daily QuestDB Producer Pilot"
 ### Observability
 
 - [ ] T026 At the end of `aggregate_flows()` in `scripts/live/flow_aggregator.py`, emit the structured INFO log per FR-004. Two shapes:
-  - **ON** (default): `spec-063 entity_flows_daily dual-write success: date=... duration_s=... rows_written_duckdb=N rows_written_questdb=M`
-  - **OFF** (`SPEC063_QUESTDB_WRITE` set to `0`/`false`/`no`): `spec-063 entity_flows_daily dual-write success: date=... duration_s=... rows_written_duckdb=N rows_written_questdb=disabled`
+  - **ON** (default): `spec-063 entity_flows_daily dual-write success: date_range=... duration_s=... rows_written_duckdb=N rows_written_questdb=M`
+  - **OFF** (`SPEC063_QUESTDB_WRITE` set to `0`/`false`/`no`): `spec-063 entity_flows_daily dual-write success: date_range=... duration_s=... rows_written_duckdb=N rows_written_questdb=disabled`
   The literal token `disabled` (not `0`) disambiguates "operator disabled the write half" from "tried zero rows" or "all rows failed". Commit; spot-check by running the function under both env-var states.
 
 ### Final verification
@@ -147,7 +147,7 @@ description: "Task list for spec-063 entity_flows_daily QuestDB Producer Pilot"
 
 ### FR-011 health endpoint guard (analyze F2 remediation)
 
-- [ ] T031 Add `test_entity_flows_daily_appears_OK_in_streams_health` in `tests/test_flow_aggregator_questdb.py`: `@pytest.mark.integration` (live QuestDB + live API). Seed QuestDB `entity_flows_daily` with one row via the production `save_entity_flows_daily(...)`; POST to local `/v1/streams/health` with `RUN_STREAMS_HEALTH_CONTRACT=1`; parse response; assert the `entity_flows_daily` stream entry has `status == "OK"` and `stale_seconds <= 129600`. Catches a regression where the producer writes successfully but the registry mapping drifts (FR-011 + Story 1 acceptance scenario 1). Skipped in plain CI (consistent with F7 acknowledgement); runs in T029 smoke and in any future spec that re-enables the streams-contract workflow.
+- [ ] T031 Add `test_entity_flows_daily_appears_OK_in_streams_health` in `tests/test_flow_aggregator_questdb.py`: `@pytest.mark.integration` (live QuestDB + live API). Seed QuestDB `entity_flows_daily` with one row for today's logical `date` via the production `save_entity_flows_daily(...)`; send a GET request to local `/v1/streams/health` with `RUN_STREAMS_HEALTH_CONTRACT=1`; parse response; assert the `entity_flows_daily` stream entry has `status == "OK"` and `stale_seconds <= 129600`. Catches a regression where the producer writes successfully but the registry mapping drifts (FR-011 + Story 1 acceptance scenario 1). Skipped in plain CI (consistent with F7 acknowledgement); runs in T029 smoke and in any future spec that re-enables the streams-contract workflow.
 
 ---
 

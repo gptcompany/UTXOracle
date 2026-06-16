@@ -66,7 +66,7 @@ Where:
   - `date DATE → TIMESTAMP` is lossless: DATE has midnight-UTC precision; TIMESTAMP can encode any DATE without loss.
   - `inflow_btc / outflow_btc / netflow_btc DOUBLE → DOUBLE` is identity.
   - `is_exchange BOOLEAN → BOOLEAN` is identity.
-- A new `ts TIMESTAMP` column exists in the QuestDB DDL but not in DuckDB. It's the designated timestamp for partition. Populated at write time with `datetime.utcnow()`.
+- The pre-spec-063 QuestDB DDL has a `ts TIMESTAMP` ingestion-time column, but spec-063 removes it from the target contract. The logical daily `date` is the designated timestamp and the stream freshness column.
 
 **Alternatives considered**:
 - *Fail-fast on any type mismatch* — rejected per Clarify Q3 reasoning (would block the pilot prematurely).
@@ -93,7 +93,7 @@ Where:
 
 ## R5 — Write transport: psycopg PG-wire vs ILP
 
-**Decision**: psycopg sync `INSERT ... ON CONFLICT ... DO UPDATE` via `_open_pg_sync()`. ILP rejected.
+**Decision**: psycopg sync `INSERT` via `_open_pg_sync()`. ILP rejected. Idempotency is provided by QuestDB WAL DEDUP with `UPSERT KEYS(date, entity_id)`, not PostgreSQL `ON CONFLICT`.
 
 **Rationale**:
 - spec-061 Phase 1.5-v2 already uses psycopg sync for `block_heights` and `daily_prices`. spec-062 reader migration reuses the same import. Consistency.
@@ -110,7 +110,7 @@ Where:
 
 ## R6 — Batch size and back-pressure
 
-**Decision**: Read all rows produced by the DuckDB `INSERT OR REPLACE` aggregation into memory via `SELECT * FROM entity_flows_daily WHERE date = <run_date>`. Iterate Python-side and call `save_entity_flows_daily(...)` per row. No streaming, no chunking, no back-pressure mechanism.
+**Decision**: Read the full DuckDB `entity_flows_daily` row set after the `INSERT OR REPLACE` aggregation via `SELECT * FROM entity_flows_daily ORDER BY date, entity_id`. Iterate Python-side and call `save_entity_flows_daily(...)` per row. No streaming, no chunking, no back-pressure mechanism.
 
 **Rationale**:
 - Discovery: `aggregate_flows()` is a single-run batch operation. Cardinality of distinct `(entity_id, date)` pairs is bounded by the entity registry size — empirically << 10 000 rows per run today.

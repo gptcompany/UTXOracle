@@ -40,15 +40,14 @@ All arguments are keyword-only. This matches the existing `save_mvrv_daily`/`sav
 The implementation MUST apply the per-column casts enumerated in [../data-model.md](../data-model.md):
 
 ```sql
-INSERT INTO entity_flows_daily (entity_id, date, inflow_btc, outflow_btc, netflow_btc, is_exchange, ts)
-VALUES (%s, %s, %s, %s, %s, %s, %s)
+INSERT INTO entity_flows_daily (entity_id, date, inflow_btc, outflow_btc, netflow_btc, is_exchange)
+VALUES (%s, %s, %s, %s, %s, %s)
 ```
 
 Parameters substituted by psycopg:
 - `entity_id`: passed through (string identity → SYMBOL)
-- `date`: `datetime.combine(date, datetime.min.time())` (DATE → TIMESTAMP at midnight, treated as UTC; QuestDB designated timestamp is `ts` so partition lookup uses `ts`, not `date`)
+- `date`: `datetime.combine(date, datetime.min.time())` (DATE → TIMESTAMP at midnight, treated as UTC; this is the QuestDB designated timestamp and freshness column)
 - `inflow_btc, outflow_btc, netflow_btc, is_exchange`: passed through
-- `ts`: `datetime.utcnow()` at call time (the designated timestamp for partitioning; consumer-facing day key remains `date`)
 
 ## Failure modes
 
@@ -69,7 +68,7 @@ if _should_write_questdb():
     failed_rows = []
     rows = conn.execute(
         "SELECT entity_id, date, inflow_btc, outflow_btc, netflow_btc, is_exchange "
-        "FROM entity_flows_daily WHERE date = ?", [target_date]
+        "FROM entity_flows_daily ORDER BY date, entity_id"
     ).fetchall()
     for row in rows:
         try:
@@ -87,11 +86,11 @@ if _should_write_questdb():
             logger.error("entity_flows_daily QuestDB save failed: entity_id=%s date=%s exc=%s",
                          row[0], row[1], exc, exc_info=True)
     if failed_rows:
-        _post_aggregated_webhook(target_date, failed_rows)
+        _post_aggregated_webhook(failed_rows)
 ```
 
 The caller block:
-1. Reads back the DuckDB-aggregated rows for the target date.
+1. Reads back the full DuckDB `entity_flows_daily` row set after the aggregation completes.
 2. Iterates and calls `save_entity_flows_daily` per row.
 3. Catches `psycopg.Error` per row, logs ERROR, accumulates failure metadata.
 4. At end-of-run, posts exactly one aggregated webhook if `failed_rows` is non-empty.
@@ -101,5 +100,5 @@ The caller block:
 `tests/test_flow_aggregator_questdb.py` MUST include:
 
 1. **Deterministic payload guard (guard b)**: patch `save_entity_flows_daily` to record calls, invoke `aggregate_flows()`, assert each call's keyword args match exactly the DuckDB row that `aggregate_flows()` produced for the same `(entity_id, date)`.
-2. **Failure isolation guard (guard c)**: patch `save_entity_flows_daily` to raise `psycopg.OperationalError`, invoke `aggregate_flows()`, assert: (a) the DuckDB row count for the target date matches what the run would have produced without spec-063, (b) the DuckDB transaction was committed, (c) the run did NOT raise upward.
+2. **Failure isolation guard (guard c)**: patch `save_entity_flows_daily` to raise `psycopg.OperationalError`, invoke `aggregate_flows()`, assert: (a) the DuckDB grouped row counts by `date` match what the run would have produced without spec-063, (b) the DuckDB transaction was committed, (c) the run did NOT raise upward.
 3. **Save method import guard (guard e)**: `tests/test_flow_aggregator_questdb.py::test_save_method_signature` asserts the signature in this contract is what the code exposes (catches accidental signature drift in future refactors).
