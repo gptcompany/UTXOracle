@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import duckdb
+import os
 import sys
 from pathlib import Path
 
@@ -8,6 +9,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from api.config import DUCKDB_PATH
 from scripts.live.init_flow_artifacts import create_flow_artifact_tables
+
+
+def _should_write_questdb() -> bool:
+    """Return False iff SPEC063_QUESTDB_WRITE uses a canonical OFF token."""
+    raw = os.environ.get("SPEC063_QUESTDB_WRITE")
+    if raw is None:
+        return True
+    return raw.strip().lower() not in {"0", "false", "no"}
 
 
 def _has_column(conn: duckdb.DuckDBPyConnection, table: str, column: str) -> bool:
