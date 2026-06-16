@@ -93,6 +93,20 @@ None of the disqualifying conditions are present. Option B remains the baseline.
 
 ---
 
+---
+
+## D7 — Lessons surfaced during implementation (T017)
+
+Pattern Appendix A from spec-062 applies to the spec-063 write-side migration with three documented deltas already enumerated in plan.md "Strangler-fig Pattern Application" table. Implementation surfaced only one further lesson worth feeding back to Appendix A for the remaining six Phase 2 producer specs:
+
+**Lesson — TDD RED-first sequencing on guard tests**: a guard that asserts "the new behaviour is silently absent before implementation" can fail to RED if a prior GREEN task already implemented part of the behaviour incidentally. spec-063 hit this on T014: T012 GREEN wired `_should_write_questdb()` into the dual-write critical path, so a T014 RED test of "env-var gating exists" would have passed retroactively. The fix was to rewrite T014 to assert a property that **no** prior GREEN task implements: a specific INFO log line declaring the disabled state, which T016 GREEN then lands.
+
+Concrete recommendation for the next Phase 2 producer spec: before writing a guard test in a phase whose dependencies include earlier GREEN tasks, identify ONE concrete observable property — a log line, an emitted metric, a return-value field — that is **not** already implied by the existing GREEN code. If no such property exists, the guard is redundant and should be replaced or removed, not faked into passing.
+
+No deltas observed on the six Appendix A steps themselves; the pattern transfers cleanly to a sync write-side producer.
+
+---
+
 ## Sign-off
 
 Plan freeze checklist (from plan.md):
