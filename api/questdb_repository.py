@@ -305,6 +305,48 @@ def save_backtest_whale_signal_row(
     return True
 
 
+async def _ensure_entity_flows_daily_table(conn) -> None:
+    row = await conn.fetchrow(
+        """
+        SELECT designatedTimestamp
+        FROM tables()
+        WHERE table_name = 'entity_flows_daily'
+        """
+    )
+    if row is not None and row["designatedTimestamp"] != "date":
+        row_count = await conn.fetchval("SELECT count(*) FROM entity_flows_daily")
+        if int(row_count or 0) > 0:
+            raise RuntimeError(
+                "entity_flows_daily has legacy QuestDB timestamp shape and "
+                "contains rows; operator migration required before spec-063 "
+                "can normalize to timestamp(date)"
+            )
+        await conn.execute("DROP TABLE entity_flows_daily")
+
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS entity_flows_daily (
+            entity_id SYMBOL INDEX,
+            date TIMESTAMP,
+            inflow_btc DOUBLE,
+            outflow_btc DOUBLE,
+            netflow_btc DOUBLE,
+            is_exchange BOOLEAN
+        ) timestamp(date) PARTITION BY DAY WAL
+          DEDUP UPSERT KEYS(date, entity_id);
+        """
+    )
+
+    for ddl in (
+        "ALTER TABLE entity_flows_daily SET TYPE WAL",
+        "ALTER TABLE entity_flows_daily DEDUP ENABLE UPSERT KEYS(date, entity_id)",
+    ):
+        try:
+            await conn.execute(ddl)
+        except Exception:
+            pass
+
+
 async def create_tables_if_not_exist():
     """
     Creates the necessary tables in QuestDB if they do not already exist.
@@ -599,19 +641,7 @@ async def create_tables_if_not_exist():
             """
         )
 
-        await conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS entity_flows_daily (
-                entity_id SYMBOL INDEX,
-                date TIMESTAMP,
-                inflow_btc DOUBLE,
-                outflow_btc DOUBLE,
-                netflow_btc DOUBLE,
-                is_exchange BOOLEAN,
-                ts TIMESTAMP
-            ) timestamp(ts) PARTITION BY DAY;
-            """
-        )
+        await _ensure_entity_flows_daily_table(conn)
 
         await conn.execute(
             """
