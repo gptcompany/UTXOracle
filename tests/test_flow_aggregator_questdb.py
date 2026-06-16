@@ -2,6 +2,7 @@
 
 from datetime import date as date_cls, datetime
 import inspect
+import logging
 from pathlib import Path
 
 import duckdb
@@ -184,3 +185,53 @@ def test_cast_contract_matches_data_model(tmp_path, monkeypatch):
         assert isinstance(call["outflow_btc"], float)
         assert isinstance(call["netflow_btc"], float)
         assert isinstance(call["is_exchange"], bool)
+
+
+def test_disabled_state_emits_explicit_INFO_log(tmp_path, monkeypatch, caplog):
+    """T014 [RED]: with SPEC063_QUESTDB_WRITE OFF, the producer MUST emit an
+    INFO log declaring the disabled state (per quickstart.md Rollback Step 2)
+    AND MUST NOT open a QuestDB connection AND MUST NOT emit the success log
+    shape containing rows_written_questdb=.
+
+    Three assertions:
+      (a) regression guard for T012 gating — _open_pg_sync NOT invoked;
+      (b) RED-state property — disabled-state INFO log line emitted exactly
+          once with the canonical prefix;
+      (c) negative property — success log shape NOT present in OFF mode.
+    """
+    from scripts.live import flow_aggregator
+
+    db_path = tmp_path / "entity_flows.duckdb"
+    _build_flow_fixture_db(db_path)
+
+    def must_not_open(*args, **kwargs):
+        raise AssertionError(
+            "_open_pg_sync must not be called when SPEC063_QUESTDB_WRITE=0"
+        )
+
+    monkeypatch.setenv("SPEC063_QUESTDB_WRITE", "0")
+    monkeypatch.setattr(
+        flow_aggregator, "_open_pg_sync", must_not_open, raising=False
+    )
+    caplog.set_level(logging.INFO, logger="scripts.live.flow_aggregator")
+
+    flow_aggregator.aggregate_flows(db_path=str(db_path))
+
+    # (a) Connection guard — implicit (must_not_open would have raised)
+    # (b) Disabled-state INFO log emitted exactly once
+    disabled_prefix = (
+        "spec-063 entity_flows_daily QuestDB write half disabled by "
+        "SPEC063_QUESTDB_WRITE="
+    )
+    disabled_records = [
+        r for r in caplog.records if r.getMessage().startswith(disabled_prefix)
+    ]
+    assert len(disabled_records) == 1, (
+        f"expected exactly one disabled-state INFO log, got {len(disabled_records)}: "
+        f"{[r.getMessage() for r in caplog.records]}"
+    )
+    # (c) No success-shape log in OFF mode
+    for r in caplog.records:
+        assert "rows_written_questdb=" not in r.getMessage(), (
+            f"success log shape leaked into OFF mode: {r.getMessage()}"
+        )
