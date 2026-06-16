@@ -393,3 +393,89 @@ def test_webhook_NOT_fired_on_successful_run(tmp_path, monkeypatch):
     assert posted == [], (
         f"webhook leaked on successful run: {posted}"
     )
+
+
+@pytest.mark.integration
+def test_rollback_OFF_preserves_pre_existing_questdb_row_values(
+    tmp_path, monkeypatch
+):
+    """T020 [RED]: seeded QuestDB rows with distinct sentinel values MUST
+    survive an `aggregate_flows()` run executed with SPEC063_QUESTDB_WRITE=0.
+    Pre-existing row values MUST NOT be overwritten by the aggregate values.
+
+    Requires a live QuestDB instance reachable via _open_pg_sync; skip if
+    unreachable (consistent with analyze remediation F7).
+    """
+    import datetime as _dt
+    import psycopg
+
+    try:
+        from api.questdb_repository import (
+            _open_pg_sync,
+            create_tables_if_not_exist,
+        )
+    except ImportError as exc:
+        pytest.skip(f"questdb_repository unavailable: {exc}")
+
+    try:
+        conn = _open_pg_sync()
+        conn.close()
+    except Exception as exc:
+        pytest.skip(f"live QuestDB unreachable: {exc}")
+
+    import asyncio
+
+    asyncio.run(_create_tables_async())
+
+    sentinel_date = _dt.date(2026, 6, 16)
+    sentinel_entity_a = "cluster_sentinel_A"
+    sentinel_entity_b = "cluster_sentinel_B"
+    sentinel_inflow_a = 999.123456
+    sentinel_inflow_b = 888.654321
+
+    # Seed sentinel rows. DEDUP UPSERT KEYS(date, entity_id) makes this
+    # idempotent — re-running the test upserts the sentinel values, no DELETE
+    # preamble needed (QuestDB DELETE has limited syntax support).
+    with _open_pg_sync() as conn:
+        with conn.cursor() as cur:
+            for entity, inflow in (
+                (sentinel_entity_a, sentinel_inflow_a),
+                (sentinel_entity_b, sentinel_inflow_b),
+            ):
+                cur.execute(
+                    """
+                    INSERT INTO entity_flows_daily
+                    (entity_id, date, inflow_btc, outflow_btc, netflow_btc, is_exchange)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    (entity, sentinel_date, inflow, 0.0, inflow, False),
+                )
+        conn.commit()
+
+    # Run with env var OFF — aggregate_flows MUST NOT touch QuestDB
+    monkeypatch.setenv("SPEC063_QUESTDB_WRITE", "0")
+    db_path = tmp_path / "rollback.duckdb"
+    _build_flow_fixture_db(db_path)
+    from scripts.live import flow_aggregator
+
+    flow_aggregator.aggregate_flows(db_path=str(db_path))
+
+    # Assert sentinel rows survived unchanged
+    with _open_pg_sync() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT entity_id, inflow_btc FROM entity_flows_daily "
+                "WHERE entity_id IN (%s, %s) AND date = %s ORDER BY entity_id",
+                (sentinel_entity_a, sentinel_entity_b, sentinel_date),
+            )
+            rows = cur.fetchall()
+
+    assert len(rows) == 2, f"sentinel rows missing: {rows}"
+    by_id = {r[0]: r[1] for r in rows}
+    assert by_id[sentinel_entity_a] == pytest.approx(sentinel_inflow_a)
+    assert by_id[sentinel_entity_b] == pytest.approx(sentinel_inflow_b)
+
+
+async def _create_tables_async():
+    from api.questdb_repository import create_tables_if_not_exist
+    await create_tables_if_not_exist()
