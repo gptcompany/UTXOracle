@@ -413,13 +413,9 @@ def test_rollback_OFF_preserves_pre_existing_questdb_row_values(
     unreachable (consistent with analyze remediation F7).
     """
     import datetime as _dt
-    import psycopg
 
     try:
-        from api.questdb_repository import (
-            _open_pg_sync,
-            create_tables_if_not_exist,
-        )
+        from api.questdb_repository import _open_pg_sync
     except ImportError as exc:
         pytest.skip(f"questdb_repository unavailable: {exc}")
 
@@ -506,4 +502,66 @@ def test_duckdb_write_path_preserved():
     src = Path("scripts/live/flow_aggregator.py").read_text()
     assert "INSERT OR REPLACE INTO entity_flows_daily" in src, (
         "DuckDB write path INSERT OR REPLACE INTO entity_flows_daily is gone"
+    )
+
+
+@pytest.mark.integration
+def test_entity_flows_daily_appears_OK_in_streams_health():
+    """T031 [GUARD] FR-011: after the production save method writes a row,
+    /v1/streams/health MUST report entity_flows_daily as OK with stale_seconds
+    <= sla_seconds. Catches a regression where the producer writes but the
+    registry mapping drifts. Integration-marked; skipped in plain CI per F7.
+    """
+    import datetime as _dt
+    import os
+
+    if os.environ.get("RUN_STREAMS_HEALTH_CONTRACT") != "1":
+        pytest.skip("RUN_STREAMS_HEALTH_CONTRACT not set")
+
+    try:
+        from api.questdb_repository import _open_pg_sync, save_entity_flows_daily
+    except ImportError as exc:
+        pytest.skip(f"questdb_repository unavailable: {exc}")
+
+    try:
+        conn = _open_pg_sync()
+        conn.close()
+    except Exception as exc:
+        pytest.skip(f"live QuestDB unreachable: {exc}")
+
+    # Seed a fresh row for today
+    save_entity_flows_daily(
+        entity_id="cluster_health_probe",
+        date=_dt.date.today(),
+        inflow_btc=1.0,
+        outflow_btc=0.0,
+        netflow_btc=1.0,
+        is_exchange=False,
+    )
+
+    # Query the streams health endpoint
+    try:
+        from fastapi.testclient import TestClient
+        from api.main import app
+    except ImportError as exc:
+        pytest.skip(f"API surface unavailable: {exc}")
+
+    client = TestClient(app)
+    token = os.environ.get("UTXORACLE_API_TOKEN", "")
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    resp = client.get("/v1/streams/health", headers=headers)
+    if resp.status_code == 401:
+        pytest.skip("health endpoint requires auth token; not provided")
+    assert resp.status_code == 200, f"unexpected response: {resp.status_code} {resp.text}"
+    body = resp.json()
+    entry = next(
+        (s for s in body.get("streams", []) if s.get("name") == "entity_flows_daily"),
+        None,
+    )
+    assert entry is not None, "entity_flows_daily missing from /v1/streams/health"
+    assert entry.get("status") == "OK", (
+        f"entity_flows_daily status is not OK: {entry}"
+    )
+    assert entry.get("stale_seconds", 999999) <= entry.get("sla_seconds", 129600), (
+        f"stale_seconds exceeds sla_seconds: {entry}"
     )
