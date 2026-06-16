@@ -230,11 +230,17 @@ def test_disabled_state_emits_explicit_INFO_log(tmp_path, monkeypatch, caplog):
         f"expected exactly one disabled-state INFO log, got {len(disabled_records)}: "
         f"{[r.getMessage() for r in caplog.records]}"
     )
-    # (c) No success-shape log in OFF mode
+    # (c) The success log MAY appear in OFF mode (T026 design), but the
+    # rows_written_questdb token MUST be the literal "disabled" — never a
+    # numeric value that would imply "wrote 0 rows because all rows failed"
+    # vs. the actual "operator disabled the write half".
     for r in caplog.records:
-        assert "rows_written_questdb=" not in r.getMessage(), (
-            f"success log shape leaked into OFF mode: {r.getMessage()}"
-        )
+        msg = r.getMessage()
+        if "rows_written_questdb=" in msg:
+            assert "rows_written_questdb=disabled" in msg, (
+                f"success log used numeric rows_written_questdb in OFF mode "
+                f"(should be 'disabled'): {msg}"
+            )
 
 
 def test_questdb_failure_does_not_roll_back_duckdb(tmp_path, monkeypatch, caplog):
@@ -479,3 +485,25 @@ def test_rollback_OFF_preserves_pre_existing_questdb_row_values(
 async def _create_tables_async():
     from api.questdb_repository import create_tables_if_not_exist
     await create_tables_if_not_exist()
+
+
+def test_dual_write_site_exists_in_source():
+    """T024 [GUARD]: catches a future refactor that silently removes the
+    QuestDB write half (FR-009 / FR-008 guard)."""
+    src = Path("scripts/live/flow_aggregator.py").read_text()
+    assert "save_entity_flows_daily" in src, (
+        "save_entity_flows_daily not imported/called in flow_aggregator.py"
+    )
+    assert "_should_write_questdb" in src, (
+        "_should_write_questdb gating helper missing"
+    )
+
+
+def test_duckdb_write_path_preserved():
+    """T025 [GUARD]: catches a future refactor that removes the DuckDB write
+    half BEFORE the legacy-removal follow-up spec authorises it (FR-002,
+    FR-009)."""
+    src = Path("scripts/live/flow_aggregator.py").read_text()
+    assert "INSERT OR REPLACE INTO entity_flows_daily" in src, (
+        "DuckDB write path INSERT OR REPLACE INTO entity_flows_daily is gone"
+    )

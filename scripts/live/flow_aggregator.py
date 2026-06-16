@@ -116,8 +116,11 @@ def _unspent_filter(conn: duckdb.DuckDBPyConnection) -> str:
 
 
 def aggregate_flows(db_path: str | None = None, sample_limit: int | None = None) -> dict[str, int]:
+    import time
+
     target_path = db_path or DUCKDB_PATH
     print(f"Aggregating flows in {target_path}...")
+    _started = time.monotonic()
 
     with duckdb.connect(target_path) as conn:
         create_flow_artifact_tables(conn)
@@ -225,6 +228,8 @@ def aggregate_flows(db_path: str | None = None, sample_limit: int | None = None)
             """
         )
 
+        rows_written_questdb: int | str = 0
+        date_range_token = "n/a"
         if _should_write_questdb():
             rows = conn.execute(
                 """
@@ -234,6 +239,8 @@ def aggregate_flows(db_path: str | None = None, sample_limit: int | None = None)
                 """
             ).fetchall()
             failed_rows: list[tuple[str, _date, str]] = []
+            written = 0
+            written_dates: list[_date] = []
             for row in rows:
                 try:
                     save_entity_flows_daily(
@@ -244,6 +251,8 @@ def aggregate_flows(db_path: str | None = None, sample_limit: int | None = None)
                         netflow_btc=row[4],
                         is_exchange=row[5],
                     )
+                    written += 1
+                    written_dates.append(row[1])
                 except Exception as exc:
                     failed_rows.append((row[0], row[1], type(exc).__name__))
                     logger.error(
@@ -253,6 +262,9 @@ def aggregate_flows(db_path: str | None = None, sample_limit: int | None = None)
                         exc,
                         exc_info=True,
                     )
+            rows_written_questdb = written
+            if written_dates:
+                date_range_token = _format_date_token(written_dates)
             if failed_rows:
                 try:
                     _post_aggregated_webhook(failed_rows)
@@ -267,6 +279,24 @@ def aggregate_flows(db_path: str | None = None, sample_limit: int | None = None)
                 "spec-063 entity_flows_daily QuestDB write half disabled by SPEC063_QUESTDB_WRITE=%s",
                 os.environ.get("SPEC063_QUESTDB_WRITE", ""),
             )
+            rows_written_questdb = "disabled"
+
+        try:
+            duckdb_count = int(
+                conn.execute(
+                    "SELECT COUNT(*) FROM entity_flows_daily"
+                ).fetchone()[0]
+            )
+        except Exception:
+            duckdb_count = 0
+        logger.info(
+            "spec-063 entity_flows_daily dual-write success: "
+            "date_range=%s duration_s=%.2f rows_written_duckdb=%d rows_written_questdb=%s",
+            date_range_token,
+            time.monotonic() - _started,
+            duckdb_count,
+            rows_written_questdb,
+        )
 
         print("Calculating daily balance snapshots...")
         conn.execute(
