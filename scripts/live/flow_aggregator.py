@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
+import urllib.error
+import urllib.request
+from datetime import date as _date
 from pathlib import Path
 
 import duckdb
@@ -14,6 +18,62 @@ from api.questdb_repository import save_entity_flows_daily
 from scripts.live.init_flow_artifacts import create_flow_artifact_tables
 
 logger = logging.getLogger(__name__)
+
+
+def _format_date_token(dates: list[_date]) -> str:
+    """Return YYYY-MM-DD if all dates equal, else min..max ISO range."""
+    unique = sorted(set(dates))
+    if len(unique) == 1:
+        return unique[0].isoformat()
+    return f"{unique[0].isoformat()}..{unique[-1].isoformat()}"
+
+
+def _format_exception_summary(exc_classes: list[str]) -> str:
+    """Single class name if uniform, else MultipleFailureClasses."""
+    unique = set(exc_classes)
+    if len(unique) == 1:
+        return next(iter(unique))
+    return "MultipleFailureClasses"
+
+
+def _post_aggregated_webhook(
+    failed_rows: list[tuple[str, _date, str]],
+) -> None:
+    """POST one aggregated Discord webhook per failing aggregate_flows run.
+
+    Payload format per contracts/webhook_payload.md. Webhook errors are
+    swallowed and logged at WARNING — they MUST NOT mask the underlying
+    run state per spec-062 FR-012 precedent.
+    """
+    if not failed_rows:
+        return
+    webhook = os.environ.get("DISCORD_WEBHOOK_URL", "").strip()
+    if not webhook or webhook.startswith("ENC[") or webhook.startswith("encrypted:"):
+        return
+    date_token = _format_date_token([row[1] for row in failed_rows])
+    exception_summary = _format_exception_summary([row[2] for row in failed_rows])
+    payload = json.dumps(
+        {
+            "content": (
+                ":rotating_light: entity_flows_daily QuestDB write failed for "
+                f"{date_token}: {len(failed_rows)} rows failed ({exception_summary})"
+            )
+        }
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        webhook,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=3) as response:
+            response.read(0)
+    except (urllib.error.URLError, OSError, TimeoutError) as exc:
+        logger.warning(
+            "entity_flows_daily Discord webhook post failed (suppressed): %s",
+            exc,
+        )
 
 
 def _should_write_questdb() -> bool:
@@ -173,6 +233,7 @@ def aggregate_flows(db_path: str | None = None, sample_limit: int | None = None)
                 ORDER BY date, entity_id
                 """
             ).fetchall()
+            failed_rows: list[tuple[str, _date, str]] = []
             for row in rows:
                 try:
                     save_entity_flows_daily(
@@ -184,12 +245,22 @@ def aggregate_flows(db_path: str | None = None, sample_limit: int | None = None)
                         is_exchange=row[5],
                     )
                 except Exception as exc:
+                    failed_rows.append((row[0], row[1], type(exc).__name__))
                     logger.error(
                         "entity_flows_daily QuestDB save failed: entity_id=%s date=%s exc=%s",
                         row[0],
                         row[1],
                         exc,
                         exc_info=True,
+                    )
+            if failed_rows:
+                try:
+                    _post_aggregated_webhook(failed_rows)
+                except Exception as webhook_exc:
+                    logger.warning(
+                        "entity_flows_daily aggregated webhook failed "
+                        "(suppressed): %s",
+                        webhook_exc,
                     )
         else:
             logger.info(
