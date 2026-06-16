@@ -86,12 +86,15 @@ description: "Task list for spec-063 entity_flows_daily QuestDB Producer Pilot"
 
 ### RED phase — guards (a) and (c) — env toggle + DuckDB integrity
 
-- [ ] T014 [RED] [US2] Add `test_env_toggle_gates_questdb_connection_open` in `tests/test_flow_aggregator_questdb.py`: monkeypatch `os.environ["SPEC063_QUESTDB_WRITE"]="0"`, patch `api.questdb_repository._open_pg_sync` to raise `AssertionError("must not be called")`, invoke `aggregate_flows()`, assert NO `_open_pg_sync` call was attempted. Commit; verify it fails (env-var gating not implemented yet).
+- [ ] T014 [RED] [US2] **(rewritten mid-implementation — see commit log for rationale)** Add `test_disabled_state_emits_explicit_INFO_log` in `tests/test_flow_aggregator_questdb.py`: monkeypatch `os.environ["SPEC063_QUESTDB_WRITE"]="0"`, patch `scripts.live.flow_aggregator._open_pg_sync` to raise `AssertionError("must not be called")`, use `caplog.set_level(logging.INFO)` to capture INFO records, invoke `aggregate_flows()`. Assert ALL THREE: (a) `_open_pg_sync` was NOT invoked (regression guard for T012 gating); (b) `caplog.records` contains exactly ONE INFO record whose message starts with the literal `"spec-063 entity_flows_daily QuestDB write half disabled by SPEC063_QUESTDB_WRITE="`; (c) NO INFO record contains the substring `"rows_written_questdb="` (the success log shape T026 emits in ON mode). Commit; verify it FAILS because the disabled-state INFO log line (b) is NOT yet emitted anywhere — T012 GREEN gated the connection but did not declare the disabled state. The original T014 description checked only (a) which was redundant with T012 — the property (b) is the genuine RED-state.
 - [ ] T015 [RED] [US2] Add `test_questdb_failure_does_not_roll_back_duckdb` in `tests/test_flow_aggregator_questdb.py`: monkeypatch env var ON, patch `save_entity_flows_daily` to raise `psycopg.OperationalError`, invoke `aggregate_flows()`. Assert: (a) the function returns without raising; (b) the DuckDB row count for `entity_flows_daily` matches the count from a pre-spec-063 run on the same fixture; (c) the DuckDB transaction was committed (verifiable by re-opening the connection and SELECTing). Commit; verify it fails.
 
 ### GREEN phase
 
-- [ ] T016 [GREEN] [US2] Refine the dual-write block in `scripts/live/flow_aggregator.py` (already added in T012) to wrap the per-row `save_entity_flows_daily` call in `try/except psycopg.Error`. On exception: append `(entity_id, date, exception_class)` to a `failed_rows` list and emit a structured ERROR log per FR-003. Commit; verify T014 and T015 pass.
+- [ ] T016 [GREEN] [US2] Refine the dual-write block in `scripts/live/flow_aggregator.py` (already added in T012):
+  1. At the start of the dual-write block, BEFORE the connection would be opened: when `_should_write_questdb()` returns False, emit `logger.info("spec-063 entity_flows_daily QuestDB write half disabled by SPEC063_QUESTDB_WRITE=%s", os.environ.get("SPEC063_QUESTDB_WRITE", ""))`. This is the line `quickstart.md` Rollback Step 2 already documents and T014 RED requires.
+  2. Wrap the per-row `save_entity_flows_daily` call in `try/except psycopg.Error`. On exception: append `(entity_id, date, exception_class)` to a `failed_rows` list and emit `logger.error("entity_flows_daily QuestDB save failed: entity_id=%s date=%s exc=%s", entity_id, date, exc, exc_info=True)` per FR-003.
+  Commit; verify T014 and T015 pass.
 
 ### Documentation
 
