@@ -235,3 +235,57 @@ def test_disabled_state_emits_explicit_INFO_log(tmp_path, monkeypatch, caplog):
         assert "rows_written_questdb=" not in r.getMessage(), (
             f"success log shape leaked into OFF mode: {r.getMessage()}"
         )
+
+
+def test_questdb_failure_does_not_roll_back_duckdb(tmp_path, monkeypatch, caplog):
+    """T015 [RED]: simulating a QuestDB write failure on every per-row
+    save_entity_flows_daily call MUST satisfy three properties:
+      (a) aggregate_flows returns without raising upward (DuckDB SSOT
+          integrity preserved per FR-002);
+      (b) the DuckDB entity_flows_daily row count equals the pre-spec-063
+          count (legacy write path NOT rolled back);
+      (c) each row failure is logged at ERROR per FR-003 with the canonical
+          prefix "entity_flows_daily QuestDB save failed".
+    T012 GREEN does NOT wrap the save_entity_flows_daily call in try/except,
+    so this test fails RED on assertion (a) — the AssertionError raised by
+    the patched save method bubbles out of aggregate_flows.
+    """
+    import psycopg
+
+    from scripts.live import flow_aggregator
+
+    db_path = tmp_path / "entity_flows.duckdb"
+    _build_flow_fixture_db(db_path)
+
+    def always_fail(**kwargs):
+        raise psycopg.OperationalError("simulated QuestDB write failure")
+
+    monkeypatch.setattr(
+        flow_aggregator, "save_entity_flows_daily", always_fail, raising=False
+    )
+    caplog.set_level(logging.ERROR, logger="scripts.live.flow_aggregator")
+
+    # (a) Must not raise
+    try:
+        flow_aggregator.aggregate_flows(db_path=str(db_path))
+    except psycopg.OperationalError as exc:
+        pytest.fail(
+            f"aggregate_flows raised QuestDB error instead of isolating it: {exc}"
+        )
+
+    # (b) DuckDB row count matches the pre-spec-063 contract
+    duckdb_rows = _duckdb_entity_flow_rows(db_path)
+    assert duckdb_rows, (
+        "DuckDB write path produced zero rows — legacy SSOT was clobbered"
+    )
+
+    # (c) Per-row ERROR log emitted per FR-003
+    error_records = [
+        r
+        for r in caplog.records
+        if "entity_flows_daily QuestDB save failed" in r.getMessage()
+    ]
+    assert len(error_records) == len(duckdb_rows), (
+        f"expected {len(duckdb_rows)} ERROR logs, got {len(error_records)}: "
+        f"{[r.getMessage() for r in caplog.records]}"
+    )
