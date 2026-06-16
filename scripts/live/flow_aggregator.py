@@ -1,15 +1,19 @@
 from __future__ import annotations
 
-import duckdb
+import logging
 import os
 import sys
 from pathlib import Path
+
+import duckdb
 
 # Add project root to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from api.config import DUCKDB_PATH
 from api.questdb_repository import save_entity_flows_daily
 from scripts.live.init_flow_artifacts import create_flow_artifact_tables
+
+logger = logging.getLogger(__name__)
 
 
 def _should_write_questdb() -> bool:
@@ -170,14 +174,28 @@ def aggregate_flows(db_path: str | None = None, sample_limit: int | None = None)
                 """
             ).fetchall()
             for row in rows:
-                save_entity_flows_daily(
-                    entity_id=row[0],
-                    date=row[1],
-                    inflow_btc=row[2],
-                    outflow_btc=row[3],
-                    netflow_btc=row[4],
-                    is_exchange=row[5],
-                )
+                try:
+                    save_entity_flows_daily(
+                        entity_id=row[0],
+                        date=row[1],
+                        inflow_btc=row[2],
+                        outflow_btc=row[3],
+                        netflow_btc=row[4],
+                        is_exchange=row[5],
+                    )
+                except Exception as exc:
+                    logger.error(
+                        "entity_flows_daily QuestDB save failed: entity_id=%s date=%s exc=%s",
+                        row[0],
+                        row[1],
+                        exc,
+                        exc_info=True,
+                    )
+        else:
+            logger.info(
+                "spec-063 entity_flows_daily QuestDB write half disabled by SPEC063_QUESTDB_WRITE=%s",
+                os.environ.get("SPEC063_QUESTDB_WRITE", ""),
+            )
 
         print("Calculating daily balance snapshots...")
         conn.execute(
