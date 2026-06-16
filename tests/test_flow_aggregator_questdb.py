@@ -1,5 +1,6 @@
 """Tests for spec-063 entity_flows_daily QuestDB producer pilot."""
 
+from datetime import date as date_cls, datetime
 import inspect
 from pathlib import Path
 
@@ -153,3 +154,33 @@ def test_dual_write_payload_byte_identity(tmp_path, monkeypatch):
     flow_aggregator.aggregate_flows(db_path=str(db_path))
 
     assert calls == _duckdb_entity_flow_rows(db_path)
+
+
+def test_cast_contract_matches_data_model(tmp_path, monkeypatch):
+    from scripts.live import flow_aggregator
+
+    db_path = tmp_path / "entity_flows.duckdb"
+    _build_flow_fixture_db(db_path)
+    calls = []
+
+    def record_save(**kwargs):
+        calls.append(kwargs)
+
+    monkeypatch.setattr(
+        flow_aggregator,
+        "save_entity_flows_daily",
+        record_save,
+        raising=False,
+    )
+
+    flow_aggregator.aggregate_flows(db_path=str(db_path))
+
+    assert calls
+    for call in calls:
+        assert isinstance(call["entity_id"], str)
+        assert isinstance(call["date"], date_cls)
+        assert not isinstance(call["date"], datetime)
+        assert isinstance(call["inflow_btc"], float)
+        assert isinstance(call["outflow_btc"], float)
+        assert isinstance(call["netflow_btc"], float)
+        assert isinstance(call["is_exchange"], bool)
