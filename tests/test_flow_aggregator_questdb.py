@@ -289,3 +289,107 @@ def test_questdb_failure_does_not_roll_back_duckdb(tmp_path, monkeypatch, caplog
         f"expected {len(duckdb_rows)} ERROR logs, got {len(error_records)}: "
         f"{[r.getMessage() for r in caplog.records]}"
     )
+
+
+def test_aggregated_webhook_fires_exactly_once_per_failing_run(
+    tmp_path, monkeypatch
+):
+    """T018 [RED]: when N rows fail QuestDB save, the webhook MUST be POSTed
+    exactly once with an aggregated payload matching contracts/webhook_payload.md.
+    """
+    import json
+    import re
+    import psycopg
+
+    from scripts.live import flow_aggregator
+
+    db_path = tmp_path / "entity_flows.duckdb"
+    _build_flow_fixture_db(db_path)
+
+    def always_fail(**kwargs):
+        raise psycopg.OperationalError("simulated QuestDB write failure")
+
+    posted = []
+
+    def fake_urlopen(request, timeout=None):
+        posted.append(
+            {
+                "url": request.full_url,
+                "body": request.data,
+                "timeout": timeout,
+            }
+        )
+
+        class _R:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self, _=0):
+                return b""
+
+        return _R()
+
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord.invalid/webhook/abc")
+    monkeypatch.setattr(
+        flow_aggregator, "save_entity_flows_daily", always_fail, raising=False
+    )
+    monkeypatch.setattr(
+        "scripts.live.flow_aggregator.urllib.request.urlopen",
+        fake_urlopen,
+        raising=False,
+    )
+
+    flow_aggregator.aggregate_flows(db_path=str(db_path))
+
+    assert len(posted) == 1, (
+        f"expected exactly one webhook POST, got {len(posted)}"
+    )
+    assert posted[0]["url"] == "https://discord.invalid/webhook/abc"
+    body = json.loads(posted[0]["body"].decode("utf-8"))
+    pattern = (
+        r"^:rotating_light: entity_flows_daily QuestDB write failed for "
+        r"(\d{4}-\d{2}-\d{2}|\d{4}-\d{2}-\d{2}\.\.\d{4}-\d{2}-\d{2}): "
+        r"\d+ rows failed \([\w\.]+\)$"
+    )
+    assert re.match(pattern, body["content"]), (
+        f"payload does not match contracts/webhook_payload.md: {body['content']!r}"
+    )
+
+
+def test_webhook_NOT_fired_on_successful_run(tmp_path, monkeypatch):
+    """T019 [RED]: a fully successful aggregate_flows run MUST NOT POST to the
+    Discord webhook."""
+    from scripts.live import flow_aggregator
+
+    db_path = tmp_path / "entity_flows.duckdb"
+    _build_flow_fixture_db(db_path)
+    posted = []
+
+    def fake_urlopen(*args, **kwargs):
+        posted.append(args)
+        raise AssertionError(
+            "urlopen MUST NOT be called when no rows fail QuestDB save"
+        )
+
+    def record_save(**kwargs):
+        # Successful save — no exception
+        return None
+
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord.invalid/webhook/abc")
+    monkeypatch.setattr(
+        flow_aggregator, "save_entity_flows_daily", record_save, raising=False
+    )
+    monkeypatch.setattr(
+        "scripts.live.flow_aggregator.urllib.request.urlopen",
+        fake_urlopen,
+        raising=False,
+    )
+
+    flow_aggregator.aggregate_flows(db_path=str(db_path))
+
+    assert posted == [], (
+        f"webhook leaked on successful run: {posted}"
+    )
