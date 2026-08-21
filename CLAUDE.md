@@ -109,7 +109,6 @@ curl -s http://localhost:3110/api/v1/status  # API (disponibile dopo sync)
 | transaction-processor | Binary parsing, filtering | sonnet |
 | data-streamer | WebSocket server | sonnet |
 | visualization-renderer | Canvas/WebGL | sonnet |
-| tdd-guard | TDD enforcement | sonnet |
 
 | Skill | Savings |
 |-------|---------|
@@ -148,6 +147,10 @@ UTXOracle/
 ---
 
 ## TDD Workflow
+
+`probity.config.mjs` enables the repository TDD gate for Claude Code and Codex
+writes under `api/**/*.py` and `live/**/*.py`. Antigravity is not covered by the
+hook and must follow the same RED-GREEN evidence in its delegation brief.
 
 ```bash
 uv run pytest tests/test_x.py::test_new -v  # RED
