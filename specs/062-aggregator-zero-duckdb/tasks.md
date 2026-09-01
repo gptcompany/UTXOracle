@@ -134,6 +134,13 @@ description: "Task list for spec-062 Aggregator Zero-DuckDB Read Path"
 
 **Gate**: All seven sub-tasks below MUST report green over seven consecutive days before T035 (legacy removal) becomes eligible. This phase is observation-only — no code changes.
 
+**Day-0 baseline (2026-06-15)**: PR #9 merged (`12912ef`); service file installed on host with `ExecStart=...calculate_daily_metrics --questdb-reads --questdb-only` + `EnvironmentFile=-.env`. Three Phase 1.5-v2 / spec-062 systemd units verified live via manual trigger:
+- `utxoracle-block-heights-catchup.service`: SUCCESS, inserted 85 block_heights rows up to height 953798.
+- `utxoracle-daily-prices-refresh.service`: SUCCESS (`Already fresh: start=2026-06-15 end=2026-06-14`).
+- `utxoracle-daily-aggregator.service`: SUCCESS, `spec-062 aggregator success: date=2026-06-14 duration_s=98.63 rows_written=3`.
+
+Day-1 observation window opens with the next timer fire at 03:30 WEST on 2026-06-16.
+
 - [ ] T028 Day 1 verification: `journalctl -u utxoracle-daily-aggregator.service --since "1 day ago" -p err` returns zero ERROR lines for the daily run.
 - [ ] T029 Day 1 verification: `/v1/streams/health` reports `mvrv_daily`, `nupl_daily`, `realized_cap_daily` all OK with `stale_seconds` < SLA.
 - [ ] T030 Day 1 verification: `fuser data/utxoracle.duckdb` immediately after the systemd timer fires reports no aggregator-attributable holders.

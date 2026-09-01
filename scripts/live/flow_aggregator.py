@@ -1,13 +1,87 @@
 from __future__ import annotations
 
-import duckdb
+import json
+import logging
+import os
 import sys
+import urllib.error
+import urllib.request
+from datetime import date as _date
 from pathlib import Path
+
+import duckdb
 
 # Add project root to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from api.config import DUCKDB_PATH
+from api.questdb_repository import save_entity_flows_daily
 from scripts.live.init_flow_artifacts import create_flow_artifact_tables
+
+logger = logging.getLogger(__name__)
+
+
+def _format_date_token(dates: list[_date]) -> str:
+    """Return YYYY-MM-DD if all dates equal, else min..max ISO range."""
+    unique = sorted(set(dates))
+    if len(unique) == 1:
+        return unique[0].isoformat()
+    return f"{unique[0].isoformat()}..{unique[-1].isoformat()}"
+
+
+def _format_exception_summary(exc_classes: list[str]) -> str:
+    """Single class name if uniform, else MultipleFailureClasses."""
+    unique = set(exc_classes)
+    if len(unique) == 1:
+        return next(iter(unique))
+    return "MultipleFailureClasses"
+
+
+def _post_aggregated_webhook(
+    failed_rows: list[tuple[str, _date, str]],
+) -> None:
+    """POST one aggregated Discord webhook per failing aggregate_flows run.
+
+    Payload format per contracts/webhook_payload.md. Webhook errors are
+    swallowed and logged at WARNING — they MUST NOT mask the underlying
+    run state per spec-062 FR-012 precedent.
+    """
+    if not failed_rows:
+        return
+    webhook = os.environ.get("DISCORD_WEBHOOK_URL", "").strip()
+    if not webhook or webhook.startswith("ENC[") or webhook.startswith("encrypted:"):
+        return
+    date_token = _format_date_token([row[1] for row in failed_rows])
+    exception_summary = _format_exception_summary([row[2] for row in failed_rows])
+    payload = json.dumps(
+        {
+            "content": (
+                ":rotating_light: entity_flows_daily QuestDB write failed for "
+                f"{date_token}: {len(failed_rows)} rows failed ({exception_summary})"
+            )
+        }
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        webhook,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=3) as response:
+            response.read(0)
+    except (urllib.error.URLError, OSError, TimeoutError) as exc:
+        logger.warning(
+            "entity_flows_daily Discord webhook post failed (suppressed): %s",
+            exc,
+        )
+
+
+def _should_write_questdb() -> bool:
+    """Return False iff SPEC063_QUESTDB_WRITE uses a canonical OFF token."""
+    raw = os.environ.get("SPEC063_QUESTDB_WRITE")
+    if raw is None:
+        return True
+    return raw.strip().lower() not in {"0", "false", "no"}
 
 
 def _has_column(conn: duckdb.DuckDBPyConnection, table: str, column: str) -> bool:
@@ -42,8 +116,11 @@ def _unspent_filter(conn: duckdb.DuckDBPyConnection) -> str:
 
 
 def aggregate_flows(db_path: str | None = None, sample_limit: int | None = None) -> dict[str, int]:
+    import time
+
     target_path = db_path or DUCKDB_PATH
     print(f"Aggregating flows in {target_path}...")
+    _started = time.monotonic()
 
     with duckdb.connect(target_path) as conn:
         create_flow_artifact_tables(conn)
@@ -149,6 +226,76 @@ def aggregate_flows(db_path: str | None = None, sample_limit: int | None = None)
             FROM entity_transfer_edges
             GROUP BY entity_id, date
             """
+        )
+
+        rows_written_questdb: int | str = 0
+        date_range_token = "n/a"
+        if _should_write_questdb():
+            rows = conn.execute(
+                """
+                SELECT entity_id, date, inflow_btc, outflow_btc, netflow_btc, is_exchange
+                FROM entity_flows_daily
+                ORDER BY date, entity_id
+                """
+            ).fetchall()
+            failed_rows: list[tuple[str, _date, str]] = []
+            written = 0
+            written_dates: list[_date] = []
+            for row in rows:
+                try:
+                    save_entity_flows_daily(
+                        entity_id=row[0],
+                        date=row[1],
+                        inflow_btc=row[2],
+                        outflow_btc=row[3],
+                        netflow_btc=row[4],
+                        is_exchange=row[5],
+                    )
+                    written += 1
+                    written_dates.append(row[1])
+                except Exception as exc:
+                    failed_rows.append((row[0], row[1], type(exc).__name__))
+                    logger.error(
+                        "entity_flows_daily QuestDB save failed: entity_id=%s date=%s exc=%s",
+                        row[0],
+                        row[1],
+                        exc,
+                        exc_info=True,
+                    )
+            rows_written_questdb = written
+            if written_dates:
+                date_range_token = _format_date_token(written_dates)
+            if failed_rows:
+                try:
+                    _post_aggregated_webhook(failed_rows)
+                except Exception as webhook_exc:
+                    logger.warning(
+                        "entity_flows_daily aggregated webhook failed "
+                        "(suppressed): %s",
+                        webhook_exc,
+                    )
+        else:
+            logger.info(
+                "spec-063 entity_flows_daily QuestDB write half disabled by SPEC063_QUESTDB_WRITE=%s",
+                os.environ.get("SPEC063_QUESTDB_WRITE", ""),
+            )
+            rows_written_questdb = "disabled"
+
+        try:
+            duckdb_count = int(
+                conn.execute(
+                    "SELECT COUNT(*) FROM entity_flows_daily"
+                ).fetchone()[0]
+            )
+        except Exception:
+            duckdb_count = 0
+        logger.info(
+            "spec-063 entity_flows_daily dual-write success: "
+            "date_range=%s duration_s=%.2f rows_written_duckdb=%d rows_written_questdb=%s",
+            date_range_token,
+            time.monotonic() - _started,
+            duckdb_count,
+            rows_written_questdb,
         )
 
         print("Calculating daily balance snapshots...")
