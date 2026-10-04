@@ -173,3 +173,7 @@ Created by [@Unbesteveable](https://github.com/Unbesteveable).
 ## Monitoring
 Check service status and version:
 `curl -s http://localhost:8011/health | jq .`
+
+## Merge queue (Mergify)
+
+Config: `.mergify.yml` (app Mergify su `gptcompany`, piano free). Dopo il PASS della revisione si applica l'etichetta **`queue`** alla PR: Mergify la aggiorna con `rebase` su `main` (force-push sul branch della PR) e la unisce con merge commit solo se non è draft, non ha `do-not-merge` e non ha check falliti. Per fermarla: togliere `queue` o aggiungere `do-not-merge`. Mergify governa solo le PR che mette in coda: i merge manuali non sono bloccati. Nessun check richiesto: CI/validation sono instabili o saltati sulle PR recenti, quindi la coda non attende CI finché non si stabilizza.

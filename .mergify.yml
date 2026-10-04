@@ -1,0 +1,24 @@
+# Mergify merge queue: sequences PRs and keeps branches current.
+# The AI review is the real gate; the `queue` label is applied only after review PASS.
+# `#check-failure = 0` only blocks checks that already failed; the `check-success` entries below
+# make the queue wait for the checks that run on PRs to main today. Keep them in sync with CI.
+queue_rules:
+  - name: default
+    merge_method: merge
+    update_method: rebase
+    queue_conditions:
+      - "#check-failure = 0"
+      - -draft
+      - -label = do-not-merge
+    merge_conditions:
+      - "#check-failure = 0"
+      - -draft
+      - -label = do-not-merge
+
+pull_request_rules:
+  - name: queue PRs labelled queue
+    conditions:
+      - label = queue
+      - base = main
+    actions:
+      queue:
