@@ -1,10 +1,9 @@
 {
-  "version": "0.16.5",
+  "version": "1.1.0",
   "integration_state_schema": 1,
   "installed_integrations": [
     "claude",
-    "codex",
-    "agy"
+    "codex"
   ],
   "integration_settings": {
     "claude": {
@@ -12,10 +11,6 @@
       "invoke_separator": "-"
     },
     "codex": {
-      "script": "sh",
-      "invoke_separator": "-"
-    },
-    "agy": {
       "script": "sh",
       "invoke_separator": "-"
     }
