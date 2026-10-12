@@ -63,7 +63,14 @@ def test_block_heights_writer_streams_to_questdb(monkeypatch):
 def test_daily_prices_writer_streams_to_questdb(monkeypatch):
     from scripts.bootstrap import build_price_table_questdb as writer
 
-    async def fake_fetch_prices_batch(dates, session, mempool_url, semaphore):
+    async def fake_fetch_prices_batch(
+        dates,
+        session,
+        mempool_url,
+        semaphore,
+        fallback_mempool_url,
+    ):
+        assert fallback_mempool_url == writer.DEFAULT_FALLBACK_MEMPOOL_URL
         return {dates[0]: 99_000.0}
 
     sender = FakeSender()

@@ -94,7 +94,7 @@ streams:
   - name: entity_flows_daily
     table: entity_flows_daily
     freshness_strategy: max_ts
-    timestamp_column: ts
+    timestamp_column: date
     schema_version: "1.0.0"
     sla_seconds: 129600   # 36h
     source_spec: specs/053

@@ -21,6 +21,7 @@ from api.questdb_repository import _open_pg_sync
 
 logger = logging.getLogger(__name__)
 DEFAULT_MEMPOOL_URL = "http://localhost:8999"
+DEFAULT_FALLBACK_MEMPOOL_URL = "https://mempool.space"
 DEFAULT_START_DATE = date(2011, 1, 1)
 DEFAULT_BATCH_SIZE = 100
 DEFAULT_RATE_LIMIT = 50
@@ -84,30 +85,61 @@ async def fetch_historical_price(
     timestamp: int,
     session: aiohttp.ClientSession,
     mempool_url: str = DEFAULT_MEMPOOL_URL,
+    fallback_mempool_url: Optional[str] = DEFAULT_FALLBACK_MEMPOOL_URL,
 ) -> Optional[float]:
     """Fetch one historical BTC/USD price from the mempool.space API."""
-    url = f"{mempool_url}/api/v1/historical-price?currency=USD&timestamp={timestamp}"
-    try:
-        async with session.get(url) as response:
-            if response.status != 200:
-                logger.warning(
-                    "Failed to fetch price for timestamp %s: HTTP %s",
-                    timestamp,
-                    response.status,
-                )
-                return None
-            data = await response.json()
-    except Exception as exc:
-        logger.error("Error fetching price for timestamp %s: %s", timestamp, exc)
-        return None
+    urls = [mempool_url]
+    if fallback_mempool_url and fallback_mempool_url.rstrip("/") != mempool_url.rstrip("/"):
+        urls.append(fallback_mempool_url)
 
-    prices = data.get("prices", [])
-    if not prices:
-        return None
-    price = prices[0].get("USD")
-    if price is None or price == 0:
-        return None
-    return float(price)
+    for index, base_url in enumerate(urls):
+        url = f"{base_url}/api/v1/historical-price?currency=USD&timestamp={timestamp}"
+        try:
+            async with session.get(url) as response:
+                if response.status != 200:
+                    logger.warning(
+                        "Failed to fetch price for timestamp %s from %s: HTTP %s",
+                        timestamp,
+                        base_url,
+                        response.status,
+                    )
+                    continue
+                data = await response.json()
+        except Exception as exc:
+            logger.error(
+                "Error fetching price for timestamp %s from %s: %s",
+                timestamp,
+                base_url,
+                exc,
+            )
+            continue
+
+        prices = data.get("prices", [])
+        if not prices:
+            logger.warning(
+                "No historical price payload for timestamp %s from %s",
+                timestamp,
+                base_url,
+            )
+            continue
+        price = prices[0].get("USD")
+        if price is None or price == 0:
+            logger.warning(
+                "Invalid historical price for timestamp %s from %s: %s",
+                timestamp,
+                base_url,
+                price,
+            )
+            continue
+        if index > 0:
+            logger.warning(
+                "Used fallback mempool URL for timestamp %s: %s",
+                timestamp,
+                base_url,
+            )
+        return float(price)
+
+    return None
 
 
 async def fetch_prices_batch(
@@ -115,6 +147,7 @@ async def fetch_prices_batch(
     session: aiohttp.ClientSession,
     mempool_url: str = DEFAULT_MEMPOOL_URL,
     semaphore: Optional[asyncio.Semaphore] = None,
+    fallback_mempool_url: Optional[str] = DEFAULT_FALLBACK_MEMPOOL_URL,
 ) -> dict[date, Optional[float]]:
     """Fetch a batch of daily prices keyed by date."""
     results: dict[date, Optional[float]] = {}
@@ -123,9 +156,19 @@ async def fetch_prices_batch(
         timestamp = int(datetime.combine(price_date, datetime.min.time()).timestamp())
         if semaphore is not None:
             async with semaphore:
-                price = await fetch_historical_price(timestamp, session, mempool_url)
+                price = await fetch_historical_price(
+                    timestamp,
+                    session,
+                    mempool_url,
+                    fallback_mempool_url,
+                )
         else:
-            price = await fetch_historical_price(timestamp, session, mempool_url)
+            price = await fetch_historical_price(
+                timestamp,
+                session,
+                mempool_url,
+                fallback_mempool_url,
+            )
         return price_date, price
 
     completed = await asyncio.gather(
@@ -146,6 +189,7 @@ async def build_price_table(
     end_date: date,
     *,
     mempool_url: str = DEFAULT_MEMPOOL_URL,
+    fallback_mempool_url: Optional[str] = DEFAULT_FALLBACK_MEMPOOL_URL,
     batch_size: int = DEFAULT_BATCH_SIZE,
     rate_limit: int = DEFAULT_RATE_LIMIT,
 ) -> int:
@@ -174,6 +218,7 @@ async def build_price_table(
                     session,
                     mempool_url,
                     semaphore,
+                    fallback_mempool_url,
                 )
                 for price_date, price in sorted(prices.items()):
                     if price is None:
@@ -210,6 +255,11 @@ def main() -> int:
     parser.add_argument("--start-date", type=str, default=None)
     parser.add_argument("--end-date", type=str, default=None)
     parser.add_argument("--mempool-url", default=DEFAULT_MEMPOOL_URL)
+    parser.add_argument(
+        "--fallback-mempool-url",
+        default=os.getenv("MEMPOOL_PRICE_FALLBACK_URL", DEFAULT_FALLBACK_MEMPOOL_URL),
+        help="Fallback historical-price API URL; use empty string to disable",
+    )
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     parser.add_argument("--rate-limit", type=int, default=DEFAULT_RATE_LIMIT)
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -230,15 +280,28 @@ def main() -> int:
         if args.end_date
         else date.today() - timedelta(days=1)
     )
-    return asyncio.run(
+    fallback_mempool_url = args.fallback_mempool_url or None
+    rows = asyncio.run(
         build_price_table(
             start_date,
             end_date,
             mempool_url=args.mempool_url,
+            fallback_mempool_url=fallback_mempool_url,
             batch_size=args.batch_size,
             rate_limit=args.rate_limit,
         )
-    ) and 0
+    )
+    expected_rows = max((end_date - start_date).days + 1, 0)
+    if expected_rows and rows < expected_rows:
+        logger.error(
+            "daily_prices refresh incomplete: rows=%d expected=%d range=%s..%s",
+            rows,
+            expected_rows,
+            start_date,
+            end_date,
+        )
+        return 1
+    return 0
 
 
 if __name__ == "__main__":

@@ -13,7 +13,7 @@ from scripts.models.metrics_models import (
     AddressCohortsResult,
 )
 from typing import TYPE_CHECKING, Optional, List, Dict, Any, Union
-from datetime import datetime, timedelta
+from datetime import date as _date, datetime, timedelta
 
 if TYPE_CHECKING:
     from scripts.models.metrics_models import CostBasisResult, URPDFeaturesResult
@@ -164,6 +164,38 @@ def _open_pg_sync():
     )
 
 
+def save_entity_flows_daily(
+    *,
+    entity_id: str,
+    date: _date,
+    inflow_btc: float,
+    outflow_btc: float,
+    netflow_btc: float,
+    is_exchange: bool,
+) -> None:
+    """Persist one entity_flows_daily row to QuestDB."""
+    date_ts = datetime.combine(date, datetime.min.time())
+    with _open_pg_sync() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO entity_flows_daily (
+                    entity_id, date, inflow_btc, outflow_btc,
+                    netflow_btc, is_exchange
+                )
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    entity_id,
+                    date_ts,
+                    inflow_btc,
+                    outflow_btc,
+                    netflow_btc,
+                    is_exchange,
+                ),
+            )
+
+
 def save_mvrv_daily(
     ts: datetime,
     mvrv: float,
@@ -271,6 +303,48 @@ def save_backtest_whale_signal_row(
                 ),
             )
     return True
+
+
+async def _ensure_entity_flows_daily_table(conn) -> None:
+    row = await conn.fetchrow(
+        """
+        SELECT designatedTimestamp
+        FROM tables()
+        WHERE table_name = 'entity_flows_daily'
+        """
+    )
+    if row is not None and row["designatedTimestamp"] != "date":
+        row_count = await conn.fetchval("SELECT count(*) FROM entity_flows_daily")
+        if int(row_count or 0) > 0:
+            raise RuntimeError(
+                "entity_flows_daily has legacy QuestDB timestamp shape and "
+                "contains rows; operator migration required before spec-063 "
+                "can normalize to timestamp(date)"
+            )
+        await conn.execute("DROP TABLE entity_flows_daily")
+
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS entity_flows_daily (
+            entity_id SYMBOL INDEX,
+            date TIMESTAMP,
+            inflow_btc DOUBLE,
+            outflow_btc DOUBLE,
+            netflow_btc DOUBLE,
+            is_exchange BOOLEAN
+        ) timestamp(date) PARTITION BY DAY WAL
+          DEDUP UPSERT KEYS(date, entity_id);
+        """
+    )
+
+    for ddl in (
+        "ALTER TABLE entity_flows_daily SET TYPE WAL",
+        "ALTER TABLE entity_flows_daily DEDUP ENABLE UPSERT KEYS(date, entity_id)",
+    ):
+        try:
+            await conn.execute(ddl)
+        except Exception:
+            pass
 
 
 async def create_tables_if_not_exist():
@@ -567,19 +641,7 @@ async def create_tables_if_not_exist():
             """
         )
 
-        await conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS entity_flows_daily (
-                entity_id SYMBOL INDEX,
-                date TIMESTAMP,
-                inflow_btc DOUBLE,
-                outflow_btc DOUBLE,
-                netflow_btc DOUBLE,
-                is_exchange BOOLEAN,
-                ts TIMESTAMP
-            ) timestamp(ts) PARTITION BY DAY;
-            """
-        )
+        await _ensure_entity_flows_daily_table(conn)
 
         await conn.execute(
             """

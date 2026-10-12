@@ -150,6 +150,44 @@ async def test_daily_aggregate_tables_are_deduplicated():
         assert by_name[table_name]["dedup"] is True
 
 
+@pytest.mark.integration
+async def test_entity_flows_daily_dedup_ddl_applied():
+    """spec-063 T006: entity_flows_daily must use date WAL + DEDUP."""
+    if not await _questdb_reachable():
+        pytest.skip("QuestDB not reachable on :8812")
+
+    from api.questdb_repository import create_tables_if_not_exist
+
+    await create_tables_if_not_exist()
+
+    conn = await _connect_questdb()
+    try:
+        tables_rows = await conn.fetch(
+            """
+            SELECT table_name, designatedTimestamp, walEnabled, dedup
+            FROM tables()
+            WHERE table_name = 'entity_flows_daily'
+            """
+        )
+        column_rows = await conn.fetch(
+            'SELECT "column", designated, upsertKey FROM table_columns(\'entity_flows_daily\')'
+        )
+    finally:
+        await conn.close()
+
+    assert len(tables_rows) == 1
+    table = tables_rows[0]
+    assert table["designatedTimestamp"] == "date"
+    assert table["walEnabled"] is True
+    assert table["dedup"] is True
+
+    columns = {row["column"]: row for row in column_rows}
+    assert "ts" not in columns
+    assert columns["date"]["designated"] is True
+    assert columns["date"]["upsertKey"] is True
+    assert columns["entity_id"]["upsertKey"] is True
+
+
 async def test_source_freshness_tables_are_deduplicated():
     """Phase 1.5-v2: QuestDB reference tables must be WAL + DEDUP."""
     if not await _questdb_reachable():
