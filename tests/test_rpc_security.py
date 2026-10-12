@@ -51,14 +51,16 @@ def check_compose_service_command(
     field_name: str,
     value: Any,
     filename: str,
+    line_no: int | None = None,
 ) -> list[str]:
     """Check a compose service's command or entrypoint for rpcpassword arguments."""
     violations: list[str] = []
+    location = f"{filename}:{line_no}" if line_no is not None else filename
 
     if isinstance(value, str):
         if ARGV_RPCPASSWORD_PATTERN.search(value):
             violations.append(
-                f"{filename}: service '{service_name}' passes rpcpassword in {field_name}: {value}"
+                f"{location}: service '{service_name}' passes flag '--rpcpassword' in '{field_name}'"
             )
     elif isinstance(value, list):
         for idx, item in enumerate(value):
@@ -67,9 +69,17 @@ def check_compose_service_command(
                 ("--rpcpassword", "-rpcpassword")
             ):
                 violations.append(
-                    f"{filename}: service '{service_name}' passes rpcpassword in {field_name}[{idx}]: {item_str}"
+                    f"{location}: service '{service_name}' passes flag '--rpcpassword' in '{field_name}[{idx}]'"
                 )
     return violations
+
+
+def find_line_number_in_content(content: str, pattern: re.Pattern) -> int | None:
+    """Find the 1-based line number of the first line matching pattern."""
+    for line_no, raw_line in enumerate(content.splitlines(), start=1):
+        if pattern.search(raw_line):
+            return line_no
+    return None
 
 
 def check_compose_content(content: str, filename: str = "compose.yml") -> list[str]:
@@ -83,6 +93,8 @@ def check_compose_content(content: str, filename: str = "compose.yml") -> list[s
     if not isinstance(data, dict):
         return violations
 
+    line_no = find_line_number_in_content(content, ARGV_RPCPASSWORD_PATTERN)
+
     services = data.get("services")
     if isinstance(services, dict):
         for svc_name, svc_conf in services.items():
@@ -92,7 +104,7 @@ def check_compose_content(content: str, filename: str = "compose.yml") -> list[s
                 if field in svc_conf:
                     violations.extend(
                         check_compose_service_command(
-                            svc_name, field, svc_conf[field], filename
+                            svc_name, field, svc_conf[field], filename, line_no=line_no
                         )
                     )
     return violations
@@ -105,20 +117,20 @@ def check_unit_content(content: str, filename: str = "unit.service") -> list[str
         line = raw_line.strip()
         if not line or line.startswith(("#", ";")):
             continue
-        if line.startswith(
-            (
-                "ExecStart=",
-                "ExecStop=",
-                "ExecReload=",
-                "ExecStartPre=",
-                "ExecStartPost=",
-            )
+        for directive in (
+            "ExecStart",
+            "ExecStop",
+            "ExecReload",
+            "ExecStartPre",
+            "ExecStartPost",
         ):
-            _, cmd = line.split("=", 1)
-            if ARGV_RPCPASSWORD_PATTERN.search(cmd):
-                violations.append(
-                    f"{filename}:{line_no}: Exec directive passes rpcpassword as argument: {line}"
-                )
+            prefix = f"{directive}="
+            if line.startswith(prefix):
+                cmd = line[len(prefix):]
+                if ARGV_RPCPASSWORD_PATTERN.search(cmd):
+                    violations.append(
+                        f"{filename}:{line_no}: directive '{directive}' passes flag '--rpcpassword' as argument"
+                    )
     return violations
 
 
@@ -205,7 +217,8 @@ services:
 """
         violations = check_compose_content(sample, "test-compose.yml")
         assert len(violations) == 1
-        assert "rpcpassword=secret123" in violations[0]
+        assert "--rpcpassword" in violations[0]
+        assert "secret123" not in violations[0]
 
     def test_detector_catches_unit_execstart_arg(self):
         sample = """
@@ -217,7 +230,8 @@ ExecStart=/usr/local/bin/brk --bitcoindir /bitcoin --rpcpassword secret123
 """
         violations = check_unit_content(sample, "test.service")
         assert len(violations) == 1
-        assert "Exec directive passes rpcpassword" in violations[0]
+        assert "--rpcpassword" in violations[0]
+        assert "secret123" not in violations[0]
 
     def test_detector_allows_safe_cookie_and_env(self):
         sample_compose = """
@@ -245,6 +259,32 @@ ExecStart=/usr/local/bin/brk --bitcoindir /bitcoin --rpccookiefile /bitcoin/.coo
 """
         violations = check_unit_content(sample_unit, "safe.service")
         assert not violations
+
+    def test_detector_diagnostics_never_contain_credential_value(self):
+        """H1 regression: ensure diagnostics and assert messages never leak credentials."""
+        dummy_secret = "DUMMY_SECRET_TO_NOT_LEAK_987654"
+        compose_sample = f"""
+services:
+  brk:
+    image: brk:latest
+    command: "brk --rpcpassword={dummy_secret}"
+"""
+        compose_violations = check_compose_content(compose_sample, "docker-compose.yml")
+        assert len(compose_violations) >= 1
+        for v in compose_violations:
+            assert dummy_secret not in v, f"Violation leaked secret: {v}"
+            assert "--rpcpassword" in v or "rpcpassword" in v
+
+        unit_sample = f"""
+[Service]
+ExecStart=/usr/bin/brk --rpcpassword {dummy_secret}
+"""
+        unit_violations = check_unit_content(unit_sample, "brk.service")
+        assert len(unit_violations) >= 1
+        for v in unit_violations:
+            assert dummy_secret not in v, f"Violation leaked secret: {v}"
+            assert "--rpcpassword" in v or "rpcpassword" in v
+
 
 
 if __name__ == "__main__":
