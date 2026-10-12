@@ -8,6 +8,7 @@ arguments (argv) which are exposed in `ps` and `docker inspect`.
 from __future__ import annotations
 
 import re
+import shlex
 import sys
 from pathlib import Path
 from typing import Any
@@ -46,27 +47,78 @@ def find_repo_files(repo_root: Path, pattern: str) -> list[Path]:
     return sorted(matches)
 
 
+def expand_env_vars(text: str, env_vars: dict[str, str]) -> str:
+    """Expand $VAR, ${VAR}, $$VAR, $${VAR} using environment dictionary."""
+    if not text or not env_vars:
+        return text
+
+    def _replace(match: re.Match) -> str:
+        var_name = match.group(1) or match.group(2)
+        return env_vars.get(var_name, match.group(0))
+
+    return re.sub(
+        r"\${1,2}(?:\{([a-zA-Z_][a-zA-Z0-9_]*)\}|([a-zA-Z_][a-zA-Z0-9_]*))",
+        _replace,
+        text,
+    )
+
+
+def extract_compose_env(service_conf: dict[str, Any]) -> dict[str, str]:
+    """Extract environment variables defined in a compose service."""
+    env = service_conf.get("environment")
+    env_vars: dict[str, str] = {}
+    if isinstance(env, dict):
+        for k, v in env.items():
+            env_vars[str(k)] = str(v) if v is not None else ""
+    elif isinstance(env, list):
+        for item in env:
+            if isinstance(item, str) and "=" in item:
+                k, v = item.split("=", 1)
+                env_vars[k.strip()] = v.strip()
+    return env_vars
+
+
 def check_compose_service_command(
     service_name: str,
     field_name: str,
     value: Any,
     filename: str,
+    env_vars: dict[str, str] | None = None,
     line_no: int | None = None,
 ) -> list[str]:
     """Check a compose service's command or entrypoint for rpcpassword arguments."""
     violations: list[str] = []
     location = f"{filename}:{line_no}" if line_no is not None else filename
+    env_vars = env_vars or {}
+
+    # Validate schema: command/entrypoint must be str or list of scalar values
+    if value is not None and not isinstance(value, (str, list)):
+        return [
+            f"{location}: service '{service_name}' has invalid schema for '{field_name}'"
+        ]
+
+    if isinstance(value, list):
+        for idx, item in enumerate(value):
+            if not isinstance(item, (str, int, float, bool)):
+                return [
+                    f"{location}: service '{service_name}' has invalid schema for '{field_name}[{idx}]'"
+                ]
 
     if isinstance(value, str):
-        if ARGV_RPCPASSWORD_PATTERN.search(value):
+        expanded = expand_env_vars(value, env_vars)
+        if ARGV_RPCPASSWORD_PATTERN.search(value) or ARGV_RPCPASSWORD_PATTERN.search(expanded):
             violations.append(
                 f"{location}: service '{service_name}' passes flag '--rpcpassword' in '{field_name}'"
             )
     elif isinstance(value, list):
         for idx, item in enumerate(value):
             item_str = str(item)
-            if ARGV_RPCPASSWORD_PATTERN.search(item_str) or item_str.lower().startswith(
-                ("--rpcpassword", "-rpcpassword")
+            expanded_item = expand_env_vars(item_str, env_vars)
+            if (
+                ARGV_RPCPASSWORD_PATTERN.search(item_str)
+                or ARGV_RPCPASSWORD_PATTERN.search(expanded_item)
+                or item_str.lower().startswith(("--rpcpassword", "-rpcpassword"))
+                or expanded_item.lower().startswith(("--rpcpassword", "-rpcpassword"))
             ):
                 violations.append(
                     f"{location}: service '{service_name}' passes flag '--rpcpassword' in '{field_name}[{idx}]'"
@@ -100,23 +152,67 @@ def check_compose_content(content: str, filename: str = "compose.yml") -> list[s
         for svc_name, svc_conf in services.items():
             if not isinstance(svc_conf, dict):
                 continue
+            svc_env = extract_compose_env(svc_conf)
             for field in ("command", "entrypoint"):
                 if field in svc_conf:
                     violations.extend(
                         check_compose_service_command(
-                            svc_name, field, svc_conf[field], filename, line_no=line_no
+                            svc_name,
+                            field,
+                            svc_conf[field],
+                            filename,
+                            env_vars=svc_env,
+                            line_no=line_no,
                         )
                     )
     return violations
 
 
+def parse_systemd_lines(content: str) -> list[tuple[int, str]]:
+    """Parse systemd unit lines, joining trailing backslash continuations."""
+    logical_lines: list[tuple[int, str]] = []
+    current_line = ""
+    start_line_no = 1
+    for line_no, raw_line in enumerate(content.splitlines(), start=1):
+        line = raw_line.rstrip()
+        if not current_line:
+            start_line_no = line_no
+        if line.endswith("\\"):
+            current_line += line[:-1].strip() + " "
+        else:
+            current_line += line.strip()
+            if current_line and not current_line.startswith(("#", ";")):
+                logical_lines.append((start_line_no, current_line))
+            current_line = ""
+    if current_line and not current_line.startswith(("#", ";")):
+        logical_lines.append((start_line_no, current_line))
+    return logical_lines
+
+
+def parse_systemd_environment(logical_lines: list[tuple[int, str]]) -> dict[str, str]:
+    """Extract environment variable assignments from Environment= directives."""
+    env_vars: dict[str, str] = {}
+    for _, line in logical_lines:
+        if line.startswith("Environment="):
+            env_str = line[len("Environment="):].strip()
+            try:
+                parts = shlex.split(env_str, posix=True)
+            except ValueError:
+                parts = env_str.split()
+            for part in parts:
+                if "=" in part:
+                    k, v = part.split("=", 1)
+                    env_vars[k.strip()] = v.strip()
+    return env_vars
+
+
 def check_unit_content(content: str, filename: str = "unit.service") -> list[str]:
     """Inspect Systemd unit file content and return violations."""
     violations: list[str] = []
-    for line_no, raw_line in enumerate(content.splitlines(), start=1):
-        line = raw_line.strip()
-        if not line or line.startswith(("#", ";")):
-            continue
+    logical_lines = parse_systemd_lines(content)
+    env_vars = parse_systemd_environment(logical_lines)
+
+    for line_no, line in logical_lines:
         for directive in (
             "ExecStart",
             "ExecStop",
@@ -127,7 +223,8 @@ def check_unit_content(content: str, filename: str = "unit.service") -> list[str
             prefix = f"{directive}="
             if line.startswith(prefix):
                 cmd = line[len(prefix):]
-                if ARGV_RPCPASSWORD_PATTERN.search(cmd):
+                expanded_cmd = expand_env_vars(cmd, env_vars)
+                if ARGV_RPCPASSWORD_PATTERN.search(cmd) or ARGV_RPCPASSWORD_PATTERN.search(expanded_cmd):
                     violations.append(
                         f"{filename}:{line_no}: directive '{directive}' passes flag '--rpcpassword' as argument"
                     )
@@ -284,6 +381,56 @@ ExecStart=/usr/bin/brk --rpcpassword {dummy_secret}
         for v in unit_violations:
             assert dummy_secret not in v, f"Violation leaked secret: {v}"
             assert "--rpcpassword" in v or "rpcpassword" in v
+
+    def test_detector_catches_unit_continuation(self):
+        """M1 regression: detect rpcpassword on continued ExecStart lines."""
+        sample = """
+[Service]
+ExecStart=/usr/bin/brk \\
+    --rpcpassword REVIEW_DUMMY_NOT_A_CREDENTIAL
+"""
+        violations = check_unit_content(sample, "brk.service")
+        assert len(violations) >= 1
+        assert any("--rpcpassword" in v for v in violations)
+
+    def test_detector_catches_compose_expanded_args(self):
+        """M1 regression: detect rpcpassword passed via compose environment into command."""
+        sample = """
+services:
+  brk:
+    image: dummy-review-image
+    command: ["/bin/sh", "-c", "exec brk $$BRK_ARGS"]
+    environment:
+      BRK_ARGS: "--rpcpassword REVIEW_DUMMY_NOT_A_CREDENTIAL"
+"""
+        violations = check_compose_content(sample, "docker-compose.yml")
+        assert len(violations) >= 1
+        assert any("--rpcpassword" in v for v in violations)
+
+    def test_detector_catches_unit_expanded_args(self):
+        """M1 regression: detect rpcpassword expanded from Environment in ExecStart."""
+        sample = """
+[Service]
+Environment="BRK_ARGS=--rpcpassword REVIEW_DUMMY_NOT_A_CREDENTIAL"
+ExecStart=/usr/bin/brk $BRK_ARGS
+"""
+        violations = check_unit_content(sample, "brk.service")
+        assert len(violations) >= 1
+        assert any("--rpcpassword" in v for v in violations)
+
+    def test_detector_catches_invalid_command_schema(self):
+        """M1 regression: detect invalid compose command schema."""
+        sample = """
+services:
+  brk:
+    image: dummy-review-image
+    command:
+      unexpected: "--rpcpassword REVIEW_DUMMY_NOT_A_CREDENTIAL"
+"""
+        violations = check_compose_content(sample, "docker-compose.yml")
+        assert len(violations) >= 1
+        assert any("schema" in v.lower() or "--rpcpassword" in v for v in violations)
+
 
 
 
