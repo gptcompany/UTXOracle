@@ -334,8 +334,9 @@ services:
         assert "bitcoin_rpc.py" in content
         assert "rpcauth" in content
 
-        # H1 & M3: Process inspection must mask credentials
-        assert "sed" in content or "REDACTED" in content
+        # H1/H2 & M3: process inspection prints flag names only, never values
+        assert "grep -oE" in content
+        assert "REDACTED" not in content
 
 
 DUMMY = "R3_DUMMY_ONLY"
@@ -588,6 +589,82 @@ class TestRpcArgvAllowlistGate:
     def test_accepted(self, name, tmp_path):
         _write_tree(tmp_path, ACCEPTED_TREES[name])
         assert scan_repo(tmp_path) == []
+
+
+RUNBOOK_PATH = REPO_ROOT / "docs" / "BRK_COOKIE_MIGRATION_RUNBOOK.md"
+# First pipeline stages that can carry a credential value from the runtime.
+VALUE_SOURCES = re.compile(r"^(ps|docker logs|journalctl)\b")
+# A source pipeline must end in a stage that emits names or counts, never lines.
+COUNTING_LAST_STAGE = re.compile(r"^(grep\s+-\w*[co]\w*\b|uniq -c|wc -l)")
+SYNTHETIC_RUNTIME_LINES = "\n".join(
+    [
+        f"1234 sam brk --rpcuser {DUMMY} --rpcpassword {DUMMY}",
+        f"1235 sam brk --rpcuser={DUMMY} --rpcpassword={DUMMY}",
+        f"1236 sam brk -rpcpassword {DUMMY} -rpcuser={DUMMY}",
+        f"2026-10-12 brk auth failed: rpcpassword={DUMMY} 401 unauthorized",
+        f"2026-10-12 Using random cookie authentication. rpcuser {DUMMY}",
+    ]
+)
+
+
+def runbook_commands(text: str) -> list[str]:
+    """Logical shell commands of every fenced code block (continuations joined)."""
+    commands: list[str] = []
+    in_fence = False
+    pending = ""
+    for raw in text.splitlines():
+        stripped = raw.strip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+            pending = ""
+            continue
+        if not in_fence or not stripped or stripped.startswith("#"):
+            continue
+        if stripped.endswith("\\"):
+            pending += stripped[:-1] + " "
+            continue
+        commands.append((pending + stripped).strip())
+        pending = ""
+    return commands
+
+
+class TestRunbookNeverPrintsValues:
+    """R2-H2 regression: no operator command may print a credential value."""
+
+    def test_source_pipelines_hide_values_in_every_syntax(self, tmp_path):
+        synthetic = tmp_path / "runtime.txt"
+        synthetic.write_text(SYNTHETIC_RUNTIME_LINES + "\n", encoding="utf-8")
+        executed = 0
+        for command in runbook_commands(RUNBOOK_PATH.read_text(encoding="utf-8")):
+            stages = [stage.strip() for stage in command.split(" | ")]
+            if not VALUE_SOURCES.match(stages[0]):
+                continue
+            assert COUNTING_LAST_STAGE.match(stages[-1]), (
+                f"source pipeline must end in names/counts only: {stages[-1]}"
+            )
+            stages[0] = f"cat {synthetic}"
+            result = subprocess.run(
+                ["bash", "-o", "pipefail", "-c", " | ".join(stages)],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            assert DUMMY not in result.stdout + result.stderr, (
+                f"command leaks the value on synthetic input: {command}"
+            )
+            assert DUMMY[:6] not in result.stdout + result.stderr
+            executed += 1
+        assert executed >= 1, "runbook must contain at least one process/log check"
+
+    def test_no_command_reads_secrets_to_the_terminal(self):
+        forbidden = re.compile(
+            r"(^|[;&|]\s*)(cat|head|tail|less|more|printenv|env|set)\b|docker inspect|docker exec"
+        )
+        for command in runbook_commands(RUNBOOK_PATH.read_text(encoding="utf-8")):
+            # Command substitution feeding printf/curl never reaches the terminal.
+            outside_substitution = re.sub(r"\$\([^)]*\)", "", command)
+            assert not forbidden.search(outside_substitution), command
 
 
 if __name__ == "__main__":

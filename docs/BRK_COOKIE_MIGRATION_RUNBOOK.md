@@ -107,7 +107,8 @@ Rimuovere `rpcuser` e `rpcpassword` e predisporre il cookie (ed eventuali `rpcau
 - **Controllo:**
   ```bash
   systemctl is-active --quiet bitcoind.service && echo "bitcoind active (OK)"
-  journalctl -u bitcoind.service -n 50 --no-pager | grep -i "Using random cookie authentication"
+  # Conteggio, non righe: atteso >= 1
+  journalctl -u bitcoind.service -n 200 --no-pager | grep -ci -- 'Using random cookie authentication'
   ```
 - **Rollback Passo 2:**
   ```bash
@@ -158,10 +159,11 @@ Aggiornare il docker-compose di BRK per utilizzare il flag cookie nativo ed elim
 - **Controllo:**
   ```bash
   systemctl is-active --quiet brk-stack.service && echo "BRK stack active (OK)"
-  # Verifica mascherata dei parametri di processo (conforme ad H1):
-  ps -eo pid,user,args | grep brk | grep -v grep | sed -E 's/(--rpc(password|user)=?)[^ ]+/\1[REDACTED]/g'
+  # Solo i NOMI dei flag trovati negli argv di tutti i processi, con il conteggio: mai i valori.
+  ps -eo args= | grep -oE -- '-{1,2}rpc(user|password)' | sort | uniq -c
   ```
-  *(Accertarsi che `--rpcpassword` non figuri più negli argomenti).*
+  *(Atteso: nessun output. Qualsiasi riga indica un flag credenziale ancora presente in argv.
+  Non usare `ps` senza questo filtro, `docker inspect` né `cat` di file di configurazione: stampano i valori.)*
 - **Rollback Passo 4:**
   ```bash
   sudo systemctl stop brk-stack.service
@@ -180,11 +182,11 @@ curl -fsS http://127.0.0.1:7070/health && echo "BRK health endpoint OK"
 ```
 - **Controllo:**
   Il comando `curl -fsS` fallisce con codice di uscita diverso da 0 se l'endpoint risponde con errori HTTP (es. 500 Authentication Failed o 401).
-  Ispezionare i log recenti di BRK:
+  Contare, senza stamparle, le righe di errore di autenticazione nei log recenti di BRK:
   ```bash
-  docker logs --tail 50 brk
+  docker logs --tail 200 brk 2>&1 | grep -ciE -- 'unauthorized|authentication failed|401|403'
   ```
-  *(Verificare l'assenza di errori di autenticazione RPC).*
+  *(Atteso: 0. Non leggere i log di BRK non filtrati: possono contenere i valori delle credenziali).*
 - **Rollback Passo 5:**
   In caso di errore nell'endpoint `/health`:
   1. Eseguire **Rollback Passo 4**.
