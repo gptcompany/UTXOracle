@@ -667,6 +667,85 @@ class TestRunbookNeverPrintsValues:
             assert not forbidden.search(outside_substitution), command
 
 
+class TestRunbookCoordinatedRollback:
+    """R2-M1 regression: backups first, ordered rollback, real RPC checks."""
+
+    @staticmethod
+    def _text() -> str:
+        return RUNBOOK_PATH.read_text(encoding="utf-8")
+
+    @staticmethod
+    def _section(text: str, start: str, end: str | None = None) -> str:
+        begin = text.index(start)
+        stop = text.index(end, begin + len(start)) if end else len(text)
+        return text[begin:stop]
+
+    def test_backups_precede_the_first_change(self):
+        text = self._text()
+        prep = self._section(text, "### Preparazione", "### Passo 1")
+        for needle in (
+            "bitcoin.conf",
+            "brk-v0.3.6/docker/docker-compose.yml",
+            "brk-v0.3.6/.env",
+            "mempool-stack",
+            "UTXOracle/.env",
+        ):
+            assert needle in prep, f"backup list misses {needle}"
+        assert "cp -p" in prep
+
+    def test_rollback_order_is_bitcoind_then_consumers_then_brk(self):
+        text = self._text()
+        rollback = self._section(text, "## 5. Rollback Coordinato")
+        labels = [
+            "**R1 — bitcoind**",
+            "**R2 — consumatori**",
+            "**R3 — BRK**",
+            "**R4 — verifica**",
+        ]
+        positions = [rollback.find(label) for label in labels]
+        assert all(p != -1 for p in positions), positions
+        assert positions == sorted(positions)
+        # Every per-step rollback delegates to the coordinated sequence.
+        for n in range(2, 6):
+            block = self._section(text, f"- **Rollback Passo {n}:**", "---")
+            assert "Rollback Coordinato" in block, f"Rollback Passo {n}"
+
+    def test_rollback_declares_the_reactivated_credential_as_compromised(self):
+        rollback = self._section(self._text(), "## 5. Rollback Coordinato").lower()
+        assert "compromess" in rollback
+        assert "rotazione" in rollback
+        assert "temporane" in rollback
+
+    def test_real_rpc_check_per_client_after_migration_and_rollback(self):
+        text = self._text()
+        assert "getblockcount" in text
+        migration = self._section(text, "### Passo 5", "## 5. Rollback Coordinato")
+        rollback = self._section(text, "## 5. Rollback Coordinato")
+        clients = ("brk", "utxoracle", "mempool-electrs", "mempool-api")
+        for label, section in (("migrazione", migration), ("rollback", rollback)):
+            calls = [line for line in section.splitlines() if "rpc_check " in line]
+            for client in clients:
+                assert any(client in call for call in calls), f"{label}: {client}"
+        # /health is local to BRK and says nothing about bitcoind authentication.
+        assert "/health" in migration and "non certifica" in migration
+
+    def test_rpc_check_prints_only_label_and_http_code(self):
+        text = self._text()
+        definition = self._section(text, "rpc_check() {", "\n}\n")
+        assert "-o /dev/null" in definition
+        assert "-w '%{http_code}'" in definition
+        assert "-K -" in definition, "credential must not be in curl argv"
+        for command in runbook_commands(text):
+            if re.search(r"\bcurl\b", command):
+                assert "-o /dev/null" in command and "-w " in command, command
+
+    def test_rpcauth_output_is_redirected_never_printed(self):
+        text = self._text()
+        assert "rpcauth.py" in text
+        invocations = [c for c in runbook_commands(text) if "rpcauth.py" in c]
+        assert invocations and all("> " in c for c in invocations)
+
+
 if __name__ == "__main__":
     exit_code = pytest.main([str(Path(__file__)), "-v"])
     sys.exit(exit_code)

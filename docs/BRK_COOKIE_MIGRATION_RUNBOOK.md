@@ -39,6 +39,7 @@ static bool InitRPCAuthentication()
 La procedura comporta le seguenti finestre di indisponibilità controllate:
 1. **BRK (`:7070`):** arrestato al Passo 1 e riavviato al Passo 4. Finestra di interruzione stimata: **~2-5 minuti**. Durante questo intervallo, i consumatori di BRK (`utxoracle-live-worker`, `utxoracle-live-api`) riceveranno errori temporanei di connessione verso la porta :7070.
 2. **Bitcoin Core RPC (`:8332`):** indisponibile durante il riavvio del demone al Passo 2. Finestra di interruzione stimata: **~15-30 secondi**. Tutte le chiamate RPC verso bitcoind saranno temporaneamente rifiutate.
+3. **Consumatori RPC (`mempool-electrs`, `mempool-api`, UTXOracle):** riavviati al Passo 2 dopo bitcoind, per caricare la nuova credenziale. La durata è quella del riavvio dei loro container: da misurare in prova, non stimata qui.
 
 ---
 
@@ -70,6 +71,50 @@ In Bitcoin Core v28, la presenza di `rpcauth` in assenza di `rpcpassword` permet
 
 ## 4. Procedura Operativa in 5 Passi con Controlli e Rollback
 
+**Regola di output:** nessun comando di questa procedura stampa un valore. I controlli mostrano soltanto nomi di flag, conteggi, esiti e codici HTTP. Non usare `cat`, `docker inspect`, `docker exec` né `ps`/`docker logs`/`journalctl` senza i filtri indicati: stampano le credenziali.
+
+**Rollback:** ogni passo che ha modificato bitcoind, un consumatore o BRK si annulla soltanto con il **Rollback Coordinato** (sezione 5): ripristinare un solo lato lascia server e client con autenticazioni incompatibili (HTTP 401, riprodotto con Bitcoin Core v28.0.0 in regtest nella review R2).
+
+### Preparazione (prima del Passo 1): backup e verifica RPC
+
+Backup di tutto ciò che il Rollback Coordinato dovrà ripristinare, in una directory 0700, e definizione del controllo RPC reale usato nei passi successivi.
+
+```bash
+BK=/home/sam/brk-cookie-migration-backup
+install -d -m 700 "$BK"
+# bitcoind
+cp -p /home/sam/.bitcoin/bitcoin.conf "$BK/bitcoin.conf"
+[ -f /data/cold/12TB/Bitcoin/bitcoin.conf ] && cp -p /data/cold/12TB/Bitcoin/bitcoin.conf "$BK/bitcoin.conf.cold"
+# BRK
+cp -p /data/sata/1TB/brk-v0.3.6/docker/docker-compose.yml "$BK/brk-docker-compose.yml"
+cp -p /data/sata/1TB/brk-v0.3.6/.env "$BK/brk.env"
+# consumatori RPC: stack mempool (mempool-electrs, mempool-api) e UTXOracle
+cp -p /data/4TB/prod/apps/mempool-stack/docker-compose.yml "$BK/mempool-docker-compose.yml"
+[ -f /data/4TB/prod/apps/mempool-stack/.env ] && cp -p /data/4TB/prod/apps/mempool-stack/.env "$BK/mempool.env"
+cp -p /media/sam/1TB/UTXOracle/.env "$BK/utxoracle.env"
+```
+- **Controllo:** `ls -l "$BK" | wc -l` deve contare tutti i file copiati; ogni consumatore RPC elencato nella sezione 3 deve avere il proprio file di configurazione nel backup. Se un consumatore ha altri file di configurazione RPC, aggiungerli all'elenco prima di procedere.
+- **Credenziale legacy** (usata solo dai controlli post-rollback), estratta dal backup senza stamparla:
+  ```bash
+  ( umask 077; { sed -n 's/^rpcuser=//p' "$BK/bitcoin.conf"; sed -n 's/^rpcpassword=//p' "$BK/bitcoin.conf"; } | paste -sd: - > "$BK/legacy.cred" )
+  ```
+
+Controllo RPC reale: una chiamata `getblockcount` per client. La credenziale è letta da un file e passata a `curl` su stdin (`-K -`), mai in argv; l'output è solo etichetta e codice HTTP. `/health` di BRK **non** sostituisce questo controllo: non tocca bitcoind.
+
+```bash
+rpc_check() {  # uso: rpc_check <etichetta> <file con utente:password o cookie>
+  local code
+  code=$(printf 'user = "%s"\n' "$(cat "$2")" | curl -sS -K - -o /dev/null -w '%{http_code}' --max-time 10 \
+    -H 'content-type: text/plain;' \
+    --data-binary '{"jsonrpc":"1.0","id":"chk","method":"getblockcount","params":[]}' \
+    http://127.0.0.1:8332/)
+  echo "$1: HTTP ${code:-000}"
+}
+```
+Atteso: `HTTP 200` per ogni client. `HTTP 401` = credenziale non accettata; `HTTP 000` = bitcoind non raggiungibile.
+
+---
+
 ### Passo 1: Stop di BRK
 Arrestare lo stack BRK per evitare tentativi di connessione con credenziali non allineate.
 
@@ -80,42 +125,40 @@ sudo systemctl stop brk-stack.service
   ```bash
   systemctl is-active --quiet brk-stack.service || echo "BRK stack stopped (OK)"
   ```
-- **Rollback Passo 1:**
+- **Rollback Passo 1:** nulla è stato ancora modificato: riavviare BRK.
   ```bash
   sudo systemctl start brk-stack.service
   ```
 
 ---
 
-### Passo 2: Modifica di `bitcoin.conf` e Restart di bitcoind
-Rimuovere `rpcuser` e `rpcpassword` e predisporre il cookie (ed eventuali `rpcauth`).
+### Passo 2: bitcoin.conf, credenziali dei consumatori e restart di bitcoind
+Rimuovere `rpcuser` e `rpcpassword` da bitcoind e dare a ogni consumatore che non legge il cookie una credenziale `rpcauth` propria, prima del riavvio.
 
-1. Backup preventivo con preservazione dei permessi:
+1. Per ogni consumatore legacy (`mempool-electrs`, `mempool-api`) generare la credenziale con lo script ufficiale upstream; l'output contiene la password, quindi va solo su file 0600, mai al terminale:
    ```bash
-   cp -p /home/sam/.bitcoin/bitcoin.conf /home/sam/.bitcoin/bitcoin.conf.bak
-   # e se presente nella datadir secondaria:
-   [ -f /data/cold/12TB/Bitcoin/bitcoin.conf ] && cp -p /data/cold/12TB/Bitcoin/bitcoin.conf /data/cold/12TB/Bitcoin/bitcoin.conf.bak
+   ( umask 077; python3 share/rpcauth/rpcauth.py mempool-electrs > "$BK/mempool-electrs.rpcauth.out" )
+   grep '^rpcauth=' "$BK/mempool-electrs.rpcauth.out" >> /home/sam/.bitcoin/bitcoin.conf
+   ( umask 077; printf '%s:%s' mempool-electrs "$(tail -n 1 "$BK/mempool-electrs.rpcauth.out")" > "$BK/mempool-electrs.cred" )
    ```
-2. Modificare `bitcoin.conf`:
-   - Rimuovere o commentare le righe `rpcuser=...` e `rpcpassword=...`.
-   - Se necessario per i client legacy (es. mempool), aggiungere la riga `rpcauth=...`.
-   - Configurare opzionalmente `-rpccookieperms=group` se necessario per il gruppo di sistema (mai world-readable).
-3. Riavviare bitcoind:
+   Ripetere per `mempool-api` (file `mempool-api.cred`). Il formato dell'output è quello dello script installato: se `tail -n 1` non è la password, correggere prima di proseguire senza stampare il file.
+2. Modificare `bitcoin.conf`: rimuovere o commentare `rpcuser=...` e `rpcpassword=...` (anche nella datadir secondaria `/data/cold/12TB/Bitcoin/bitcoin.conf`, se presente). Opzionale: `-rpccookieperms=group` (mai world-readable).
+3. Aggiornare la configurazione di `mempool-electrs` e `mempool-api` in `/data/4TB/prod/apps/mempool-stack` con le nuove credenziali (editor, non `cat`). UTXOracle non richiede modifiche: legge il cookie quando `rpcpassword` manca.
+4. Riavviare bitcoind e poi i consumatori:
    ```bash
    sudo systemctl restart bitcoind.service
+   docker compose -f /data/4TB/prod/apps/mempool-stack/docker-compose.yml up -d
    ```
 - **Controllo:**
   ```bash
   systemctl is-active --quiet bitcoind.service && echo "bitcoind active (OK)"
   # Conteggio, non righe: atteso >= 1
   journalctl -u bitcoind.service -n 200 --no-pager | grep -ci -- 'Using random cookie authentication'
+  rpc_check "utxoracle (cookie)" /data/cold/12TB/Bitcoin/.cookie
+  rpc_check "mempool-electrs (rpcauth)" "$BK/mempool-electrs.cred"
+  rpc_check "mempool-api (rpcauth)" "$BK/mempool-api.cred"
   ```
-- **Rollback Passo 2:**
-  ```bash
-  cp -p /home/sam/.bitcoin/bitcoin.conf.bak /home/sam/.bitcoin/bitcoin.conf
-  [ -f /data/cold/12TB/Bitcoin/bitcoin.conf.bak ] && cp -p /data/cold/12TB/Bitcoin/bitcoin.conf.bak /data/cold/12TB/Bitcoin/bitcoin.conf
-  sudo systemctl restart bitcoind.service
-  ```
+- **Rollback Passo 2:** eseguire il **Rollback Coordinato** (sezione 5).
 
 ---
 
@@ -129,30 +172,25 @@ Accertarsi che il file `.cookie` sia stato generato e sia accessibile in lettura
   stat -c "%a %u:%g" /data/cold/12TB/Bitcoin/.cookie
   ```
   *(Nota di sicurezza: NON stampare né visualizzare il contenuto del file cookie).*
-- **Rollback Passo 3:**
-  Se il file non esiste o non è leggibile, interrompere la procedura e ripristinare `bitcoin.conf`:
-  eseguire **Rollback Passo 2**.
+- **Rollback Passo 3:** se il file non esiste o non è leggibile, interrompere la procedura ed eseguire il **Rollback Coordinato** (sezione 5).
 
 ---
 
 ### Passo 4: Aggiornamento Configurazione e Avvio di BRK
-Aggiornare il docker-compose di BRK per utilizzare il flag cookie nativo ed eliminare i flag argv.
+Aggiornare il docker-compose di BRK per utilizzare il flag cookie nativo ed eliminare i flag argv. Il backup è già in `$BK` (Preparazione).
 
-1. Backup preventivo dei file di configurazione di BRK:
-   ```bash
-   cp -p /data/sata/1TB/brk-v0.3.6/docker/docker-compose.yml /data/sata/1TB/brk-v0.3.6/docker/docker-compose.yml.bak
-   cp -p /data/sata/1TB/brk-v0.3.6/.env /data/sata/1TB/brk-v0.3.6/.env.bak
-   ```
-2. Modificare `/data/sata/1TB/brk-v0.3.6/docker/docker-compose.yml`:
+1. Modificare `/data/sata/1TB/brk-v0.3.6/docker/docker-compose.yml`:
    - Rimuovere o commentare gli argomenti `--rpcuser` e `--rpcpassword`.
-   - Utilizzare il flag cookie nativo:
+   - Utilizzare il flag cookie nativo e il datadir in sola lettura:
      ```yaml
-     - --rpccookiefile
-     - /bitcoin/.cookie
+     command:
+       - --rpccookiefile
+       - /bitcoin/.cookie
+     volumes:
+       - /data/cold/12TB/Bitcoin:/bitcoin:ro
      ```
-3. Modificare `/data/sata/1TB/brk-v0.3.6/.env`:
-   - Rimuovere le variabili `BTC_RPC_USER` e `BTC_RPC_PASSWORD`.
-4. Avviare il servizio BRK:
+2. Modificare `/data/sata/1TB/brk-v0.3.6/.env`: rimuovere le variabili `BTC_RPC_USER` e `BTC_RPC_PASSWORD`.
+3. Avviare il servizio BRK:
    ```bash
    sudo systemctl start brk-stack.service
    ```
@@ -160,34 +198,65 @@ Aggiornare il docker-compose di BRK per utilizzare il flag cookie nativo ed elim
   ```bash
   systemctl is-active --quiet brk-stack.service && echo "BRK stack active (OK)"
   # Solo i NOMI dei flag trovati negli argv di tutti i processi, con il conteggio: mai i valori.
+  # shellcheck disable=SC2009  (pgrep non stampa solo i nomi dei flag)
   ps -eo args= | grep -oE -- '-{1,2}rpc(user|password)' | sort | uniq -c
   ```
   *(Atteso: nessun output. Qualsiasi riga indica un flag credenziale ancora presente in argv.
   Non usare `ps` senza questo filtro, `docker inspect` né `cat` di file di configurazione: stampano i valori.)*
-- **Rollback Passo 4:**
-  ```bash
-  sudo systemctl stop brk-stack.service
-  cp -p /data/sata/1TB/brk-v0.3.6/docker/docker-compose.yml.bak /data/sata/1TB/brk-v0.3.6/docker/docker-compose.yml
-  cp -p /data/sata/1TB/brk-v0.3.6/.env.bak /data/sata/1TB/brk-v0.3.6/.env
-  sudo systemctl start brk-stack.service
-  ```
+- **Rollback Passo 4:** eseguire il **Rollback Coordinato** (sezione 5).
 
 ---
 
-### Passo 5: Health Check sulla Porta :7070
-Verificare che BRK risponda correttamente e si sia autenticato con successo a bitcoind via cookie.
+### Passo 5: Verifica RPC Reale e Health Check
+`/health` di BRK usa solo stato locale: risponde 200 anche con autenticazione RPC rotta e non certifica la connessione a bitcoind. La prova valida è la chiamata RPC reale per client.
 
 ```bash
-curl -fsS http://127.0.0.1:7070/health && echo "BRK health endpoint OK"
+rpc_check "brk (cookie)" /data/cold/12TB/Bitcoin/.cookie
+rpc_check "utxoracle (cookie)" /data/cold/12TB/Bitcoin/.cookie
+rpc_check "mempool-electrs (rpcauth)" "$BK/mempool-electrs.cred"
+rpc_check "mempool-api (rpcauth)" "$BK/mempool-api.cred"
+curl -sS -o /dev/null -w 'brk /health: HTTP %{http_code}\n' --max-time 10 http://127.0.0.1:7070/health
 ```
-- **Controllo:**
-  Il comando `curl -fsS` fallisce con codice di uscita diverso da 0 se l'endpoint risponde con errori HTTP (es. 500 Authentication Failed o 401).
-  Contare, senza stamparle, le righe di errore di autenticazione nei log recenti di BRK:
+- **Controllo:** `HTTP 200` su tutte le righe `rpc_check`; `/health` è solo un controllo di processo e non certifica l'autenticazione. Contare, senza stamparle, le righe di errore di autenticazione nei log recenti di BRK:
   ```bash
   docker logs --tail 200 brk 2>&1 | grep -ciE -- 'unauthorized|authentication failed|401|403'
   ```
   *(Atteso: 0. Non leggere i log di BRK non filtrati: possono contenere i valori delle credenziali).*
-- **Rollback Passo 5:**
-  In caso di errore nell'endpoint `/health`:
-  1. Eseguire **Rollback Passo 4**.
-  2. Se necessario ripristinare anche bitcoind, eseguire **Rollback Passo 2**.
+- **Rollback Passo 5:** eseguire il **Rollback Coordinato** (sezione 5).
+
+---
+
+## 5. Rollback Coordinato
+
+Si applica a qualunque fallimento dal Passo 2 in poi. L'ordine è obbligatorio: bitcoind per primo, poi i consumatori, infine BRK. Ripristinare BRK prima di bitcoind lo fa autenticare con credenziali che bitcoind non accetta più (HTTP 401).
+
+- **R1 — bitcoind**: fermare BRK se attivo, ripristinare `bitcoin.conf` dal backup e riavviare bitcoind.
+  ```bash
+  sudo systemctl stop brk-stack.service
+  cp -p "$BK/bitcoin.conf" /home/sam/.bitcoin/bitcoin.conf
+  [ -f "$BK/bitcoin.conf.cold" ] && cp -p "$BK/bitcoin.conf.cold" /data/cold/12TB/Bitcoin/bitcoin.conf
+  sudo systemctl restart bitcoind.service
+  ```
+- **R2 — consumatori**: riportare ogni consumatore alla propria configurazione di backup e riavviarlo.
+  ```bash
+  cp -p "$BK/mempool-docker-compose.yml" /data/4TB/prod/apps/mempool-stack/docker-compose.yml
+  [ -f "$BK/mempool.env" ] && cp -p "$BK/mempool.env" /data/4TB/prod/apps/mempool-stack/.env
+  cp -p "$BK/utxoracle.env" /media/sam/1TB/UTXOracle/.env
+  docker compose -f /data/4TB/prod/apps/mempool-stack/docker-compose.yml up -d
+  ```
+- **R3 — BRK**: ripristinare compose e `.env` di BRK dal backup e avviarlo.
+  ```bash
+  cp -p "$BK/brk-docker-compose.yml" /data/sata/1TB/brk-v0.3.6/docker/docker-compose.yml
+  cp -p "$BK/brk.env" /data/sata/1TB/brk-v0.3.6/.env
+  sudo systemctl start brk-stack.service
+  ```
+- **R4 — verifica**: una chiamata RPC reale per client, con la credenziale del file ripristinato (BRK e UTXOracle: `rpcuser`/`rpcpassword` di `bitcoin.conf`; mempool: quella del proprio file di backup, qui `legacy.cred` se usava le stesse). `/health` di BRK non sostituisce questa prova.
+  ```bash
+  rpc_check "brk (legacy)" "$BK/legacy.cred"
+  rpc_check "utxoracle (legacy)" "$BK/legacy.cred"
+  rpc_check "mempool-electrs (legacy)" "$BK/legacy.cred"
+  rpc_check "mempool-api (legacy)" "$BK/legacy.cred"
+  ```
+  Atteso: `HTTP 200` su ogni riga.
+
+**Avvertenza di sicurezza:** il rollback riattiva `rpcuser`/`rpcpassword`, una credenziale da considerare compromessa perché è stata esposta in argv e nei log. Lo stato dopo il rollback è temporaneo: va seguito senza ritardo dalla rotazione della credenziale (nuova password oppure migrazione al cookie), non lasciato come configurazione definitiva.
