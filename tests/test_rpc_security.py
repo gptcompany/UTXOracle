@@ -446,6 +446,49 @@ services:
             + "\n".join(matches)
         )
 
+    def test_operator_migration_runbook_requirements(self):
+        """M2 & M3 regression: verify operator procedure covers cookie auth, 5 steps, rollback, consumers."""
+        runbook_path = REPO_ROOT / "docs" / "BRK_COOKIE_MIGRATION_RUNBOOK.md"
+        assert runbook_path.is_file(), f"Expected {runbook_path} to exist"
+        content = runbook_path.read_text(encoding="utf-8")
+
+        # M2: Source citation and cookie permissions
+        assert "httprpc.cpp" in content
+        assert "InitRPCAuthentication" in content
+        assert "-rpccookieperms" in content
+        assert "world-readable" in content.lower() or "world readable" in content.lower()
+
+        # M2: Must instruct removal of rpcuser/rpcpassword to generate .cookie in v28
+        assert "rpcpassword" in content
+        assert "rpcuser" in content
+
+        # M3: 5 ordered steps
+        step_keywords = ["Passo 1", "Passo 2", "Passo 3", "Passo 4", "Passo 5"]
+        last_pos = -1
+        for kw in step_keywords:
+            pos = content.find(f"### {kw}")
+            assert pos != -1, f"Missing step heading: ### {kw}"
+            assert pos > last_pos, f"Steps not in order: ### {kw} appeared out of sequence"
+            last_pos = pos
+
+        # M3: Rollback for each step
+        assert "Rollback" in content
+        for kw in step_keywords:
+            assert f"Rollback {kw}" in content or f"Rollback del {kw}" in content or f"Rollback - {kw}" in content
+
+        # M3: Downtime window
+        assert "interruzione" in content.lower() or "downtime" in content.lower()
+
+        # M3: Other bitcoind RPC consumers (Dell & repo)
+        assert "mempool-electrs" in content
+        assert "mempool-api" in content
+        assert "bitcoin_rpc.py" in content
+        assert "rpcauth" in content
+
+        # H1 & M3: Process inspection must mask credentials
+        assert "sed" in content or "REDACTED" in content
+
+
 
 
 
