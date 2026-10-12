@@ -7,8 +7,10 @@ arguments (argv) which are exposed in `ps` and `docker inspect`.
 
 from __future__ import annotations
 
+import os
 import re
 import shlex
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -16,7 +18,10 @@ from typing import Any
 import pytest
 import yaml
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+# RPC_GATE_REPO_ROOT lets a regression run the real gate on a synthetic tree.
+REPO_ROOT = Path(
+    os.environ.get("RPC_GATE_REPO_ROOT") or Path(__file__).resolve().parent.parent
+)
 
 # Regex matching rpcpassword passed as a command-line argument:
 # Matches `--rpcpassword`, `-rpcpassword`, `--rpcpassword=...`, `-rpcpassword=...`
@@ -134,13 +139,27 @@ def find_line_number_in_content(content: str, pattern: re.Pattern) -> int | None
     return None
 
 
+def _yaml_error_location(error: yaml.YAMLError) -> str:
+    """Describe a parser failure by type and numeric position only.
+
+    str(error) embeds the offending source line, which may hold a credential.
+    """
+    mark = getattr(error, "problem_mark", None) or getattr(error, "context_mark", None)
+    where = (
+        f"line {mark.line + 1}, column {mark.column + 1}"
+        if mark is not None
+        else "unknown position"
+    )
+    return f"failed to parse YAML ({type(error).__name__}) at {where}"
+
+
 def check_compose_content(content: str, filename: str = "compose.yml") -> list[str]:
     """Inspect Compose YAML content and return violations."""
     violations: list[str] = []
     try:
         data = yaml.safe_load(content)
     except yaml.YAMLError as e:
-        return [f"{filename}: failed to parse YAML: {e}"]
+        return [f"{filename}: {_yaml_error_location(e)}"]
 
     if not isinstance(data, dict):
         return violations
@@ -236,7 +255,7 @@ def check_compose_file(path: Path) -> list[str]:
     try:
         content = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as e:
-        return [f"{path}: could not read file: {e}"]
+        return [f"{path}: could not read file ({type(e).__name__})"]
     rel_path = path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path
     return check_compose_content(content, str(rel_path))
 
@@ -246,7 +265,7 @@ def check_unit_file(path: Path) -> list[str]:
     try:
         content = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as e:
-        return [f"{path}: could not read file: {e}"]
+        return [f"{path}: could not read file ({type(e).__name__})"]
     rel_path = path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path
     return check_unit_content(content, str(rel_path))
 
@@ -430,6 +449,60 @@ services:
         violations = check_compose_content(sample, "docker-compose.yml")
         assert len(violations) >= 1
         assert any("schema" in v.lower() or "--rpcpassword" in v for v in violations)
+
+    @pytest.mark.parametrize(
+        "broken_yaml",
+        [
+            "services:\n  brk:\n    command: [--{flag}={dummy}\n",
+            "services:\n  brk:\n    command: \"--{flag}={dummy}\n",
+            "services:\n  brk:\n\tcommand: --{flag}={dummy}\n",
+        ],
+        ids=["unclosed-flow", "unclosed-quote", "tab-indent"],
+    )
+    def test_invalid_yaml_failure_never_leaks_value(self, broken_yaml, tmp_path):
+        """R2-H1 regression: a real gate failure on invalid YAML must not echo the value."""
+        # Short enough for PyYAML's snippet window (<=36 chars) to show it whole.
+        dummy = "R3_DUMMY_424242"
+        content = broken_yaml.format(flag="rpcpassword", dummy=dummy)
+
+        # Unit level: diagnostics carry only file, error type and numeric position.
+        violations = check_compose_content(content, "docker-compose.yml")
+        assert violations, "invalid YAML must fail closed"
+        for v in violations:
+            # PyYAML truncates long snippets: a value prefix is a leak too.
+            assert dummy[:6] not in v
+            assert re.search(r"line \d+, column \d+", v), v
+
+        # End to end: run the real gate under pytest and read its captured output.
+        (tmp_path / "docker-compose.yml").write_text(content, encoding="utf-8")
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                str(Path(__file__)),
+                "-k",
+                "test_repo_compose_files_do_not_pass_rpcpassword_arg",
+                "-p",
+                "no:cacheprovider",
+                "--rootdir",
+                str(tmp_path),
+                "-c",
+                os.devnull,
+                "--basetemp",
+                str(tmp_path / "pytest-inner"),
+                "--tb=long",
+                "-l",
+            ],
+            env={**os.environ, "RPC_GATE_REPO_ROOT": str(tmp_path)},
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        assert result.returncode == 1, "the inner gate run must genuinely fail"
+        assert "docker-compose.yml" in result.stdout
+        assert dummy[:6] not in result.stdout + result.stderr
 
     def test_production_roadmap_has_no_residual_7071_references(self):
         """L1 regression: ensure docs/PRODUCTION_ROADMAP.md has no unaligned :7071 references."""
