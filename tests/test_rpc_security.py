@@ -431,6 +431,22 @@ services:
         assert len(violations) >= 1
         assert any("schema" in v.lower() or "--rpcpassword" in v for v in violations)
 
+    def test_production_roadmap_has_no_residual_7071_references(self):
+        """L1 regression: ensure docs/PRODUCTION_ROADMAP.md has no unaligned :7071 references."""
+        roadmap_path = REPO_ROOT / "docs" / "PRODUCTION_ROADMAP.md"
+        assert roadmap_path.is_file(), f"Expected {roadmap_path} to exist"
+        content = roadmap_path.read_text(encoding="utf-8")
+        matches = [
+            f"line {idx}: {line.strip()}"
+            for idx, line in enumerate(content.splitlines(), start=1)
+            if re.search(r":7071\b", line)
+        ]
+        assert not matches, (
+            "Found residual :7071 references in docs/PRODUCTION_ROADMAP.md:\n"
+            + "\n".join(matches)
+        )
+
+
 
 
 
