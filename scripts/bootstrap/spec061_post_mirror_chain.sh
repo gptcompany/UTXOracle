@@ -45,15 +45,13 @@ log() {
     printf '[%s] %s\n' "$ts" "$*" | tee -a "$LOG" >&2
 }
 
-notify_discord() {
-    # Best-effort notification on terminal state transitions.
-    # Uses DISCORD_WEBHOOK_URL from env if present; silent no-op otherwise.
-    local msg="$1"
-    if [ -n "${DISCORD_WEBHOOK_URL:-}" ] && command -v curl >/dev/null 2>&1; then
-        curl -fsS -m 5 -H "Content-Type: application/json" \
-            -d "$(printf '{"content": "spec-061 chain: %s"}' "$msg")" \
-            "$DISCORD_WEBHOOK_URL" > /dev/null 2>&1 || true
-    fi
+notify() {
+    # Terminal state transitions on the ntfy dati topic: complete 2, failures 3.
+    # ntfy_dati.sh logs a failed publish; the chain never stops on it.
+    local priority=3 tags=warning
+    [ "$1" = complete ] && priority=2 tags=white_check_mark
+    bash "$REPO_ROOT/scripts/alerts/ntfy_dati.sh" "$priority" "$tags" \
+        "spec-061 chain state=$1" "see /tmp/spec061_chain.log" || true
 }
 
 set_state() {
@@ -61,7 +59,7 @@ set_state() {
     log "STATE=$1"
     case "$1" in
         complete|fatal_*|fail_*)
-            notify_discord "state=$1 (see /tmp/spec061_chain.log)"
+            notify "$1"
             ;;
     esac
 }
