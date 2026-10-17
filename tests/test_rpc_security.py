@@ -1,11 +1,16 @@
 """Security tests: BRK authenticates to bitcoind with the cookie, never with argv credentials.
 
-The gate itself (fail-closed allowlist, invariants 1-3) lives in rpc_argv_gate.py;
-this module runs it over the repository and holds its regressions.
+The static gate (rpc_argv_gate.py) covers only the files listed in the versioned
+manifest docs/contracts/brk_deployed_files.json, plus the check that no repo file
+launching BRK is missing from it. It does not interpret systemd or Compose syntax
+(escapes, drop-ins, ``-f`` chains, overrides); that belongs to the post-deploy
+runtime check tracked in the follow-up issue. This module also holds the runbook
+and roadmap regressions.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -17,260 +22,131 @@ import pytest
 # Resolve the sibling library even when this file is loaded outside pytest.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tests.rpc_argv_gate import (  # noqa: E402
-    EXCLUDED_DIRS,  # noqa: F401  (re-exported: reviewers adjust it in probes)
-    check_compose_content,
-    check_compose_file,
-    check_env_file,
-    check_unit_content,
-    check_unit_file,
-    find_repo_files,
-    scan_repo,
-)
+from tests.rpc_argv_gate import scan_repo  # noqa: E402
 
 # RPC_GATE_REPO_ROOT lets a regression run the real gate on a synthetic tree.
 REPO_ROOT = Path(
     os.environ.get("RPC_GATE_REPO_ROOT") or Path(__file__).resolve().parent.parent
 )
+DUMMY = "R3_DUMMY_ONLY"
+MANIFEST_REL = "docs/contracts/brk_deployed_files.json"
+SCHEMA_REL = "docs/contracts/brk_deployed_files.schema.json"
+
+CLEAN_COMPOSE = """services:
+  brk:
+    image: bitcoinresearchkit/brk:latest
+    command: ["brk", "--rpccookiefile", "/bitcoin/.cookie"]
+    volumes:
+      - /data/dummy:/bitcoin:ro
+"""
+CLEAN_UNIT = """[Service]
+ExecStart=/usr/local/bin/brk --rpccookiefile /bitcoin/.cookie
+"""
+
+
+def _tree(root: Path, files: dict[str, str], listed: list[str] | None = None) -> Path:
+    """Write `files` plus a manifest listing `listed` (schema copied from the repo)."""
+    for rel, content in files.items():
+        target = root / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    manifest = root / MANIFEST_REL
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(
+        json.dumps({"version": 1, "files": listed or []}), encoding="utf-8"
+    )
+    (root / SCHEMA_REL).write_text(
+        (REPO_ROOT / SCHEMA_REL).read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    return root
+
+
+class TestBrkManifestGate:
+    """Scope: manifest completeness + textual invariants on the listed files only."""
+
+    def test_repository_passes_its_own_gate(self):
+        assert scan_repo(REPO_ROOT) == []
+
+    def test_unlisted_compose_with_arbitrary_name_fails(self, tmp_path):
+        """A clean BRK compose under any YAML name must be declared in the manifest."""
+        _tree(tmp_path, {"stack.yaml": CLEAN_COMPOSE})
+        violations = scan_repo(tmp_path)
+        assert any("stack.yaml" in v and "manifest" in v for v in violations)
+
+    def test_unlisted_unit_fails(self, tmp_path):
+        _tree(tmp_path, {"deploy/brk.service": CLEAN_UNIT})
+        violations = scan_repo(tmp_path)
+        assert any("brk.service" in v and "manifest" in v for v in violations)
+
+    def test_listed_clean_files_pass(self, tmp_path):
+        _tree(
+            tmp_path,
+            {"stack.yaml": CLEAN_COMPOSE, "brk.service": CLEAN_UNIT},
+            listed=["stack.yaml", "brk.service"],
+        )
+        assert scan_repo(tmp_path) == []
+
+    @pytest.mark.parametrize("flag", ["rpcpassword", "rpcuser", "RpcPassword"])
+    def test_listed_file_with_credential_flag_fails_without_leaking(
+        self, flag, tmp_path
+    ):
+        bad = CLEAN_COMPOSE.replace(
+            '"/bitcoin/.cookie"]', f'"/bitcoin/.cookie", "--{flag}={DUMMY}"]'
+        )
+        _tree(tmp_path, {"stack.yaml": bad}, listed=["stack.yaml"])
+        violations = scan_repo(tmp_path)
+        assert any(flag.lower() in v.lower() for v in violations)
+        for v in violations:
+            assert DUMMY not in v and DUMMY[:6] not in v
+
+    def test_listed_file_without_cookie_flag_fails(self, tmp_path):
+        no_cookie = CLEAN_UNIT.replace("--rpccookiefile /bitcoin/.cookie", "")
+        _tree(tmp_path, {"brk.service": no_cookie}, listed=["brk.service"])
+        assert any("rpccookiefile" in v for v in scan_repo(tmp_path))
+
+    def test_stale_manifest_entry_fails(self, tmp_path):
+        _tree(tmp_path, {}, listed=["gone.service"])
+        assert any("gone.service" in v for v in scan_repo(tmp_path))
+
+    def test_manifest_entry_escaping_the_repo_fails(self, tmp_path):
+        _tree(tmp_path, {}, listed=["../outside.service"])
+        assert scan_repo(tmp_path)
+
+    def test_missing_or_invalid_manifest_fails_closed(self, tmp_path):
+        assert scan_repo(tmp_path)
+        _tree(tmp_path, {})
+        (tmp_path / MANIFEST_REL).write_text('{"files": "x"}', encoding="utf-8")
+        assert scan_repo(tmp_path)
+
+    def test_non_brk_files_are_not_flagged(self, tmp_path):
+        other = "services:\n  web:\n    image: nginx\n    environment:\n      BRK_BASE_URL: x\n"
+        _tree(
+            tmp_path,
+            {"web.yaml": other, "ci.yml": "jobs:\n  brk:\n    runs-on: x\n"},
+        )
+        assert scan_repo(tmp_path) == []
+
+    @pytest.mark.parametrize(
+        "broken",
+        [
+            "services:\n  brk:\n    command: [--rpcpassword={d}\n",
+            'services:\n  brk:\n    command: "--rpcpassword={d}\n',
+        ],
+        ids=["unclosed-flow", "unclosed-quote"],
+    )
+    def test_unparseable_unlisted_yaml_fails_closed_without_leaking(
+        self, broken, tmp_path
+    ):
+        """Parser messages quote the input: only file and a fixed reason may come out."""
+        _tree(tmp_path, {"stack.yaml": broken.format(d="R3_DUMMY_424242")})
+        violations = scan_repo(tmp_path)
+        assert violations
+        for v in violations:
+            assert "R3_DUMMY" not in v and "424242" not in v
 
 
 class TestRpcArgvSecurity:
-    """Ensure no Compose or Systemd unit file passes rpcpassword as a CLI argument."""
-
-    def test_repo_compose_files_do_not_pass_rpcpassword_arg(self):
-        compose_files = find_repo_files(REPO_ROOT, kind="compose")
-        assert compose_files, "Expected at least one Compose file in the repository"
-
-        all_violations: list[str] = []
-        for file_path in compose_files:
-            all_violations.extend(check_compose_file(file_path, REPO_ROOT))
-
-        assert not all_violations, (
-            "Compose files violate the BRK cookie-auth allowlist:\n"
-            + "\n".join(all_violations)
-        )
-
-    def test_repo_unit_files_do_not_pass_rpcpassword_arg(self):
-        unit_files = find_repo_files(REPO_ROOT, kind="unit")
-        assert unit_files, "Expected at least one systemd unit file in the repository"
-
-        all_violations: list[str] = []
-        for file_path in unit_files:
-            all_violations.extend(check_unit_file(file_path, REPO_ROOT))
-
-        assert not all_violations, (
-            "systemd units violate the BRK cookie-auth allowlist:\n"
-            + "\n".join(all_violations)
-        )
-
-    def test_repo_env_files_do_not_hold_rpc_credentials(self):
-        env_files = find_repo_files(REPO_ROOT, kind="env")
-        all_violations: list[str] = []
-        for file_path in env_files:
-            all_violations.extend(check_env_file(file_path, REPO_ROOT))
-
-        assert not all_violations, (
-            "Env files hold forbidden rpc credential keys:\n"
-            + "\n".join(all_violations)
-        )
-
-    def test_detector_catches_compose_list_arg(self):
-        sample = """
-services:
-  brk:
-    image: brk:latest
-    command:
-      - --bitcoindir
-      - /bitcoin
-      - --rpcuser
-      - bitcoin
-      - --rpcpassword
-      - secret123
-"""
-        violations = check_compose_content(sample, "test-compose.yml")
-        assert any("'rpcpassword'" in v for v in violations)
-        assert not any("secret123" in v for v in violations)
-
-    def test_detector_catches_compose_inline_arg(self):
-        sample = """
-services:
-  brk:
-    image: brk:latest
-    command: "brk --bitcoindir /bitcoin --rpcpassword=secret123"
-"""
-        violations = check_compose_content(sample, "test-compose.yml")
-        assert any("'rpcpassword'" in v for v in violations)
-        assert not any("secret123" in v for v in violations)
-
-    def test_detector_catches_unit_execstart_arg(self):
-        sample = """
-[Unit]
-Description=Test Service
-
-[Service]
-ExecStart=/usr/local/bin/brk --bitcoindir /bitcoin --rpcpassword secret123
-"""
-        violations = check_unit_content(sample, "test.service")
-        assert any("'rpcpassword'" in v for v in violations)
-        assert not any("secret123" in v for v in violations)
-
-    def test_detector_allows_safe_cookie_and_env(self):
-        sample_compose = """
-services:
-  brk:
-    image: brk:latest
-    environment:
-      BTC_RPC_PASSWORD: secret_in_env
-    command:
-      - --bitcoindir
-      - /bitcoin
-      - --rpccookiefile
-      - /bitcoin/.cookie
-    volumes:
-      - /data/cold/Bitcoin:/bitcoin:ro
-"""
-        violations = check_compose_content(sample_compose, "safe-compose.yml")
-        assert not violations
-
-        sample_unit = """
-[Unit]
-Description=Safe Service
-
-[Service]
-Environment="RPC_PASSWORD=secret_in_env"
-ReadOnlyPaths=/bitcoin
-ExecStart=/usr/local/bin/brk --bitcoindir /bitcoin --rpccookiefile /bitcoin/.cookie
-"""
-        violations = check_unit_content(sample_unit, "safe.service")
-        assert not violations
-
-    def test_detector_diagnostics_never_contain_credential_value(self):
-        """H1 regression: ensure diagnostics and assert messages never leak credentials."""
-        dummy_secret = "DUMMY_SECRET_TO_NOT_LEAK_987654"
-        compose_sample = f"""
-services:
-  brk:
-    image: brk:latest
-    command: "brk --rpcpassword={dummy_secret}"
-"""
-        compose_violations = check_compose_content(compose_sample, "docker-compose.yml")
-        assert len(compose_violations) >= 1
-        for v in compose_violations:
-            assert dummy_secret not in v, f"Violation leaked secret: {v}"
-        assert any("rpcpassword" in v for v in compose_violations)
-
-        unit_sample = f"""
-[Service]
-ExecStart=/usr/bin/brk --rpcpassword {dummy_secret}
-"""
-        unit_violations = check_unit_content(unit_sample, "brk.service")
-        assert len(unit_violations) >= 1
-        for v in unit_violations:
-            assert dummy_secret not in v, f"Violation leaked secret: {v}"
-        assert any("rpcpassword" in v for v in unit_violations)
-
-    def test_detector_catches_unit_continuation(self):
-        """M1 regression: detect rpcpassword on continued ExecStart lines."""
-        sample = """
-[Service]
-ExecStart=/usr/bin/brk \\
-    --rpcpassword REVIEW_DUMMY_NOT_A_CREDENTIAL
-"""
-        violations = check_unit_content(sample, "brk.service")
-        assert len(violations) >= 1
-        assert any("rpcpassword" in v for v in violations)
-
-    def test_detector_catches_compose_expanded_args(self):
-        """M1 regression: detect rpcpassword passed via compose environment into command."""
-        sample = """
-services:
-  brk:
-    image: dummy-review-image
-    command: ["/bin/sh", "-c", "exec brk $$BRK_ARGS"]
-    environment:
-      BRK_ARGS: "--rpcpassword REVIEW_DUMMY_NOT_A_CREDENTIAL"
-"""
-        violations = check_compose_content(sample, "docker-compose.yml")
-        assert len(violations) >= 1
-        assert any("rpcpassword" in v for v in violations)
-
-    def test_detector_catches_unit_expanded_args(self):
-        """M1 regression: detect rpcpassword expanded from Environment in ExecStart."""
-        sample = """
-[Service]
-Environment="BRK_ARGS=--rpcpassword REVIEW_DUMMY_NOT_A_CREDENTIAL"
-ExecStart=/usr/bin/brk $BRK_ARGS
-"""
-        violations = check_unit_content(sample, "brk.service")
-        assert len(violations) >= 1
-        assert any("rpcpassword" in v for v in violations)
-
-    def test_detector_catches_invalid_command_schema(self):
-        """M1 regression: detect invalid compose command schema."""
-        sample = """
-services:
-  brk:
-    image: dummy-review-image
-    command:
-      unexpected: "--rpcpassword REVIEW_DUMMY_NOT_A_CREDENTIAL"
-"""
-        violations = check_compose_content(sample, "docker-compose.yml")
-        assert len(violations) >= 1
-        assert any("schema" in v.lower() or "rpcpassword" in v for v in violations)
-
-    @pytest.mark.parametrize(
-        "broken_yaml",
-        [
-            "services:\n  brk:\n    command: [--{flag}={dummy}\n",
-            'services:\n  brk:\n    command: "--{flag}={dummy}\n',
-            "services:\n  brk:\n\tcommand: --{flag}={dummy}\n",
-        ],
-        ids=["unclosed-flow", "unclosed-quote", "tab-indent"],
-    )
-    def test_invalid_yaml_failure_never_leaks_value(self, broken_yaml, tmp_path):
-        """R2-H1 regression: a real gate failure on invalid YAML must not echo the value."""
-        # Short enough for PyYAML's snippet window (<=36 chars) to show it whole.
-        dummy = "R3_DUMMY_424242"
-        content = broken_yaml.format(flag="rpcpassword", dummy=dummy)
-
-        # Unit level: diagnostics carry only file, error type and numeric position.
-        violations = check_compose_content(content, "docker-compose.yml")
-        assert violations, "invalid YAML must fail closed"
-        for v in violations:
-            # PyYAML truncates long snippets: a value prefix is a leak too.
-            assert dummy[:6] not in v
-        assert any(re.search(r"line \d+, column \d+", v) for v in violations)
-
-        # End to end: run the real gate under pytest and read its captured output.
-        (tmp_path / "docker-compose.yml").write_text(content, encoding="utf-8")
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "pytest",
-                str(Path(__file__)),
-                "-k",
-                "test_repo_compose_files_do_not_pass_rpcpassword_arg",
-                "-p",
-                "no:cacheprovider",
-                "--rootdir",
-                str(tmp_path),
-                "-c",
-                os.devnull,
-                "--basetemp",
-                str(tmp_path / "pytest-inner"),
-                "--tb=long",
-                "-l",
-            ],
-            env={**os.environ, "RPC_GATE_REPO_ROOT": str(tmp_path)},
-            capture_output=True,
-            text=True,
-            timeout=120,
-            check=False,
-        )
-        assert result.returncode == 1, "the inner gate run must genuinely fail"
-        assert "docker-compose.yml" in result.stdout
-        assert dummy[:6] not in result.stdout + result.stderr
+    """Repository documents referenced by the gate."""
 
     def test_production_roadmap_has_no_residual_7071_references(self):
         """L1 regression: ensure docs/PRODUCTION_ROADMAP.md has no unaligned :7071 references."""
@@ -337,258 +213,6 @@ services:
         # H1/H2 & M3: process inspection prints flag names only, never values
         assert "grep -oE" in content
         assert "REDACTED" not in content
-
-
-DUMMY = "R3_DUMMY_ONLY"
-COMPOSE_NAME = "docker-compose.yml"
-UNIT_NAME = "brk.service"
-
-
-def _compose(body: str, *, volumes: str = "") -> str:
-    """Compose document with one BRK service; `body` is its indented fields."""
-    return f"services:\n  brk:\n    image: dummy-review-image\n{body}{volumes}"
-
-
-COOKIE_RO_VOLUME = "    volumes:\n      - /data/cold/Bitcoin:/bitcoin:ro\n"
-
-# name -> {relative path: content}. Every entry must be rejected (R2 probes.py,
-# the seven R2 bypasses and the extra spellings found while closing H3).
-REJECTED_TREES: dict[str, dict[str, str]] = {
-    # R1 literal and expansion forms
-    "compose_string_equals": {
-        COMPOSE_NAME: _compose(f'    command: "brk --rpcpassword={DUMMY}"\n')
-    },
-    "compose_list_separate": {
-        COMPOSE_NAME: _compose(f'    command: ["brk", "--rpcpassword", "{DUMMY}"]\n')
-    },
-    "compose_list_equals": {
-        COMPOSE_NAME: _compose(f'    command: ["brk", "--rpcpassword={DUMMY}"]\n')
-    },
-    "compose_multiline_folded": {
-        COMPOSE_NAME: _compose(
-            f"    command: >\n      brk\n      --rpcpassword {DUMMY}\n"
-        )
-    },
-    "compose_multiline_literal": {
-        COMPOSE_NAME: _compose(
-            f"    command: |\n      brk\n      --rpcpassword {DUMMY}\n"
-        )
-    },
-    "compose_env_value": {
-        COMPOSE_NAME: _compose(
-            f'    command: "brk --rpcpassword=${{BTC_RPC_PASSWORD}}"\n    environment:\n      BTC_RPC_PASSWORD: {DUMMY}\n'
-        )
-    },
-    "compose_expanded_args": {
-        COMPOSE_NAME: _compose(
-            f'    command: ["/bin/sh", "-c", "exec brk $$BRK_ARGS"]\n    environment:\n      BRK_ARGS: "--rpcpassword {DUMMY}"\n'
-        )
-    },
-    "unit_separate": {
-        UNIT_NAME: f"[Service]\nExecStart=/usr/bin/brk --rpcpassword {DUMMY}\n"
-    },
-    "unit_equals": {
-        UNIT_NAME: f"[Service]\nExecStart=/usr/bin/brk --rpcpassword={DUMMY}\n"
-    },
-    "unit_continuation": {
-        UNIT_NAME: f"[Service]\nExecStart=/usr/bin/brk \\\n    --rpcpassword {DUMMY}\n"
-    },
-    "unit_expanded_args": {
-        UNIT_NAME: f'[Service]\nEnvironment="BRK_ARGS=--rpcpassword {DUMMY}"\nExecStart=/usr/bin/brk $BRK_ARGS\n'
-    },
-    "invalid_command_schema": {
-        COMPOSE_NAME: _compose(
-            f'    command: {{unexpected: "--rpcpassword {DUMMY}"}}\n'
-        )
-    },
-    # R2 bypasses
-    "unit_space_before_equals": {
-        UNIT_NAME: f"[Service]\nExecStart = /usr/bin/brk --rpcpassword {DUMMY}\n"
-    },
-    "unit_quoted_flag": {
-        UNIT_NAME: f'[Service]\nExecStart=/usr/bin/brk "--rpcpassword" {DUMMY}\n'
-    },
-    "unit_environment_spacing": {
-        UNIT_NAME: f'[Service]\nEnvironment = "BRK_ARGS=--rpcpassword {DUMMY}"\nExecStart=/usr/bin/brk $BRK_ARGS\n'
-    },
-    "unit_comment_in_continuation": {
-        UNIT_NAME: f"[Service]\nExecStart=/usr/bin/brk \\\n# allowed comment inside continuation\n --rpcpassword {DUMMY}\n"
-    },
-    "unit_environment_file": {
-        UNIT_NAME: "[Service]\nEnvironmentFile=/unused/scratch-only.env\nExecStart=/usr/bin/brk $BRK_ARGS\n"
-    },
-    "compose_quoted_flag": {
-        COMPOSE_NAME: _compose(f"    command: 'brk \"--rpcpassword\" {DUMMY}'\n")
-    },
-    "compose_env_file": {
-        COMPOSE_NAME: _compose(
-            '    command: ["/bin/sh", "-c", "exec brk $$BRK_ARGS"]\n    env_file: ./brk.env\n'
-        ),
-        "brk.env": f"BRK_ARGS=--rpcpassword {DUMMY}\n",
-    },
-    "compose_malformed_yaml": {
-        COMPOSE_NAME: f"services:\n  brk:\n    command: [--rpcpassword={DUMMY}\n"
-    },
-    **{
-        f"writer_compose_env_{tag}": {
-            COMPOSE_NAME: _compose(
-                f'    command: ["/bin/sh", "-c", "exec brk {spelling}"]\n    environment:\n      - "BRK_ARGS=--rpcpassword {DUMMY}"\n'
-            )
-        }
-        for tag, spelling in {
-            "plain": "$BRK_ARGS",
-            "braces": "${BRK_ARGS}",
-            "dollar2": "$$BRK_ARGS",
-            "dollar2_braces": "$${BRK_ARGS}",
-        }.items()
-    },
-    **{
-        f"writer_unit_env_{tag}": {
-            UNIT_NAME: f'[Service]\nEnvironment="BRK_ARGS=--rpcpassword {DUMMY}"\nExecStart=/usr/bin/brk {spelling}\n'
-        }
-        for tag, spelling in {
-            "plain": "$BRK_ARGS",
-            "braces": "${BRK_ARGS}",
-            "dollar2": "$$BRK_ARGS",
-            "dollar2_braces": "$${BRK_ARGS}",
-        }.items()
-    },
-    # Spellings beyond the R2 probes: the substring or the argv is rebuilt by the parser.
-    "compose_split_quotes": {
-        COMPOSE_NAME: _compose(f"    command: \"brk --rpc''password {DUMMY}\"\n")
-    },
-    "compose_yaml_hex_escape": {
-        COMPOSE_NAME: _compose(
-            f'    command: ["brk", "--\\x72pcpassword", "{DUMMY}"]\n'
-        )
-    },
-    "compose_yaml_escaped_newline": {
-        COMPOSE_NAME: _compose('    command: ["brk", "--rpcpass\\\n      word", "X"]\n')
-    },
-    "unit_split_quotes": {
-        UNIT_NAME: f'[Service]\nExecStart=/usr/bin/brk --rpc""password {DUMMY}\n'
-    },
-    "unit_c_escape": {
-        UNIT_NAME: f"[Service]\nExecStart=/usr/bin/brk --\\x72pcpassword {DUMMY}\n"
-    },
-    "unit_mixed_case_comment": {
-        UNIT_NAME: "[Service]\n; RpcUser was here\nExecStart=/usr/bin/brk --rpccookiefile /bitcoin/.cookie\n"
-    },
-    "compose_comment_only": {
-        COMPOSE_NAME: "services:\n  web:\n    image: nginx\n    # rpcpassword goes here\n"
-    },
-    "env_file_in_repo_with_rpcuser": {".env": "RPCUSER=somebody\n"},
-    "env_file_utf16": {
-        "brk.env": "RPCPASSWORD=x\n".encode("utf-16-le").decode("latin-1")
-    },
-    "compose_env_file_missing": {
-        COMPOSE_NAME: _compose(
-            '    command: ["brk", "--rpccookiefile", "/bitcoin/.cookie"]\n    env_file: ./absent.env\n',
-            volumes=COOKIE_RO_VOLUME,
-        )
-    },
-    "compose_env_passthrough": {
-        COMPOSE_NAME: _compose(
-            '    command: ["brk", "--rpccookiefile", "/bitcoin/.cookie"]\n    environment:\n      - BRK_ARGS\n',
-            volumes=COOKIE_RO_VOLUME,
-        )
-    },
-    "compose_cookie_mount_rw": {
-        COMPOSE_NAME: _compose(
-            '    command: ["brk", "--rpccookiefile", "/bitcoin/.cookie"]\n',
-            volumes="    volumes:\n      - /data/cold/Bitcoin:/bitcoin\n",
-        )
-    },
-    "compose_cookie_mount_missing": {
-        COMPOSE_NAME: _compose(
-            '    command: ["brk", "--rpccookiefile", "/bitcoin/.cookie"]\n'
-        )
-    },
-    "compose_cookie_flag_missing": {
-        COMPOSE_NAME: _compose(
-            '    command: ["brk", "--bitcoindir", "/bitcoin"]\n',
-            volumes=COOKIE_RO_VOLUME,
-        )
-    },
-    "compose_cookie_value_expanded": {
-        COMPOSE_NAME: _compose(
-            '    command: ["brk", "--rpccookiefile", "$COOKIE"]\n',
-            volumes=COOKIE_RO_VOLUME,
-        )
-    },
-    "unit_cookie_flag_missing": {
-        UNIT_NAME: "[Service]\nReadOnlyPaths=/bitcoin\nExecStart=/usr/bin/brk --bitcoindir /bitcoin\n"
-    },
-    "unit_cookie_dir_not_read_only": {
-        UNIT_NAME: "[Service]\nExecStart=/usr/bin/brk --rpccookiefile /bitcoin/.cookie\n"
-    },
-    "unit_brk_by_name_without_command": {
-        "brk-stack.service": "[Service]\nExecStart=/usr/bin/docker compose up -d\n"
-    },
-    "unit_environment_file_in_repo_no_cookie": {
-        UNIT_NAME: "[Service]\nEnvironmentFile=brk.env\nExecStart=/usr/bin/brk --bitcoindir /bitcoin\n",
-        "brk.env": "FOO=bar\n",
-    },
-}
-
-# The correct cookie configuration must keep passing.
-ACCEPTED_TREES: dict[str, dict[str, str]] = {
-    "compose_cookie_ro_mount": {
-        COMPOSE_NAME: _compose(
-            '    command: ["brk", "--bitcoindir", "/bitcoin", "--rpccookiefile", "/bitcoin/.cookie"]\n'
-            "    env_file: ./brk.env\n"
-            "    environment:\n      BTC_RPC_PASSWORD_FILE_NOT_USED: nothing\n",
-            volumes=COOKIE_RO_VOLUME,
-        ),
-        "brk.env": "BRK_LOG=info\n",
-    },
-    "compose_cookie_string_command_long_ro_syntax": {
-        COMPOSE_NAME: _compose(
-            '    command: "brk --rpccookiefile=/bitcoin/.cookie"\n',
-            volumes="    volumes:\n      - type: bind\n        source: /data/cold/Bitcoin\n        target: /bitcoin\n        read_only: true\n",
-        )
-    },
-    "unit_cookie_read_only_paths": {
-        UNIT_NAME: "[Service]\nReadOnlyPaths=/bitcoin\nExecStart=/usr/bin/brk --bitcoindir /bitcoin --rpccookiefile /bitcoin/.cookie\n"
-    },
-    "unit_cookie_bind_read_only_paths": {
-        UNIT_NAME: "[Service]\nBindReadOnlyPaths=/data/cold/Bitcoin:/bitcoin\nExecStart=/usr/bin/brk --rpccookiefile=/bitcoin/.cookie\n"
-    },
-    "unrelated_services_untouched": {
-        COMPOSE_NAME: "services:\n  web:\n    image: nginx\n    command: [nginx, -g, daemon off;]\n    env_file: /outside/the/repo.env\n    environment:\n      - FROM_HOST\n      - API_URL=http://x/$$y\n",
-        "worker.service": "[Service]\nEnvironmentFile=-/outside/the/repo/.env\nExecStart=/usr/bin/python -m worker --url=${URL}\n",
-    },
-}
-
-
-def _write_tree(root: Path, files: dict[str, str]) -> None:
-    for rel, content in files.items():
-        target = root / rel
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(
-            content.encode("latin-1")
-            if rel == "brk.env" and "\x00" in content
-            else content.encode("utf-8")
-        )
-
-
-class TestRpcArgvAllowlistGate:
-    """R2-H3 regression: fail-closed allowlist (substring, unverifiable env, cookie positive)."""
-
-    @pytest.mark.parametrize("name", sorted(REJECTED_TREES))
-    def test_rejected(self, name, tmp_path):
-        _write_tree(tmp_path, REJECTED_TREES[name])
-        violations = scan_repo(tmp_path)
-        assert violations, f"{name}: gate accepted a forbidden configuration"
-        for v in violations:
-            assert DUMMY not in v and DUMMY[:6] not in v, (
-                f"{name}: diagnostic leaked the value"
-            )
-
-    @pytest.mark.parametrize("name", sorted(ACCEPTED_TREES))
-    def test_accepted(self, name, tmp_path):
-        _write_tree(tmp_path, ACCEPTED_TREES[name])
-        assert scan_repo(tmp_path) == []
 
 
 RUNBOOK_PATH = REPO_ROOT / "docs" / "BRK_COOKIE_MIGRATION_RUNBOOK.md"
