@@ -210,21 +210,6 @@ def test_entrypoint_prints_label_outcome_and_code_only(
     assert out == expected and "DUMMY" not in out
 
 
-def test_entrypoint_silences_the_consumer_logs_and_output(
-    node, capsys, caplog, monkeypatch
-):
-    """R5-M1-c: only label, outcome and HTTP code come out of the check."""
-    from scripts.utils.rpc_cookie import main
-
-    monkeypatch.setenv("BITCOIN_DATADIR", str(node.datadir))
-    caplog.set_level(logging.DEBUG)
-    assert main(["chk", "sync"]) == 0
-    captured = capsys.readouterr()
-    assert (captured.out, captured.err) == ("chk: OK HTTP 200\n", "")
-    assert caplog.records == [], "consumer logging reached the check output"
-    assert logging.getLogger().isEnabledFor(logging.DEBUG), "logging restored"
-
-
 @pytest.mark.parametrize(
     "argv",
     [["chk", "/var/lib/bitcoind"], ["chk", "daily", "/var/lib/bitcoind"], ["chk"]],

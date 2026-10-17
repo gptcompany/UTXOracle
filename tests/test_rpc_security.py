@@ -236,10 +236,7 @@ class TestRunbookCoordinatedRollback:
         assert "%{http_code}" in definition
         assert "-K -" in definition, "credential must not be in curl argv"
         # R4-M3: queried through the consumer's container or entrypoint, not from the host.
-        # R5-M1: host consumers run through their unit's own launch context.
-        assert (
-            "docker exec" in definition and "scripts.utils.unit_context" in definition
-        )
+        assert "docker exec" in definition and "scripts.utils.rpc_cookie" in definition
         for command in runbook_commands(text):
             if re.search(r"\bcurl\b", command):
                 assert "-o /dev/null" in command and "-w " in command, command

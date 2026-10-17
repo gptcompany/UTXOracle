@@ -117,16 +117,29 @@ cp -p /media/sam/1TB/UTXOracle/.env "$BK/utxoracle.env"
   ( umask 077; { sed -n 's/^rpcuser=//p' "$BK/bitcoin.conf"; sed -n 's/^rpcpassword=//p' "$BK/bitcoin.conf"; } | paste -sd: - > "$BK/legacy.cred" )
   ```
 
-Controllo RPC reale, **attraverso ogni consumatore nel suo contesto**, non dall'host: il controllo gira nel container del consumatore (stesso UID, stesso mount, stesso file di credenziale) oppure, per i consumatori UTXOracle, con il codice del consumatore stesso. Un consumatore UTXOracle è certificato solo dal suo codice: `rpc_check <etichetta> host|cron <live|sync|daily> ...` esegue `python -m scripts.utils.rpc_cookie <etichetta> <consumatore>`, che costruisce il client con la factory di produzione di quel consumatore (`CONSUMERS` in `scripts/utils/rpc_cookie.py`) e non accetta datadir, porta, cookie o credenziali. Il ramo `host` (`scripts/utils/unit_context.py`) legge l'unità in forma strutturata (`busctl --json=short`: ExecStart come array, Environment, EnvironmentFiles, file e drop-in) e la riproduce con `sudo systemd-run --wait --pipe --collect`: stesso utente, gruppi, working directory, isolamento e stesso interprete o launcher dell'ExecStart, sostituendo solo `-m <modulo>` (o `uvicorn ...`) con `-m scripts.utils.rpc_cookie`; con `uv run` aggiunge `--no-sync`, che non cambia l'interprete `.venv/bin/python` ma evita di risincronizzare il venv del servizio. È fail-closed: un'assegnazione dell'unità non trasportata e non inerte (per esempio `PassEnvironment`, `ExecStartPre`, `BindPaths`, `DynamicUser`, `PAMName`), un ExecStart non diretto (shell, `env` con assegnazioni o opzioni, `uv run --env-file`, più comandi, variabili `$`) o un valore di `Environment=` non riproducibile in un file danno `FAIL contesto non riproducibile (<proprietà>)`. I valori di `Environment=` non finiscono mai in un argv: vanno in un file temporaneo 0600 passato come primo `EnvironmentFile=` e rimosso alla fine. Il ramo `cron` usa utente, directory e uv della riga di crontab, l'ambiente minimo di cron e le variabili della riga in `CRON_ENV` (anch'esse via file). L'output è una sola riga: etichetta, esito e codice HTTP; i log del consumatore e di systemd-run sono soppressi. Mai dalla shell dell'operatore: un client costruito con i parametri del controllo non certifica il consumatore. Un cookie montato male o una password rimasta in memoria danno HTTP 401 qui, anche se l'host riceve 200. L'output è solo etichetta, esito e codice HTTP. `/health` di BRK **non** sostituisce questo controllo: non tocca bitcoind.
+Controllo RPC reale, **attraverso ogni consumatore nel suo contesto**, non dall'host: il controllo gira nel container del consumatore (stesso UID, stesso mount, stesso file di credenziale) oppure, per i consumatori UTXOracle, con il codice del consumatore stesso. Un consumatore UTXOracle è certificato solo dal suo codice: `rpc_check <etichetta> host|cron <live|sync|daily> ...` esegue `python -m scripts.utils.rpc_cookie <etichetta> <consumatore>`, che costruisce il client con la factory di produzione di quel consumatore (`CONSUMERS` in `scripts/utils/rpc_cookie.py`) e non accetta datadir, porta, cookie o credenziali. Il ramo `host` lo lancia con `systemd-run --wait --pipe --collect` usando utente, gruppi, working directory, `Environment`/`EnvironmentFile` e isolamento (`ProtectHome`, `ProtectSystem`, `PrivateTmp`, `PrivateNetwork`, percorsi, filtri IP) letti con `systemctl show -P` dall'unità reale, senza stamparli; un'unità con `PassEnvironment` non è riproducibile e dà FAIL. Il ramo `cron` usa utente, directory e ambiente minimo di cron della riga di crontab. Mai dalla shell dell'operatore: un client costruito con i parametri del controllo non certifica il consumatore. Un cookie montato male o una password rimasta in memoria danno HTTP 401 qui, anche se l'host riceve 200. L'output è solo etichetta, esito e codice HTTP. `/health` di BRK **non** sostituisce questo controllo: non tocca bitcoind.
 
 ```bash
 rpc_check() {  # uso: rpc_check <etichetta> ctr <container> <uid:gid> <file credenziale nel container, oppure - per stdin> <url> | rpc_check <etichetta> host <live|sync|daily> <unità systemd> | rpc_check <etichetta> cron <live|sync|daily> <utente> <directory> <uv assoluto>
-  local code
+  local code p v f flag; local -a props=() launcher=()
   case "$2" in
     ctr) code=$(docker exec -i -u "$4" "$3" sh -c 'command -v curl >/dev/null || { printf n/a; exit 0; }; printf "user = \"%s\"\n" "$(cat "$1")" | curl -sS -K - -o /dev/null -w "%{http_code}" --max-time 10 -H "content-type: text/plain;" --data-binary "{\"jsonrpc\":\"1.0\",\"id\":\"chk\",\"method\":\"getblockcount\",\"params\":[]}" "$2"' _ "$5" "$6" 2>/dev/null) ;;
-    host|cron)  # contesto dell'unità o della riga di crontab: scripts/utils/unit_context.py
-      code=$(cd /media/sam/1TB/UTXOracle && uv run --no-sync python -m scripts.utils.unit_context "$@" 2>/dev/null)
-      echo "${code:-$1: FAIL HTTP 000}"; [ "${code#"$1": }" = "OK HTTP 200" ]; return ;;
+    host|cron)
+      case "$3" in live|sync|daily) ;; *) echo "$1: FAIL consumatore sconosciuto"; return 2 ;; esac
+      if [ "$2" = host ]; then  # contesto ricavato dall'unità reale; i valori non vengono stampati
+        [ -n "$(systemctl show -P PassEnvironment "$4")" ] && { echo "$1: FAIL PassEnvironment non riproducibile"; return 2; }
+        for p in User Group SupplementaryGroups DynamicUser WorkingDirectory Environment UnsetEnvironment ProtectHome ProtectSystem PrivateTmp PrivateNetwork PrivateUsers ReadWritePaths ReadOnlyPaths InaccessiblePaths BindPaths BindReadOnlyPaths TemporaryFileSystem RootDirectory IPAddressAllow IPAddressDeny RestrictAddressFamilies; do
+          v=$(systemctl show -P "$p" "$4"); [ -n "$v" ] && props+=(-p "$p=$v")
+        done
+        while read -r f flag; do
+          [ -n "$f" ] && props+=(-p "EnvironmentFile=$([ "$flag" = "(ignore_errors=yes)" ] && printf -)$f")
+        done < <(systemctl show -P EnvironmentFiles "$4")
+        launcher=(/usr/bin/env uv)
+      else  # job cron: utente, directory e ambiente minimo di cron, più le variabili della riga (CRON_ENV)
+        props=(-p "User=$4" -p "WorkingDirectory=$5" -p "Environment=PATH=/usr/bin:/bin SHELL=/bin/sh ${CRON_ENV:-}")
+        launcher=("$6")
+      fi
+      sudo systemd-run --quiet --wait --pipe --collect "${props[@]}" "${launcher[@]}" run python -m scripts.utils.rpc_cookie "$1" "$3"; return ;;
   esac
   echo "$1: HTTP ${code:-000}"
 }
@@ -143,7 +156,7 @@ ELECTRS_UID=1000:1000; ELECTRS_CRED=/path/nel/container/electrs.cred   # file ch
 MEMPOOL_API_UID=1000:1000; MEMPOOL_API_CRED=/path/nel/container/api.cred
 ```
 
-Atteso: `HTTP 200` per ogni consumatore. `HTTP 401` = credenziale non accettata dal consumatore; `HTTP 000` = bitcoind non raggiungibile; `HTTP n/a` = il container non ha `curl`: aggiungere la prova al ciclo di vita del client (i client UTXOracle usano i rami `host`/`cron`, non `ctr`). `FAIL consumatore sconosciuto o argomenti errati` = il ramo `host`/`cron` accetta solo `live`, `sync`, `daily`; `FAIL contesto non riproducibile (...)` = l'unità usa qualcosa che il controllo non sa riprodurre esattamente: verificare quel consumatore a mano, non considerarlo certificato. Mai stampare il file di credenziale.
+Atteso: `HTTP 200` per ogni consumatore. `HTTP 401` = credenziale non accettata dal consumatore; `HTTP 000` = bitcoind non raggiungibile; `HTTP n/a` = il container non ha `curl`: aggiungere la prova al ciclo di vita del client (i client UTXOracle usano i rami `host`/`cron`, non `ctr`). `FAIL consumatore sconosciuto` = il ramo `host`/`cron` accetta solo `live`, `sync`, `daily`. Mai stampare il file di credenziale.
 
 ---
 
