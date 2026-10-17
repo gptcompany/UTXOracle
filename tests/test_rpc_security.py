@@ -1,17 +1,11 @@
 """Security tests: BRK authenticates to bitcoind with the cookie, never with argv credentials.
 
-The static gate (rpc_argv_gate.py) covers only the files listed in the versioned
-manifest docs/contracts/brk_deployed_files.json, plus the check that no repo file
-launching BRK is missing from it. It does not interpret systemd or Compose syntax
-(escapes, drop-ins, ``-f`` chains, overrides); that belongs to the post-deploy
-runtime check tracked in the follow-up issue. This module also holds the runbook
-and roadmap regressions.
+Runbook and roadmap regressions. The runtime check of the effective BRK
+configuration is tracked in issue #16; there is no static discovery gate.
 """
 
 from __future__ import annotations
 
-import json
-import os
 import re
 import subprocess
 import sys
@@ -19,134 +13,12 @@ from pathlib import Path
 
 import pytest
 
-# Resolve the sibling library even when this file is loaded outside pytest.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from tests.rpc_argv_gate import scan_repo  # noqa: E402
-
-# RPC_GATE_REPO_ROOT lets a regression run the real gate on a synthetic tree.
-REPO_ROOT = Path(
-    os.environ.get("RPC_GATE_REPO_ROOT") or Path(__file__).resolve().parent.parent
-)
+REPO_ROOT = Path(__file__).resolve().parent.parent
 DUMMY = "R3_DUMMY_ONLY"
-MANIFEST_REL = "docs/contracts/brk_deployed_files.json"
-SCHEMA_REL = "docs/contracts/brk_deployed_files.schema.json"
-
-CLEAN_COMPOSE = """services:
-  brk:
-    image: bitcoinresearchkit/brk:latest
-    command: ["brk", "--rpccookiefile", "/bitcoin/.cookie"]
-    volumes:
-      - /data/dummy:/bitcoin:ro
-"""
-CLEAN_UNIT = """[Service]
-ExecStart=/usr/local/bin/brk --rpccookiefile /bitcoin/.cookie
-"""
-
-
-def _tree(root: Path, files: dict[str, str], listed: list[str] | None = None) -> Path:
-    """Write `files` plus a manifest listing `listed` (schema copied from the repo)."""
-    for rel, content in files.items():
-        target = root / rel
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
-    manifest = root / MANIFEST_REL
-    manifest.parent.mkdir(parents=True, exist_ok=True)
-    manifest.write_text(
-        json.dumps({"version": 1, "files": listed or []}), encoding="utf-8"
-    )
-    (root / SCHEMA_REL).write_text(
-        (REPO_ROOT / SCHEMA_REL).read_text(encoding="utf-8"), encoding="utf-8"
-    )
-    return root
-
-
-class TestBrkManifestGate:
-    """Scope: manifest completeness + textual invariants on the listed files only."""
-
-    def test_repository_passes_its_own_gate(self):
-        assert scan_repo(REPO_ROOT) == []
-
-    def test_unlisted_compose_with_arbitrary_name_fails(self, tmp_path):
-        """A clean BRK compose under any YAML name must be declared in the manifest."""
-        _tree(tmp_path, {"stack.yaml": CLEAN_COMPOSE})
-        violations = scan_repo(tmp_path)
-        assert any("stack.yaml" in v and "manifest" in v for v in violations)
-
-    def test_unlisted_unit_fails(self, tmp_path):
-        _tree(tmp_path, {"deploy/brk.service": CLEAN_UNIT})
-        violations = scan_repo(tmp_path)
-        assert any("brk.service" in v and "manifest" in v for v in violations)
-
-    def test_listed_clean_files_pass(self, tmp_path):
-        _tree(
-            tmp_path,
-            {"stack.yaml": CLEAN_COMPOSE, "brk.service": CLEAN_UNIT},
-            listed=["stack.yaml", "brk.service"],
-        )
-        assert scan_repo(tmp_path) == []
-
-    @pytest.mark.parametrize("flag", ["rpcpassword", "rpcuser", "RpcPassword"])
-    def test_listed_file_with_credential_flag_fails_without_leaking(
-        self, flag, tmp_path
-    ):
-        bad = CLEAN_COMPOSE.replace(
-            '"/bitcoin/.cookie"]', f'"/bitcoin/.cookie", "--{flag}={DUMMY}"]'
-        )
-        _tree(tmp_path, {"stack.yaml": bad}, listed=["stack.yaml"])
-        violations = scan_repo(tmp_path)
-        assert any(flag.lower() in v.lower() for v in violations)
-        for v in violations:
-            assert DUMMY not in v and DUMMY[:6] not in v
-
-    def test_listed_file_without_cookie_flag_fails(self, tmp_path):
-        no_cookie = CLEAN_UNIT.replace("--rpccookiefile /bitcoin/.cookie", "")
-        _tree(tmp_path, {"brk.service": no_cookie}, listed=["brk.service"])
-        assert any("rpccookiefile" in v for v in scan_repo(tmp_path))
-
-    def test_stale_manifest_entry_fails(self, tmp_path):
-        _tree(tmp_path, {}, listed=["gone.service"])
-        assert any("gone.service" in v for v in scan_repo(tmp_path))
-
-    def test_manifest_entry_escaping_the_repo_fails(self, tmp_path):
-        _tree(tmp_path, {}, listed=["../outside.service"])
-        assert scan_repo(tmp_path)
-
-    def test_missing_or_invalid_manifest_fails_closed(self, tmp_path):
-        assert scan_repo(tmp_path)
-        _tree(tmp_path, {})
-        (tmp_path / MANIFEST_REL).write_text('{"files": "x"}', encoding="utf-8")
-        assert scan_repo(tmp_path)
-
-    def test_non_brk_files_are_not_flagged(self, tmp_path):
-        other = "services:\n  web:\n    image: nginx\n    environment:\n      BRK_BASE_URL: x\n"
-        _tree(
-            tmp_path,
-            {"web.yaml": other, "ci.yml": "jobs:\n  brk:\n    runs-on: x\n"},
-        )
-        assert scan_repo(tmp_path) == []
-
-    @pytest.mark.parametrize(
-        "broken",
-        [
-            "services:\n  brk:\n    command: [--rpcpassword={d}\n",
-            'services:\n  brk:\n    command: "--rpcpassword={d}\n',
-        ],
-        ids=["unclosed-flow", "unclosed-quote"],
-    )
-    def test_unparseable_unlisted_yaml_fails_closed_without_leaking(
-        self, broken, tmp_path
-    ):
-        """Parser messages quote the input: only file and a fixed reason may come out."""
-        _tree(tmp_path, {"stack.yaml": broken.format(d="R3_DUMMY_424242")})
-        violations = scan_repo(tmp_path)
-        assert violations
-        for v in violations:
-            assert "R3_DUMMY" not in v and "424242" not in v
 
 
 class TestRpcArgvSecurity:
-    """Repository documents referenced by the gate."""
+    """Operator runbook and roadmap."""
 
     def test_production_roadmap_has_no_residual_7071_references(self):
         """L1 regression: ensure docs/PRODUCTION_ROADMAP.md has no unaligned :7071 references."""
