@@ -22,7 +22,7 @@ import logging
 import os
 import socket
 import time
-import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import date, datetime, timedelta
 from typing import Optional
@@ -739,52 +739,82 @@ def _persist_to_questdb(
     return rows_written
 
 
-def _post_ntfy_failure(target_date: date, exc: BaseException) -> None:
+# The Dell is a cold node: its ntfy priority never exceeds 3 (fixed, not caller-supplied).
+_NTFY_PRIORITY = 3
+
+
+def _valid_ntfy_base_url(raw: str | None) -> str | None:
+    """Return the base URL without trailing slash, or None if not http(s) with a host."""
+    value = (raw or "").strip()
+    if not value:
+        return None
+    parts = urllib.parse.urlparse(value)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        return None
+    return value.rstrip("/")
+
+
+def _valid_ntfy_topic(raw: str | None) -> str | None:
+    """Return the topic, or None when empty or a dotenvx-encrypted value."""
+    value = (raw or "").strip()
+    if not value or value.startswith("ENC[") or value.startswith("encrypted:"):
+        return None
+    return value
+
+
+def _post_ntfy_failure(target_date: date, exc: BaseException) -> bool:
     """FR-012: ntfy notification on failure only (gbg-agents ntfy-topic-per-dominio).
 
-    Publishes a one-line summary on the dati topic at priority 3 (the Dell's cap).
-    Publish errors are logged with the HTTP code and swallowed -- they MUST NOT
-    mask the original aggregator exception. The topic name is never logged.
+    Publishes the exception class and event on the dati topic at priority 3 (the
+    Dell's cap). There is no default destination: without a valid NTFY_BASE_URL
+    and NTFY_TOPIC_DATI nothing is published. Validation, request construction
+    and delivery share ONE ``except Exception`` boundary, so this never raises
+    and never masks the aggregator exception; it returns whether the message
+    was delivered. The log carries variable names, HTTP codes and exception
+    classes only -- never the topic, the URL or an exception message, and the
+    published text never carries ``str(exc)``.
     """
-    topic = os.environ.get("NTFY_TOPIC_DATI", "").strip()
-    if not topic or topic.startswith("ENC[") or topic.startswith("encrypted:"):
-        logger.warning(
-            "NTFY_TOPIC_DATI not set: aggregator failure for %s not published",
-            target_date,
-        )
-        return
-    base_url = os.environ.get("NTFY_BASE_URL", "https://ntfy.sh").rstrip("/")
-    summary = str(exc).splitlines()[0] if str(exc) else ""
-    if len(summary) > 200:
-        summary = summary[:197] + "..."
-    request = urllib.request.Request(
-        f"{base_url}/{topic}",
-        data=f"{type(exc).__name__} - {summary}".encode("utf-8"),
-        headers={
-            "Priority": "3",
-            "Tags": "warning",
-            "Title": (
-                f"dati/utxoracle: aggregator failed for {target_date.isoformat()} "
-                f"su {socket.gethostname()}"
-            ),
-        },
-        method="POST",
-    )
     try:
+        base_url = _valid_ntfy_base_url(os.environ.get("NTFY_BASE_URL"))
+        if base_url is None:
+            logger.warning(
+                "NTFY_BASE_URL not set or not an http(s) URL: aggregator failure "
+                "for %s not published",
+                target_date,
+            )
+            return False
+        topic = _valid_ntfy_topic(os.environ.get("NTFY_TOPIC_DATI"))
+        if topic is None:
+            logger.warning(
+                "NTFY_TOPIC_DATI not set: aggregator failure for %s not published",
+                target_date,
+            )
+            return False
+        request = urllib.request.Request(
+            f"{base_url}/{topic}",
+            data=f"{type(exc).__name__} - aggregator failure".encode("utf-8"),
+            headers={
+                "Priority": str(_NTFY_PRIORITY),
+                "Tags": "warning",
+                "Title": (
+                    f"dati/utxoracle: aggregator failed for {target_date.isoformat()} "
+                    f"su {socket.gethostname()}"
+                ),
+            },
+            method="POST",
+        )
         with urllib.request.urlopen(request, timeout=3) as response:
             response.read(0)
-    except urllib.error.HTTPError as publish_exc:
+        return True
+    except Exception as publish_exc:  # noqa: BLE001 - must not mask the aggregator error
+        code = getattr(publish_exc, "code", None)
         logger.warning(
-            "ntfy publish failed for %s with HTTP %s (suppressed)",
+            "ntfy publish failed for %s (suppressed): %s%s",
             target_date,
-            publish_exc.code,
+            type(publish_exc).__name__,
+            f" HTTP {code}" if isinstance(code, int) else "",
         )
-    except (urllib.error.URLError, OSError, TimeoutError) as publish_exc:
-        logger.warning(
-            "ntfy publish failed for %s (suppressed): %s",
-            target_date,
-            type(getattr(publish_exc, "reason", publish_exc)).__name__,
-        )
+        return False
 
 
 def _run_single_date(

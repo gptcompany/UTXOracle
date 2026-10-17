@@ -87,7 +87,7 @@ The timer's `ExecStart` passes `--questdb-reads --questdb-only` so the zero-Duck
 
 ## Failure handling
 
-On failure, the script writes a structured ERROR log with traceback to journal and POSTs a one-line summary to the ntfy dati topic (`NTFY_TOPIC_DATI`, priority 3):
+On failure, the script writes a structured ERROR log with traceback to journal and POSTs the exception class to the ntfy dati topic (`NTFY_BASE_URL` + `NTFY_TOPIC_DATI`, priority 3, no default server):
 
 ```bash
 # Tail recent failures

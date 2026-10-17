@@ -12,6 +12,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/alerts/ntfy_dati.sh"
 TOPIC = "dati-topic-fixture"
+BASE = "https://ntfy.example.test"
 FAKE_CURL = """#!/usr/bin/env bash
 printf '%s\\n' "$@" > "$CAPTURE/argv"
 cat > "$CAPTURE/config"
@@ -34,8 +35,10 @@ def run(tmp_path):
             "PATH": f"{tmp_path}:{os.environ['PATH']}",
             "CAPTURE": str(tmp_path),
             "NTFY_TOPIC_DATI": TOPIC,
+            "NTFY_BASE_URL": BASE,
             **extra,
         }
+        env = {k: v for k, v in env.items() if v is not None}  # None removes a variable
         return subprocess.run(
             ["bash", str(SCRIPT), *args],
             env=env,
@@ -55,7 +58,7 @@ def test_publishes_on_dati_with_the_topic_only_on_stdin(run):
     assert result.returncode == 0, result.stderr
     argv = (run.capture / "argv").read_text(encoding="utf-8").splitlines()
     assert (run.capture / "config").read_text(encoding="utf-8") == (
-        f'url = "https://ntfy.sh/{TOPIC}"\n'
+        f'url = "{BASE}/{TOPIC}"\n'
     )
     assert not any(TOPIC in a for a in argv)
     assert "Priority: 3" in argv
@@ -90,4 +93,35 @@ def test_curl_diagnostics_never_reach_the_log(run):
     argv = (run.capture / "argv").read_text(encoding="utf-8")
     for text in (argv, result.stdout, result.stderr):
         assert TOPIC not in text
-        assert "ntfy.sh" not in text
+        assert BASE not in text
+
+
+@pytest.mark.parametrize(
+    ("given", "sent"),
+    [
+        ("0", "1"),
+        ("-1", "3"),
+        ("9", "3"),
+        ("abc", "3"),
+        ("", "3"),
+        ("1", "1"),
+        ("2", "2"),
+    ],
+)
+def test_priority_is_clamped_to_1_3(run, given, sent):
+    assert run(given, "warning", "e", "b").returncode == 0
+    assert (
+        f"Priority: {sent}"
+        in (run.capture / "argv").read_text(encoding="utf-8").splitlines()
+    )
+
+
+@pytest.mark.parametrize(
+    "base", [None, "", "ntfy.example.test", "ftp://ntfy.example.test", "https://"]
+)
+def test_no_default_destination_without_a_valid_base_url(run, base):
+    result = run("3", "warning", "e", "b", NTFY_BASE_URL=base)
+    assert result.returncode == 1
+    assert "NTFY_BASE_URL" in result.stderr
+    assert not (run.capture / "argv").exists(), "curl must not be invoked"
+    assert TOPIC not in result.stderr + result.stdout

@@ -228,6 +228,7 @@ def test_questdb_only_write_failure_raises_and_notifies(
     )
 
     monkeypatch.setenv("NTFY_TOPIC_DATI", "topic-fixture")
+    monkeypatch.setenv("NTFY_BASE_URL", "https://ntfy.example.test")
     posted: list = []
 
     class _FakeResponse:
@@ -560,6 +561,7 @@ def test_failure_emits_ntfy_notification(monkeypatch):
     from scripts.metrics.calculate_daily_metrics import _post_ntfy_failure
 
     monkeypatch.setenv("NTFY_TOPIC_DATI", "topic-fixture")
+    monkeypatch.setenv("NTFY_BASE_URL", "https://ntfy.example.test")
     posted: list = []
 
     class _FakeResponse:
@@ -588,10 +590,10 @@ def test_failure_emits_ntfy_notification(monkeypatch):
 
     assert len(posted) == 1
     url, body, timeout, title = posted[0]
-    assert url == "https://ntfy.sh/topic-fixture"
+    assert url == "https://ntfy.example.test/topic-fixture"
     assert timeout == 3
     assert title == "dati/utxoracle: aggregator failed for 2026-06-04 su sam7670"
-    assert body.decode("utf-8") == "RuntimeError - simulated failure"
+    assert body.decode("utf-8") == "RuntimeError - aggregator failure"
 
 
 def test_success_does_not_emit_ntfy_notification(monkeypatch):
@@ -599,6 +601,7 @@ def test_success_does_not_emit_ntfy_notification(monkeypatch):
     from scripts.metrics.calculate_daily_metrics import _run_single_date
 
     monkeypatch.setenv("NTFY_TOPIC_DATI", "topic-fixture")
+    monkeypatch.setenv("NTFY_BASE_URL", "https://ntfy.example.test")
     posted: list = []
 
     def _record(*args, **kwargs):
@@ -630,6 +633,7 @@ def test_questdb_only_backfill_aborts_on_first_failure(monkeypatch):
     from scripts.metrics.calculate_daily_metrics import backfill_metrics
 
     monkeypatch.setenv("NTFY_TOPIC_DATI", "topic-fixture")
+    monkeypatch.setenv("NTFY_BASE_URL", "https://ntfy.example.test")
     posted: list = []
 
     class _FakeResponse:
@@ -707,6 +711,7 @@ def test_ntfy_failure_logs_http_code_without_topic(monkeypatch, caplog):
     from scripts.metrics.calculate_daily_metrics import _post_ntfy_failure
 
     monkeypatch.setenv("NTFY_TOPIC_DATI", "topic-fixture")
+    monkeypatch.setenv("NTFY_BASE_URL", "https://ntfy.example.test")
 
     def rejected(request, timeout=None):
         raise urllib.error.HTTPError(request.full_url, 429, "quota", None, None)
@@ -724,6 +729,7 @@ def test_ntfy_failure_without_topic_is_logged(monkeypatch, caplog):
     from scripts.metrics.calculate_daily_metrics import _post_ntfy_failure
 
     monkeypatch.delenv("NTFY_TOPIC_DATI", raising=False)
+    monkeypatch.setenv("NTFY_BASE_URL", "https://ntfy.example.test")
     monkeypatch.setattr(
         "scripts.metrics.calculate_daily_metrics.urllib.request.urlopen",
         MagicMock(side_effect=AssertionError("no publish without a topic")),
@@ -731,3 +737,111 @@ def test_ntfy_failure_without_topic_is_logged(monkeypatch, caplog):
     with caplog.at_level("WARNING"):
         _post_ntfy_failure(date(2026, 6, 4), RuntimeError("x"))
     assert "NTFY_TOPIC_DATI not set" in caplog.text
+
+
+class _OkResponse:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self, _):
+        return b""
+
+
+@pytest.mark.parametrize("base", ["", "ntfy.example.test", "ftp://ntfy.example.test", "https://", "http://["])
+def test_ntfy_invalid_base_url_never_raises_nor_leaks(monkeypatch, caplog, base):
+    """Review #18: a bad NTFY_BASE_URL must not raise, publish, or log topic/URL."""
+    from scripts.metrics.calculate_daily_metrics import _post_ntfy_failure
+
+    monkeypatch.setenv("NTFY_TOPIC_DATI", "topic-fixture")
+    monkeypatch.setenv("NTFY_BASE_URL", base)
+    urlopen = MagicMock(side_effect=AssertionError("no publish without a valid base URL"))
+    monkeypatch.setattr("scripts.metrics.calculate_daily_metrics.urllib.request.urlopen", urlopen)
+    with caplog.at_level("DEBUG"):
+        assert _post_ntfy_failure(date(2026, 6, 4), RuntimeError("x")) is False
+    urlopen.assert_not_called()
+    # "http://[" makes urlparse itself raise: the boundary logs the class only.
+    assert "NTFY_BASE_URL" in caplog.text or "ValueError" in caplog.text
+    assert "topic-fixture" not in caplog.text
+    if base:
+        assert base not in caplog.text
+
+
+def test_ntfy_has_no_default_destination(monkeypatch, caplog):
+    from scripts.metrics.calculate_daily_metrics import _post_ntfy_failure
+
+    monkeypatch.setenv("NTFY_TOPIC_DATI", "topic-fixture")
+    monkeypatch.delenv("NTFY_BASE_URL", raising=False)
+    urlopen = MagicMock(side_effect=AssertionError("no request without NTFY_BASE_URL"))
+    monkeypatch.setattr("scripts.metrics.calculate_daily_metrics.urllib.request.urlopen", urlopen)
+    with caplog.at_level("WARNING"):
+        assert _post_ntfy_failure(date(2026, 6, 4), RuntimeError("x")) is False
+    urlopen.assert_not_called()
+    assert "NTFY_BASE_URL" in caplog.text
+
+
+@pytest.mark.parametrize("topic", ["ENC[abc]", "encrypted:abc", "  "])
+def test_ntfy_rejects_unusable_topic(monkeypatch, topic):
+    from scripts.metrics.calculate_daily_metrics import _post_ntfy_failure
+
+    monkeypatch.setenv("NTFY_TOPIC_DATI", topic)
+    monkeypatch.setenv("NTFY_BASE_URL", "https://ntfy.example.test")
+    urlopen = MagicMock(side_effect=AssertionError("no publish to an unusable topic"))
+    monkeypatch.setattr("scripts.metrics.calculate_daily_metrics.urllib.request.urlopen", urlopen)
+    assert _post_ntfy_failure(date(2026, 6, 4), RuntimeError("x")) is False
+    urlopen.assert_not_called()
+
+
+def test_ntfy_invalid_base_url_keeps_the_aggregator_error(monkeypatch):
+    """The original aggregator exception propagates unchanged from _run_single_date."""
+    from scripts.metrics.calculate_daily_metrics import _run_single_date
+
+    monkeypatch.setenv("NTFY_TOPIC_DATI", "topic-fixture")
+    monkeypatch.setenv("NTFY_BASE_URL", "ntfy.example.test")  # no scheme
+    original = ConnectionError("QuestDB down")
+    with patch(
+        "scripts.metrics.calculate_daily_metrics.calculate_daily_metrics",
+        MagicMock(side_effect=original),
+    ), pytest.raises(ConnectionError) as raised:
+        _run_single_date(
+            date(2026, 6, 4), None, dry_run=False, questdb_only=True, questdb_reads=True
+        )
+    assert raised.value is original
+
+
+def test_ntfy_body_never_carries_the_exception_text(monkeypatch):
+    from scripts.metrics.calculate_daily_metrics import _post_ntfy_failure
+
+    monkeypatch.setenv("NTFY_TOPIC_DATI", "topic-fixture")
+    monkeypatch.setenv("NTFY_BASE_URL", "https://ntfy.example.test")
+    sent: list = []
+
+    def fake_urlopen(request, timeout=None):
+        sent.append(request)
+        return _OkResponse()
+
+    monkeypatch.setattr("scripts.metrics.calculate_daily_metrics.urllib.request.urlopen", fake_urlopen)
+    secret = "postgres://user:pw@host/db?token=abc123"
+    assert _post_ntfy_failure(date(2026, 6, 4), RuntimeError(secret)) is True
+    (request,) = sent
+    assert request.get_header("Priority") == "3"
+    payload = request.data.decode("utf-8") + request.get_header("Title")
+    assert "abc123" not in payload and secret not in payload and "pw@host" not in payload
+
+
+def test_ntfy_unexpected_error_in_publish_is_suppressed_and_class_only(monkeypatch, caplog):
+    from scripts.metrics.calculate_daily_metrics import _post_ntfy_failure
+
+    monkeypatch.setenv("NTFY_TOPIC_DATI", "topic-fixture")
+    monkeypatch.setenv("NTFY_BASE_URL", "https://ntfy.example.test")
+
+    def boom(request, timeout=None):
+        raise ValueError("https://ntfy.example.test/topic-fixture is broken")
+
+    monkeypatch.setattr("scripts.metrics.calculate_daily_metrics.urllib.request.urlopen", boom)
+    with caplog.at_level("DEBUG"):
+        assert _post_ntfy_failure(date(2026, 6, 4), RuntimeError("x")) is False
+    assert "ValueError" in caplog.text
+    assert "topic-fixture" not in caplog.text and "ntfy.example.test" not in caplog.text

@@ -108,7 +108,7 @@ ps -ef | grep spec061_post_mirror_chain.sh | grep -v grep
 
 The chain publishes one ntfy message on the dati topic on EVERY terminal state
 (`complete` priority 2, `fatal_*` and `fail_*` priority 3, via
-`scripts/alerts/ntfy_dati.sh`) when `NTFY_TOPIC_DATI` is set in the environment.
+`scripts/alerts/ntfy_dati.sh`) when `NTFY_BASE_URL` (http/https) and `NTFY_TOPIC_DATI` are set in the environment. There is no default server: without them nothing is published.
 Intermediate states are silent — only the log carries them. A failed publish is
 logged on stderr with the HTTP code; the chain does not stop on it.
 
@@ -123,7 +123,7 @@ nohup bash scripts/bootstrap/spec061_post_mirror_chain.sh \
     > /tmp/spec061_chain.log 2>&1 &
 ```
 
-No topic → the notification is skipped and `ntfy: NTFY_TOPIC_DATI not set` is logged on stderr.
+No topic or base URL → the notification is skipped and `ntfy: NTFY_TOPIC_DATI not set` / `ntfy: NTFY_BASE_URL not set or not an http(s) URL` is logged on stderr.
 
 ## Recovering from a failed terminal state
 

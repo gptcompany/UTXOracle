@@ -57,16 +57,16 @@ Traceback (most recent call last):
 psycopg2.OperationalError: could not connect to server: Connection refused
 ```
 
-**ntfy publish on failure (FR-012)**: `POST <base>/<NTFY_TOPIC_DATI>` with headers
+**ntfy publish on failure (FR-012)**: `POST <NTFY_BASE_URL>/<NTFY_TOPIC_DATI>` (no default server: without a valid http(s) `NTFY_BASE_URL` and a topic nothing is published and the variable name is logged) with headers
 `Priority: 3` (the Dell's cap), `Tags: warning`,
 `Title: dati/utxoracle: aggregator failed for 2026-06-04 su <host>` and the body
 
 ```
-OperationalError - could not connect to QuestDB on :8812
+OperationalError - aggregator failure
 ```
 
-The topic is a secret and is never logged. A failed publish is logged as a WARNING with the
-HTTP code and does not mask the aggregator exception. No notification is sent on success.
+The body carries the exception class only, never its message. The topic and URL are secrets and are never logged. A failed publish is logged as a WARNING with the
+exception class (and HTTP code) and does not mask the aggregator exception. No notification is sent on success.
 
 ## Observability invariants (FR-011 / FR-012)
 

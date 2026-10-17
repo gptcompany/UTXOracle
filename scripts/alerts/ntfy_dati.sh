@@ -7,10 +7,14 @@
 # reaches curl on stdin, never argv. curl's own diagnostics can quote the URL, so
 # they never reach stderr: the log carries only domain, priority, HTTP code and
 # curl exit code. Exits 1 on a missing topic or a non-2xx; callers decide whether
-# that is fatal.
+# that is fatal. There is no default destination: NTFY_BASE_URL must be an http(s)
+# URL, otherwise nothing is published.
 set -euo pipefail
 
 priority="$1" tags="$2" event="$3" body="$4"
+# Clamp to [1,3]: the Dell never goes above 3; a non-numeric value falls back to 3.
+case "${priority}" in "" | *[!0-9]*) priority=3 ;; esac
+[ "${priority}" -ge 1 ] || priority=1
 [ "${priority}" -le 3 ] || priority=3
 title="dati/utxoracle: ${event} su $(hostname -s)"
 title="${title//[$'\r\n']/ }"
@@ -23,8 +27,16 @@ case "${NTFY_TOPIC_DATI:-}" in
         ;;
 esac
 
+case "${NTFY_BASE_URL:-}" in
+    http://?* | https://?*) ;;
+    *)
+        echo "ntfy: NTFY_BASE_URL not set or not an http(s) URL, dati priority ${priority} not sent" >&2
+        exit 1
+        ;;
+esac
+
 rc=0
-code="$(printf 'url = "%s/%s"\n' "${NTFY_BASE_URL:-https://ntfy.sh}" "${NTFY_TOPIC_DATI}" \
+code="$(printf 'url = "%s/%s"\n' "${NTFY_BASE_URL%/}" "${NTFY_TOPIC_DATI}" \
     | curl -s --globoff -m 10 -o /dev/null -w '%{http_code}' -K - \
         -H "Priority: ${priority}" -H "Tags: ${tags}" -H "Title: ${title}" \
         --data-binary "$(printf '%s' "${body}" | head -c 4000)" 2>/dev/null)" || rc=$?
