@@ -74,20 +74,3 @@ def load_live_rpc():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module.BitcoinRPC
-
-
-def secrets_stub_path(directory: Path) -> Path:
-    """A PYTHONPATH entry whose sitecustomize stubs secrets_loader for subprocesses.
-
-    Consumers insert the shared loader's directory at sys.path[0] on import; a module
-    already in sys.modules wins over it, so no real secret is ever loaded.
-    """
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / "sitecustomize.py").write_text(
-        "import sys, types\n"
-        "stub = types.ModuleType('secrets_loader')\n"
-        "stub.__file__ = __file__\n"
-        "stub.load_secrets = lambda *args, **kwargs: None\n"
-        "sys.modules['secrets_loader'] = stub\n"
-    )
-    return directory
