@@ -62,8 +62,8 @@ Inventario ricavato con ast-grep e ricerca strutturale su `BITCOIN_RPC_*`, `rpcu
 | `live/backend/bitcoin_rpc.py` (`utxoracle-live.service`, `live.backend.api`) | host, utente `utxoracle`; controllo `rpc_check ... host live <unità>` | cookie, poi fallback utente/password (risoluzione: vedi sotto) | su HTTP 401, una volta | consigliato: libera dalla memoria il fallback letto all'avvio | `rpcuser`/`rpcpassword` in `bitcoin.conf` |
 | `scripts/sync_utxo_lifecycle.py` (`BitcoinRPC`, usato anche da `api/routes/streams.py` e da `scripts/bootstrap/{tip_catchup_lifecycle_via_rpc,tip_spent_backfill_via_rpc,sync_spent_utxos,build_block_heights_questdb}.py`) | host, `uv run`; controllo `rpc_check ... host sync <unità>` | cookie, poi fallback utente/password (risoluzione: vedi sotto) | su HTTP 401, una volta | processi lunghi sì; i job periodici ripartono da soli | `BITCOIN_RPC_USER`/`BITCOIN_RPC_PASSWORD` in `/media/sam/1TB/UTXOracle/.env` |
 | `scripts/daily_analysis.py` (`_fetch_from_bitcoin_core`, `fetch_historical_transactions`, factory `rpc_client`) | host, job cron; controllo `rpc_check ... cron daily ...` | cookie, poi fallback utente/password (risoluzione: vedi sotto); accetta la sola configurazione cookie | a ogni job | no | `rpcuser`/`rpcpassword` in `bitcoin.conf` |
-| `scripts/bootstrap/fast_spent_sync_v2.py`, `historical_spent_backfill.py`, `run_combined_bootstrap.py` | host, batch lunghi | variabili/`bitcoin.conf` prima, cookie solo come ripiego, letto una volta | no | **fermarli prima di riavviare bitcoind e rilanciarli dopo** (`--resume`) | `BITCOIN_RPC_USER`/`BITCOIN_RPC_PASSWORD` nell'ambiente di lancio |
-| `scripts/bootstrap/fast_spent_sync.py`, `build_block_heights.py` | host, batch | solo cookie, letto una volta | no | fermarli e rilanciarli dopo | nessuna |
+| `scripts/bootstrap/fast_spent_sync_v2.py`, `historical_spent_backfill.py`, `run_combined_bootstrap.py` | host, batch lunghi | variabili/`bitcoin.conf` prima, cookie solo come ripiego, letto una volta | no | **fermarli prima di riavviare bitcoind e rilanciarli dopo** (comandi di ripresa: Passo 2, punto 4) | `BITCOIN_RPC_USER`/`BITCOIN_RPC_PASSWORD` nell'ambiente di lancio |
+| `scripts/bootstrap/fast_spent_sync.py`, `build_block_heights.py` | host, batch | solo cookie, letto una volta | no | fermarli e rilanciarli dopo (comandi di ripresa: Passo 2, punto 4) | nessuna |
 | `UTXOracle.py` (immutabile), `scripts/diagnose_streams_health.py`, `scripts/validate_brk_integration.py`, `scripts/bootstrap/{bootstrap_utxo_lifecycle,spec061_post_mirror_chain}.sh` | `bitcoin-cli` | `bitcoin-cli` rilegge il cookie a ogni invocazione | a ogni chiamata | no | nessuna |
 | `scripts/whale_flow_detector.py` | host | credenziali opzionali del costruttore; nessun chiamante le passa | n/a | no | nessuna |
 | `scripts/setup_full_mempool_stack.sh` | setup legacy | estrae `rpcuser`/`rpcpassword` da `bitcoin.conf` | n/a | non eseguirlo dopo la migrazione | non usarlo |
@@ -189,11 +189,19 @@ Rimuovere `rpcuser` e `rpcpassword` da bitcoind e dare a ogni consumatore che no
    Ripetere per `mempool-api` (file `mempool-api.cred`). Il formato dell'output è quello dello script installato: se `tail -n 1` non è la password, correggere prima di proseguire senza stampare il file.
 2. Modificare `bitcoin.conf`: rimuovere o commentare `rpcuser=...` e `rpcpassword=...` (anche nella datadir secondaria `/data/cold/12TB/Bitcoin/bitcoin.conf`, se presente). Opzionale: `-rpccookieperms=group` (mai world-readable).
 3. Aggiornare la configurazione di `mempool-electrs` e `mempool-api` in `/data/4TB/prod/apps/mempool-stack` con le nuove credenziali (editor, non `cat`). I consumatori UTXOracle dell'inventario (sezione 3) usano il cookie con precedenza su utente e password, ma le credenziali vecchie vanno comunque tolte: rimuovere `BITCOIN_RPC_USER` e `BITCOIN_RPC_PASSWORD` da `/media/sam/1TB/UTXOracle/.env` (editor, non `cat`) e dall'ambiente di lancio dei batch.
-4. Ordine di riavvio, dopo avere fermato i batch lunghi (`historical_spent_backfill`, `fast_spent_sync*`, `run_combined_bootstrap`) che tengono la credenziale in memoria: bitcoind; poi `mempool-electrs`/`mempool-api`; poi `utxoracle-live.service` (libera il fallback letto all'avvio) e i job che rileggono l'ambiente; infine i batch fermati, rilanciati con `--resume`. BRK resta fermo fino al Passo 4.
+4. Ordine di riavvio, dopo avere fermato i batch lunghi (`historical_spent_backfill`, `fast_spent_sync*`, `run_combined_bootstrap`) che tengono la credenziale in memoria: bitcoind; poi `mempool-electrs`/`mempool-api`; poi `utxoracle-live.service` (libera il fallback letto all'avvio) e i job che rileggono l'ambiente; infine i batch fermati, rilanciati con il comando di ripresa del proprio CLI (blocco sotto). BRK resta fermo fino al Passo 4.
    ```bash
    sudo systemctl restart bitcoind.service
    docker compose -f /data/4TB/prod/apps/mempool-stack/docker-compose.yml up -d
    sudo systemctl restart utxoracle-live.service
+   ```
+   Ripresa dei batch fermati. Solo `historical_spent_backfill` e `run_combined_bootstrap` hanno un flag di ripresa (nel blocco sotto) e un checkpoint su disco. `fast_spent_sync` e `fast_spent_sync_v2` non hanno checkpoint: raccolgono gli input e applicano un unico `UPDATE` finale, idempotente, quindi un lancio fermato non ha scritto nulla e si ripete con lo stesso `--start-block`/`--end-block` (annotarli prima dello stop; i log mostrano solo conteggi e altezze). `build_block_heights` salta le altezze già presenti: stessi flag del lancio fermato.
+   ```bash
+   uv run python -m scripts.bootstrap.historical_spent_backfill --resume
+   uv run python -m scripts.bootstrap.run_combined_bootstrap --resume
+   uv run python -m scripts.bootstrap.fast_spent_sync --start-block <START> --end-block <END> --fast-mode
+   uv run python -m scripts.bootstrap.fast_spent_sync_v2 --start-block <START> --end-block <END>
+   uv run python -m scripts.bootstrap.build_block_heights --use-rpc
    ```
 - **Controllo:**
   ```bash
