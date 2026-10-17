@@ -417,6 +417,10 @@ class RpcClient:
         self._cookie = read_cookie(self.datadir, self._conf)
 
     def _credentials(self) -> tuple[str, str]:
+        if not self._cookie:
+            # Missing at construction or unreadable at the last 401 re-read: bitcoind
+            # may simply not have written it yet, so look again before refusing.
+            self._cookie = read_cookie(self.datadir, self._conf)
         if self._cookie:
             return self._cookie
         if self._fallback:

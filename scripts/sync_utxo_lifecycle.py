@@ -111,6 +111,9 @@ class BitcoinRPC:
         target = self._client.target
         self.host, self.port = target.host, target.port
         self.rpc_user, self.rpc_pass = target.fallback or ("", "")
+        # Start-up fail-fast (unchanged from before the shared client): a daemon with no
+        # credential at all is a configuration error for the supervisor to surface. Once
+        # constructed, RpcClient recovers by itself when the cookie (re)appears.
         if self._client._cookie is None and target.fallback is None:
             raise RuntimeError(
                 f"No RPC credentials and cookie not found under {target.datadir}"

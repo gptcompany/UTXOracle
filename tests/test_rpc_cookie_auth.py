@@ -65,6 +65,50 @@ def test_helper_second_401_is_an_error_without_a_second_retry(node):
     assert len(node.requests) == 2
 
 
+def test_helper_cookie_absent_at_construction_is_picked_up_later(node):
+    """R5-M3: started before bitcoind wrote the cookie; same object must recover."""
+    from scripts.utils.rpc_cookie import RpcAuthError, RpcClient
+
+    (node.datadir / ".cookie").unlink()
+    client = RpcClient(node.datadir)
+    with pytest.raises(RpcAuthError):
+        client.call("getblockcount")
+    assert node.requests == []  # refused before any HTTP while there is no cookie
+    (node.datadir / ".cookie").write_text(COOKIE_1)
+    assert client.call("getblockcount") == 900_000
+    assert node.requests == [("getblockcount", "__cookie__")]
+
+
+def test_helper_cookie_unreadable_at_401_reread_recovers_on_next_call(node):
+    """R5-M3: bitcoind restarting, cookie briefly gone when re-read after the 401."""
+    from scripts.utils.rpc_cookie import RpcAuthError, RpcClient
+
+    client = RpcClient(node.datadir)
+    node.accepted = tuple(COOKIE_2.split(":"))
+    (node.datadir / ".cookie").unlink()
+    with pytest.raises(RpcAuthError) as exc:
+        client.call("getblockcount")
+    assert exc.value.status == 401
+    assert len(node.requests) == 1  # no retry without a cookie to retry with
+    (node.datadir / ".cookie").write_text(COOKIE_2)
+    assert client.call("getblockcount") == 900_000
+    assert len(node.requests) == 2
+
+
+def test_helper_recovered_but_rejected_cookie_still_retries_once_per_call(node):
+    """R5-M3: the per-call 401 retry stays bounded to one re-read and one retry."""
+    from scripts.utils.rpc_cookie import RpcClient
+
+    (node.datadir / ".cookie").unlink()
+    client = RpcClient(node.datadir)
+    (node.datadir / ".cookie").write_text(COOKIE_1)
+    node.accepted = ("nobody", "DUMMYOTHER")
+    for expected in (2, 4):
+        with pytest.raises(ConnectionError, match="401"):
+            client.call("getblockcount")
+        assert len(node.requests) == expected
+
+
 def test_helper_cookie_wins_over_conf_credentials(node):
     from scripts.utils.rpc_cookie import RpcClient
 
