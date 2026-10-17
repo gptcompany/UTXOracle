@@ -190,7 +190,6 @@ def sync_rpc(node, monkeypatch):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("BITCOIN_RPC_URL", f"http://127.0.0.1:{node.port}")
     monkeypatch.setenv("BITCOIN_DATADIR", str(node.datadir))
-    monkeypatch.setattr(mod, "_load_bitcoin_conf", lambda: {})
     return mod.BitcoinRPC
 
 

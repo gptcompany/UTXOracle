@@ -36,7 +36,7 @@ from secrets_loader import load_secrets
 # Local imports
 from UTXOracle_library import UTXOracleCalculator
 from scripts.config import UTXORACLE_DB_PATH
-from scripts.utils.rpc_cookie import RpcClient
+from scripts.utils.rpc_cookie import RpcClient, clean_env_value, resolve_target
 
 # Whale Flow Detector (spec-004) - import after scripts/ is in path
 try:
@@ -205,9 +205,8 @@ def load_config() -> Dict[str, str]:
     config = {
         # Required settings (fail fast if missing - T064a)
         "DUCKDB_PATH": _get_env_str("DUCKDB_PATH", str(UTXORACLE_DB_PATH)),
-        "BITCOIN_DATADIR": _get_env_str(
-            "BITCOIN_DATADIR", os.path.expanduser("~/.bitcoin")
-        ),
+        # None: scripts.utils.rpc_cookie.resolve_target picks the datadir.
+        "BITCOIN_DATADIR": clean_env_value(os.getenv("BITCOIN_DATADIR")),
         "MEMPOOL_API_URL": _get_env_str("MEMPOOL_API_URL", "http://localhost:8999"),
         # Optional settings with defaults
         "LOG_LEVEL": _get_env_str("LOG_LEVEL", "INFO"),
@@ -259,7 +258,7 @@ def validate_config(config: Dict[str, str]) -> None:
         )
 
     # Check Bitcoin data directory exists
-    bitcoin_dir = Path(config["BITCOIN_DATADIR"])
+    bitcoin_dir = resolve_target(config["BITCOIN_DATADIR"]).datadir
     if not bitcoin_dir.exists():
         raise EnvironmentError(
             f"BITCOIN_DATADIR does not exist: {bitcoin_dir}\n"
@@ -315,7 +314,20 @@ def fetch_mempool_price(api_url: str = "http://localhost:8999") -> float:
         raise
 
 
-def _fetch_from_bitcoin_core(bitcoin_datadir: str) -> List[dict]:
+def rpc_client(config: Optional[Dict] = None, timeout: float = 60) -> RpcClient:
+    """The daily job's Bitcoin Core client, built only here.
+
+    Cookie auth (re-read on HTTP 401); rpcuser/rpcpassword only as fallback. Without
+    a config it loads the job configuration as ``main`` does. Connection settings
+    come from scripts.utils.rpc_cookie.resolve_target.
+    """
+    config = load_config() if config is None else config
+    return RpcClient(
+        config.get("BITCOIN_DATADIR"), timeout=timeout, request_id="utxoracle-daily"
+    )
+
+
+def _fetch_from_bitcoin_core(bitcoin_datadir: str | None) -> List[dict]:
     """
     Tier 1: Fetch transactions from Bitcoin Core RPC (primary source).
 
@@ -328,8 +340,7 @@ def _fetch_from_bitcoin_core(bitcoin_datadir: str) -> List[dict]:
     Raises:
         ValueError: If cannot connect or fetch transactions
     """
-    # Cookie auth (re-read on HTTP 401); rpcuser/rpcpassword only as fallback.
-    rpc = RpcClient(bitcoin_datadir, timeout=120, request_id="utxoracle-daily")
+    rpc = rpc_client({"BITCOIN_DATADIR": bitcoin_datadir}, timeout=120)
     best_hash = rpc.call("getbestblockhash")
     logging.info(f"[Bitcoin Core] Fetching block {best_hash[:16]}...")
 
@@ -534,9 +545,7 @@ def fetch_bitcoin_transactions(config: Dict[str, any]) -> tuple[List[dict], int]
         # Tier 3: Bitcoin Core RPC (ultimate fallback - always enabled)
         logging.warning("Attempting Tier 3: Bitcoin Core RPC direct")
         try:
-            bitcoin_datadir = config.get(
-                "BITCOIN_DATADIR", os.path.expanduser("~/.bitcoin")
-            )
+            bitcoin_datadir = config.get("BITCOIN_DATADIR")
             return _fetch_from_bitcoin_core(bitcoin_datadir), 3
         except Exception as e_rpc:
             logging.error(f"Tier 3 failed (Bitcoin Core RPC): {e_rpc}")
@@ -843,9 +852,7 @@ def fetch_historical_transactions(date_str: str, config: Dict) -> List[dict]:
         f"(timestamps: {start_timestamp}-{end_timestamp})"
     )
 
-    # Cookie auth (re-read on HTTP 401); rpcuser/rpcpassword only as fallback.
-    bitcoin_datadir = config.get("BITCOIN_DATADIR", os.path.expanduser("~/.bitcoin"))
-    rpc = RpcClient(bitcoin_datadir, timeout=60, request_id="utxoracle-daily")
+    rpc = rpc_client(config)
 
     def rpc_call(method: str, params: list) -> any:
         """Helper to make Bitcoin Core RPC calls."""

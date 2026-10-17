@@ -44,7 +44,10 @@ from scripts.metrics.utxo_lifecycle import (
 )
 from scripts.models.metrics_models import AgeCohortsConfig
 from scripts.config import UTXORACLE_DB_PATH
-from scripts.utils.rpc_cookie import RpcClient
+from scripts.utils.rpc_cookie import (
+    RpcClient,
+    is_encrypted_placeholder as _is_encrypted_placeholder,
+)
 
 # =============================================================================
 # Configuration
@@ -60,36 +63,6 @@ def _resolve_log_level(raw_level: str | None) -> int:
     normalized = raw_level.upper()
     level = getattr(logging, normalized, None)
     return level if isinstance(level, int) else logging.INFO
-
-
-def _is_encrypted_placeholder(value: str | None) -> bool:
-    """Return True for undecrypted env placeholders from SOPS/legacy secrets."""
-    if value is None:
-        return False
-    return value.startswith("ENC[") or value.startswith("encrypted:")
-
-
-def _clean_env_value(value: str | None) -> str | None:
-    """Drop empty or encrypted-placeholder environment values."""
-    if not value or _is_encrypted_placeholder(value):
-        return None
-    return value
-
-
-def _load_bitcoin_conf(path: Path | None = None) -> dict[str, str]:
-    """Load simple key=value entries from bitcoin.conf."""
-    config_path = path or (Path.home() / ".bitcoin" / "bitcoin.conf")
-    if not config_path.exists():
-        return {}
-
-    values: dict[str, str] = {}
-    for raw_line in config_path.read_text().splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        values[key.strip()] = value.strip()
-    return values
 
 
 logging.basicConfig(
@@ -128,73 +101,19 @@ class BitcoinRPC:
     """
 
     def __init__(self):
-        """Initialize RPC connection: cookie first, env/conf credentials as fallback."""
-        # Get connection settings from env
-        bitcoin_conf = _load_bitcoin_conf()
-        rpc_host = bitcoin_conf.get("rpcconnect", "127.0.0.1")
-        rpc_port = bitcoin_conf.get("rpcport", "8332")
-        rpc_url = _clean_env_value(os.getenv("BITCOIN_RPC_URL")) or (
-            f"http://{rpc_host}:{rpc_port}"
-        )
-        self.rpc_user = _clean_env_value(os.getenv("BITCOIN_RPC_USER")) or (
-            bitcoin_conf.get("rpcuser", "")
-        )
-        self.rpc_pass = _clean_env_value(os.getenv("BITCOIN_RPC_PASSWORD")) or (
-            bitcoin_conf.get("rpcpassword", "")
-        )
+        """Initialize RPC connection: cookie first, env/conf credentials as fallback.
 
-        # Parse host/port via urllib so we handle URLs that include
-        # credentials, custom paths, or no scheme. The hand-rolled split()
-        # previously failed on URLs with embedded credentials
-        # (user:pass@host:port -> 4 colons). urlparse can also raise
-        # ValueError("Invalid IPv6 URL") on garbled inputs (e.g. an env
-        # var leaked from another tool); fall back to the default in that
-        # case so the daemon stays usable.
-        from urllib.parse import urlparse
-
-        candidate = rpc_url if "://" in rpc_url else f"http://{rpc_url}"
-        try:
-            parsed = urlparse(candidate)
-            self.host = parsed.hostname or "127.0.0.1"
-            self.port = parsed.port or 8332
-            if parsed.username and not self.rpc_user:
-                self.rpc_user = parsed.username
-            if parsed.password and not self.rpc_pass:
-                self.rpc_pass = parsed.password
-        except ValueError:
-            # Unparseable URL -> log and use the local default.
-            try:
-                _logger = __import__("logging").getLogger(__name__)
-                _logger.warning(
-                    "BITCOIN_RPC_URL %r is unparseable; falling back to 127.0.0.1:8332",
-                    rpc_url,
-                )
-            except Exception:  # pragma: no cover
-                pass
-            self.host = "127.0.0.1"
-            self.port = 8332
-
-        # Cookie auth wins; rpcuser/rpcpassword (env, URL, bitcoin.conf) are only the
-        # fallback used while the runbook rollback has them reinstated.
-        datadir = (
-            _clean_env_value(os.getenv("BITCOIN_DATADIR"))
-            or bitcoin_conf.get("datadir")
-            or os.path.expanduser("~/.bitcoin")
-        )
-        fallback = (
-            (self.rpc_user, self.rpc_pass) if self.rpc_user and self.rpc_pass else None
-        )
-        self._client = RpcClient(
-            datadir,
-            host=self.host,
-            port=self.port,
-            fallback=fallback,
-            timeout=120,
-            request_id="utxoracle-sync",
-        )
-        if self._client._cookie is None and fallback is None:
+        Datadir, network, host, port, cookie and fallback (including
+        BITCOIN_DATADIR, BITCOIN_RPC_URL, BITCOIN_RPC_USER/PASSWORD) are resolved by
+        scripts.utils.rpc_cookie.resolve_target; this wrapper reads no config.
+        """
+        self._client = RpcClient(timeout=120, request_id="utxoracle-sync")
+        target = self._client.target
+        self.host, self.port = target.host, target.port
+        self.rpc_user, self.rpc_pass = target.fallback or ("", "")
+        if self._client._cookie is None and target.fallback is None:
             raise RuntimeError(
-                f"No RPC credentials and cookie not found under {datadir}"
+                f"No RPC credentials and cookie not found under {target.datadir}"
             )
 
     def _call(self, method: str, *params) -> any:

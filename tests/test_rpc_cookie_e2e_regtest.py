@@ -30,11 +30,12 @@ def _free_port() -> int:
 
 
 class Regtest:
-    def __init__(self, datadir, port):
+    def __init__(self, datadir, port, conf=None, cookie=None):
         self.datadir, self.port = datadir, port
-        self.cookie = datadir / "cookie"
+        self.cookie = cookie or datadir / "cookie"
         (datadir / "bitcoin.conf").write_text(
-            f"regtest=1\nserver=1\nlisten=0\ndnsseed=0\n[regtest]\nrpcport={port}\n"
+            conf
+            or f"regtest=1\nserver=1\nlisten=0\ndnsseed=0\n[regtest]\nrpcport={port}\n"
             f"rpccookiefile={self.cookie}\n"
         )
 
@@ -89,7 +90,6 @@ def test_consumers_survive_a_bitcoind_restart_with_cookie_only(regtest, monkeypa
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("BITCOIN_RPC_URL", f"http://127.0.0.1:{regtest.port}")
     monkeypatch.setenv("BITCOIN_DATADIR", str(regtest.datadir))
-    monkeypatch.setattr(sync_mod, "_load_bitcoin_conf", lambda: {})
 
     sync_client = sync_mod.BitcoinRPC()
     live_client = LiveRPC(datadir=str(regtest.datadir))
@@ -104,3 +104,46 @@ def test_consumers_survive_a_bitcoind_restart_with_cookie_only(regtest, monkeypa
     # Same client objects, stale cookie in memory: 401 -> re-read -> success.
     assert sync_client.getblockcount() == 0
     assert live_client.ask_node("getblockcount") == 0
+
+
+@pytest.mark.parametrize("selector", ["regtest=1", "chain=regtest"])
+def test_resolver_and_bitcoind_agree_on_a_sectioned_conf(
+    tmp_path, monkeypatch, selector
+):
+    """R5-M2 differential: one bitcoin.conf with decoys in every inactive place,
+    read by a real bitcoind and by the resolver. The resolved client must reach the
+    port bitcoind listens on and authenticate with the cookie bitcoind wrote."""
+    from scripts import daily_analysis, sync_utxo_lifecycle
+    from scripts.utils.rpc_cookie import RpcClient, resolve_target
+
+    port, decoys = _free_port(), [_free_port() for _ in range(4)]
+    conf = (
+        f"{selector}\nserver=1\nlisten=0\ndnsseed=0\n"
+        f"rpcport={decoys[0]}\n"  # NETWORK_ONLY in the default section: not on regtest
+        f"[main]\nrpcport={decoys[1]}\nrpccookiefile=/nonexistent/main.cookie\n"
+        f"[test]\nrpcport={decoys[2]}\nrpccookiefile=/nonexistent/test.cookie\n"
+        f"[regtest]\nrpcport={port}\nrpcport={decoys[3]}\n"  # the first one wins
+    )
+    node = Regtest(tmp_path, port, conf, cookie=tmp_path / "regtest" / ".cookie")
+    for var in ("BITCOIN_RPC_URL", "BITCOIN_RPC_USER", "BITCOIN_RPC_PASSWORD"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("BITCOIN_DATADIR", str(tmp_path))
+    node.start()
+    try:
+        target = resolve_target(tmp_path, env={})
+        assert (target.network, target.port) == ("regtest", port)
+        assert target.cookie_path == node.cookie and node.cookie.is_file()
+        for decoy in decoys:  # bitcoind listens only where the resolver points
+            with socket.socket() as s, pytest.raises(OSError):
+                s.settimeout(1)
+                s.connect(("127.0.0.1", decoy))
+
+        assert RpcClient(tmp_path).call("getblockcount") == 0
+        assert load_live_rpc()().ask_node("getblockcount") == 0
+        assert sync_utxo_lifecycle.BitcoinRPC().getblockcount() == 0
+        assert (
+            daily_analysis.rpc_client({"BITCOIN_DATADIR": None}).call("getblockcount")
+            == 0
+        )
+    finally:
+        node.stop()

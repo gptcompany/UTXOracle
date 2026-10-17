@@ -15,13 +15,11 @@ def test_encrypted_log_level_falls_back_to_info():
 
 
 def test_encrypted_env_value_is_ignored():
-    from scripts import sync_utxo_lifecycle
+    from scripts.utils.rpc_cookie import clean_env_value
 
-    assert sync_utxo_lifecycle._clean_env_value("ENC[AES256_GCM,data:x]") is None
-    assert sync_utxo_lifecycle._clean_env_value("encrypted:legacy") is None
-    assert sync_utxo_lifecycle._clean_env_value("http://127.0.0.1:8332") == (
-        "http://127.0.0.1:8332"
-    )
+    assert clean_env_value("ENC[AES256_GCM,data:x]") is None
+    assert clean_env_value("encrypted:legacy") is None
+    assert clean_env_value("http://127.0.0.1:8332") == ("http://127.0.0.1:8332")
 
 
 def test_bitcoin_rpc_uses_credentials_from_bitcoin_conf(monkeypatch, tmp_path):
@@ -32,14 +30,8 @@ def test_bitcoin_rpc_uses_credentials_from_bitcoin_conf(monkeypatch, tmp_path):
     monkeypatch.delenv("BITCOIN_RPC_URL", raising=False)
     monkeypatch.delenv("BITCOIN_RPC_USER", raising=False)
     monkeypatch.delenv("BITCOIN_RPC_PASSWORD", raising=False)
-    monkeypatch.setattr(
-        sync_utxo_lifecycle,
-        "_load_bitcoin_conf",
-        lambda: {
-            "rpcuser": "conf-user",
-            "rpcpassword": "conf-pass",
-            "rpcport": "18443",
-        },
+    (tmp_path / "bitcoin.conf").write_text(
+        "rpcuser=conf-user\nrpcpassword=conf-pass\nrpcport=18443\n"
     )
 
     rpc = sync_utxo_lifecycle.BitcoinRPC()
