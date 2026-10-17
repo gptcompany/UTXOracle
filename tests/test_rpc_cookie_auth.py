@@ -151,14 +151,33 @@ def test_helper_http_and_json_rpc_errors_are_distinct(node):
     ids=["ok", "401", "503", "unreachable"],
 )
 def test_entrypoint_prints_label_outcome_and_code_only(
-    node, capsys, prepare, expected, code
+    node, capsys, monkeypatch, prepare, expected, code
 ):
     from scripts.utils.rpc_cookie import main
 
+    # The consumer (daily) finds the datadir in its own environment, not in argv.
+    for var in ("BITCOIN_RPC_URL", "BITCOIN_RPC_USER", "BITCOIN_RPC_PASSWORD"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("BITCOIN_DATADIR", str(node.datadir))
     prepare(node)
-    assert main(["chk", str(node.datadir)]) == code
+    assert main(["chk", "daily"]) == code
     out = capsys.readouterr().out
     assert out == expected and "DUMMY" not in out
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [["chk", "/var/lib/bitcoind"], ["chk", "daily", "/var/lib/bitcoind"], ["chk"]],
+    ids=["datadir-as-consumer", "extra-datadir", "no-consumer"],
+)
+def test_entrypoint_accepts_only_a_consumer_name(node, capsys, argv):
+    """R5-M1: no datadir, port, cookie or credential from the check."""
+    from scripts.utils.rpc_cookie import main
+
+    with pytest.raises(SystemExit) as exc:
+        main(argv)
+    assert exc.value.code == 2
+    assert node.requests == [] and "OK" not in capsys.readouterr().out
 
 
 def test_live_client_started_with_legacy_password_survives_the_migration(node):

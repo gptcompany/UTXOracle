@@ -59,9 +59,9 @@ Inventario ricavato con ast-grep e ricerca strutturale su `BITCOIN_RPC_*`, `rpcu
 
 | Consumatore | Contesto | Autenticazione | Rilettura cookie | Riavvio dopo bitcoind | Credenziali vecchie da rimuovere |
 |---|---|---|---|---|---|
-| `live/backend/bitcoin_rpc.py` (`utxoracle-live.service`, `live.backend.api`) | host, utente `utxoracle` | cookie, poi fallback utente/password (risoluzione: vedi sotto) | su HTTP 401, una volta | consigliato: libera dalla memoria il fallback letto all'avvio | `rpcuser`/`rpcpassword` in `bitcoin.conf` |
-| `scripts/sync_utxo_lifecycle.py` (`BitcoinRPC`, usato anche da `api/routes/streams.py` e da `scripts/bootstrap/{tip_catchup_lifecycle_via_rpc,tip_spent_backfill_via_rpc,sync_spent_utxos,build_block_heights_questdb}.py`) | host, `uv run` | cookie, poi fallback utente/password (risoluzione: vedi sotto) | su HTTP 401, una volta | processi lunghi sì; i job periodici ripartono da soli | `BITCOIN_RPC_USER`/`BITCOIN_RPC_PASSWORD` in `/media/sam/1TB/UTXOracle/.env` |
-| `scripts/daily_analysis.py` (`_fetch_from_bitcoin_core`, `fetch_historical_transactions`) | host, job periodico | cookie, poi fallback utente/password (risoluzione: vedi sotto); accetta la sola configurazione cookie | a ogni job | no | `rpcuser`/`rpcpassword` in `bitcoin.conf` |
+| `live/backend/bitcoin_rpc.py` (`utxoracle-live.service`, `live.backend.api`) | host, utente `utxoracle`; controllo `rpc_check ... host live <unità>` | cookie, poi fallback utente/password (risoluzione: vedi sotto) | su HTTP 401, una volta | consigliato: libera dalla memoria il fallback letto all'avvio | `rpcuser`/`rpcpassword` in `bitcoin.conf` |
+| `scripts/sync_utxo_lifecycle.py` (`BitcoinRPC`, usato anche da `api/routes/streams.py` e da `scripts/bootstrap/{tip_catchup_lifecycle_via_rpc,tip_spent_backfill_via_rpc,sync_spent_utxos,build_block_heights_questdb}.py`) | host, `uv run`; controllo `rpc_check ... host sync <unità>` | cookie, poi fallback utente/password (risoluzione: vedi sotto) | su HTTP 401, una volta | processi lunghi sì; i job periodici ripartono da soli | `BITCOIN_RPC_USER`/`BITCOIN_RPC_PASSWORD` in `/media/sam/1TB/UTXOracle/.env` |
+| `scripts/daily_analysis.py` (`_fetch_from_bitcoin_core`, `fetch_historical_transactions`, factory `rpc_client`) | host, job cron; controllo `rpc_check ... cron daily ...` | cookie, poi fallback utente/password (risoluzione: vedi sotto); accetta la sola configurazione cookie | a ogni job | no | `rpcuser`/`rpcpassword` in `bitcoin.conf` |
 | `scripts/bootstrap/fast_spent_sync_v2.py`, `historical_spent_backfill.py`, `run_combined_bootstrap.py` | host, batch lunghi | variabili/`bitcoin.conf` prima, cookie solo come ripiego, letto una volta | no | **fermarli prima di riavviare bitcoind e rilanciarli dopo** (`--resume`) | `BITCOIN_RPC_USER`/`BITCOIN_RPC_PASSWORD` nell'ambiente di lancio |
 | `scripts/bootstrap/fast_spent_sync.py`, `build_block_heights.py` | host, batch | solo cookie, letto una volta | no | fermarli e rilanciarli dopo | nessuna |
 | `UTXOracle.py` (immutabile), `scripts/diagnose_streams_health.py`, `scripts/validate_brk_integration.py`, `scripts/bootstrap/{bootstrap_utxo_lifecycle,spec061_post_mirror_chain}.sh` | `bitcoin-cli` | `bitcoin-cli` rilegge il cookie a ogni invocazione | a ogni chiamata | no | nessuna |
@@ -117,14 +117,29 @@ cp -p /media/sam/1TB/UTXOracle/.env "$BK/utxoracle.env"
   ( umask 077; { sed -n 's/^rpcuser=//p' "$BK/bitcoin.conf"; sed -n 's/^rpcpassword=//p' "$BK/bitcoin.conf"; } | paste -sd: - > "$BK/legacy.cred" )
   ```
 
-Controllo RPC reale, **attraverso ogni consumatore nel suo contesto**, non dall'host: il controllo gira nel container del consumatore (stesso UID, stesso mount, stesso file di credenziale) oppure con l'entrypoint del client. Un cookie montato male o una password rimasta in memoria danno HTTP 401 qui, anche se l'host riceve 200. L'output è solo etichetta, esito e codice HTTP. `/health` di BRK **non** sostituisce questo controllo: non tocca bitcoind.
+Controllo RPC reale, **attraverso ogni consumatore nel suo contesto**, non dall'host: il controllo gira nel container del consumatore (stesso UID, stesso mount, stesso file di credenziale) oppure, per i consumatori UTXOracle, con il codice del consumatore stesso. Un consumatore UTXOracle è certificato solo dal suo codice: `rpc_check <etichetta> host|cron <live|sync|daily> ...` esegue `python -m scripts.utils.rpc_cookie <etichetta> <consumatore>`, che costruisce il client con la factory di produzione di quel consumatore (`CONSUMERS` in `scripts/utils/rpc_cookie.py`) e non accetta datadir, porta, cookie o credenziali. Il ramo `host` lo lancia con `systemd-run --wait --pipe --collect` usando utente, gruppi, working directory, `Environment`/`EnvironmentFile` e isolamento (`ProtectHome`, `ProtectSystem`, `PrivateTmp`, `PrivateNetwork`, percorsi, filtri IP) letti con `systemctl show -P` dall'unità reale, senza stamparli; un'unità con `PassEnvironment` non è riproducibile e dà FAIL. Il ramo `cron` usa utente, directory e ambiente minimo di cron della riga di crontab. Mai dalla shell dell'operatore: un client costruito con i parametri del controllo non certifica il consumatore. Un cookie montato male o una password rimasta in memoria danno HTTP 401 qui, anche se l'host riceve 200. L'output è solo etichetta, esito e codice HTTP. `/health` di BRK **non** sostituisce questo controllo: non tocca bitcoind.
 
 ```bash
-rpc_check() {  # uso: rpc_check <etichetta> ctr <container> <uid:gid> <file credenziale nel container, oppure - per stdin> <url> | rpc_check <etichetta> host <datadir>
-  local code
+rpc_check() {  # uso: rpc_check <etichetta> ctr <container> <uid:gid> <file credenziale nel container, oppure - per stdin> <url> | rpc_check <etichetta> host <live|sync|daily> <unità systemd> | rpc_check <etichetta> cron <live|sync|daily> <utente> <directory> <uv assoluto>
+  local code p v f flag; local -a props=() launcher=()
   case "$2" in
     ctr) code=$(docker exec -i -u "$4" "$3" sh -c 'command -v curl >/dev/null || { printf n/a; exit 0; }; printf "user = \"%s\"\n" "$(cat "$1")" | curl -sS -K - -o /dev/null -w "%{http_code}" --max-time 10 -H "content-type: text/plain;" --data-binary "{\"jsonrpc\":\"1.0\",\"id\":\"chk\",\"method\":\"getblockcount\",\"params\":[]}" "$2"' _ "$5" "$6" 2>/dev/null) ;;
-    host) ( cd /media/sam/1TB/UTXOracle && BITCOIN_DATADIR="$3" uv run python -m scripts.utils.rpc_cookie "$1" "$3" ); return ;;
+    host|cron)
+      case "$3" in live|sync|daily) ;; *) echo "$1: FAIL consumatore sconosciuto"; return 2 ;; esac
+      if [ "$2" = host ]; then  # contesto ricavato dall'unità reale; i valori non vengono stampati
+        [ -n "$(systemctl show -P PassEnvironment "$4")" ] && { echo "$1: FAIL PassEnvironment non riproducibile"; return 2; }
+        for p in User Group SupplementaryGroups DynamicUser WorkingDirectory Environment UnsetEnvironment ProtectHome ProtectSystem PrivateTmp PrivateNetwork PrivateUsers ReadWritePaths ReadOnlyPaths InaccessiblePaths BindPaths BindReadOnlyPaths TemporaryFileSystem RootDirectory IPAddressAllow IPAddressDeny RestrictAddressFamilies; do
+          v=$(systemctl show -P "$p" "$4"); [ -n "$v" ] && props+=(-p "$p=$v")
+        done
+        while read -r f flag; do
+          [ -n "$f" ] && props+=(-p "EnvironmentFile=$([ "$flag" = "(ignore_errors=yes)" ] && printf -)$f")
+        done < <(systemctl show -P EnvironmentFiles "$4")
+        launcher=(/usr/bin/env uv)
+      else  # job cron: utente, directory e ambiente minimo di cron, più le variabili della riga (CRON_ENV)
+        props=(-p "User=$4" -p "WorkingDirectory=$5" -p "Environment=PATH=/usr/bin:/bin SHELL=/bin/sh ${CRON_ENV:-}")
+        launcher=("$6")
+      fi
+      sudo systemd-run --quiet --wait --pipe --collect "${props[@]}" "${launcher[@]}" run python -m scripts.utils.rpc_cookie "$1" "$3"; return ;;
   esac
   echo "$1: HTTP ${code:-000}"
 }
@@ -132,13 +147,16 @@ rpc_check() {  # uso: rpc_check <etichetta> ctr <container> <uid:gid> <file cred
 Contesto reale di ciascun consumatore, da compilare dalla configurazione effettiva (`docker compose config`, `systemctl cat`), non a memoria:
 ```bash
 RPC_URL=http://127.0.0.1:8332/          # indirizzo RPC come lo vede il consumatore (rete host)
-COOKIE_DIR=/data/cold/12TB/Bitcoin      # datadir di bitcoind sull'host
+LIVE_UNIT=utxoracle-live.service        # unità reale di live (systemctl cat, non a memoria)
+SYNC_UNIT=utxoracle-api.service         # api/routes/streams.py usa scripts.sync_utxo_lifecycle.BitcoinRPC
+DAILY_CRON=(sam /media/sam/1TB/UTXOracle /home/sam/.cargo/bin/uv)   # utente, cd e uv della riga di crontab di daily_analysis
+CRON_ENV=                               # variabili assegnate nella riga di crontab, se presenti
 BRK_CRED=/bitcoin/.cookie               # percorso del cookie NEL container brk (mount :ro, UID 1000)
 ELECTRS_UID=1000:1000; ELECTRS_CRED=/path/nel/container/electrs.cred   # file che electrs carica davvero
 MEMPOOL_API_UID=1000:1000; MEMPOOL_API_CRED=/path/nel/container/api.cred
 ```
 
-Atteso: `HTTP 200` per ogni consumatore. `HTTP 401` = credenziale non accettata dal consumatore; `HTTP 000` = bitcoind non raggiungibile; `HTTP n/a` = il container non ha `curl`: usare l'entrypoint del client (per i client UTXOracle `rpc_check <etichetta> host <datadir>`, eseguito con l'utente e l'ambiente del servizio) oppure aggiungere la prova al suo ciclo di vita. Mai stampare il file di credenziale.
+Atteso: `HTTP 200` per ogni consumatore. `HTTP 401` = credenziale non accettata dal consumatore; `HTTP 000` = bitcoind non raggiungibile; `HTTP n/a` = il container non ha `curl`: aggiungere la prova al ciclo di vita del client (i client UTXOracle usano i rami `host`/`cron`, non `ctr`). `FAIL consumatore sconosciuto` = il ramo `host`/`cron` accetta solo `live`, `sync`, `daily`. Mai stampare il file di credenziale.
 
 ---
 
@@ -182,7 +200,9 @@ Rimuovere `rpcuser` e `rpcpassword` da bitcoind e dare a ogni consumatore che no
   systemctl is-active --quiet bitcoind.service && echo "bitcoind active (OK)"
   # Conteggio, non righe: atteso >= 1
   journalctl -u bitcoind.service -n 200 --no-pager | grep -ci -- 'Using random cookie authentication'
-  rpc_check "utxoracle (cookie)" host "$COOKIE_DIR"
+  rpc_check "utxoracle-live (cookie)" host live "$LIVE_UNIT"
+  rpc_check "utxoracle-sync (cookie)" host sync "$SYNC_UNIT"
+  rpc_check "utxoracle-daily (cookie)" cron daily "${DAILY_CRON[@]}"
   rpc_check "mempool-electrs (rpcauth)" ctr mempool-electrs "$ELECTRS_UID" "$ELECTRS_CRED" "$RPC_URL"
   rpc_check "mempool-api (rpcauth)" ctr mempool-api "$MEMPOOL_API_UID" "$MEMPOOL_API_CRED" "$RPC_URL"
   ```
@@ -240,7 +260,9 @@ Aggiornare il docker-compose di BRK per utilizzare il flag cookie nativo ed elim
 
 ```bash
 rpc_check "brk (cookie)" ctr brk 1000:1000 "$BRK_CRED" "$RPC_URL"
-rpc_check "utxoracle (cookie)" host "$COOKIE_DIR"
+rpc_check "utxoracle-live (cookie)" host live "$LIVE_UNIT"
+rpc_check "utxoracle-sync (cookie)" host sync "$SYNC_UNIT"
+rpc_check "utxoracle-daily (cookie)" cron daily "${DAILY_CRON[@]}"
 rpc_check "mempool-electrs (rpcauth)" ctr mempool-electrs "$ELECTRS_UID" "$ELECTRS_CRED" "$RPC_URL"
 rpc_check "mempool-api (rpcauth)" ctr mempool-api "$MEMPOOL_API_UID" "$MEMPOOL_API_CRED" "$RPC_URL"
 curl -sS -o /dev/null -w 'brk /health: HTTP %{http_code}\n' --max-time 10 http://127.0.0.1:7070/health
@@ -285,7 +307,9 @@ Si applica a qualunque fallimento dal Passo 2 in poi. L'ordine è obbligatorio: 
 - **R4 — verifica**: una chiamata RPC reale per consumatore, nel suo contesto (container o entrypoint). Per i container la credenziale legacy è passata su stdin da `legacy.cred` (contesto di rete e UID reali, non il mount): la credenziale che il client carica davvero la prova il suo avvio. UTXOracle usa il fallback `rpcuser`/`rpcpassword` di `bitcoin.conf` ripristinato. `/health` di BRK non sostituisce questa prova.
   ```bash
   rpc_check "brk (legacy)" ctr brk 1000:1000 - "$RPC_URL" < "$BK/legacy.cred"
-  rpc_check "utxoracle (legacy)" host "$COOKIE_DIR"
+  rpc_check "utxoracle-live (legacy)" host live "$LIVE_UNIT"
+  rpc_check "utxoracle-sync (legacy)" host sync "$SYNC_UNIT"
+  rpc_check "utxoracle-daily (legacy)" cron daily "${DAILY_CRON[@]}"
   rpc_check "mempool-electrs (legacy)" ctr mempool-electrs "$ELECTRS_UID" - "$RPC_URL" < "$BK/legacy.cred"
   rpc_check "mempool-api (legacy)" ctr mempool-api "$MEMPOOL_API_UID" - "$RPC_URL" < "$BK/legacy.cred"
   ```
