@@ -53,11 +53,27 @@ Tutti i consumatori che accedono a Bitcoin Core RPC devono essere gestiti senza 
 - **`mempool-api`** (`/data/4TB/prod/apps/mempool-stack`): backend mempool.
   - *Migrazione:* Allineare a `rpcauth` o credenziali dedicate se accede a bitcoind RPC.
 
-### Nel repository UTXOracle
-- **`live/backend/bitcoin_rpc.py`**: dispone già di fallback nativo su `cookie_path` (`os.path.join(data_dir, ".cookie")`) quando `rpcpassword` non è definita in `bitcoin.conf`.
-- **`UTXOracle.py`**: dispone già di fallback automatico su `.cookie`.
-- **`scripts/sync_utxo_lifecycle.py`**, **`scripts/daily_analysis.py`**, **`scripts/bootstrap/fast_spent_sync_v2.py`**: script operativi che leggevano `bitcoin.conf`; devono utilizzare il percorso `.cookie` o `rpcauth`.
-- **`scripts/setup_full_mempool_stack.sh`**: script legacy di setup; non estrarre più `rpcpassword` in chiaro.
+### Nel repository UTXOracle (inventario dei consumatori)
+
+Inventario ricavato con ast-grep e ricerca strutturale su `BITCOIN_RPC_*`, `rpcuser`, `rpcpassword`, `.cookie`, `bitcoin-cli` (esclusi `archive/`). Dopo la PR il cookie ha la precedenza su utente e password; `rpcuser`/`rpcpassword` restano come fallback solo perché il Rollback Coordinato (sezione 5) li reinstalla in `bitcoin.conf`.
+
+| Consumatore | Contesto | Autenticazione | Rilettura cookie | Riavvio dopo bitcoind | Credenziali vecchie da rimuovere |
+|---|---|---|---|---|---|
+| `live/backend/bitcoin_rpc.py` (`utxoracle-live.service`, `live.backend.api`) | host, utente `utxoracle` | cookie, poi `rpcuser`/`rpcpassword` di `bitcoin.conf` | su HTTP 401, una volta | consigliato: libera dalla memoria il fallback letto all'avvio | `rpcuser`/`rpcpassword` in `bitcoin.conf` |
+| `scripts/sync_utxo_lifecycle.py` (`BitcoinRPC`, usato anche da `api/routes/streams.py` e da `scripts/bootstrap/{tip_catchup_lifecycle_via_rpc,tip_spent_backfill_via_rpc,sync_spent_utxos,build_block_heights_questdb}.py`) | host, `uv run` | cookie, poi `BITCOIN_RPC_USER`/`BITCOIN_RPC_PASSWORD`/URL | su HTTP 401, una volta | processi lunghi sì; i job periodici ripartono da soli | `BITCOIN_RPC_USER`/`BITCOIN_RPC_PASSWORD` in `/media/sam/1TB/UTXOracle/.env` |
+| `scripts/daily_analysis.py` (`_fetch_from_bitcoin_core`, `fetch_historical_transactions`) | host, job periodico | cookie, poi `rpcuser`/`rpcpassword` di `bitcoin.conf`; accetta la sola configurazione cookie | a ogni job | no | `rpcuser`/`rpcpassword` in `bitcoin.conf` |
+| `scripts/bootstrap/fast_spent_sync_v2.py`, `historical_spent_backfill.py`, `run_combined_bootstrap.py` | host, batch lunghi | variabili/`bitcoin.conf` prima, cookie solo come ripiego, letto una volta | no | **fermarli prima di riavviare bitcoind e rilanciarli dopo** (`--resume`) | `BITCOIN_RPC_USER`/`BITCOIN_RPC_PASSWORD` nell'ambiente di lancio |
+| `scripts/bootstrap/fast_spent_sync.py`, `build_block_heights.py` | host, batch | solo cookie, letto una volta | no | fermarli e rilanciarli dopo | nessuna |
+| `UTXOracle.py` (immutabile), `scripts/diagnose_streams_health.py`, `scripts/validate_brk_integration.py`, `scripts/bootstrap/{bootstrap_utxo_lifecycle,spec061_post_mirror_chain}.sh` | `bitcoin-cli` | `bitcoin-cli` rilegge il cookie a ogni invocazione | a ogni chiamata | no | nessuna |
+| `scripts/whale_flow_detector.py` | host | credenziali opzionali del costruttore; nessun chiamante le passa | n/a | no | nessuna |
+| `scripts/setup_full_mempool_stack.sh` | setup legacy | estrae `rpcuser`/`rpcpassword` da `bitcoin.conf` | n/a | non eseguirlo dopo la migrazione | non usarlo |
+| `api/main.py` (mining-pulse, righe 2668 e 2764) | host | importa `scripts.bitcoin_rpc`, modulo inesistente: già non funzionante, fuori ambito | n/a | no | nessuna |
+
+I batch di `scripts/bootstrap/` non sono migrati in questa PR (client duplicati, one-shot): l'ordine di riavvio sopra li protegge. Convertirli al client condiviso `scripts/utils/rpc_cookie.py` è un seguito da tracciare.
+
+Fuori dal repository, sul Dell:
+- **`brk`** (container): legge il cookie dal mount `/bitcoin:ro` con UID 1000 (Passo 4).
+- **`mempool-electrs`**, **`mempool-api`**: vedere la sezione 3 sopra (`rpcauth` o cookie montato).
 
 ### Strategia di Coesistenza tramite `rpcauth`
 Per supportare client legacy remoti o container che non possono leggere il file `.cookie` locale, configurare direttive `rpcauth` in `bitcoin.conf`:
@@ -99,19 +115,28 @@ cp -p /media/sam/1TB/UTXOracle/.env "$BK/utxoracle.env"
   ( umask 077; { sed -n 's/^rpcuser=//p' "$BK/bitcoin.conf"; sed -n 's/^rpcpassword=//p' "$BK/bitcoin.conf"; } | paste -sd: - > "$BK/legacy.cred" )
   ```
 
-Controllo RPC reale: una chiamata `getblockcount` per client. La credenziale è letta da un file e passata a `curl` su stdin (`-K -`), mai in argv; l'output è solo etichetta e codice HTTP. `/health` di BRK **non** sostituisce questo controllo: non tocca bitcoind.
+Controllo RPC reale, **attraverso ogni consumatore nel suo contesto**, non dall'host: il controllo gira nel container del consumatore (stesso UID, stesso mount, stesso file di credenziale) oppure con l'entrypoint del client. Un cookie montato male o una password rimasta in memoria danno HTTP 401 qui, anche se l'host riceve 200. L'output è solo etichetta, esito e codice HTTP. `/health` di BRK **non** sostituisce questo controllo: non tocca bitcoind.
 
 ```bash
-rpc_check() {  # uso: rpc_check <etichetta> <file con utente:password o cookie>
+rpc_check() {  # uso: rpc_check <etichetta> ctr <container> <uid:gid> <file credenziale nel container, oppure - per stdin> <url> | rpc_check <etichetta> host <datadir>
   local code
-  code=$(printf 'user = "%s"\n' "$(cat "$2")" | curl -sS -K - -o /dev/null -w '%{http_code}' --max-time 10 \
-    -H 'content-type: text/plain;' \
-    --data-binary '{"jsonrpc":"1.0","id":"chk","method":"getblockcount","params":[]}' \
-    http://127.0.0.1:8332/)
+  case "$2" in
+    ctr) code=$(docker exec -i -u "$4" "$3" sh -c 'command -v curl >/dev/null || { printf n/a; exit 0; }; printf "user = \"%s\"\n" "$(cat "$1")" | curl -sS -K - -o /dev/null -w "%{http_code}" --max-time 10 -H "content-type: text/plain;" --data-binary "{\"jsonrpc\":\"1.0\",\"id\":\"chk\",\"method\":\"getblockcount\",\"params\":[]}" "$2"' _ "$5" "$6" 2>/dev/null) ;;
+    host) ( cd /media/sam/1TB/UTXOracle && BITCOIN_DATADIR="$3" uv run python -m scripts.utils.rpc_cookie "$1" "$3" ); return ;;
+  esac
   echo "$1: HTTP ${code:-000}"
 }
 ```
-Atteso: `HTTP 200` per ogni client. `HTTP 401` = credenziale non accettata; `HTTP 000` = bitcoind non raggiungibile.
+Contesto reale di ciascun consumatore, da compilare dalla configurazione effettiva (`docker compose config`, `systemctl cat`), non a memoria:
+```bash
+RPC_URL=http://127.0.0.1:8332/          # indirizzo RPC come lo vede il consumatore (rete host)
+COOKIE_DIR=/data/cold/12TB/Bitcoin      # datadir di bitcoind sull'host
+BRK_CRED=/bitcoin/.cookie               # percorso del cookie NEL container brk (mount :ro, UID 1000)
+ELECTRS_UID=1000:1000; ELECTRS_CRED=/path/nel/container/electrs.cred   # file che electrs carica davvero
+MEMPOOL_API_UID=1000:1000; MEMPOOL_API_CRED=/path/nel/container/api.cred
+```
+
+Atteso: `HTTP 200` per ogni consumatore. `HTTP 401` = credenziale non accettata dal consumatore; `HTTP 000` = bitcoind non raggiungibile; `HTTP n/a` = il container non ha `curl`: usare l'entrypoint del client (per i client UTXOracle `rpc_check <etichetta> host <datadir>`, eseguito con l'utente e l'ambiente del servizio) oppure aggiungere la prova al suo ciclo di vita. Mai stampare il file di credenziale.
 
 ---
 
@@ -143,20 +168,21 @@ Rimuovere `rpcuser` e `rpcpassword` da bitcoind e dare a ogni consumatore che no
    ```
    Ripetere per `mempool-api` (file `mempool-api.cred`). Il formato dell'output è quello dello script installato: se `tail -n 1` non è la password, correggere prima di proseguire senza stampare il file.
 2. Modificare `bitcoin.conf`: rimuovere o commentare `rpcuser=...` e `rpcpassword=...` (anche nella datadir secondaria `/data/cold/12TB/Bitcoin/bitcoin.conf`, se presente). Opzionale: `-rpccookieperms=group` (mai world-readable).
-3. Aggiornare la configurazione di `mempool-electrs` e `mempool-api` in `/data/4TB/prod/apps/mempool-stack` con le nuove credenziali (editor, non `cat`). UTXOracle non richiede modifiche: legge il cookie quando `rpcpassword` manca.
-4. Riavviare bitcoind e poi i consumatori:
+3. Aggiornare la configurazione di `mempool-electrs` e `mempool-api` in `/data/4TB/prod/apps/mempool-stack` con le nuove credenziali (editor, non `cat`). I consumatori UTXOracle dell'inventario (sezione 3) usano il cookie con precedenza su utente e password, ma le credenziali vecchie vanno comunque tolte: rimuovere `BITCOIN_RPC_USER` e `BITCOIN_RPC_PASSWORD` da `/media/sam/1TB/UTXOracle/.env` (editor, non `cat`) e dall'ambiente di lancio dei batch.
+4. Ordine di riavvio, dopo avere fermato i batch lunghi (`historical_spent_backfill`, `fast_spent_sync*`, `run_combined_bootstrap`) che tengono la credenziale in memoria: bitcoind; poi `mempool-electrs`/`mempool-api`; poi `utxoracle-live.service` (libera il fallback letto all'avvio) e i job che rileggono l'ambiente; infine i batch fermati, rilanciati con `--resume`. BRK resta fermo fino al Passo 4.
    ```bash
    sudo systemctl restart bitcoind.service
    docker compose -f /data/4TB/prod/apps/mempool-stack/docker-compose.yml up -d
+   sudo systemctl restart utxoracle-live.service
    ```
 - **Controllo:**
   ```bash
   systemctl is-active --quiet bitcoind.service && echo "bitcoind active (OK)"
   # Conteggio, non righe: atteso >= 1
   journalctl -u bitcoind.service -n 200 --no-pager | grep -ci -- 'Using random cookie authentication'
-  rpc_check "utxoracle (cookie)" /data/cold/12TB/Bitcoin/.cookie
-  rpc_check "mempool-electrs (rpcauth)" "$BK/mempool-electrs.cred"
-  rpc_check "mempool-api (rpcauth)" "$BK/mempool-api.cred"
+  rpc_check "utxoracle (cookie)" host "$COOKIE_DIR"
+  rpc_check "mempool-electrs (rpcauth)" ctr mempool-electrs "$ELECTRS_UID" "$ELECTRS_CRED" "$RPC_URL"
+  rpc_check "mempool-api (rpcauth)" ctr mempool-api "$MEMPOOL_API_UID" "$MEMPOOL_API_CRED" "$RPC_URL"
   ```
 - **Rollback Passo 2:** eseguire il **Rollback Coordinato** (sezione 5).
 
@@ -211,10 +237,10 @@ Aggiornare il docker-compose di BRK per utilizzare il flag cookie nativo ed elim
 `/health` di BRK usa solo stato locale: risponde 200 anche con autenticazione RPC rotta e non certifica la connessione a bitcoind. La prova valida è la chiamata RPC reale per client.
 
 ```bash
-rpc_check "brk (cookie)" /data/cold/12TB/Bitcoin/.cookie
-rpc_check "utxoracle (cookie)" /data/cold/12TB/Bitcoin/.cookie
-rpc_check "mempool-electrs (rpcauth)" "$BK/mempool-electrs.cred"
-rpc_check "mempool-api (rpcauth)" "$BK/mempool-api.cred"
+rpc_check "brk (cookie)" ctr brk 1000:1000 "$BRK_CRED" "$RPC_URL"
+rpc_check "utxoracle (cookie)" host "$COOKIE_DIR"
+rpc_check "mempool-electrs (rpcauth)" ctr mempool-electrs "$ELECTRS_UID" "$ELECTRS_CRED" "$RPC_URL"
+rpc_check "mempool-api (rpcauth)" ctr mempool-api "$MEMPOOL_API_UID" "$MEMPOOL_API_CRED" "$RPC_URL"
 curl -sS -o /dev/null -w 'brk /health: HTTP %{http_code}\n' --max-time 10 http://127.0.0.1:7070/health
 ```
 - **Controllo:** `HTTP 200` su tutte le righe `rpc_check`; `/health` è solo un controllo di processo e non certifica l'autenticazione. Contare, senza stamparle, le righe di errore di autenticazione nei log recenti di BRK:
@@ -236,6 +262,8 @@ Si applica a qualunque fallimento dal Passo 2 in poi. L'ordine è obbligatorio: 
   cp -p "$BK/bitcoin.conf" /home/sam/.bitcoin/bitcoin.conf
   [ -f "$BK/bitcoin.conf.cold" ] && cp -p "$BK/bitcoin.conf.cold" /data/cold/12TB/Bitcoin/bitcoin.conf
   sudo systemctl restart bitcoind.service
+  # Con rpcpassword ripristinata il cookie non deve esistere: un file residuo (arresto non pulito) ha la precedenza nei client.
+  test ! -e /data/cold/12TB/Bitcoin/.cookie && echo "no stale cookie (OK)"
   ```
 - **R2 — consumatori**: riportare ogni consumatore alla propria configurazione di backup e riavviarlo.
   ```bash
@@ -243,19 +271,21 @@ Si applica a qualunque fallimento dal Passo 2 in poi. L'ordine è obbligatorio: 
   [ -f "$BK/mempool.env" ] && cp -p "$BK/mempool.env" /data/4TB/prod/apps/mempool-stack/.env
   cp -p "$BK/utxoracle.env" /media/sam/1TB/UTXOracle/.env
   docker compose -f /data/4TB/prod/apps/mempool-stack/docker-compose.yml up -d
+  sudo systemctl restart utxoracle-live.service
   ```
+  Rilanciare anche i batch fermati al Passo 2 e i job che rileggono `/media/sam/1TB/UTXOracle/.env`.
 - **R3 — BRK**: ripristinare compose e `.env` di BRK dal backup e avviarlo.
   ```bash
   cp -p "$BK/brk-docker-compose.yml" /data/sata/1TB/brk-v0.3.6/docker/docker-compose.yml
   cp -p "$BK/brk.env" /data/sata/1TB/brk-v0.3.6/.env
   sudo systemctl start brk-stack.service
   ```
-- **R4 — verifica**: una chiamata RPC reale per client, con la credenziale del file ripristinato (BRK e UTXOracle: `rpcuser`/`rpcpassword` di `bitcoin.conf`; mempool: quella del proprio file di backup, qui `legacy.cred` se usava le stesse). `/health` di BRK non sostituisce questa prova.
+- **R4 — verifica**: una chiamata RPC reale per consumatore, nel suo contesto (container o entrypoint). Per i container la credenziale legacy è passata su stdin da `legacy.cred` (contesto di rete e UID reali, non il mount): la credenziale che il client carica davvero la prova il suo avvio. UTXOracle usa il fallback `rpcuser`/`rpcpassword` di `bitcoin.conf` ripristinato. `/health` di BRK non sostituisce questa prova.
   ```bash
-  rpc_check "brk (legacy)" "$BK/legacy.cred"
-  rpc_check "utxoracle (legacy)" "$BK/legacy.cred"
-  rpc_check "mempool-electrs (legacy)" "$BK/legacy.cred"
-  rpc_check "mempool-api (legacy)" "$BK/legacy.cred"
+  rpc_check "brk (legacy)" ctr brk 1000:1000 - "$RPC_URL" < "$BK/legacy.cred"
+  rpc_check "utxoracle (legacy)" host "$COOKIE_DIR"
+  rpc_check "mempool-electrs (legacy)" ctr mempool-electrs "$ELECTRS_UID" - "$RPC_URL" < "$BK/legacy.cred"
+  rpc_check "mempool-api (legacy)" ctr mempool-api "$MEMPOOL_API_UID" - "$RPC_URL" < "$BK/legacy.cred"
   ```
   Atteso: `HTTP 200` su ogni riga.
 

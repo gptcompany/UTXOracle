@@ -4,10 +4,9 @@ Handles RPC communication with the Bitcoin Core node.
 
 import os
 import platform
-import json
-import base64
-import http.client
 import logging
+
+from scripts.utils.rpc_cookie import RpcClient
 
 logger = logging.getLogger("live.rpc")
 
@@ -54,69 +53,33 @@ class BitcoinRPC:
             self.rpc_port = int(conf_settings.get("rpcport", "8332"))
 
         self.cookie_path = os.path.join(self.data_dir, ".cookie")
-
-    def ask_node(self, method: str, params: list = None):
-        """
-        Sends a JSON-RPC request to the Bitcoin node.
-        Based on Ask_Node from UTXOracle.py (lines 233-295).
-        """
-        params = params or []
-
-        rpc_u = self.rpc_user
-        rpc_p = self.rpc_password
-
-        if not rpc_u or not rpc_p:
-            try:
-                with open(self.cookie_path, "r") as f:
-                    cookie = f.read().strip()
-                    rpc_u, rpc_p = cookie.split(":", 1)
-            except Exception as e:
-                logger.error(f"Error reading .cookie file for RPC auth: {e}")
-                raise ConnectionError(
-                    "Could not authenticate with Bitcoin Core. Check .cookie file or bitcoin.conf."
-                )
-
-        payload = json.dumps(
-            {
-                "jsonrpc": "1.0",
-                "id": "utxoracle-live",
-                "method": method,
-                "params": params,
-            }
+        # rpcuser/rpcpassword from bitcoin.conf are only the fallback; the cookie wins.
+        fallback = (
+            (self.rpc_user, self.rpc_password)
+            if self.rpc_user and self.rpc_password
+            else None
+        )
+        self._client = RpcClient(
+            self.data_dir,
+            host=self.rpc_host,
+            port=self.rpc_port,
+            fallback=fallback,
+            timeout=30,
+            request_id="utxoracle-live",
         )
 
-        auth_header = base64.b64encode(f"{rpc_u}:{rpc_p}".encode()).decode()
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Basic {auth_header}",
-        }
+    def ask_node(self, method: str, params: list = None):
+        """Send a JSON-RPC request; the cookie wins and is re-read once on HTTP 401.
 
+        Based on Ask_Node from UTXOracle.py (lines 233-295).
+        """
         try:
-            conn = http.client.HTTPConnection(self.rpc_host, self.rpc_port, timeout=30)
-            conn.request("POST", "/", payload, headers)
-            response = conn.getresponse()
-
-            if response.status != 200:
-                raise ConnectionError(
-                    f"RPC Error: HTTP {response.status} {response.reason}"
-                )
-
-            raw_data = response.read()
-            conn.close()
-
-            parsed = json.loads(raw_data)
-            if parsed.get("error"):
-                raise ConnectionError(f"RPC call failed: {parsed['error']}")
-
-            return parsed["result"]
-
+            return self._client.call(method, params)
         except ConnectionRefusedError:
             logger.error(f"RPC connection to {self.rpc_host}:{self.rpc_port} refused.")
             raise ConnectionError(
                 "Connection refused. Is bitcoind running with -server=1?"
             )
         except Exception as e:
-            logger.error(
-                f"An unexpected error occurred during RPC call '{method}': {e}"
-            )
+            logger.error(f"RPC call '{method}' failed: {e}")
             raise

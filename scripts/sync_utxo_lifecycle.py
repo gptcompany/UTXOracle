@@ -44,6 +44,7 @@ from scripts.metrics.utxo_lifecycle import (
 )
 from scripts.models.metrics_models import AgeCohortsConfig
 from scripts.config import UTXORACLE_DB_PATH
+from scripts.utils.rpc_cookie import RpcClient
 
 # =============================================================================
 # Configuration
@@ -120,21 +121,14 @@ ELECTRS_URL = os.getenv("ELECTRS_HTTP_URL", "http://127.0.0.1:3002")
 
 
 class BitcoinRPC:
-    """Pure Python Bitcoin Core RPC client (no external dependencies).
+    """Pure Python Bitcoin Core RPC client: cookie auth first (scripts/utils/rpc_cookie.py).
 
     Based on UTXOracle.py reference implementation.
-    Uses http.client for zero-dependency RPC calls.
+    Uses http.client; rpcuser/rpcpassword are only a fallback.
     """
 
     def __init__(self):
-        """Initialize RPC connection using cookie auth or env credentials."""
-        import http.client
-        import base64
-
-        self._http = http.client
-        self._base64 = base64
-        self._json = __import__("json")
-
+        """Initialize RPC connection: cookie first, env/conf credentials as fallback."""
         # Get connection settings from env
         bitcoin_conf = _load_bitcoin_conf()
         rpc_host = bitcoin_conf.get("rpcconnect", "127.0.0.1")
@@ -180,56 +174,32 @@ class BitcoinRPC:
             self.host = "127.0.0.1"
             self.port = 8332
 
-        # Try cookie auth if no credentials
-        if not self.rpc_user or not self.rpc_pass:
-            datadir = (
-                _clean_env_value(os.getenv("BITCOIN_DATADIR"))
-                or bitcoin_conf.get("datadir")
-                or os.path.expanduser("~/.bitcoin")
+        # Cookie auth wins; rpcuser/rpcpassword (env, URL, bitcoin.conf) are only the
+        # fallback used while the runbook rollback has them reinstated.
+        datadir = (
+            _clean_env_value(os.getenv("BITCOIN_DATADIR"))
+            or bitcoin_conf.get("datadir")
+            or os.path.expanduser("~/.bitcoin")
+        )
+        fallback = (
+            (self.rpc_user, self.rpc_pass) if self.rpc_user and self.rpc_pass else None
+        )
+        self._client = RpcClient(
+            datadir,
+            host=self.host,
+            port=self.port,
+            fallback=fallback,
+            timeout=120,
+            request_id="utxoracle-sync",
+        )
+        if self._client._cookie is None and fallback is None:
+            raise RuntimeError(
+                f"No RPC credentials and cookie not found under {datadir}"
             )
-            cookie_path = Path(datadir) / ".cookie"
-            if cookie_path.exists():
-                cookie = cookie_path.read_text().strip()
-                self.rpc_user, self.rpc_pass = cookie.split(":", 1)
-            else:
-                raise RuntimeError(
-                    f"No RPC credentials and cookie not found at {cookie_path}"
-                )
 
     def _call(self, method: str, *params) -> any:
-        """Make RPC call and return result."""
-        payload = self._json.dumps(
-            {
-                "jsonrpc": "1.0",
-                "id": "utxoracle-sync",
-                "method": method,
-                "params": list(params),
-            }
-        )
-
-        auth = self._base64.b64encode(
-            f"{self.rpc_user}:{self.rpc_pass}".encode()
-        ).decode()
-
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Basic {auth}",
-        }
-
-        conn = self._http.HTTPConnection(self.host, self.port, timeout=120)
-        conn.request("POST", "/", payload, headers)
-        response = conn.getresponse()
-
-        if response.status != 200:
-            raise Exception(f"RPC error: HTTP {response.status} {response.reason}")
-
-        data = self._json.loads(response.read())
-        conn.close()
-
-        if data.get("error"):
-            raise Exception(f"RPC error: {data['error']}")
-
-        return data["result"]
+        """Make RPC call and return result (cookie re-read once on HTTP 401)."""
+        return self._client.call(method, list(params))
 
     def getblockcount(self) -> int:
         """Get current block count."""

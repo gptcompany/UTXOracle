@@ -158,6 +158,10 @@ class TestRunbookNeverPrintsValues:
             r"(^|[;&|]\s*)(cat|head|tail|less|more|printenv|env|set)\b|docker inspect|docker exec"
         )
         for command in runbook_commands(RUNBOOK_PATH.read_text(encoding="utf-8")):
+            if "docker exec" in command:
+                # R4-M3: the only allowed exec is the sanitized rpc_check one (code only).
+                assert "-o /dev/null" in command and '-w "%{http_code}"' in command
+                command = command.replace("docker exec", "")
             # Command substitution feeding printf/curl never reaches the terminal.
             outside_substitution = re.sub(r"\$\([^)]*\)", "", command)
             assert not forbidden.search(outside_substitution), command
@@ -229,8 +233,10 @@ class TestRunbookCoordinatedRollback:
         text = self._text()
         definition = self._section(text, "rpc_check() {", "\n}\n")
         assert "-o /dev/null" in definition
-        assert "-w '%{http_code}'" in definition
+        assert "%{http_code}" in definition
         assert "-K -" in definition, "credential must not be in curl argv"
+        # R4-M3: queried through the consumer's container or entrypoint, not from the host.
+        assert "docker exec" in definition and "scripts.utils.rpc_cookie" in definition
         for command in runbook_commands(text):
             if re.search(r"\bcurl\b", command):
                 assert "-o /dev/null" in command and "-w " in command, command

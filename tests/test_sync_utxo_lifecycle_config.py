@@ -24,9 +24,11 @@ def test_encrypted_env_value_is_ignored():
     )
 
 
-def test_bitcoin_rpc_uses_credentials_from_bitcoin_conf(monkeypatch):
+def test_bitcoin_rpc_uses_credentials_from_bitcoin_conf(monkeypatch, tmp_path):
     from scripts import sync_utxo_lifecycle
 
+    # No cookie in the datadir: user/password are the documented fallback.
+    monkeypatch.setenv("BITCOIN_DATADIR", str(tmp_path))
     monkeypatch.delenv("BITCOIN_RPC_URL", raising=False)
     monkeypatch.delenv("BITCOIN_RPC_USER", raising=False)
     monkeypatch.delenv("BITCOIN_RPC_PASSWORD", raising=False)
