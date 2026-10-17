@@ -21,7 +21,7 @@ Environment=PYTHONUNBUFFERED=1
 Environment="PATH=/home/sam/.local/bin:/usr/local/bin:/usr/bin:/bin"
 EnvironmentFile=-/media/sam/1TB/UTXOracle/.env
 ExecStart=/usr/bin/env bash /media/sam/1TB/UTXOracle/scripts/bootstrap/utxo_lifecycle_supervisor.sh creation
-ExecStopPost=/bin/sh -c '[ "$SERVICE_RESULT" = success ] || exec /usr/bin/env bash /media/sam/1TB/UTXOracle/scripts/alerts/ntfy_dati.sh 3 warning "%n failed" "result=$SERVICE_RESULT exit=$EXIT_CODE/$EXIT_STATUS"'
+ExecStopPost=-/bin/sh -c '[ "$SERVICE_RESULT" = success ] || exec /usr/bin/env bash /media/sam/1TB/UTXOracle/scripts/alerts/ntfy_dati.sh 3 warning "%n failed" "result=$SERVICE_RESULT exit=$EXIT_CODE/$EXIT_STATUS"'
 Restart=on-failure
 RestartSec=60s
 StandardOutput=journal
