@@ -227,7 +227,7 @@ def test_questdb_only_write_failure_raises_and_notifies(
         _run_single_date,
     )
 
-    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord.invalid/webhook/abc")
+    monkeypatch.setenv("NTFY_TOPIC_DATI", "topic-fixture")
     posted: list = []
 
     class _FakeResponse:
@@ -241,7 +241,7 @@ def test_questdb_only_write_failure_raises_and_notifies(
             return b""
 
     def fake_urlopen(request, timeout=None):
-        posted.append((request.full_url, request.data, timeout))
+        posted.append((request.full_url, request.data, timeout, request.get_header("Title")))
         return _FakeResponse()
 
     def boom(*args, **kwargs):
@@ -275,9 +275,8 @@ def test_questdb_only_write_failure_raises_and_notifies(
             )
 
     assert len(posted) == 1
-    payload = __import__("json").loads(posted[0][1].decode("utf-8"))
-    assert "QuestDBPersistenceError" in payload["content"]
-    assert fake_metrics["date"].isoformat() in payload["content"]
+    assert "QuestDBPersistenceError" in posted[0][1].decode("utf-8")
+    assert fake_metrics["date"].isoformat() in posted[0][3]
 
 
 def test_legacy_single_date_dual_write_happens_once(fake_metrics, duckdb_conn):
@@ -556,11 +555,11 @@ def test_questdb_unreachable_fails_fast(duckdb_conn):
     duckdb_conn.execute.assert_not_called()
 
 
-def test_failure_emits_discord_webhook(monkeypatch):
-    """T046 / FR-012: failure path POSTs to DISCORD_WEBHOOK_URL once."""
-    from scripts.metrics.calculate_daily_metrics import _post_discord_failure
+def test_failure_emits_ntfy_notification(monkeypatch):
+    """T046 / FR-012: failure path POSTs once to the ntfy dati topic at priority 3."""
+    from scripts.metrics.calculate_daily_metrics import _post_ntfy_failure
 
-    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord.invalid/webhook/abc")
+    monkeypatch.setenv("NTFY_TOPIC_DATI", "topic-fixture")
     posted: list = []
 
     class _FakeResponse:
@@ -574,7 +573,7 @@ def test_failure_emits_discord_webhook(monkeypatch):
             return b""
 
     def fake_urlopen(request, timeout=None):
-        posted.append((request.full_url, request.data, timeout))
+        posted.append((request.full_url, request.data, timeout, request.get_header("Title")))
         return _FakeResponse()
 
     monkeypatch.setattr(
@@ -582,23 +581,24 @@ def test_failure_emits_discord_webhook(monkeypatch):
         fake_urlopen,
     )
 
-    _post_discord_failure(date(2026, 6, 4), RuntimeError("simulated failure"))
+    monkeypatch.setattr(
+        "scripts.metrics.calculate_daily_metrics.socket.gethostname", lambda: "sam7670"
+    )
+    _post_ntfy_failure(date(2026, 6, 4), RuntimeError("simulated failure"))
 
     assert len(posted) == 1
-    url, body, timeout = posted[0]
-    assert url == "https://discord.invalid/webhook/abc"
+    url, body, timeout, title = posted[0]
+    assert url == "https://ntfy.sh/topic-fixture"
     assert timeout == 3
-    payload = __import__("json").loads(body.decode("utf-8"))
-    assert "2026-06-04" in payload["content"]
-    assert "RuntimeError" in payload["content"]
-    assert "simulated failure" in payload["content"]
+    assert title == "dati/utxoracle: aggregator failed for 2026-06-04 su sam7670"
+    assert body.decode("utf-8") == "RuntimeError - simulated failure"
 
 
-def test_success_does_not_emit_discord_webhook(monkeypatch):
+def test_success_does_not_emit_ntfy_notification(monkeypatch):
     """FR-012: successful runs MUST NOT POST to the webhook."""
     from scripts.metrics.calculate_daily_metrics import _run_single_date
 
-    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord.invalid/webhook/abc")
+    monkeypatch.setenv("NTFY_TOPIC_DATI", "topic-fixture")
     posted: list = []
 
     def _record(*args, **kwargs):
@@ -629,7 +629,7 @@ def test_questdb_only_backfill_aborts_on_first_failure(monkeypatch):
     """Production backfills must exit non-zero instead of hiding date failures."""
     from scripts.metrics.calculate_daily_metrics import backfill_metrics
 
-    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord.invalid/webhook/abc")
+    monkeypatch.setenv("NTFY_TOPIC_DATI", "topic-fixture")
     posted: list = []
 
     class _FakeResponse:
@@ -643,7 +643,7 @@ def test_questdb_only_backfill_aborts_on_first_failure(monkeypatch):
             return b""
 
     def fake_urlopen(request, timeout=None):
-        posted.append((request.full_url, request.data, timeout))
+        posted.append((request.full_url, request.data, timeout, request.get_header("Title")))
         return _FakeResponse()
 
     calculate = MagicMock(side_effect=ConnectionError("QuestDB down"))
@@ -667,9 +667,8 @@ def test_questdb_only_backfill_aborts_on_first_failure(monkeypatch):
 
     assert calculate.call_count == 1
     assert len(posted) == 1
-    payload = __import__("json").loads(posted[0][1].decode("utf-8"))
-    assert "2026-06-03" in payload["content"]
-    assert "ConnectionError" in payload["content"]
+    assert "2026-06-03" in posted[0][3]
+    assert "ConnectionError" in posted[0][1].decode("utf-8")
 
 
 def test_concurrent_runs_converge_via_dedup(fake_metrics, duckdb_conn):
@@ -699,3 +698,36 @@ def test_concurrent_runs_converge_via_dedup(fake_metrics, duckdb_conn):
     assert calls[0] == calls[3]  # mvrv first vs second run
     assert calls[1] == calls[4]  # nupl
     assert calls[2] == calls[5]  # realized_cap
+
+
+def test_ntfy_failure_logs_http_code_without_topic(monkeypatch, caplog):
+    """FR-012: a rejected publish is logged with its code and never raises."""
+    import urllib.error
+
+    from scripts.metrics.calculate_daily_metrics import _post_ntfy_failure
+
+    monkeypatch.setenv("NTFY_TOPIC_DATI", "topic-fixture")
+
+    def rejected(request, timeout=None):
+        raise urllib.error.HTTPError(request.full_url, 429, "quota", None, None)
+
+    monkeypatch.setattr(
+        "scripts.metrics.calculate_daily_metrics.urllib.request.urlopen", rejected
+    )
+    with caplog.at_level("WARNING"):
+        _post_ntfy_failure(date(2026, 6, 4), RuntimeError("x"))
+    assert "HTTP 429" in caplog.text
+    assert "topic-fixture" not in caplog.text
+
+
+def test_ntfy_failure_without_topic_is_logged(monkeypatch, caplog):
+    from scripts.metrics.calculate_daily_metrics import _post_ntfy_failure
+
+    monkeypatch.delenv("NTFY_TOPIC_DATI", raising=False)
+    monkeypatch.setattr(
+        "scripts.metrics.calculate_daily_metrics.urllib.request.urlopen",
+        MagicMock(side_effect=AssertionError("no publish without a topic")),
+    )
+    with caplog.at_level("WARNING"):
+        _post_ntfy_failure(date(2026, 6, 4), RuntimeError("x"))
+    assert "NTFY_TOPIC_DATI not set" in caplog.text

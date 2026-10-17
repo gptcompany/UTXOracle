@@ -18,9 +18,9 @@ This module aggregates UTXO data into daily metric tables:
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import os
+import socket
 import time
 import urllib.error
 import urllib.request
@@ -739,40 +739,51 @@ def _persist_to_questdb(
     return rows_written
 
 
-def _post_discord_failure(target_date: date, exc: BaseException) -> None:
-    """FR-012: Discord webhook notification on failure only.
+def _post_ntfy_failure(target_date: date, exc: BaseException) -> None:
+    """FR-012: ntfy notification on failure only (gbg-agents ntfy-topic-per-dominio).
 
-    Posts a one-line summary on failure. Webhook errors are swallowed -- they
-    MUST NOT mask the original aggregator exception.
+    Publishes a one-line summary on the dati topic at priority 3 (the Dell's cap).
+    Publish errors are logged with the HTTP code and swallowed -- they MUST NOT
+    mask the original aggregator exception. The topic name is never logged.
     """
-    webhook = os.environ.get("DISCORD_WEBHOOK_URL", "").strip()
-    if not webhook or webhook.startswith("ENC[") or webhook.startswith("encrypted:"):
+    topic = os.environ.get("NTFY_TOPIC_DATI", "").strip()
+    if not topic or topic.startswith("ENC[") or topic.startswith("encrypted:"):
+        logger.warning(
+            "NTFY_TOPIC_DATI not set: aggregator failure for %s not published",
+            target_date,
+        )
         return
+    base_url = os.environ.get("NTFY_BASE_URL", "https://ntfy.sh").rstrip("/")
     summary = str(exc).splitlines()[0] if str(exc) else ""
     if len(summary) > 200:
         summary = summary[:197] + "..."
-    payload = json.dumps(
-        {
-            "content": (
-                f":rotating_light: UTXOracle aggregator failed for "
-                f"{target_date.isoformat()}: {type(exc).__name__} - {summary}"
-            )
-        }
-    ).encode("utf-8")
     request = urllib.request.Request(
-        webhook,
-        data=payload,
-        headers={"Content-Type": "application/json"},
+        f"{base_url}/{topic}",
+        data=f"{type(exc).__name__} - {summary}".encode("utf-8"),
+        headers={
+            "Priority": "3",
+            "Tags": "warning",
+            "Title": (
+                f"dati/utxoracle: aggregator failed for {target_date.isoformat()} "
+                f"su {socket.gethostname()}"
+            ),
+        },
         method="POST",
     )
     try:
         with urllib.request.urlopen(request, timeout=3) as response:
             response.read(0)
-    except (urllib.error.URLError, OSError, TimeoutError) as webhook_exc:
+    except urllib.error.HTTPError as publish_exc:
         logger.warning(
-            "Discord webhook post failed for %s (suppressed): %s",
+            "ntfy publish failed for %s with HTTP %s (suppressed)",
             target_date,
-            webhook_exc,
+            publish_exc.code,
+        )
+    except (urllib.error.URLError, OSError, TimeoutError) as publish_exc:
+        logger.warning(
+            "ntfy publish failed for %s (suppressed): %s",
+            target_date,
+            type(getattr(publish_exc, "reason", publish_exc)).__name__,
         )
 
 
@@ -787,7 +798,7 @@ def _run_single_date(
     """FR-011 single-date wrapper.
 
     Measures wall-clock duration, counts metric rows written, emits ONE INFO
-    log on success and ONE ERROR log + Discord webhook on failure (FR-012).
+    log on success and ONE ERROR log + ntfy notification on failure (FR-012).
     Returns the count of rows written (0 when dry-run).
     """
     started = time.monotonic()
@@ -822,7 +833,7 @@ def _run_single_date(
             type(exc).__name__,
             exc_info=True,
         )
-        _post_discord_failure(target_date, exc)
+        _post_ntfy_failure(target_date, exc)
         raise
 
 

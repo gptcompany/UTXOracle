@@ -62,7 +62,7 @@ uv run python -m scripts.metrics.calculate_daily_metrics \
     --questdb-reads --questdb-only
 ```
 
-In production mode (`--questdb-reads --questdb-only`), the first failed date logs an ERROR with traceback, sends the Discord failure webhook, and aborts the backfill with a non-zero exit code. Legacy/non-production backfills keep the historical best-effort behavior.
+In production mode (`--questdb-reads --questdb-only`), the first failed date logs an ERROR with traceback, publishes the ntfy failure notification on the dati topic, and aborts the backfill with a non-zero exit code. Legacy/non-production backfills keep the historical best-effort behavior.
 
 ## Legacy DuckDB mode (still supported during transition)
 
@@ -87,13 +87,13 @@ The timer's `ExecStart` passes `--questdb-reads --questdb-only` so the zero-Duck
 
 ## Failure handling
 
-On failure, the script writes a structured ERROR log with traceback to journal and POSTs a one-line summary to `DISCORD_WEBHOOK_URL`:
+On failure, the script writes a structured ERROR log with traceback to journal and POSTs a one-line summary to the ntfy dati topic (`NTFY_TOPIC_DATI`, priority 3):
 
 ```bash
 # Tail recent failures
 journalctl -u utxoracle-daily-aggregator.service -p err -n 20 --no-pager
 
-# Check Discord channel for webhook notification.
+# The ntfy dati topic carries the failure notification (the topic name is a secret: read it from .env, never echo it).
 ```
 
 The `/v1/streams/health` endpoint (spec-061) reports `mvrv_daily` / `nupl_daily` / `realized_cap_daily` as STALE within minutes of the SLA window expiring. That is the canonical "is the daily window fresh?" surface — do not poll the systemd timer state for that signal.
