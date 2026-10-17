@@ -52,6 +52,10 @@ class BitcoinRPC:
 
         if not user or not pw:
             # Fallback to cookie auth
+            if target.cookie_path is None:
+                raise RuntimeError(
+                    "No RPC credentials and cookie disabled by norpccookiefile"
+                )
             with open(target.cookie_path) as f:
                 cookie = f.read().strip()
             user, pw = cookie.split(":")

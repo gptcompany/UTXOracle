@@ -41,6 +41,8 @@ class BitcoinRPC:
         target = resolve_target(datadir)
         self.host, self.port = target.host, target.port
         cookie_path = target.cookie_path
+        if cookie_path is None:
+            raise RuntimeError("RPC cookie disabled by norpccookiefile")
 
         with open(cookie_path) as f:
             cookie = f.read().strip()

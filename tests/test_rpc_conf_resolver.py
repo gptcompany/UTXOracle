@@ -511,3 +511,48 @@ def test_no_batch_resolves_conf_datadir_or_cookie_itself(source):
         "BITCOIN_COOKIE_PATH",
     }
     assert not owned & strings, f"{source} resolves the connection on its own"
+
+
+def test_build_block_heights_brackets_an_ipv6_rpcconnect(batch_node, monkeypatch):
+    import asyncio
+
+    import duckdb
+
+    from scripts.bootstrap import build_block_heights as mod
+
+    conf = batch_node.datadir / "bitcoin.conf"
+    conf.write_text(
+        "rpcconnect=[::1]\n" + conf.read_text()
+    )  # default section, before [regtest]
+    urls = []
+
+    class Stop(Exception):
+        pass
+
+    def post(self, url, **kwargs):
+        urls.append(url)
+        raise Stop
+
+    monkeypatch.setattr(mod.aiohttp.ClientSession, "post", post)
+    with pytest.raises(Stop):
+        asyncio.run(
+            mod.build_block_heights_table_rpc(
+                duckdb.connect(":memory:"), start_height=0
+            )
+        )
+    assert urls == [f"http://[::1]:{batch_node.port}"]
+
+
+@pytest.mark.parametrize(
+    "module",
+    ["scripts.bootstrap.fast_spent_sync", "scripts.bootstrap.fast_spent_sync_v2"],
+)
+def test_fast_spent_sync_norpccookiefile_is_an_explicit_error(batch_node, module):
+    import importlib
+
+    conf = batch_node.datadir / "bitcoin.conf"
+    conf.write_text(
+        "norpccookiefile=1\n" + conf.read_text()
+    )  # default section, before [regtest]
+    with pytest.raises(RuntimeError, match="norpccookiefile"):
+        importlib.import_module(module).BitcoinRPC()

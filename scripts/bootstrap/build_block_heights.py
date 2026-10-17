@@ -249,7 +249,8 @@ async def build_block_heights_table_rpc(
     # scripts.utils.rpc_cookie.resolve_target (datadir, network, host, port, cookie).
     if rpc_url is None or cookie_path is None:
         target = resolve_target()
-        rpc_url = rpc_url or f"http://{target.host}:{target.port}"
+        host = f"[{target.host}]" if ":" in target.host else target.host  # IPv6
+        rpc_url = rpc_url or f"http://{host}:{target.port}"
         if cookie_path is None and target.cookie_path is not None:
             cookie_path = str(target.cookie_path)
 
