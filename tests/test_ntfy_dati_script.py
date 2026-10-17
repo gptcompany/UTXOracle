@@ -15,6 +15,11 @@ TOPIC = "dati-topic-fixture"
 FAKE_CURL = """#!/usr/bin/env bash
 printf '%s\\n' "$@" > "$CAPTURE/argv"
 cat > "$CAPTURE/config"
+if [ -n "${FAKE_CURL_ERROR:-}" ]; then
+  # Like curl's own diagnostics (bad URL, glob, TLS): they quote the URL read from -K.
+  printf 'curl: (3) URL rejected: %s\\n' "$(cat "$CAPTURE/config")" >&2
+  exit 3
+fi
 printf '%s' "${FAKE_HTTP_CODE:-200}"
 """
 
@@ -71,8 +76,18 @@ def test_priority_is_capped_at_3_on_the_dell(run):
 def test_rejected_or_unconfigured_publish_exits_1_with_the_reason(run):
     rejected = run("3", "warning", "e", "b", FAKE_HTTP_CODE="429")
     assert rejected.returncode == 1
-    assert "failed with HTTP 429" in rejected.stderr
+    assert "dati priority 3 failed with HTTP 429" in rejected.stderr
     for value in ("", "ENC[abc]", "encrypted:abc"):
         missing = run("3", "warning", "e", "b", NTFY_TOPIC_DATI=value)
         assert missing.returncode == 1
         assert "NTFY_TOPIC_DATI not set" in missing.stderr
+
+
+def test_curl_diagnostics_never_reach_the_log(run):
+    result = run("3", "warning", "e", "b", FAKE_CURL_ERROR="1")
+    assert result.returncode == 1
+    assert "dati priority 3 failed with HTTP 000 (curl exit 3)" in result.stderr
+    argv = (run.capture / "argv").read_text(encoding="utf-8")
+    for text in (argv, result.stdout, result.stderr):
+        assert TOPIC not in text
+        assert "ntfy.sh" not in text
