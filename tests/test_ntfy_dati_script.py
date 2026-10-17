@@ -72,6 +72,7 @@ def test_rejected_or_unconfigured_publish_exits_1_with_the_reason(run):
     rejected = run("3", "warning", "e", "b", FAKE_HTTP_CODE="429")
     assert rejected.returncode == 1
     assert "failed with HTTP 429" in rejected.stderr
-    missing = run("3", "warning", "e", "b", NTFY_TOPIC_DATI="")
-    assert missing.returncode == 1
-    assert "NTFY_TOPIC_DATI not set" in missing.stderr
+    for value in ("", "ENC[abc]", "encrypted:abc"):
+        missing = run("3", "warning", "e", "b", NTFY_TOPIC_DATI=value)
+        assert missing.returncode == 1
+        assert "NTFY_TOPIC_DATI not set" in missing.stderr

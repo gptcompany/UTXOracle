@@ -13,10 +13,13 @@ priority="$1" tags="$2" event="$3" body="$4"
 title="dati/utxoracle: ${event} su $(hostname -s)"
 title="${title//[$'\r\n']/ }"
 
-if [ -z "${NTFY_TOPIC_DATI:-}" ]; then
-    echo "ntfy: NTFY_TOPIC_DATI not set, not sent: ${title}" >&2
-    exit 1
-fi
+# A dotenvx-encrypted value (ENC[...] / encrypted:...) is not a topic: never publish to it.
+case "${NTFY_TOPIC_DATI:-}" in
+    "" | ENC\[* | encrypted:*)
+        echo "ntfy: NTFY_TOPIC_DATI not set, not sent: ${title}" >&2
+        exit 1
+        ;;
+esac
 
 code="$(printf 'url = "%s/%s"\n' "${NTFY_BASE_URL:-https://ntfy.sh}" "${NTFY_TOPIC_DATI}" \
     | curl -sS -m 10 -o /dev/null -w '%{http_code}' -K - \
