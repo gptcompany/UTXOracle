@@ -18,12 +18,10 @@ it and none reads bitcoin.conf on its own.
 
 from __future__ import annotations
 
-import argparse
 import base64
 import configparser
 import functools
 import http.client
-import importlib
 import json
 import logging
 import os
@@ -474,53 +472,3 @@ class RpcClient:
         if data.get("error"):
             raise ConnectionError(f"RPC {method} failed: {data['error']}")
         return data["result"]
-
-
-# The UTXOracle consumers a runbook check can certify: the factory each one builds
-# its production client with (module, attribute) and the method it calls RPC with.
-CONSUMERS = {
-    "live": ("live.backend.bitcoin_rpc", "BitcoinRPC", "ask_node"),
-    "sync": ("scripts.sync_utxo_lifecycle", "BitcoinRPC", "_call"),
-    "daily": ("scripts.daily_analysis", "rpc_client", "call"),
-}
-
-
-def consumer_factory(name: str):
-    """The production factory of a consumer, the very object its code calls."""
-    module, attribute, _ = CONSUMERS[name]
-    return getattr(importlib.import_module(module), attribute)
-
-
-def main(argv: list[str] | None = None) -> int:
-    """Runbook check: ``python -m scripts.utils.rpc_cookie <label> <consumer>``.
-
-    A consumer is certified only by its own code: the check calls the consumer's
-    production factory with no connection parameter (no datadir, network, host,
-    port, cookie or credential is accepted) and runs ``getblockcount`` through the
-    consumer's own call. It must run with the consumer's user, environment and
-    working directory (docs/BRK_COOKIE_MIGRATION_RUNBOOK.md, rpc_check). Prints
-    only the label, the outcome and the HTTP code, never a value.
-    """
-    parser = argparse.ArgumentParser(prog="python -m scripts.utils.rpc_cookie")
-    parser.add_argument("label")
-    parser.add_argument("consumer", choices=sorted(CONSUMERS))
-    args = parser.parse_args(argv)
-    method = CONSUMERS[args.consumer][2]
-    try:
-        getattr(consumer_factory(args.consumer)(), method)("getblockcount")
-    except RpcHttpError as exc:
-        print(f"{args.label}: FAIL HTTP {exc.status:03d}")
-        return 1
-    except Exception as exc:  # the consumer could not build its client or connect
-        logger.error("%s: %s", args.label, type(exc).__name__)
-        print(f"{args.label}: FAIL HTTP 000")
-        return 1
-    print(f"{args.label}: OK HTTP 200")
-    return 0
-
-
-if __name__ == "__main__":
-    # Run the imported module, not __main__: consumers raise its RpcHttpError class.
-    from scripts.utils.rpc_cookie import main as _main
-
-    raise SystemExit(_main())

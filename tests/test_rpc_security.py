@@ -221,7 +221,8 @@ class TestRunbookCoordinatedRollback:
         assert "getblockcount" in text
         migration = self._section(text, "### Passo 5", "## 5. Rollback Coordinato")
         rollback = self._section(text, "## 5. Rollback Coordinato")
-        clients = ("brk", "utxoracle", "mempool-electrs", "mempool-api")
+        # Host UTXOracle consumers are certified in UTXOracle#16, not here (R5-M1).
+        clients = ("brk", "mempool-electrs", "mempool-api")
         for label, section in (("migrazione", migration), ("rollback", rollback)):
             calls = [line for line in section.splitlines() if "rpc_check " in line]
             for client in clients:
@@ -235,8 +236,8 @@ class TestRunbookCoordinatedRollback:
         assert "-o /dev/null" in definition
         assert "%{http_code}" in definition
         assert "-K -" in definition, "credential must not be in curl argv"
-        # R4-M3: queried through the consumer's container or entrypoint, not from the host.
-        assert "docker exec" in definition and "scripts.utils.rpc_cookie" in definition
+        # R4-M3: queried through the consumer's container, not from the host.
+        assert "docker exec" in definition
         for command in runbook_commands(text):
             if re.search(r"\bcurl\b", command):
                 assert "-o /dev/null" in command and "-w " in command, command
