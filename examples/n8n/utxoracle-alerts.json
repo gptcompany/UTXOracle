@@ -150,13 +150,57 @@
     },
     {
       "parameters": {
-        "webhookUri": "={{ $env.DISCORD_WEBHOOK_URL }}",
-        "text": "={{ $json.text }}"
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "ntfy-dati-configured",
+              "leftValue": "={{ /^https?:\\/\\/[^\\s\\/]+/.test($env.NTFY_BASE_URL || '') && /^(?!ENC\\[|encrypted:)[A-Za-z0-9_-]+$/.test($env.NTFY_TOPIC_DATI || '') }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
       },
-      "id": "discord-critical",
-      "name": "Discord (Critical)",
-      "type": "n8n-nodes-base.discord",
-      "typeVersion": 1,
+      "id": "ntfy-dati-configured",
+      "name": "ntfy dati configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [920, 100],
+      "notes": "Fail closed: without NTFY_BASE_URL and a plain NTFY_TOPIC_DATI nothing is sent (no public default)."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.NTFY_BASE_URL + '/' + $env.NTFY_TOPIC_DATI }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Priority", "value": "3" },
+            { "name": "Tags", "value": "rotating_light" },
+            { "name": "Title", "value": "dati/utxoracle: critical alert" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "text/plain",
+        "body": "={{ $json.text }}",
+        "options": {}
+      },
+      "id": "ntfy-dati-critical",
+      "name": "ntfy dati (Critical)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [1120, 100]
     }
   ],
@@ -257,7 +301,7 @@
             "index": 0
           },
           {
-            "node": "Discord (Critical)",
+            "node": "ntfy dati configured?",
             "type": "main",
             "index": 0
           }
@@ -276,6 +320,18 @@
             "index": 0
           }
         ]
+      ]
+    },
+    "ntfy dati configured?": {
+      "main": [
+        [
+          {
+            "node": "ntfy dati (Critical)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
       ]
     }
   },
