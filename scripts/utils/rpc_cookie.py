@@ -165,6 +165,9 @@ def parse_conf(path: Path) -> dict[str, dict[str, list]]:
         return {}
     except OSError as exc:
         raise ConfigError(f"{path}: not readable ({exc.strerror})") from None
+    except UnicodeDecodeError as exc:
+        # Offset only: the undecodable bytes can belong to a credential.
+        raise ConfigError(f"{path}: not UTF-8 at byte {exc.start}") from None
     log: list = []
     parser = configparser.ConfigParser(
         dict_type=functools.partial(_Assignments, log),

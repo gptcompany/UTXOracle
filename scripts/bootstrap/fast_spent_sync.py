@@ -16,14 +16,13 @@ Usage:
 import argparse
 
 from scripts.config import UTXORACLE_DB_PATH
+from scripts.utils.rpc_cookie import resolve_target
 import http.client
 import base64
 import json
 import logging
-import os
 import time
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 
 import duckdb
 
@@ -38,8 +37,10 @@ class BitcoinRPC:
     """Thread-safe Bitcoin Core RPC client (creates new connection per call)."""
 
     def __init__(self, datadir: str = None):
-        datadir = datadir or os.getenv("BITCOIN_DATADIR", "/media/sam/3TB-WDC/Bitcoin")
-        cookie_path = Path(datadir) / ".cookie"
+        # Datadir, network, host, port and cookie path: scripts.utils.rpc_cookie.
+        target = resolve_target(datadir)
+        self.host, self.port = target.host, target.port
+        cookie_path = target.cookie_path
 
         with open(cookie_path) as f:
             cookie = f.read().strip()
@@ -50,7 +51,7 @@ class BitcoinRPC:
     def call(self, method: str, *params):
         """Thread-safe RPC call - creates new connection per request."""
         payload = json.dumps({"method": method, "params": list(params), "id": 1})
-        conn = http.client.HTTPConnection("localhost", 8332, timeout=120)
+        conn = http.client.HTTPConnection(self.host, self.port, timeout=120)
         try:
             conn.request(
                 "POST",

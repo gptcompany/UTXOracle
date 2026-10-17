@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 
 from scripts.config import UTXORACLE_DB_PATH
+from scripts.utils.rpc_cookie import resolve_target
 import asyncio
 import logging
 import os
@@ -37,7 +38,6 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 DEFAULT_ELECTRS_URL = "http://localhost:3001"
-DEFAULT_RPC_URL = "http://localhost:8332"
 DEFAULT_BATCH_SIZE = 500  # heights per batch (increased from 100)
 DEFAULT_RATE_LIMIT = 50  # max concurrent requests (increased from 30)
 DEFAULT_INSERT_BATCH_SIZE = 1000  # rows per INSERT batch
@@ -223,7 +223,7 @@ async def build_block_heights_table_rpc(
     conn: duckdb.DuckDBPyConnection,
     start_height: int = 0,
     end_height: Optional[int] = None,
-    rpc_url: str = DEFAULT_RPC_URL,
+    rpc_url: Optional[str] = None,
     cookie_path: Optional[str] = None,
     batch_size: int = DEFAULT_BATCH_SIZE,
     rate_limit: int = DEFAULT_RATE_LIMIT,
@@ -245,16 +245,13 @@ async def build_block_heights_table_rpc(
     # Create schema
     create_block_heights_schema(conn)
 
-    # Parse cookie for auth
-    if cookie_path is None:
-        # Try default locations
-        for path in [
-            Path.home() / ".bitcoin" / ".cookie",
-            Path("/media/sam/3TB-WDC/Bitcoin/.cookie"),
-        ]:
-            if path.exists():
-                cookie_path = str(path)
-                break
+    # Without --rpc-url/--rpc-cookie the connection comes from
+    # scripts.utils.rpc_cookie.resolve_target (datadir, network, host, port, cookie).
+    if rpc_url is None or cookie_path is None:
+        target = resolve_target()
+        rpc_url = rpc_url or f"http://{target.host}:{target.port}"
+        if cookie_path is None and target.cookie_path is not None:
+            cookie_path = str(target.cookie_path)
 
     if cookie_path is None:
         raise FileNotFoundError("Could not find Bitcoin Core cookie file")
@@ -598,13 +595,13 @@ async def main():
     # RPC options
     parser.add_argument(
         "--rpc-url",
-        default=os.getenv("BITCOIN_RPC_URL", DEFAULT_RPC_URL),
-        help="Bitcoin Core RPC URL",
+        default=None,
+        help="Bitcoin Core RPC URL (default: resolved like the other consumers)",
     )
     parser.add_argument(
         "--rpc-cookie",
-        default=os.getenv("BITCOIN_COOKIE_PATH"),
-        help="Path to Bitcoin Core .cookie file",
+        default=None,
+        help="Path to Bitcoin Core .cookie file (default: resolved like --rpc-url)",
     )
 
     # Electrs options

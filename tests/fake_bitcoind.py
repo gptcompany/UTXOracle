@@ -50,6 +50,7 @@ class FakeBitcoind:
                 error = None if method else {"code": -32601, "message": "not found"}
                 data = json.dumps({"result": result, "error": error, "id": body["id"]})
                 self.send_response(200)
+                self.send_header("Content-Type", "application/json")  # as bitcoind
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data.encode())

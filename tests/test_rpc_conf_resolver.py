@@ -389,3 +389,125 @@ def test_all_consumers_go_through_resolve_target(tmp_path, clean_env, monkeypatc
     sync_utxo_lifecycle.BitcoinRPC()
     daily_analysis.rpc_client({"BITCOIN_DATADIR": None})
     assert calls == [None, None, None]
+
+
+def test_non_utf8_conf_is_a_config_error_without_its_bytes(tmp_path):
+    from scripts.utils.rpc_cookie import ConfigError
+
+    (tmp_path / "bitcoin.conf").write_bytes(b"rpcuser=u\nrpcpassword=DUMMY\xff\xfe\n")
+    with pytest.raises(ConfigError, match="not UTF-8") as exc:
+        resolve(tmp_path)
+    assert "DUMMY" not in str(exc.value)
+
+
+# --- R5-M2 class: the bootstrap batches resolve through the same function ---------
+
+
+@pytest.fixture
+def batch_node(tmp_path, monkeypatch):
+    """Fake node on a free port behind a sectioned conf whose inactive [regtest]
+    section and the mainnet default 8332 are both wrong. Sockets to any other
+    port are refused, so no test (nor the pre-fix code) reaches a real bitcoind."""
+    import socket
+
+    from tests.fake_bitcoind import FakeBitcoind
+
+    node = FakeBitcoind(
+        ("__cookie__", "DUMMYCOOKIE0001"),
+        {
+            "getblockcount": lambda p: 0,
+            "getblockhash": lambda p: "00" * 32,
+            "getblockheader": lambda p: {"height": 0, "time": 1231006505},
+        },
+    )
+    datadir = tmp_path / "node"
+    datadir.mkdir()
+    (datadir / "bitcoin.conf").write_text(
+        f"rpcport={node.port}\n[regtest]\nrpcport=18443\n"
+    )
+    (datadir / ".cookie").write_text("__cookie__:DUMMYCOOKIE0001")
+    real_connect = socket.socket.connect
+
+    def guarded_connect(sock, address):
+        if isinstance(address, tuple) and address[1] != node.port:
+            raise ConnectionRefusedError(f"test guard: port {address[1]} refused")
+        return real_connect(sock, address)
+
+    monkeypatch.setattr(socket.socket, "connect", guarded_connect)
+    monkeypatch.setenv("BITCOIN_DATADIR", str(datadir))
+    node.datadir = datadir
+    yield node
+    node.stop()
+
+
+@pytest.mark.parametrize(
+    "module",
+    ["scripts.bootstrap.fast_spent_sync", "scripts.bootstrap.fast_spent_sync_v2"],
+)
+def test_fast_spent_sync_clients_use_the_resolved_port_and_cookie(batch_node, module):
+    import importlib
+
+    client = importlib.import_module(module).BitcoinRPC()
+    assert client.call("getblockcount") == 0
+    assert batch_node.requests == [("getblockcount", "__cookie__")]
+
+
+def test_fast_spent_sync_v2_keeps_user_password_first_from_the_resolved_conf(
+    batch_node,
+):
+    from scripts.bootstrap.fast_spent_sync_v2 import BitcoinRPC
+
+    batch_node.accepted = ("legacy", "DUMMYLEGACY")
+    with open(batch_node.datadir / "bitcoin.conf", "a") as f:
+        f.write("[main]\nrpcuser=legacy\nrpcpassword=DUMMYLEGACY\n")
+    assert BitcoinRPC().call("getblockcount") == 0
+    assert batch_node.requests == [("getblockcount", "legacy")]
+
+
+def test_combined_bootstrap_client_uses_the_resolved_port_and_cookie(batch_node):
+    from scripts.bootstrap.run_combined_bootstrap import BitcoinRPC
+
+    assert BitcoinRPC().getblockcount() == 0
+    assert batch_node.requests == [("getblockcount", "__cookie__")]
+
+
+def test_build_block_heights_rpc_mode_uses_the_resolved_url_and_cookie(batch_node):
+    import asyncio
+
+    import duckdb
+
+    from scripts.bootstrap.build_block_heights import build_block_heights_table_rpc
+
+    conn = duckdb.connect(":memory:")
+    count = asyncio.run(build_block_heights_table_rpc(conn, start_height=0))
+    assert count == 1
+    assert {user for _, user in batch_node.requests} == {"__cookie__"}
+
+
+BATCH_SOURCES = [
+    "scripts/bootstrap/fast_spent_sync.py",
+    "scripts/bootstrap/fast_spent_sync_v2.py",
+    "scripts/bootstrap/run_combined_bootstrap.py",
+    "scripts/bootstrap/build_block_heights.py",
+]
+
+
+@pytest.mark.parametrize("source", BATCH_SOURCES)
+def test_no_batch_resolves_conf_datadir_or_cookie_itself(source):
+    tree = ast.parse((REPO / source).read_text(encoding="utf-8"))
+    strings = {
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+    owned = {
+        "bitcoin.conf",
+        ".cookie",
+        "~/.bitcoin",
+        "BITCOIN_DATADIR",
+        "BITCOIN_RPC_URL",
+        "BITCOIN_RPC_USER",
+        "BITCOIN_RPC_PASSWORD",
+        "BITCOIN_COOKIE_PATH",
+    }
+    assert not owned & strings, f"{source} resolves the connection on its own"
