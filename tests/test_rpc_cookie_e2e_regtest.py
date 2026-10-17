@@ -17,10 +17,13 @@ import pytest
 
 from tests.fake_bitcoind import load_live_rpc
 
-pytestmark = pytest.mark.skipif(
-    not (shutil.which("bitcoind") and shutil.which("bitcoin-cli")),
-    reason="bitcoind not installed",
-)
+pytestmark = [
+    pytest.mark.skipif(
+        not (shutil.which("bitcoind") and shutil.which("bitcoin-cli")),
+        reason="bitcoind not installed",
+    ),
+    pytest.mark.usefixtures("hermetic_rpc"),
+]
 
 
 def _free_port() -> int:

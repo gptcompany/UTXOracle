@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import logging
 
+import pytest
+
+pytestmark = pytest.mark.usefixtures("hermetic_rpc")
+
 
 def test_encrypted_log_level_falls_back_to_info():
     """SOPS placeholder values must not crash logging.basicConfig."""

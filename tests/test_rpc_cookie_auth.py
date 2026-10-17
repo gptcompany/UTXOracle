@@ -17,6 +17,7 @@ from tests.fake_bitcoind import FakeBitcoind, load_live_rpc
 COOKIE_1 = "__cookie__:DUMMYCOOKIE0001"
 COOKIE_2 = "__cookie__:DUMMYCOOKIE0002"
 LEGACY = ("legacy_user", "DUMMYLEGACYPASS")
+pytestmark = pytest.mark.usefixtures("hermetic_rpc")
 
 
 @pytest.fixture

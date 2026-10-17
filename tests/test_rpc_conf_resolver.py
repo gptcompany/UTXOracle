@@ -17,6 +17,7 @@ import pytest
 from tests.fake_bitcoind import load_live_rpc
 
 REPO = Path(__file__).resolve().parent.parent
+pytestmark = pytest.mark.usefixtures("hermetic_rpc")
 
 
 def resolve(datadir, text=None, env=None):
@@ -28,19 +29,9 @@ def resolve(datadir, text=None, env=None):
 
 
 @pytest.fixture
-def clean_env(monkeypatch, tmp_path):
+def clean_env(hermetic_rpc):
     """No RPC variable from the developer shell, and an empty HOME."""
-    for var in (
-        "BITCOIN_DATADIR",
-        "BITCOIN_RPC_URL",
-        "BITCOIN_RPC_USER",
-        "BITCOIN_RPC_PASSWORD",
-    ):
-        monkeypatch.delenv(var, raising=False)
-    home = tmp_path / "home"
-    home.mkdir()
-    monkeypatch.setenv("HOME", str(home))
-    return home
+    return hermetic_rpc
 
 
 # --- R5-M2 scenario ----------------------------------------------------------------

@@ -19,12 +19,13 @@ from pathlib import Path
 
 import pytest
 
-from tests.fake_bitcoind import FakeBitcoind
+from tests.fake_bitcoind import FakeBitcoind, secrets_stub_path
 
 REPO = Path(__file__).resolve().parent.parent
 RUNBOOK = REPO / "docs" / "BRK_COOKIE_MIGRATION_RUNBOOK.md"
 COOKIE = "__cookie__:DUMMYCOOKIE0001"
 OTHER = "__cookie__:DUMMYCOOKIE0002"
+pytestmark = pytest.mark.usefixtures("hermetic_rpc")
 
 
 def _function() -> str:
@@ -170,9 +171,10 @@ def _host_shims(bin_dir: Path, tmp_path: Path) -> None:
         (bin_dir / name).chmod(0o755)
     uv = tmp_path / "uvbin" / "uv"  # uv run python ... -> this test's interpreter
     uv.parent.mkdir()
+    stub = secrets_stub_path(tmp_path / "secrets-stub")  # never the real loader
     uv.write_text(
         f'#!/bin/bash\n[ "$1" = run ] && shift; [ "$1" = python ] && shift\n'
-        f'exec "{sys.executable}" "$@"\n'
+        f'PYTHONPATH="{stub}" exec "{sys.executable}" "$@"\n'
     )
     uv.chmod(0o755)
 
@@ -313,6 +315,17 @@ def test_host_check_carries_the_unit_context_and_no_connection_argument(ctx, tmp
     assert not any(str(ctx.node_dir) in a for a in args), "no datadir from the check"
 
 
+def test_consumer_processes_never_load_the_real_secrets(ctx):
+    (ctx.home("utxoracle") / ".bitcoin").symlink_to(ctx.node_dir)
+    _live_unit(ctx)
+    ctx(f'rpc_check "utxoracle-live" host live {LIVE}')
+    probe = ctx.replay(
+        "import sys, scripts.sync_utxo_lifecycle, scripts.daily_analysis;"
+        " print(sys.modules['secrets_loader'].__file__)"
+    )
+    assert probe.stdout.strip().endswith("secrets-stub/sitecustomize.py"), probe.stderr
+
+
 def test_unit_with_passenvironment_is_not_reproducible(ctx):
     _live_unit(ctx, PassEnvironment="BITCOIN_DATADIR")
     result = ctx(f'rpc_check "utxoracle-live" host live {LIVE}')
@@ -332,8 +345,9 @@ def test_cron_check_uses_the_crontab_user_and_directory(ctx):
 
 
 SAME_CODE = """
-import inspect, asyncio
+import inspect, asyncio, sys
 from unittest import mock
+assert sys.modules["secrets_loader"].__file__.startswith(sys.argv[1]), "real loader"
 from scripts.utils import rpc_cookie
 import live.backend.bitcoin_rpc as live_rpc
 import live.backend.baseline_calculator as baseline
@@ -389,12 +403,13 @@ def test_check_and_consumers_share_the_construction_code(tmp_path):
     """Not two parallel paths: the check's factory is the object each consumer's
     production code calls, and neither passes connection parameters."""
     env = {k: v for k, v in os.environ.items() if not k.startswith("BITCOIN_")}
+    stub = secrets_stub_path(tmp_path / "secrets-stub")
     result = subprocess.run(
-        [sys.executable, "-c", SAME_CODE],
+        [sys.executable, "-c", SAME_CODE, str(stub)],
         cwd=REPO,
         capture_output=True,
         text=True,
-        env={**env, "HOME": str(tmp_path)},
+        env={**env, "HOME": str(tmp_path), "PYTHONPATH": str(stub)},
         timeout=120,
         check=False,
     )
