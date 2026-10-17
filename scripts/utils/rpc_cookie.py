@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import base64
 import configparser
+import contextlib
 import functools
 import http.client
 import importlib
@@ -506,17 +507,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("consumer", choices=sorted(CONSUMERS))
     args = parser.parse_args(argv)
     method = CONSUMERS[args.consumer][2]
+    status = 200
+    # The consumer's own logging and prints stay out of the check's output.
+    logging.disable(logging.CRITICAL)
     try:
-        getattr(consumer_factory(args.consumer)(), method)("getblockcount")
+        with (
+            open(os.devnull, "w") as sink,
+            contextlib.redirect_stdout(sink),
+            contextlib.redirect_stderr(sink),
+        ):
+            getattr(consumer_factory(args.consumer)(), method)("getblockcount")
     except RpcHttpError as exc:
-        print(f"{args.label}: FAIL HTTP {exc.status:03d}")
-        return 1
-    except Exception as exc:  # the consumer could not build its client or connect
-        logger.error("%s: %s", args.label, type(exc).__name__)
-        print(f"{args.label}: FAIL HTTP 000")
-        return 1
-    print(f"{args.label}: OK HTTP 200")
-    return 0
+        status = exc.status
+    except Exception:  # the consumer could not build its client or connect
+        status = 0
+    finally:
+        logging.disable(logging.NOTSET)
+    outcome = "OK" if status == 200 else "FAIL"
+    print(f"{args.label}: {outcome} HTTP {status:03d}")
+    return 0 if status == 200 else 1
 
 
 if __name__ == "__main__":
