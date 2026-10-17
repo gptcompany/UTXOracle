@@ -36,6 +36,7 @@ from secrets_loader import load_secrets
 # Local imports
 from UTXOracle_library import UTXOracleCalculator
 from scripts.config import UTXORACLE_DB_PATH
+from scripts.utils.rpc_cookie import RpcClient, clean_env_value, resolve_target
 
 # Whale Flow Detector (spec-004) - import after scripts/ is in path
 try:
@@ -204,9 +205,8 @@ def load_config() -> Dict[str, str]:
     config = {
         # Required settings (fail fast if missing - T064a)
         "DUCKDB_PATH": _get_env_str("DUCKDB_PATH", str(UTXORACLE_DB_PATH)),
-        "BITCOIN_DATADIR": _get_env_str(
-            "BITCOIN_DATADIR", os.path.expanduser("~/.bitcoin")
-        ),
+        # None: scripts.utils.rpc_cookie.resolve_target picks the datadir.
+        "BITCOIN_DATADIR": clean_env_value(os.getenv("BITCOIN_DATADIR")),
         "MEMPOOL_API_URL": _get_env_str("MEMPOOL_API_URL", "http://localhost:8999"),
         # Optional settings with defaults
         "LOG_LEVEL": _get_env_str("LOG_LEVEL", "INFO"),
@@ -258,7 +258,7 @@ def validate_config(config: Dict[str, str]) -> None:
         )
 
     # Check Bitcoin data directory exists
-    bitcoin_dir = Path(config["BITCOIN_DATADIR"])
+    bitcoin_dir = resolve_target(config["BITCOIN_DATADIR"]).datadir
     if not bitcoin_dir.exists():
         raise EnvironmentError(
             f"BITCOIN_DATADIR does not exist: {bitcoin_dir}\n"
@@ -314,7 +314,20 @@ def fetch_mempool_price(api_url: str = "http://localhost:8999") -> float:
         raise
 
 
-def _fetch_from_bitcoin_core(bitcoin_datadir: str) -> List[dict]:
+def rpc_client(config: Optional[Dict] = None, timeout: float = 60) -> RpcClient:
+    """The daily job's Bitcoin Core client, built only here.
+
+    Cookie auth (re-read on HTTP 401); rpcuser/rpcpassword only as fallback. Without
+    a config it loads the job configuration as ``main`` does. Connection settings
+    come from scripts.utils.rpc_cookie.resolve_target.
+    """
+    config = load_config() if config is None else config
+    return RpcClient(
+        config.get("BITCOIN_DATADIR"), timeout=timeout, request_id="utxoracle-daily"
+    )
+
+
+def _fetch_from_bitcoin_core(bitcoin_datadir: str | None) -> List[dict]:
     """
     Tier 1: Fetch transactions from Bitcoin Core RPC (primary source).
 
@@ -327,75 +340,12 @@ def _fetch_from_bitcoin_core(bitcoin_datadir: str) -> List[dict]:
     Raises:
         ValueError: If cannot connect or fetch transactions
     """
-    import subprocess
-
-    # Read RPC credentials from bitcoin.conf
-    conf_path = f"{bitcoin_datadir}/bitcoin.conf"
-    rpc_user = rpc_pass = None
-
-    try:
-        with open(conf_path, "r") as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("rpcuser="):
-                    rpc_user = line.split("=", 1)[1]
-                elif line.startswith("rpcpassword="):
-                    rpc_pass = line.split("=", 1)[1]
-    except FileNotFoundError:
-        raise ValueError(f"bitcoin.conf not found at {conf_path}")
-
-    if not (rpc_user and rpc_pass):
-        raise ValueError("rpcuser/rpcpassword not found in bitcoin.conf")
-
-    rpc_url = "http://127.0.0.1:8332/"
-    auth = f"{rpc_user}:{rpc_pass}"
-
-    # Get best block hash
-    result = subprocess.run(
-        [
-            "curl",
-            "-s",
-            "--user",
-            auth,
-            "--data-binary",
-            '{"jsonrpc":"1.0","method":"getbestblockhash","params":[]}',
-            "-H",
-            "content-type: text/plain;",
-            rpc_url,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-
-    if result.returncode != 0:
-        raise ValueError(f"Bitcoin Core RPC failed: {result.stderr}")
-
-    best_hash = json.loads(result.stdout)["result"]
+    rpc = rpc_client({"BITCOIN_DATADIR": bitcoin_datadir}, timeout=120)
+    best_hash = rpc.call("getbestblockhash")
     logging.info(f"[Bitcoin Core] Fetching block {best_hash[:16]}...")
 
     # Get block with full tx details (verbosity=2)
-    result = subprocess.run(
-        [
-            "curl",
-            "-s",
-            "--user",
-            auth,
-            "--data-binary",
-            f'{{"jsonrpc":"1.0","method":"getblock","params":["{best_hash}",2]}}',
-            "-H",
-            "content-type: text/plain;",
-            rpc_url,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-
-    if result.returncode != 0:
-        raise ValueError(f"Bitcoin Core getblock failed: {result.stderr}")
-
-    block_data = json.loads(result.stdout)["result"]
+    block_data = rpc.call("getblock", [best_hash, 2])
     transactions = block_data["tx"]
 
     if len(transactions) < 1000:
@@ -595,9 +545,7 @@ def fetch_bitcoin_transactions(config: Dict[str, any]) -> tuple[List[dict], int]
         # Tier 3: Bitcoin Core RPC (ultimate fallback - always enabled)
         logging.warning("Attempting Tier 3: Bitcoin Core RPC direct")
         try:
-            bitcoin_datadir = config.get(
-                "BITCOIN_DATADIR", os.path.expanduser("~/.bitcoin")
-            )
+            bitcoin_datadir = config.get("BITCOIN_DATADIR")
             return _fetch_from_bitcoin_core(bitcoin_datadir), 3
         except Exception as e_rpc:
             logging.error(f"Tier 3 failed (Bitcoin Core RPC): {e_rpc}")
@@ -639,7 +587,7 @@ def calculate_utxoracle_price(config: Dict) -> Dict:
         # Calculate price using library
         calc = UTXOracleCalculator()
         result = calc.calculate_price_for_transactions(transactions)
-        
+
         # Add tier to result
         result["fetch_tier"] = tier
 
@@ -807,9 +755,6 @@ def validate_price_data(data: Dict, config: Dict) -> bool:
 # =============================================================================
 
 
-
-
-
 def detect_gaps(conn, max_days_back: int = None) -> List[str]:
     """
     Detect missing dates in the entire historical series.
@@ -888,7 +833,6 @@ def fetch_historical_transactions(date_str: str, config: Dict) -> List[dict]:
         ValueError: If date is invalid or no blocks found
         subprocess.CalledProcessError: If Bitcoin Core RPC fails
     """
-    import subprocess
     from datetime import datetime, timezone
 
     # Parse target date
@@ -908,55 +852,11 @@ def fetch_historical_transactions(date_str: str, config: Dict) -> List[dict]:
         f"(timestamps: {start_timestamp}-{end_timestamp})"
     )
 
-    # Get Bitcoin Core RPC credentials
-    bitcoin_datadir = config.get("BITCOIN_DATADIR", os.path.expanduser("~/.bitcoin"))
-    conf_path = f"{bitcoin_datadir}/bitcoin.conf"
-    rpc_user = rpc_pass = None
-
-    try:
-        with open(conf_path, "r") as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("rpcuser="):
-                    rpc_user = line.split("=", 1)[1]
-                elif line.startswith("rpcpassword="):
-                    rpc_pass = line.split("=", 1)[1]
-    except FileNotFoundError:
-        raise ValueError(f"bitcoin.conf not found at {conf_path}")
-
-    if not (rpc_user and rpc_pass):
-        raise ValueError("rpcuser/rpcpassword not found in bitcoin.conf")
-
-    rpc_url = "http://127.0.0.1:8332/"
-    auth = f"{rpc_user}:{rpc_pass}"
+    rpc = rpc_client(config)
 
     def rpc_call(method: str, params: list) -> any:
         """Helper to make Bitcoin Core RPC calls."""
-        result = subprocess.run(
-            [
-                "curl",
-                "-s",
-                "--user",
-                auth,
-                "--data-binary",
-                json.dumps({"jsonrpc": "1.0", "method": method, "params": params}),
-                "-H",
-                "content-type: text/plain;",
-                rpc_url,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-
-        if result.returncode != 0:
-            raise ValueError(f"RPC call '{method}' failed: {result.stderr}")
-
-        response = json.loads(result.stdout)
-        if response.get("error"):
-            raise ValueError(f"RPC error for '{method}': {response['error']}")
-
-        return response["result"]
+        return rpc.call(method, params)
 
     # Step 1: Get current block height to estimate target height
     current_height = rpc_call("getblockcount", [])
@@ -1145,6 +1045,7 @@ def backfill_gap(date_str: str, config: Dict) -> bool:
 
 from api.questdb_repository import QuestDBRepository
 
+
 def save_to_questdb(data: Dict) -> None:
     """
     Save price comparison data to QuestDB.
@@ -1169,7 +1070,7 @@ def save_to_questdb(data: Dict) -> None:
                 "created_at": datetime.now(),
             },
             at=datetime.fromisoformat(data["timestamp"]),
-            flush=True
+            flush=True,
         )
         logging.info("Data saved to QuestDB")
     except Exception as e:
@@ -1369,12 +1270,12 @@ def main():
     T046: Support CLI flags --init-db, --dry-run, --verbose
     """
     parser = argparse.ArgumentParser(description="UTXOracle Daily Analysis")
-    
+
     parser.add_argument(
         "--dry-run", action="store_true", help="Run without saving to DB"
     )
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
-    
+
     args = parser.parse_args()
 
     # Load and validate configuration
@@ -1390,8 +1291,6 @@ def main():
     except EnvironmentError as e:
         logging.error(f"Configuration error: {e}")
         sys.exit(1)
-
-    
 
     # Initialize Whale Flow Detector (T042 - spec-004)
     whale_detector = None

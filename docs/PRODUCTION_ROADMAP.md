@@ -15,7 +15,7 @@ SSOT) is referenced but not detailed here — it deserves its own spec.
 | 2 | Alerting channel | ✅ RESOLVED: Discord webhook via `DISCORD_WEBHOOK_URL` for Phase 1 |
 | 3 | Backup destination | ⏸️ DEFERRED: tracked under spec-063, not blocking Phase 1/1.5/2/3a/3b/3d/3e |
 | 4 | WS p95 connections | ✅ RESOLVED as "unknown, instrument first" — no Rust decision before §4a |
-| 5 | BRK :7071 | ✅ RESOLVED: keep local, restart/harden, unless owner provides a remote BRK endpoint |
+| 5 | BRK :7070 | ✅ RESOLVED: keep local on :7070 (aligned from legacy 7071), restart/harden, unless owner provides a remote BRK endpoint |
 | 6 | block_heights + daily_prices upstream | ✅ RESOLVED: `build_block_heights.py --use-rpc` + `build_price_table.py` |
 | 7 | Phase ordering | ✅ RESOLVED: Phase 1 → Phase 1.5 → Phase 2 → Phase 3 (observability allowed in parallel once producers are underway) |
 
@@ -132,8 +132,8 @@ Upstream issues:
   (2011 → present). It is idempotent: creates `daily_prices` if absent,
   skips existing dates, defaults `--end-date` to yesterday. Phase 1.5
   schedules it.
-- BRK on host:7071 intermittently disconnects (observed in live worker
-  logs). Not blocking but noisy. Likely a BRK config / restart loop.
+- BRK on host:7070 (historically 7071) intermittently disconnects (observed in live worker
+  logs). Not blocking but noisy. Likely a BRK config / restart loop; default port aligned to :7070.
 - Two QuestDB instances coexist (:8812 host + :9912 docker). The mirror
   bridges them. A future unification is preferred but not blocking.
 
@@ -148,8 +148,8 @@ Upstream issues:
    Must be settled before Phase 3 backup tests.
 4. **Expected WS p95 concurrent connections**: gates the Rust/Python
    decision in §4. If unknown, the answer is "measure first".
-5. **BRK on :7071**: keep local, restart, or repoint to remote? The
-   7071 connection issues block daily metrics indefinitely.
+5. **BRK on :7070** (historically 7071): keep local, restart, or repoint to remote? The
+   connection issues block daily metrics indefinitely (default port aligned to :7070).
 6. **`block_heights` + `daily_prices` upstream**: RESOLVED 2026-06-04.
    - `block_heights`: `scripts/bootstrap/build_block_heights.py --use-rpc`.
    - `daily_prices`: `scripts/bootstrap/build_price_table.py` (idempotent,
@@ -696,8 +696,8 @@ Before any code work starts, the owner should confirm:
 - [ ] **4.** Expected p95 WS concurrent connections. (If unknown:
       "instrument first, don't choose Rust yet" — Codex's stance, which
       I endorse.)
-- [ ] **5.** BRK on :7071: keep local, restart, or repoint to a remote
-      healthy BRK.
+- [x] **5. RESOLVED.** BRK on :7070 (aligned from legacy 7071): keep local
+      on port :7070, restart/harden with cookie authentication.
 - [x] **6. RESOLVED 2026-06-04.** Both refreshers identified:
       `scripts/bootstrap/build_block_heights.py --use-rpc` and
       `scripts/bootstrap/build_price_table.py`. Phase 1.5 schedules both.
