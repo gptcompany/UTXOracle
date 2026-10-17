@@ -150,13 +150,26 @@
     },
     {
       "parameters": {
-        "webhookUri": "={{ $env.DISCORD_WEBHOOK_URL }}",
-        "text": "={{ $json.text }}"
+        "method": "POST",
+        "url": "={{ ($env.NTFY_BASE_URL || 'https://ntfy.sh') + '/' + $env.NTFY_TOPIC_DATI }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Priority", "value": "3" },
+            { "name": "Tags", "value": "rotating_light" },
+            { "name": "Title", "value": "dati/utxoracle: critical alert" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "text/plain",
+        "body": "={{ $json.text }}",
+        "options": {}
       },
-      "id": "discord-critical",
-      "name": "Discord (Critical)",
-      "type": "n8n-nodes-base.discord",
-      "typeVersion": 1,
+      "id": "ntfy-dati-critical",
+      "name": "ntfy dati (Critical)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [1120, 100]
     }
   ],
@@ -257,7 +270,7 @@
             "index": 0
           },
           {
-            "node": "Discord (Critical)",
+            "node": "ntfy dati (Critical)",
             "type": "main",
             "index": 0
           }

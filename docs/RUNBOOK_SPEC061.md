@@ -106,19 +106,24 @@ ps -ef | grep spec061_post_mirror_chain.sh | grep -v grep
 
 ## Notifications
 
-The chain emits a single Discord webhook ping on EVERY terminal state
-(`complete`, `fatal_*`, `fail_*`) when `DISCORD_WEBHOOK_URL` is set in the
-environment. Intermediate states are silent — only the log carries them.
+The chain publishes one ntfy message on the dati topic on EVERY terminal state
+(`complete` priority 2, `fatal_*` and `fail_*` priority 3, via
+`scripts/alerts/ntfy_dati.sh`) when `NTFY_TOPIC_DATI` is set in the environment.
+Intermediate states are silent — only the log carries them. A failed publish is
+logged on stderr with the HTTP code; the chain does not stop on it.
 
 To enable:
 
+The topic name is a secret: it comes from `.env` (`NTFY_TOPIC_DATI`), never from the
+command line or the log.
+
 ```bash
-DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/..." \
-  nohup bash scripts/bootstrap/spec061_post_mirror_chain.sh \
+set -a; . ./.env; set +a
+nohup bash scripts/bootstrap/spec061_post_mirror_chain.sh \
     > /tmp/spec061_chain.log 2>&1 &
 ```
 
-No webhook → silent operation, no error.
+No topic → the notification is skipped and `ntfy: NTFY_TOPIC_DATI not set` is logged on stderr.
 
 ## Recovering from a failed terminal state
 
