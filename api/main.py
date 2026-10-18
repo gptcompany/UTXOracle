@@ -144,7 +144,12 @@ async def lifespan(app: FastAPI):
     # Startup
     logging.info("=" * 60)
     logging.info("UTXOracle API starting...")
-    
+
+    # Fail closed before serving: REST authentication needs its signing key (raises AuthConfigurationError).
+    from api.auth_middleware import get_auth_instance
+
+    get_auth_instance()
+
     # Initialize QuestDB
     questdb_repo = QuestDBRepository()
     await questdb_repo.initialize()

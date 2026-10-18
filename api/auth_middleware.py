@@ -34,6 +34,21 @@ logger = logging.getLogger(__name__)
 security = HTTPBearer(auto_error=False)
 
 
+class AuthConfigurationError(RuntimeError):
+    """The REST authentication cannot start: the signing key is not configured."""
+
+
+def _signing_key(mempool_config) -> str:
+    """Return the configured signing key; fail closed when it is empty or missing."""
+    key = (mempool_config.websocket_secret_key or "").strip()
+    if not key:
+        raise AuthConfigurationError(
+            "WEBSOCKET_SECRET_KEY non impostata o vuota: la REST /v1/streams non puo' avviarsi "
+            "senza una chiave di firma (nessun valore di ripiego)."
+        )
+    return key
+
+
 class RestApiAuth:
     """
     REST API authentication using JWT tokens
@@ -56,10 +71,15 @@ class RestApiAuth:
         """Initialize REST API auth with WebSocketAuthenticator"""
         mempool_config = get_config()
 
-        # Create AuthConfig from MempoolConfig
+        # With authentication enabled the key is mandatory; in development mode (AUTH_ENABLED=false)
+        # nothing is signed or verified, so an empty key is accepted and never replaced by a default.
+        if mempool_config.auth_enabled:
+            secret_key = _signing_key(mempool_config)
+        else:
+            secret_key = (mempool_config.websocket_secret_key or "").strip()
+
         auth_config = AuthConfig(
-            secret_key=mempool_config.websocket_secret_key
-            or "dev-secret-key-change-me",
+            secret_key=secret_key,
             enabled=mempool_config.auth_enabled,
         )
 
@@ -294,7 +314,7 @@ def generate_token(
     # Create custom auth config with desired expiry
     mempool_config = get_config()
     auth_config = AuthConfig(
-        secret_key=mempool_config.websocket_secret_key or "dev-secret-key-change-me",
+        secret_key=_signing_key(mempool_config),
         token_expiry_hours=expires_in_hours,
         enabled=mempool_config.auth_enabled,
     )
