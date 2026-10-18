@@ -122,7 +122,7 @@ services:
     - ${LIVE_API_PORT:-8011}:8011
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      JWT_SECRET: ${JWT_SECRET:-jBqveFvsr4ifuLX3Gf6CIyJCujuLSYiIUD437Hntf60HbRSlWmF7U0HXnVnvulSn}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET non impostato}
       FASTAPI_PORT: '8011'
       LIVE_API_PORT: '8011'
       LIVE_ENABLED: 'true'

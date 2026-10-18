@@ -147,7 +147,7 @@ logger.info("✅ Broadcaster task will be cancelled")
 ### 3. JWT Configuration
 **File**: `.env` (lines 95-98 added)
 ```bash
-JWT_SECRET_KEY=BTOrmrTMyD9rKo18gXRrbooboy5Dqz4vafh6mRO-BWx3L53_fzCVIBAEKU0mCjeP
+JWT_SECRET_KEY=<redacted: generare con dotenvx/SSOT>
 JWT_ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=60
 ```
