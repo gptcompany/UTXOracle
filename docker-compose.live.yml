@@ -119,7 +119,7 @@ services:
     extra_hosts:
     - host.docker.internal:host-gateway
     ports:
-    - ${LIVE_API_PORT:-8011}:8011
+    - 127.0.0.1:${LIVE_API_PORT:-8011}:8011
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET non impostato}
