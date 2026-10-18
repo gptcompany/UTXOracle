@@ -17,7 +17,6 @@
 // Imports
 // ============================================
 
-import { WhaleWebSocketClient, ConnectionState, EventType } from './whale_client.js';
 import { TransactionFeed } from './whale_feed.js';
 import { TransactionModal } from './whale_modal.js';
 import { WhaleAudioNotifier } from './whale_audio.js';
@@ -33,8 +32,6 @@ const CONFIG = {
     pollInterval: 5000, // 5 seconds
     maxRetries: 3,
     retryDelay: 2000,
-    enableWebSocket: false, // Enable when JWT auth is configured
-    jwtToken: null, // Will be fetched from auth endpoint
 };
 
 // ============================================
@@ -314,10 +311,6 @@ class WhaleDashboard {
         this.state = new DashboardState();
         this.ui = new UIController();
         this.api = new WhaleAPIClient(CONFIG.apiEndpoint);
-
-        // WebSocket client (optional - enabled when JWT auth is configured)
-        this.wsClient = null;
-        this.useWebSocket = CONFIG.enableWebSocket && CONFIG.jwtToken;
 
         // Transaction feed
         try {
@@ -818,21 +811,12 @@ class WhaleDashboard {
         this.ui.showLoading();
         this.ui.updateConnectionStatus(false, 'Connecting...');
 
-        // Initialize WebSocket if enabled
-        if (this.useWebSocket) {
-            this.initializeWebSocket();
-        } else {
-            console.log('WebSocket disabled - using HTTP polling');
-        }
-
-        // Initial data fetch (HTTP fallback)
+        // Initial data fetch, then HTTP polling
         const result = await this.api.fetchLatest();
 
         if (result.success) {
             this.handleDataUpdate(result.data);
-            if (!this.useWebSocket) {
-                this.startPolling();
-            }
+            this.startPolling();
         } else {
             this.handleError(result.error);
         }
@@ -846,104 +830,6 @@ class WhaleDashboard {
                 console.error('Failed to initialize historical chart:', error);
             }
         }
-    }
-
-    // ========================================
-    // WebSocket Management
-    // ========================================
-
-    initializeWebSocket() {
-        if (!CONFIG.jwtToken) {
-            console.warn('No JWT token available for WebSocket');
-            return;
-        }
-
-        console.log('Initializing WebSocket client...');
-        this.wsClient = new WhaleWebSocketClient(CONFIG.jwtToken);
-
-        // Connection events
-        this.wsClient.on(EventType.CONNECTED, () => {
-            console.log('WebSocket connected successfully');
-            this.state.connected = true;
-            this.ui.updateConnectionStatus(true);
-
-            // Stop HTTP polling when WebSocket connects
-            this.stopPolling();
-        });
-
-        this.wsClient.on(EventType.DISCONNECTED, (data) => {
-            console.log('WebSocket disconnected:', data.reason);
-            this.state.connected = false;
-            this.ui.updateConnectionStatus(false, 'WebSocket disconnected');
-
-            // Fallback to HTTP polling
-            this.startPolling();
-        });
-
-        this.wsClient.on(EventType.ERROR, (data) => {
-            console.error('WebSocket error:', data.message);
-        });
-
-        this.wsClient.on(EventType.TOKEN_EXPIRED, () => {
-            console.warn('JWT token expired - need to refresh');
-            this.ui.updateConnectionStatus(false, 'Token expired');
-            // TODO: Implement token refresh logic
-        });
-
-        // Data events
-        this.wsClient.on(EventType.TRANSACTION, (tx) => {
-            console.log('New transaction received:', tx);
-            if (this.transactionFeed) {
-                this.transactionFeed.addTransaction(tx);
-            }
-            // Audio notification for large transactions (T060)
-            if (this.audioNotifier) {
-                this.audioNotifier.notifyTransaction(tx);
-            }
-            // Alert system processing (T079-T083)
-            if (this.alertSystem) {
-                this.alertSystem.processTransaction(tx);
-            }
-        });
-
-        this.wsClient.on(EventType.NETFLOW, (netflowData) => {
-            console.log('Net flow update received:', netflowData);
-            this.handleNetFlowUpdate(netflowData);
-        });
-
-        this.wsClient.on(EventType.ALERT, (alert) => {
-            console.log('Alert received:', alert);
-            // TODO: Handle alerts (Phase 9)
-        });
-
-        this.wsClient.on(EventType.RATE_LIMITED, (data) => {
-            console.warn('Rate limited:', data);
-        });
-
-        this.wsClient.on(EventType.SUBSCRIPTION_ACK, (data) => {
-            console.log('Subscription acknowledged:', data.channels);
-        });
-
-        // Connect
-        this.wsClient.connect();
-    }
-
-    handleNetFlowUpdate(netflowData) {
-        // Update state with net flow data
-        const data = {
-            whale_net_flow: netflowData.net_flow_btc,
-            whale_direction: netflowData.direction,
-            btc_price: netflowData.net_flow_usd / netflowData.net_flow_btc
-        };
-
-        this.state.updateNetFlow(data);
-        this.state.connected = true;
-        this.state.loading = false;
-
-        this.ui.updateLastUpdate(this.state.lastUpdate);
-        this.ui.updateNetFlowDisplay(this.state.netFlowData);
-        this.ui.updateDirectionIndicator(this.state.netFlowData.direction);
-        this.ui.showContent();
     }
 
     handleDataUpdate(data) {
