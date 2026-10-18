@@ -24,7 +24,10 @@ def fresh_auth(monkeypatch):
     return auth_middleware
 
 
-@pytest.mark.parametrize("value", [None, "", "   "])
+@pytest.mark.parametrize(
+    "value",
+    [None, "", "   ", "ENC[AES256_GCM,data:valore-finto,iv:finto,tag:finto,type:str]"],
+)
 def test_startup_fails_when_the_key_is_missing_or_blank(fresh_auth, monkeypatch, value):
     if value is None:
         monkeypatch.delenv("WEBSOCKET_SECRET_KEY", raising=False)
@@ -35,6 +38,19 @@ def test_startup_fails_when_the_key_is_missing_or_blank(fresh_auth, monkeypatch,
         fresh_auth.get_auth_instance()
 
     assert "WEBSOCKET_SECRET_KEY" in str(raised.value)
+
+
+def test_dev_mode_never_uses_an_undecrypted_placeholder_as_key(fresh_auth, monkeypatch):
+    monkeypatch.setenv("AUTH_ENABLED", "false")
+    monkeypatch.setenv(
+        "WEBSOCKET_SECRET_KEY",
+        "ENC[AES256_GCM,data:valore-finto,iv:finto,tag:finto,type:str]",
+    )
+
+    auth = fresh_auth.get_auth_instance()
+
+    key_is_empty = auth.authenticator.config.secret_key == ""
+    assert key_is_empty
 
 
 def test_startup_succeeds_with_a_configured_key(fresh_auth, monkeypatch):

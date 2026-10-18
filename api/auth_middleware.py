@@ -38,13 +38,22 @@ class AuthConfigurationError(RuntimeError):
     """The REST authentication cannot start: the signing key is not configured."""
 
 
-def _signing_key(mempool_config) -> str:
-    """Return the configured signing key; fail closed when it is empty or missing."""
+def _configured_key(mempool_config) -> str:
+    """The key as configured, or "" when missing, blank or still an undecrypted ENC[...] placeholder.
+
+    An undecrypted dotenvx value is public (it sits in the repository), so it is never a usable key.
+    """
     key = (mempool_config.websocket_secret_key or "").strip()
+    return "" if key.startswith("ENC[") else key
+
+
+def _signing_key(mempool_config) -> str:
+    """Return the configured signing key; fail closed when it is empty, missing or undecrypted."""
+    key = _configured_key(mempool_config)
     if not key:
         raise AuthConfigurationError(
-            "WEBSOCKET_SECRET_KEY non impostata o vuota: la REST /v1/streams non puo' avviarsi "
-            "senza una chiave di firma (nessun valore di ripiego)."
+            "WEBSOCKET_SECRET_KEY non impostata, vuota o non decifrata (valore ENC[...]): la REST /v1/streams "
+            "non puo' avviarsi senza una chiave di firma (nessun valore di ripiego)."
         )
     return key
 
@@ -76,7 +85,7 @@ class RestApiAuth:
         if mempool_config.auth_enabled:
             secret_key = _signing_key(mempool_config)
         else:
-            secret_key = (mempool_config.websocket_secret_key or "").strip()
+            secret_key = _configured_key(mempool_config)
 
         auth_config = AuthConfig(
             secret_key=secret_key,
