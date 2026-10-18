@@ -1,4 +1,6 @@
-"""No JWT secret may be committed as a default (F-231): compose and systemd files must require the variable."""
+"""No secret may be committed as a default (F-231): compose and systemd files must not embed secret-shaped values.
+
+Generalised after JWT_SECRET was removed (F-236): the check covers every variable whose name marks a credential."""
 
 import re
 import shlex
@@ -25,8 +27,19 @@ def _looks_like_secret(value: str) -> bool:
     return any(SECRET_SHAPE.fullmatch(c.strip("'\"")) for c in candidates)
 
 
-def _is_jwt_key(key: str) -> bool:
-    return key.upper().startswith("JWT")
+SECRET_KEY_MARKERS = (
+    "SECRET",
+    "TOKEN",
+    "PASSWORD",
+    "PASSWD",
+    "PRIVATE_KEY",
+    "API_KEY",
+    "JWT",
+)
+
+
+def _is_secret_key(key: str) -> bool:
+    return any(marker in key.upper() for marker in SECRET_KEY_MARKERS)
 
 
 def _compose_env(path: Path):
@@ -45,39 +58,44 @@ def _compose_env(path: Path):
             yield name, key, value
 
 
-def test_compose_files_do_not_default_jwt_variables_to_a_secret_value():
+def test_compose_files_do_not_default_secret_variables_to_a_secret_value():
     # Offenders are reported by file/service/key only: a failure must never echo a value.
-    offenders, checked = [], 0
+    offenders, inspected = [], 0
     for path in sorted(
         {f for f in _tracked(".yml", ".yaml") if "docker-compose" in f.name}
     ):
         for service, key, value in _compose_env(path):
-            if _is_jwt_key(key):
-                checked += 1
-                if _looks_like_secret(value):
-                    offenders.append(f"{path.name}:{service}:{key}")
+            inspected += 1
+            if _is_secret_key(key) and _looks_like_secret(value):
+                offenders.append(f"{path.name}:{service}:{key}")
     assert offenders == []
-    assert checked >= 1
+    assert (
+        inspected >= 1
+    )  # the compose files were actually parsed: the check is not vacuous
 
 
-def test_live_compose_requires_jwt_secret():
-    forms = [
-        value.startswith("${JWT_SECRET:?")
-        for _, key, value in _compose_env(ROOT / "docker-compose.live.yml")
-        if key == "JWT_SECRET"
-    ]
-    assert forms != []
-    assert all(forms)
+def test_secret_check_flags_a_secret_shaped_default():
+    # Synthetic values only: 43 characters of base64url shape, and the `${VAR:-default}` form.
+    shaped = "A" * 43
+    assert _looks_like_secret(shaped)
+    assert _looks_like_secret("${SOME_TOKEN:-" + shaped + "}")
+    assert not _looks_like_secret("${SOME_TOKEN:?SOME_TOKEN non impostato}")
+    assert not _looks_like_secret("info")
+    assert (
+        _is_secret_key("API_TOKEN")
+        and _is_secret_key("DB_PASSWORD")
+        and not _is_secret_key("LOG_LEVEL")
+    )
 
 
-def test_systemd_units_do_not_embed_jwt_values():
+def test_systemd_units_do_not_embed_secret_values():
     offenders = []
     for path in _tracked(".service"):
         for line in path.read_text(encoding="utf-8").splitlines():
             if line.startswith("Environment="):
                 for assignment in shlex.split(line.removeprefix("Environment=")):
                     key, _, value = assignment.partition("=")
-                    if _is_jwt_key(key) and _looks_like_secret(value):
+                    if _is_secret_key(key) and _looks_like_secret(value):
                         offenders.append(f"{path.name}:{key}")
     assert offenders == []
 

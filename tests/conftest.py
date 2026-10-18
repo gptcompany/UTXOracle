@@ -4,7 +4,6 @@ Pytest configuration and shared fixtures
 Add global fixtures here that are used across multiple test modules.
 """
 
-import os
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
@@ -16,9 +15,6 @@ from api.questdb_repository import QuestDBRepository
 
 # Register plugins for fixtures from separate files (spec-016)
 pytest_plugins = ["tests.fixtures.sopr_fixtures"]
-
-if not os.getenv("JWT_SECRET"):
-    os.environ["JWT_SECRET"] = "test-secret"
 
 
 @pytest.fixture

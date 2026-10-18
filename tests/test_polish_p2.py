@@ -7,7 +7,6 @@ Coverage areas:
 - Structured logging with correlation_id middleware
 """
 
-import os
 import sys
 import types
 import uuid
@@ -15,7 +14,6 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-os.environ.setdefault("JWT_SECRET", "test-secret")
 if "secrets_loader" not in sys.modules:
     secrets_loader = types.ModuleType("secrets_loader")
     secrets_loader.load_secrets = lambda _path=None: False

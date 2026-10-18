@@ -31,17 +31,12 @@ except ImportError:
 _project_root = Path(__file__).resolve().parent.parent
 _env_enc_path = _project_root / ".env.enc"
 _env_path = _project_root / ".env"
-_preloaded_jwt_secret = os.getenv("JWT_SECRET")
 if _secrets_mode == "sops" and _env_enc_path.exists():
     load_secrets(str(_env_enc_path))
 elif _env_path.exists():
     load_secrets(str(_env_path))
 else:
     load_secrets(None)
-if _preloaded_jwt_secret and (
-    not os.getenv("JWT_SECRET") or str(os.getenv("JWT_SECRET")).startswith("ENC[")
-):
-    os.environ["JWT_SECRET"] = _preloaded_jwt_secret
 
 # Environment configuration
 def get_clean_env(key: str, default: str = "") -> str:
@@ -54,15 +49,6 @@ def get_clean_env(key: str, default: str = "") -> str:
 def get_clean_env_list(key: str) -> list[str]:
     raw = get_clean_env(key)
     return [item.strip() for item in raw.split(",") if item.strip()]
-
-# SECURITY: JWT_SECRET must be set in environment - no insecure defaults
-_jwt_secret = get_clean_env("JWT_SECRET")
-if not _jwt_secret:
-    raise ValueError(
-        "SECURITY ERROR: JWT_SECRET environment variable is required. "
-        "Generate with: openssl rand -base64 64"
-    )
-JWT_SECRET = _jwt_secret
 
 
 def get_cors_middleware_kwargs(origins: list[str]) -> dict[str, object]:
@@ -135,11 +121,6 @@ RATE_LIMIT_HTTP_PER_MINUTE = 100
 RATE_LIMIT_WS_PER_SECOND = 20
 RATE_LIMIT_BURST_CAPACITY = 10
 RATE_LIMIT_CONNECTION_ATTEMPTS = 5  # per minute per IP
-
-# JWT configuration
-JWT_ALGORITHM = "HS256"
-JWT_EXPIRY_HOURS = 1
-JWT_REFRESH_MINUTES = 55  # Refresh 5 minutes before expiry
 
 # Data retention configuration
 UI_RETENTION_HOURS = 24  # Transaction feed in UI
