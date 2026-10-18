@@ -58,27 +58,10 @@ except ImportError as e:
 # T036a: Security - JWT Authentication Middleware
 # =============================================================================
 
-try:
-    from auth_middleware import require_auth, optional_auth, AuthToken
-
-    AUTH_AVAILABLE = True
-    logging.info("✅ JWT authentication middleware loaded successfully")
-except ImportError as e:
-    AUTH_AVAILABLE = False
-    logging.warning(f"⚠️ Auth middleware not available: {e}")
-    logging.warning("   All endpoints will be unprotected (development mode)")
-
-    # Fallback no-op dependency for development
-    class AuthToken:
-        def __init__(self):
-            self.client_id = "dev-client"
-            self.permissions = {"read", "write"}
-
-    async def require_auth() -> AuthToken:
-        return AuthToken()
-
-    async def optional_auth() -> Optional[AuthToken]:
-        return AuthToken()
+# F-240: no fallback. The REST authentication is imported from the package (the same module the
+# /v1/streams router uses); if it cannot be imported the application must not start, instead of
+# running with a silent no-op "dev" dependency.
+from api.auth_middleware import require_auth, optional_auth, AuthToken  # noqa: E402,F401
 
 
 # =============================================================================

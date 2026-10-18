@@ -20,8 +20,8 @@ FRONTEND = ROOT / "frontend"
 # Same-origin paths only: string literals starting with one of these are treated as API/WebSocket URLs.
 URL_PREFIXES = ("/api/", "/ws/", "/v1/", "/health", "/metrics", "/auth", "/token")
 
-# Calls to routes no mounted app serves, present before F-236 and unrelated to auth. Each entry must still be
-# missing (see test_known_missing_routes_are_still_missing): fix the route or the page, then delete the entry.
+# Calls to routes no mounted app serves, present before F-236 and unrelated to auth (finding F-237). Each entry must
+# still be missing (see test_known_missing_routes_are_still_missing): fix the route or the page, then delete the entry.
 KNOWN_MISSING: dict[str, str] = {
     "/api/health": "frontend/metrics/index.html polls /api/health; only /health exists",
     "/api/metrics/pro-risk": "frontend/metrics/pro_risk.html: no /api/metrics/pro-risk route in either app",
