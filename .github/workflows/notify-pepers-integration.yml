@@ -24,28 +24,21 @@ jobs:
           echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           echo "build_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
 
-      - name: Resolve dispatch tokens via dotenvx (self-hosted fallback)
-        id: tokens
+      # Fail closed: a missing token used to skip the dispatch silently.
+      - name: Require the progressive-deploy dispatch token
+        env:
+          PD_TOKEN: ${{ secrets.PROGRESSIVE_DEPLOY_REPO_DISPATCH_TOKEN || secrets.PAT }}
         run: |
-          PD_TOKEN="${{ secrets.PROGRESSIVE_DEPLOY_REPO_DISPATCH_TOKEN || secrets.PAT }}"
-          if command -v dotenvx &> /dev/null && [[ -f .env ]]; then
-            if [[ -z "$PD_TOKEN" ]]; then
-              echo "Resolving token via dotenvx..."
-              PD_TOKEN=$(dotenvx get PROGRESSIVE_DEPLOY_REPO_DISPATCH_TOKEN || dotenvx get GITHUB_PAT || dotenvx get PAT || true)
-            fi
-          fi
-          if [[ -n "$PD_TOKEN" ]]; then
-            echo "pd_token=$PD_TOKEN" >> "$GITHUB_OUTPUT"
-            echo "::add-mask::$PD_TOKEN"
+          if [[ -z "$PD_TOKEN" ]]; then
+            echo "::error title=Dispatch token missing::Set the PROGRESSIVE_DEPLOY_REPO_DISPATCH_TOKEN (or PAT) repository secret: without it progressive-deploy is never notified."
+            exit 1
           fi
 
       - name: Repository dispatch to progressive-deploy
         id: progressive_dispatch
-        if: steps.tokens.outputs.pd_token != ''
-        continue-on-error: true
         uses: peter-evans/repository-dispatch@v3
         with:
-          token: ${{ steps.tokens.outputs.pd_token }}
+          token: ${{ secrets.PROGRESSIVE_DEPLOY_REPO_DISPATCH_TOKEN || secrets.PAT }}
           repository: gptcompany/progressive-deploy
           event-type: utxoracle-build
           client-payload: >-
