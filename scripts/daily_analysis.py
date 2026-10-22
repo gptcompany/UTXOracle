@@ -1111,7 +1111,7 @@ def backfill_gap(date_str: str, config: Dict) -> bool:
 
         # Prepare data for database
         data = {
-            "timestamp": target_date,
+            "timestamp": target_date.isoformat(),
             "mempool_price": mempool_price
             or price,  # Fallback to UTXOracle if no exchange price
             "utxoracle_price": price,
@@ -1129,11 +1129,7 @@ def backfill_gap(date_str: str, config: Dict) -> bool:
         }
 
         # Save to database
-        save_to_duckdb(
-            data,
-            config["DUCKDB_PATH"],
-            config.get("DUCKDB_BACKUP_PATH", "/tmp/utxoracle_backup.duckdb"),
-        )
+        save_to_questdb(data)
 
         logging.info(f"[Backfill] ✅ Successfully backfilled {date_str}")
         return True
