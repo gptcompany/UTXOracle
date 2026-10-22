@@ -96,12 +96,24 @@ def test_signing_key_returns_plaintext_key():
 
 
 def test_app_startup_fails_closed_without_signing_key():
+    # The env-file loader is stubbed so a local .env or .env.enc cannot supply the key, and the
+    # QuestDB repository is a sentinel: startup must stop before any database contact.
     env = {k: v for k, v in os.environ.items() if k != "WEBSOCKET_SECRET_KEY"}
     env["AUTH_ENABLED"] = "true"
     code = (
+        "import sys, types\n"
+        "stub = types.ModuleType('secrets_loader')\n"
+        "stub.load_secrets = lambda *_a, **_k: False\n"
+        "sys.modules['secrets_loader'] = stub\n"
+        "import api.main\n"
+        "class NoDatabase:\n"
+        "    async def initialize(self):\n"
+        "        print('DB-TOUCHED', flush=True)\n"
+        "    async def close(self):\n"
+        "        pass\n"
+        "api.main.QuestDBRepository = NoDatabase\n"
         "from fastapi.testclient import TestClient\n"
-        "from api.main import app\n"
-        "with TestClient(app):\n"
+        "with TestClient(api.main.app):\n"
         "    pass\n"
     )
     result = subprocess.run(
@@ -109,6 +121,7 @@ def test_app_startup_fails_closed_without_signing_key():
     )
     assert result.returncode != 0
     assert "WEBSOCKET_SECRET_KEY" in result.stderr
+    assert "DB-TOUCHED" not in result.stdout
 
 
 def test_token_cli_needs_only_the_rest_signing_key(tmp_path):
