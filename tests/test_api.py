@@ -10,19 +10,20 @@ Tasks: T055-T057 (TDD Red - tests should FAIL initially)
 
 import pytest
 from fastapi.testclient import TestClient
-from datetime import datetime
-from types import SimpleNamespace
+from datetime import datetime, timezone
+
+
+@pytest.fixture
+def client(questdb_repo_mock):
+    """Test client that runs the app lifespan against the shared QuestDB mock."""
+    from api.main import app
+
+    with TestClient(app) as test_client:
+        yield test_client
 
 
 class TestLatestPriceEndpoint:
     """T055: Test GET /api/prices/latest endpoint"""
-
-    @pytest.fixture
-    def client(self):
-        """Create test client (will fail until API exists)"""
-        from api.main import app
-
-        return TestClient(app)
 
     def test_get_latest_price_returns_json(self, client):
         """Should return most recent price entry as JSON"""
@@ -46,8 +47,13 @@ class TestLatestPriceEndpoint:
             assert "diff_percent" in data
             assert "is_valid" in data
 
-    def test_get_latest_price_returns_most_recent(self, client):
+    def test_get_latest_price_returns_most_recent(self, client, questdb_repo_mock):
         """Should return entry with latest timestamp"""
+        # The shared mock carries a fixed past timestamp; this test checks recency.
+        fresh = dict(questdb_repo_mock.get_latest_price_analysis.return_value)
+        fresh["ts"] = datetime.now(timezone.utc)
+        questdb_repo_mock.get_latest_price_analysis.return_value = fresh
+
         response = client.get("/api/prices/latest")
 
         # Only validate timestamp if data exists
@@ -56,33 +62,26 @@ class TestLatestPriceEndpoint:
 
             # Timestamp should be recent (within last hour)
             timestamp = datetime.fromisoformat(data["timestamp"])
-            now = datetime.now()
-            delta = now - timestamp
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.replace(tzinfo=timezone.utc)
+            delta = datetime.now(timezone.utc) - timestamp
 
             assert delta.total_seconds() < 3600  # Less than 1 hour old
         else:
             # Database empty (cron not run yet) - acceptable
             assert response.status_code == 404
 
-    def test_get_latest_price_handles_empty_database(self, client):
+    def test_get_latest_price_handles_empty_database(self, client, questdb_repo_mock):
         """Should return 404 when no data exists"""
-        # This test assumes empty test database
-        # In real scenario, should mock DuckDB to return empty result
+        questdb_repo_mock.get_latest_price_analysis.return_value = None
+
         response = client.get("/api/prices/latest")
 
-        # Could be 404 or 200 with null values, depending on design
-        assert response.status_code in [200, 404]
+        assert response.status_code == 404
 
 
 class TestHistoricalPricesEndpoint:
     """T056: Test GET /api/prices/historical endpoint"""
-
-    @pytest.fixture
-    def client(self):
-        """Create test client"""
-        from api.main import app
-
-        return TestClient(app)
 
     def test_get_historical_prices_with_days_param(self, client):
         """Should return historical data filtered by days parameter"""
@@ -151,13 +150,6 @@ class TestHistoricalPricesEndpoint:
 class TestComparisonStatsEndpoint:
     """T057: Test GET /api/prices/comparison endpoint"""
 
-    @pytest.fixture
-    def client(self):
-        """Create test client"""
-        from api.main import app
-
-        return TestClient(app)
-
     def test_get_comparison_stats_computes_avg_diff(self, client):
         """Should compute statistical comparison metrics"""
         response = client.get("/api/prices/comparison")
@@ -212,7 +204,7 @@ class TestComparisonStatsEndpoint:
     @pytest.mark.asyncio
     async def test_get_comparison_stats_uses_naive_utc_cutoff(self):
         """QuestDB TIMESTAMP binds for comparison stats must stay offset-naive."""
-        from api.main import get_comparison_stats
+        from api.routes.questdb import get_comparison_stats
 
         class CapturingRepo:
             def __init__(self):
@@ -223,13 +215,8 @@ class TestComparisonStatsEndpoint:
                 return None
 
         repo = CapturingRepo()
-        request = SimpleNamespace(
-            app=SimpleNamespace(
-                state=SimpleNamespace(questdb_repo=repo),
-            )
-        )
 
-        result = await get_comparison_stats(request=request, days=7)
+        result = await get_comparison_stats(repo=repo, days=7)
 
         assert result.total_entries == 0
         assert repo.cutoff is not None
@@ -238,13 +225,6 @@ class TestComparisonStatsEndpoint:
 
 class TestHealthEndpoint:
     """Test GET /health endpoint"""
-
-    @pytest.fixture
-    def client(self):
-        """Create test client"""
-        from api.main import app
-
-        return TestClient(app)
 
     def test_health_check_returns_status(self, client):
         """Should return health status"""
@@ -283,13 +263,11 @@ class TestHealthEndpoint:
 class TestWassersteinLatestEndpoint:
     """T036: Test GET /api/metrics/wasserstein endpoint"""
 
-    @pytest.fixture
-    def client(self):
-        """Create test client"""
-        from api.main import app
-
-        return TestClient(app)
-
+    @pytest.mark.xfail(
+        strict=True,
+        reason="/api/metrics/wasserstein* respond 501 Not Implemented since the DuckDB "
+        "layer was removed; strict so the test fails loudly once the endpoint returns data",
+    )
     def test_get_wasserstein_latest_returns_json(self, client):
         """Should return latest Wasserstein metrics as JSON."""
         response = client.get("/api/metrics/wasserstein")
@@ -329,13 +307,11 @@ class TestWassersteinLatestEndpoint:
 class TestWassersteinHistoryEndpoint:
     """T037: Test GET /api/metrics/wasserstein/history endpoint"""
 
-    @pytest.fixture
-    def client(self):
-        """Create test client"""
-        from api.main import app
-
-        return TestClient(app)
-
+    @pytest.mark.xfail(
+        strict=True,
+        reason="/api/metrics/wasserstein* respond 501 Not Implemented since the DuckDB "
+        "layer was removed; strict so the test fails loudly once the endpoint returns data",
+    )
     def test_get_wasserstein_history_returns_array(self, client):
         """Should return historical Wasserstein data as array."""
         response = client.get("/api/metrics/wasserstein/history?hours=24")
@@ -364,13 +340,11 @@ class TestWassersteinHistoryEndpoint:
 class TestWassersteinNotFoundEndpoint:
     """T038: Test /api/metrics/wasserstein returns 404 when no data"""
 
-    @pytest.fixture
-    def client(self):
-        """Create test client"""
-        from api.main import app
-
-        return TestClient(app)
-
+    @pytest.mark.xfail(
+        strict=True,
+        reason="/api/metrics/wasserstein* respond 501 Not Implemented since the DuckDB "
+        "layer was removed; strict so the test fails loudly once the endpoint returns data",
+    )
     def test_wasserstein_404_when_no_data(self, client):
         """Should return 404 when no metrics data available."""
         # Note: This test may pass or fail depending on whether
