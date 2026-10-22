@@ -165,12 +165,13 @@ def questdb_repo_mock(monkeypatch):
 
 
 @pytest.fixture
-def client():
+def client(questdb_repo_mock):
     """
     FastAPI test client fixture.
 
     Imports the app and creates a TestClient for making HTTP requests.
-    This fixture is used across all API tests.
+    This fixture is used across all API tests. It runs the app lifespan against the
+    shared QuestDB mock so no test needs a live QuestDB.
 
     Yields:
         TestClient: Configured FastAPI test client
