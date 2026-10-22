@@ -54,6 +54,28 @@ def _build_snapshot(*, timestamp: datetime, block_height: int, price: float) -> 
     )
 
 
+class _UnavailableQuestDBRepository:
+    """QuestDB repository whose startup fails, as when the database is down."""
+
+    async def initialize(self) -> None:
+        raise ConnectionError("QuestDB unavailable (test)")
+
+    async def close(self) -> None:
+        return None
+
+
+@pytest.fixture(autouse=True)
+def questdb_down(monkeypatch):
+    """Make the derived routes' degraded state independent of the test host.
+
+    QuestDBRepository.initialize() would otherwise try a real QuestDB: the routes then
+    answered 404, 500 or 503 depending on whether one runs on the machine.
+    """
+    from api.apps import live as live_app
+
+    monkeypatch.setattr(live_app, "QuestDBRepository", _UnavailableQuestDBRepository)
+
+
 def _build_client(store: InMemorySnapshotStore) -> TestClient:
     from api.apps.live import create_app
 
