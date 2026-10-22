@@ -60,6 +60,19 @@ dev = [
     "ruff>=0.14.1",
 ]
 
+[tool.ruff]
+# Percorsi fuori dal lint e dal format: codice archiviato, copie di backup e esempi
+# che nessun modulo di produzione o di test importa (grafo degli import via ast sui
+# 446 file .py fuori da questi percorsi: 0 importatori; misure in
+# gptcompany/gbg-agents docs/evidence/ci-fuori-dal-dell/utxoracle-ci-rosso.md).
+# Il resto del repo resta con le regole predefinite di ruff, senza ignore.
+extend-exclude = [
+    "archive",
+    ".claude/hooks-backup",
+    ".claude/scripts-backup",
+    "examples",
+]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
