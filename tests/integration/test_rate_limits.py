@@ -6,7 +6,7 @@ Task T018: Write rate limiting tests.
 import pytest
 import asyncio
 import time
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from fastapi import Request
 from api.whale_security import TokenBucket, RateLimiter
 
@@ -203,8 +203,18 @@ class TestRateLimiter:
         bucket1.last_refill = time.time() - 700  # 11+ minutes ago
         bucket2.last_refill = time.time() - 700
 
-        # Run cleanup
-        await limiter.cleanup_old_buckets()
+        # cleanup_old_buckets is a background loop (sleep 300 s, clean, repeat):
+        # let the first sleep return and cancel the second so one pass runs.
+        sleeps = [None, asyncio.CancelledError()]
+
+        async def fake_sleep(_seconds):
+            outcome = sleeps.pop(0)
+            if outcome is not None:
+                raise outcome
+
+        with patch("api.whale_security.asyncio.sleep", fake_sleep):
+            with pytest.raises(asyncio.CancelledError):
+                await limiter.cleanup_old_buckets()
 
         # Old buckets should be removed
         assert "192.168.1.1" not in limiter.http_buckets
@@ -229,7 +239,9 @@ class TestRateLimiter:
 
         # When rate limited
         bucket = limiter.get_http_bucket("192.168.1.1")
-        await bucket.consume(100)  # Exhaust
+        # check_http_limit already took one token: drain the rest (consume(100) would fail
+        # without draining anything)
+        await bucket.consume(bucket.capacity - 1)
 
         allowed, headers = await limiter.check_http_limit(request)
         assert not allowed
