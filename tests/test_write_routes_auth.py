@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import inspect
 import sys
 
 import pytest
+from fastapi import Depends, FastAPI
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
+WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+# Request body per write route for the 401/403 checks; the inventory test keeps this list complete.
 WRITE_ROUTES = [
     ("post", "/api/v1/models/power-law/recalibrate", None),
     ("post", "/api/v1/models/ensemble", {"models": ["power_law"], "weights": [1.0]}),
@@ -14,8 +19,30 @@ WRITE_ROUTES = [
 ]
 
 
+def _requires_write(dependant) -> bool:
+    """True when the dependency tree contains require_permission("write")."""
+    for dep in dependant.dependencies:
+        call = dep.call
+        if getattr(call, "__name__", "") == "permission_checker":
+            if inspect.getclosurevars(call).nonlocals.get("required_permission") == "write":
+                return True
+        if _requires_write(dep):
+            return True
+    return False
+
+
+def _write_routes(app) -> dict[tuple[str, str], bool]:
+    """Every registered (method, path) that writes, mapped to whether it requires write."""
+    found = {}
+    for route in app.routes:
+        if isinstance(route, APIRoute):
+            for method in route.methods & WRITE_METHODS:
+                found[(method, route.path)] = _requires_write(route.dependant)
+    return found
+
+
 @pytest.fixture
-def client(monkeypatch):
+def client(monkeypatch, questdb_repo_mock):
     from scripts.config import mempool_config
 
     monkeypatch.setenv("AUTH_ENABLED", "true")
@@ -42,6 +69,39 @@ def _token(permissions: set[str]) -> str:
 def _call(client, method, path, body, token=None):
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     return getattr(client, method)(path, headers=headers, **({"json": body} if body else {}))
+
+
+def test_every_registered_write_route_requires_write():
+    from api.main import app
+
+    routes = _write_routes(app)
+    assert [route for route, protected in routes.items() if not protected] == []
+    assert set(routes) == {(method.upper(), path) for method, path, _ in WRITE_ROUTES}
+
+
+def test_inventory_flags_an_unprotected_write_route():
+    # Counterproof: a write route without the write dependency must be reported.
+    from api.auth_middleware import require_permission
+
+    app = FastAPI()
+
+    @app.post("/protected")
+    async def protected(_auth=Depends(require_permission("write"))):
+        return {}
+
+    @app.post("/read-only")
+    async def read_only(_auth=Depends(require_permission("read"))):
+        return {}
+
+    @app.delete("/open")
+    async def open_route():
+        return {}
+
+    assert _write_routes(app) == {
+        ("POST", "/protected"): True,
+        ("POST", "/read-only"): False,
+        ("DELETE", "/open"): False,
+    }
 
 
 @pytest.mark.parametrize("method,path,body", WRITE_ROUTES)
