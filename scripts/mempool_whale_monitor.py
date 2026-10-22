@@ -325,7 +325,8 @@ class MempoolWhaleMonitor:
         # Extract addresses from input/output
         involved_addresses = []
         for vin in raw_data.get("vin", []):
-            if vin.get("is_coinbase", False): continue
+            if vin.get("is_coinbase", False):
+                continue
             if "prevout" in vin and "scriptpubkey_address" in vin["prevout"]:
                 involved_addresses.append(vin["prevout"]["scriptpubkey_address"])
         for vout in raw_data.get("vout", []):
@@ -338,7 +339,6 @@ class MempoolWhaleMonitor:
         
         # Classify flow type and analyze involved exchanges
         flow_type = FlowType.UNKNOWN
-        involved_exchanges = list(set(identified.values()))
         
         # Check inputs and outputs for specific exchange involvement
         inflow_addresses = {addr for vout in raw_data.get("vout", []) for addr in [vout.get("scriptpubkey_address")] if addr in identified}

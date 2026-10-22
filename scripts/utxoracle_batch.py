@@ -4,13 +4,10 @@ UTXOracle Batch Processing Script
 Runs UTXOracle for multiple dates with browser suppression and parallel execution
 """
 
-import asyncio
 import subprocess
-import os
 import sys
 from datetime import datetime, timedelta
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from pathlib import Path
 
 class UTXOracleBatchProcessor:
     def __init__(self, utxoracle_path=None, max_workers=4):
@@ -237,7 +234,7 @@ def main():
     successful = len([r for r in results if r['status'] == 'success'])
     total = len(results)
     
-    print(f"\nBatch processing complete!")
+    print("\nBatch processing complete!")
     print(f"Processed: {total} dates")
     print(f"Successful: {successful}")
     print(f"Failed: {total - successful}")

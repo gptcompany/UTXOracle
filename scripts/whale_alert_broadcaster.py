@@ -324,7 +324,8 @@ async def run_with_test_alerts():
     broadcaster = WhaleAlertBroadcaster(auth_enabled=False)  # Disable auth for testing
 
     # Start server
-    server_task = asyncio.create_task(broadcaster.start_server())
+    # asyncio keeps only a weak reference to tasks: hold the strong one until we return
+    server_task = asyncio.create_task(broadcaster.start_server())  # noqa: F841
 
     # Wait a bit for server to start
     await asyncio.sleep(2)

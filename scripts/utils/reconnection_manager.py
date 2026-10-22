@@ -434,7 +434,7 @@ if __name__ == "__main__":
             circuit_breaker_threshold=5,
         )
 
-        circuit_connection = await circuit_manager.connect_with_retry()
+        await circuit_manager.connect_with_retry()
         stats = circuit_manager.get_stats()
         print(f"   Circuit breaker open: {stats['circuit_breaker_open']}")
         print(f"   Consecutive failures: {stats['consecutive_failures']}")

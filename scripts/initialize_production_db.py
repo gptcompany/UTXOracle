@@ -9,22 +9,17 @@ Creates:
 - prediction_outcomes table (for correlation tracking)
 """
 
-import duckdb
-import sys
+import asyncio
 import logging
-from pathlib import Path
+import os
+import sys
+
+from api.questdb_repository import create_tables_if_not_exist
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
-
-
-import asyncio
-import os
-import sys
-import logging
-from api.questdb_repository import create_tables_if_not_exist
 
 async def initialize_production_database():
     """

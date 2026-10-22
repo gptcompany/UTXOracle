@@ -148,7 +148,6 @@ class BundleWriter:
         *,
         produced_at: datetime,
     ) -> dict[str, Any]:
-        now = produced_at
         degraded_reasons: list[str] = []
         stale = False
 
