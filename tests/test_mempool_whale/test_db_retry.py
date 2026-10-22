@@ -14,24 +14,14 @@ Focus: Error paths and edge cases
 import pytest
 from unittest.mock import Mock, patch
 
-# Import module under test
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts" / "utils"))
-
-try:
-    from db_retry import (
-        DatabaseRetryConfig,
-        with_db_retry,
-        execute_with_retry,
-        connect_with_retry,
-    )
-
-    TENACITY_AVAILABLE = True
-except ImportError:
-    TENACITY_AVAILABLE = False
-    pytest.skip("tenacity library not available", allow_module_level=True)
+# Import through the package: the tests patch "scripts.utils.db_retry.*", and a second
+# copy of the module imported as a top-level `db_retry` (via sys.path) has its own globals.
+from scripts.utils.db_retry import (
+    DatabaseRetryConfig,
+    with_db_retry,
+    execute_with_retry,
+    connect_with_retry,
+)
 
 
 class TestDatabaseRetryConfig:
@@ -167,7 +157,7 @@ class TestWithDbRetryDecorator:
 
     def test_decorator_fallback_when_tenacity_unavailable(self):
         """Should fallback to no-op decorator if tenacity unavailable"""
-        with patch("db_retry.TENACITY_AVAILABLE", False):
+        with patch("scripts.utils.db_retry.TENACITY_AVAILABLE", False):
             mock_func = Mock(return_value="success")
 
             @with_db_retry()
@@ -197,7 +187,7 @@ class TestExecuteWithRetry:
         result = execute_with_retry(mock_conn, "SELECT * FROM table")
 
         assert result == [("result",)]
-        mock_conn.execute.assert_called_once_with("SELECT * FROM table", None)
+        mock_conn.execute.assert_called_once_with("SELECT * FROM table")
 
     def test_execute_query_with_params(self, mock_conn):
         """Should execute query with parameters"""

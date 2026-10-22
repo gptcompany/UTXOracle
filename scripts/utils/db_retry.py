@@ -32,7 +32,7 @@ try:
         retry,
         stop_after_attempt,
         wait_exponential,
-        retry_if_exception_type,
+        retry_if_exception,
         before_sleep_log,
         RetryError,
     )
@@ -190,7 +190,7 @@ def with_db_retry(
                     min=config.initial_delay,
                     max=config.max_delay,
                 ),
-                retry=retry_if_exception_type(tuple(config.retry_on_errors)),
+                retry=retry_if_exception(config.should_retry),
                 before_sleep=before_sleep_log(logger, logging.WARNING),
                 reraise=True,
             )
@@ -213,7 +213,7 @@ def with_db_retry(
                     min=config.initial_delay,
                     max=config.max_delay,
                 ),
-                retry=retry_if_exception_type(tuple(config.retry_on_errors)),
+                retry=retry_if_exception(config.should_retry),
                 before_sleep=before_sleep_log(logger, logging.WARNING),
                 reraise=True,
             )
