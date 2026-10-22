@@ -8,7 +8,7 @@ async def main():
         fetcher = RBNFetcher()
         # Mocking fetcher if there is no token, but actually the fetcher requires a token.
         # Let's see if the code compiles and initializes correctly.
-        data = await fetcher.fetch_metric(
+        await fetcher.fetch_metric(
             metric_id="mvrv_z",
             start_date=date(2024, 1, 1),
             end_date=date(2024, 12, 31)

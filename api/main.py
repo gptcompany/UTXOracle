@@ -24,7 +24,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -120,6 +120,22 @@ from api.config import (
     MEMPOOL_API_V1_URL,
     UTXO_DB_PATH,
     get_cors_middleware_kwargs,
+)
+
+# Imports that used to sit mid-file next to their endpoints (E402); none of these
+# modules imports api.main, so loading them here changes no import order that matters.
+from api.routes.questdb import router as questdb_router
+from api.routes.streams import router as streams_router
+from api.models.risk_models import (
+    ProRiskResponseAPI,
+    ProRiskHistoryResponseAPI,
+    ZoneDefinitionsResponseAPI,
+    ZoneDefinitionAPI,
+)
+from scripts.metrics.pro_risk import (
+    calculate_pro_risk,
+    ZONE_THRESHOLDS,
+    ProRiskResult,
 )
 
 STARTUP_TIME = datetime.now(timezone.utc)
@@ -263,12 +279,10 @@ except ImportError as e:
 # spec-050: Promoted QuestDB-backed routes
 # =============================================================================
 
-from api.routes.questdb import router as questdb_router
 app.include_router(questdb_router)
 logging.info("✅ Promoted QuestDB-backed metrics registered (prices, metrics/latest)")
 
 # spec-061: Consumer-facing stream consumption contract — GET /v1/streams/health
-from api.routes.streams import router as streams_router
 app.include_router(streams_router)
 logging.info("✅ Stream consumption contract registered (/v1/streams/health, 13 streams)")
 
@@ -611,7 +625,6 @@ async def get_advanced_metrics(request: Request):
 
     These metrics provide +40% improvement in signal accuracy over spec-007.
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
     raise HTTPException(status_code=501, detail="Not Implemented")
 
 
@@ -627,7 +640,6 @@ async def get_wasserstein_latest(request: Request):
 
     Returns the most recent Wasserstein distance calculation and regime status.
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
     raise HTTPException(status_code=501, detail="Not Implemented")
 
 
@@ -644,7 +656,6 @@ async def get_wasserstein_history(
 
     Returns rolling Wasserstein distances for the specified period.
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
     raise HTTPException(status_code=501, detail="Not Implemented")
 
 
@@ -655,7 +666,6 @@ async def get_wasserstein_regime(request: Request):
 
     Returns simplified regime status for trading decisions.
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
     raise HTTPException(status_code=501, detail="Not Implemented")
 
 
@@ -671,7 +681,6 @@ async def get_cointime_latest(request: Request):
 
     Returns the most recent coinblocks, liveliness, supply split, and AVIV metrics.
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
     raise HTTPException(status_code=501, detail="Not Implemented")
 
 
@@ -688,7 +697,6 @@ async def get_cointime_history(
 
     Returns liveliness, AVIV, and supply split history for charting.
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
     raise HTTPException(status_code=501, detail="Not Implemented")
 
 
@@ -699,7 +707,6 @@ async def get_cointime_signal(request: Request):
 
     Returns the AVIV-based valuation signal for fusion integration.
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
     raise HTTPException(status_code=501, detail="Not Implemented")
 
 
@@ -789,7 +796,6 @@ async def get_urpd(
 
     Spec: 021-advanced-onchain-metrics
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
     raise HTTPException(status_code=501, detail="Not Implemented")
 
 
@@ -851,7 +857,6 @@ async def get_supply_profit_loss(
 
     Spec: 021-advanced-onchain-metrics
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
     raise HTTPException(status_code=501, detail="Not Implemented")
 
 
@@ -945,7 +950,6 @@ async def get_sell_side_risk(
 
     Spec: 021-advanced-onchain-metrics
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
     raise HTTPException(status_code=501, detail="Not Implemented")
 
 
@@ -998,7 +1002,6 @@ async def get_cdd_vdd(
 
     Spec: 021-advanced-onchain-metrics
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
     raise HTTPException(status_code=501, detail="Not Implemented")
 
 
@@ -1193,7 +1196,6 @@ async def get_revived_supply(
 
     Spec: 024-revived-supply
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
     raise HTTPException(status_code=501, detail="Not Implemented")
 
 
@@ -2339,12 +2341,6 @@ async def health_check():
         latency_ms = round((time.time() - start) * 1000, 2)
 
         # Detect gaps in last 7 days (QuestDB compatible)
-        gap_query = """
-            SELECT ts::VARCHAR
-            FROM price_analysis
-            WHERE ts > now() - interval '7 days'
-            SAMPLE BY 1d ALIGN TO CALENDAR
-        """
         # This is simplified gap detection for QuestDB
         # In a real scenario we'd check for missing days in the sample
         gaps_count = 0
@@ -2929,7 +2925,6 @@ async def get_sopr(
     Spec: 016-sopr-analysis
     """
     import duckdb
-    from datetime import timedelta
     # spec-013: Independent SOPR calculation from UTXO lifecycle data
     # This removes CheckOnChain dependency and uses our own calculation
 
@@ -3267,17 +3262,6 @@ async def get_puell_multiple(
 # PRO Risk Metric Endpoints (spec-033)
 # =============================================================================
 
-from api.models.risk_models import (
-    ProRiskResponseAPI,
-    ProRiskHistoryResponseAPI,
-    ZoneDefinitionsResponseAPI,
-    ZoneDefinitionAPI,
-)
-from scripts.metrics.pro_risk import (
-    calculate_pro_risk,
-    ZONE_THRESHOLDS,
-    ProRiskResult,
-)
 
 
 def get_pro_risk_for_date(target_date: date) -> Optional[ProRiskResult]:
@@ -3417,13 +3401,13 @@ async def get_pro_risk_history_endpoint(
 # Spec-034: Bitcoin Price Power Law Model Endpoints
 # =============================================================================
 
-from api.models.power_law_models import (
+from api.models.power_law_models import (  # noqa: E402 - rebinds PowerLawResponse defined above
     PowerLawModel,
     PowerLawResponse,
     PowerLawHistoryPoint,
     PowerLawHistoryResponse,
 )
-from scripts.models.price_power_law import (
+from scripts.models.price_power_law import (  # noqa: E402
     DEFAULT_MODEL,
     days_since_genesis,
     predict_price,

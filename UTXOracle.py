@@ -91,6 +91,19 @@
 # set platform dependent data paths
 import platform
 import os
+# imports that used to sit further down the script (moved up for E402)
+import sys
+import http.client
+import json
+import base64
+from datetime import datetime, timezone, timedelta
+from struct import unpack
+import binascii
+import struct
+from math import log10
+import hashlib
+from io import BytesIO
+import webbrowser
 
 # T030: Import refactored library (Spec 003)
 
@@ -114,7 +127,6 @@ block_hashes_needed = []
 block_times_needed = []
 
 # print help text for the user if needed
-import sys
 
 
 def print_help():
@@ -225,9 +237,6 @@ print("\nConnecting to node...", flush=True)
 print("0%..", end="", flush=True)
 
 # define the node communication function
-import http.client
-import json
-import base64
 
 
 def Ask_Node(command, cred_creation):
@@ -332,7 +341,6 @@ print("80%..", end="", flush=True)
 
 
 # import built in tools for dates/times and json style lists
-from datetime import datetime, timezone, timedelta
 
 
 # get the date and time of the current block height
@@ -388,7 +396,7 @@ if date_mode:
                 print("\nThe date entered is before 2023-12-15, please try again")
                 sys.exit()
 
-        except:
+        except BaseException:  # not Exception: also catches the sys.exit() above, as the bare except did
             print(
                 "\nError interpreting date. Please try again. Make sure format is YYYY/MM/DD"
             )
@@ -666,8 +674,6 @@ print("\nLoading every transaction from every block", flush=True)
 
 
 # #initialize output lists and variables
-from struct import unpack
-import binascii
 
 todays_txids = set()
 raw_outputs = []
@@ -678,9 +684,6 @@ block_num = 0
 
 
 # shortcut for reading bytes of data from the block file
-import struct
-from math import log10
-import hashlib
 
 
 def read_varint(f):
@@ -700,7 +703,6 @@ def read_varint(f):
 
 
 # shortcut for encoding variable size integers to bytes
-from io import BytesIO
 
 
 def encode_varint(i: int) -> bytes:
@@ -1789,7 +1791,6 @@ if block_mode:
 
 
 # Write file locally and serve to browser
-import webbrowser
 
 with open(filename, "w") as f:
     f.write(html_content)
