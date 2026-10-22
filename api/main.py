@@ -59,7 +59,7 @@ except ImportError as e:
 # =============================================================================
 
 try:
-    from auth_middleware import require_auth, optional_auth, AuthToken
+    from auth_middleware import require_auth, optional_auth, AuthToken, get_auth_instance
 
     AUTH_AVAILABLE = True
     logging.info("✅ JWT authentication middleware loaded successfully")
@@ -144,6 +144,9 @@ async def lifespan(app: FastAPI):
     # Startup
     logging.info("=" * 60)
     logging.info("UTXOracle API starting...")
+    if AUTH_AVAILABLE:
+        # Fail closed at startup: a missing or still-encrypted signing key must stop the service.
+        get_auth_instance()
     
     # Initialize QuestDB
     questdb_repo = QuestDBRepository()

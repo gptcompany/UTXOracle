@@ -27,26 +27,47 @@ except ImportError:
 
         _secrets_mode = "env"
 
-# Load environment variables (from .env.enc when SOPS is available, otherwise .env or current env)
+# Load environment variables (from .env.enc when SOPS is available, otherwise .env or current env).
+# The process environment (systemd EnvironmentFile) wins for every key; the env file only fills keys
+# that are still missing. A value that is still ciphertext is never left in os.environ: used verbatim
+# it would turn committed ciphertext into a signing key.
+ENCRYPTED_PREFIXES = ("ENC[", "encrypted:")
+_logger = logging.getLogger(__name__)
+
+
+def is_encrypted(value: Optional[str]) -> bool:
+    return bool(value) and str(value).startswith(ENCRYPTED_PREFIXES)
+
+
+def load_project_environment(loader, path: Optional[Path]) -> list[str]:
+    """Run ``loader`` without letting it override the environment; return the names of dropped ciphertext keys."""
+    preset = dict(os.environ)
+    loader(str(path) if path else None)
+    os.environ.update(preset)
+    dropped = sorted(key for key, value in os.environ.items() if is_encrypted(value))
+    for key in dropped:
+        del os.environ[key]
+    if dropped:
+        # Names only: a value must never reach the log.
+        _logger.error("Dropped still-encrypted environment values: %s", ", ".join(dropped))
+    return dropped
+
+
 _project_root = Path(__file__).resolve().parent.parent
 _env_enc_path = _project_root / ".env.enc"
 _env_path = _project_root / ".env"
-_preloaded_jwt_secret = os.getenv("JWT_SECRET")
 if _secrets_mode == "sops" and _env_enc_path.exists():
-    load_secrets(str(_env_enc_path))
+    _env_file = _env_enc_path
 elif _env_path.exists():
-    load_secrets(str(_env_path))
+    _env_file = _env_path
 else:
-    load_secrets(None)
-if _preloaded_jwt_secret and (
-    not os.getenv("JWT_SECRET") or str(os.getenv("JWT_SECRET")).startswith("ENC[")
-):
-    os.environ["JWT_SECRET"] = _preloaded_jwt_secret
+    _env_file = None
+DROPPED_ENCRYPTED_KEYS = load_project_environment(load_secrets, _env_file)
 
 # Environment configuration
 def get_clean_env(key: str, default: str = "") -> str:
     val = os.getenv(key, default)
-    if val is not None and str(val).startswith("ENC["):
+    if is_encrypted(val):
         return default
     return val
 
@@ -59,8 +80,9 @@ def get_clean_env_list(key: str) -> list[str]:
 _jwt_secret = get_clean_env("JWT_SECRET")
 if not _jwt_secret:
     raise ValueError(
-        "SECURITY ERROR: JWT_SECRET environment variable is required. "
-        "Generate with: openssl rand -base64 64"
+        "SECURITY ERROR: JWT_SECRET environment variable is required"
+        + (" (its value is still encrypted)" if "JWT_SECRET" in DROPPED_ENCRYPTED_KEYS else "")
+        + ". Generate with: openssl rand -base64 64"
     )
 JWT_SECRET = _jwt_secret
 
