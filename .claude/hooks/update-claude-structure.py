@@ -14,13 +14,11 @@ Usage:
     python update-claude-structure.py --debug   # Show debug info
 """
 
-import os
 import re
 import sys
 import argparse
 from pathlib import Path
-from typing import Dict, List, Set, Optional
-from collections import defaultdict
+from typing import Dict, List
 
 
 # ============================================================================
@@ -155,7 +153,7 @@ def count_files_in_dir(dir_path: Path, pattern: str = "*") -> int:
             if item.is_file() and fnmatch.fnmatch(item.name, pattern):
                 count += 1
         return count
-    except:
+    except Exception:
         return 0
 
 

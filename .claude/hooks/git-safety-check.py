@@ -208,16 +208,16 @@ def main():
         sensitive_files = check_sensitive_files(command)
         if sensitive_files:
             warnings.append(
-                f"⚠️  WARNING: Attempting to commit sensitive files:\n"
+                "⚠️  WARNING: Attempting to commit sensitive files:\n"
                 + "\n".join(f"   - {f}" for f in sensitive_files) +
-                f"\n   Review carefully before proceeding. Consider adding to .gitignore."
+                "\n   Review carefully before proceeding. Consider adding to .gitignore."
             )
         
         # Check 4: Large files
         large_files = check_large_files()
         if large_files:
             warnings.append(
-                f"⚠️  WARNING: Large files detected in commit:\n"
+                "⚠️  WARNING: Large files detected in commit:\n"
                 + "\n".join(f"   - {f['file']} ({f['size_mb']:.1f} MB)" for f in large_files) +
                 f"\n   Consider using Git LFS for files >{LARGE_FILE_THRESHOLD/1_000_000:.0f}MB."
             )
@@ -226,9 +226,9 @@ def main():
         sensitive_keywords = check_commit_message(command)
         if sensitive_keywords:
             warnings.append(
-                f"⚠️  WARNING: Sensitive keywords in commit message:\n"
+                "⚠️  WARNING: Sensitive keywords in commit message:\n"
                 + "\n".join(f"   - {k}" for k in sensitive_keywords) +
-                f"\n   Avoid committing secrets in messages."
+                "\n   Avoid committing secrets in messages."
             )
         
         # If errors, block the operation

@@ -55,7 +55,7 @@ def announce_completion():
 def main():
     try:
         # Read JSON input from stdin
-        input_data = json.loads(sys.stdin.read())
+        json.loads(sys.stdin.read())
         
         # Announce completion
         announce_completion()

@@ -28,7 +28,7 @@ def analyze_tool_usage():
                 data = json.load(f)
                 all_tools.extend(data)
                 sessions[session_id] = len(data)
-        except:
+        except Exception:
             continue
     
     if not all_tools:
@@ -86,15 +86,15 @@ def analyze_tool_usage():
         json.dump(report, f, indent=2)
     
     print(f"✅ Analysis complete: {report_file}")
-    print(f"\n📊 Summary:")
+    print("\n📊 Summary:")
     print(f"  Sessions: {len(sessions)}")
     print(f"  Total tool calls: {len(all_tools)}")
-    print(f"\n🔝 Top 5 Tools:")
+    print("\n🔝 Top 5 Tools:")
     for item in report['top_10_tools'][:5]:
         print(f"  {item['tool']:30} {item['count']:4} calls ({item['percentage']:>6}) - {item['success_rate']} success")
     
     if mcp_servers:
-        print(f"\n🔌 MCP Server Usage:")
+        print("\n🔌 MCP Server Usage:")
         for server, data in report['mcp_servers'].items():
             print(f"  {server:20} {data['calls']:4} calls ({data['percentage']:>6})")
     
