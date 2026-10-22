@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from scripts.auth.websocket_auth import WebSocketAuthenticator, AuthToken, AuthConfig
 from scripts.config.mempool_config import get_config
-from api.config import is_encrypted
+from api.secret_values import is_encrypted
 
 logger = logging.getLogger(__name__)
 

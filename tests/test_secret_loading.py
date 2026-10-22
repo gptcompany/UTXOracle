@@ -11,7 +11,8 @@ from types import SimpleNamespace
 import pytest
 
 from api import auth_middleware
-from api.config import is_encrypted, load_project_environment
+from api.config import load_project_environment
+from api.secret_values import is_encrypted
 
 ROOT = Path(__file__).resolve().parent.parent
 # Real shapes, anonymised: SOPS dotenv values and dotenvx values.
@@ -108,3 +109,18 @@ def test_app_startup_fails_closed_without_signing_key():
     )
     assert result.returncode != 0
     assert "WEBSOCKET_SECRET_KEY" in result.stderr
+
+
+def test_token_cli_needs_only_the_rest_signing_key(tmp_path):
+    # The documented REST token CLI signs with WEBSOCKET_SECRET_KEY; it must not need JWT_SECRET.
+    env = {k: v for k, v in os.environ.items() if k not in ("JWT_SECRET", "WEBSOCKET_SECRET_KEY")}
+    env.update({"AUTH_ENABLED": "true", "WEBSOCKET_SECRET_KEY": "synthetic-rest-key", "HOME": str(tmp_path)})
+    result = subprocess.run(
+        [sys.executable, "api/auth_middleware.py", "cli-test", "--permissions", "read", "--hours", "1"],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr[-500:]
+    assert "JWT_SECRET" not in result.stderr

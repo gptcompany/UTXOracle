@@ -10,6 +10,8 @@ import logging.handlers
 from pathlib import Path
 from typing import Optional
 
+from api.secret_values import is_encrypted
+
 # Use SOPS-encrypted secrets when available, otherwise fall back to dotenv/plain env
 try:
     sys.path.insert(0, "/media/sam/1TB/claude-hooks-shared/scripts")
@@ -31,12 +33,7 @@ except ImportError:
 # The process environment (systemd EnvironmentFile) wins for every key; the env file only fills keys
 # that are still missing. A value that is still ciphertext is never left in os.environ: used verbatim
 # it would turn committed ciphertext into a signing key.
-ENCRYPTED_PREFIXES = ("ENC[", "encrypted:")
 _logger = logging.getLogger(__name__)
-
-
-def is_encrypted(value: Optional[str]) -> bool:
-    return bool(value) and str(value).startswith(ENCRYPTED_PREFIXES)
 
 
 def load_project_environment(loader, path: Optional[Path]) -> list[str]:
