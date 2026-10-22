@@ -361,3 +361,90 @@ class TestEdgeCases:
 
         assert result == "wrapped-success"
         assert mock_func.call_count == 1
+
+
+class TestClassificationByType:
+    """Retry decisions follow the exception type; the message only decides for untyped errors."""
+
+    def test_duckdb_lock_on_path_with_permanent_words_is_retried(self, tmp_path):
+        """A real DuckDB file lock is transient even if the path contains
+        'unique', 'invalid' or 'constraint' (the error text includes the path)."""
+        import subprocess
+        import sys
+
+        import duckdb
+
+        db_path = tmp_path / "unique_invalid_constraint.duckdb"
+        holder = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                "import duckdb, sys, time;"
+                f"c = duckdb.connect({str(db_path)!r});"
+                "print('ready', flush=True);"
+                "time.sleep(1.2)",
+            ],
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            assert holder.stdout.readline().strip() == "ready"
+
+            # While the holder runs, the lock error is a typed transient error whose
+            # message contains the path
+            with pytest.raises(duckdb.IOException) as locked:
+                duckdb.connect(str(db_path))
+            assert "unique_invalid_constraint" in str(locked.value)
+            assert DatabaseRetryConfig().should_retry(locked.value) is True
+
+            attempts = []
+
+            @with_db_retry(max_attempts=5, initial_delay=0.5, max_delay=1.0)
+            def connect():
+                attempts.append(1)
+                return duckdb.connect(str(db_path))
+
+            conn = connect()  # succeeds once the holder exits
+            conn.close()
+            assert len(attempts) >= 2, "the lock must have been retried, not failed at once"
+        finally:
+            holder.wait(timeout=10)
+
+    def test_duckdb_constraint_violation_is_permanent(self):
+        """A real DuckDB constraint error is not retried, whatever the message says."""
+        import duckdb
+
+        conn = duckdb.connect(":memory:")
+        conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)")
+        conn.execute("INSERT INTO t VALUES (1)")
+        calls = []
+
+        @with_db_retry(max_attempts=3, initial_delay=0.1)
+        def insert_duplicate():
+            calls.append(1)
+            conn.execute("INSERT INTO t VALUES (1)")
+
+        with pytest.raises(duckdb.ConstraintException):
+            insert_duplicate()
+        assert len(calls) == 1
+
+    def test_duckdb_missing_table_is_permanent(self):
+        import duckdb
+
+        conn = duckdb.connect(":memory:")
+        with pytest.raises(duckdb.CatalogException) as missing:
+            conn.execute("SELECT * FROM no_such_table")
+        assert DatabaseRetryConfig().should_retry(missing.value) is False
+
+    def test_os_and_connection_errors_are_transient_even_with_permanent_words(self):
+        config = DatabaseRetryConfig()
+        assert config.should_retry(OSError("cannot open /data/invalid_unique.db")) is True
+        assert config.should_retry(ConnectionError("connection invalid")) is True
+
+    def test_permission_error_is_permanent(self):
+        assert DatabaseRetryConfig().should_retry(PermissionError("denied")) is False
+
+    def test_untyped_exception_still_classified_by_text(self):
+        config = DatabaseRetryConfig()
+        assert config.should_retry(Exception("UNIQUE constraint failed")) is False
+        assert config.should_retry(Exception("something odd")) is True
