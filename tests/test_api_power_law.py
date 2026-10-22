@@ -306,16 +306,16 @@ class TestGetPowerLawHistory:
 class TestPostPowerLawRecalibrate:
     """Tests for the POST /api/v1/models/power-law/recalibrate endpoint (T013)."""
 
-    def test_returns_200_on_success(self, api_client):
+    def test_returns_200_on_success(self, api_client, write_headers):
         """Should return 200 status code on successful recalibration."""
         # Note: This test may need to mock database if not available
-        response = api_client.post("/api/v1/models/power-law/recalibrate")
+        response = api_client.post("/api/v1/models/power-law/recalibrate", headers=write_headers)
         # Accept 200 (success) or 503 (database unavailable)
         assert response.status_code in (200, 503)
 
-    def test_returns_updated_model(self, api_client):
+    def test_returns_updated_model(self, api_client, write_headers):
         """Should return the recalibrated model parameters."""
-        response = api_client.post("/api/v1/models/power-law/recalibrate")
+        response = api_client.post("/api/v1/models/power-law/recalibrate", headers=write_headers)
 
         if response.status_code == 200:
             data = response.json()
@@ -323,12 +323,12 @@ class TestPostPowerLawRecalibrate:
             assert "alpha" in data["model"]
             assert "beta" in data["model"]
 
-    def test_returns_503_when_database_unavailable(self, api_client):
+    def test_returns_503_when_database_unavailable(self, api_client, write_headers):
         """Should return 503 when database is unavailable."""
         with patch(
             "api.main.get_duckdb_connection", side_effect=Exception("DB unavailable")
         ):
-            response = api_client.post("/api/v1/models/power-law/recalibrate")
+            response = api_client.post("/api/v1/models/power-law/recalibrate", headers=write_headers)
             assert response.status_code == 503
 
 
