@@ -69,6 +69,12 @@ class WebSocketAuthenticator:
         """Initialize authenticator with configuration"""
         self.config = config or self._load_default_config()
         self.active_tokens: Dict[str, AuthToken] = {}
+        # Revocation cutoff per client: tokens issued at or before it are refused.
+        # A denylist, not an allowlist on active_tokens: api/auth_middleware issues
+        # tokens from another instance (CLI, any lifetime) that this one never saw.
+        # TODO(F-277): in memory, per process; lost on restart, not shared with
+        # other authenticator instances.
+        self.revoked_before: Dict[str, datetime] = {}
         self.rate_limiter = RateLimiter(
             self.config.rate_limit_requests, self.config.rate_limit_window
         )
@@ -170,6 +176,11 @@ class WebSocketAuthenticator:
                 expires_at=datetime.fromtimestamp(payload["exp"], timezone.utc),
                 permissions=set(payload.get("permissions", ["read"])),
             )
+
+            cutoff = self.revoked_before.get(client_id)
+            if cutoff is not None and token.issued_at <= cutoff:
+                logger.warning(f"Token revoked for client {client_id}")
+                return None
 
             # Check if token is expired
             if token.is_expired:
@@ -286,12 +297,14 @@ class WebSocketAuthenticator:
             return None
 
     def revoke_token(self, client_id: str) -> bool:
-        """Revoke a client's token"""
-        if client_id in self.active_tokens:
-            del self.active_tokens[client_id]
-            logger.info(f"Revoked token for client {client_id}")
-            return True
-        return False
+        """Revoke every token issued to a client so far.
+
+        Returns True if this instance held an active token for the client; the
+        revocation applies either way, also to tokens issued elsewhere.
+        """
+        self.revoked_before[client_id] = datetime.now(timezone.utc)
+        logger.info(f"Revoked tokens for client {client_id}")
+        return self.active_tokens.pop(client_id, None) is not None
 
     def cleanup_expired_tokens(self):
         """Remove expired tokens from active set"""
