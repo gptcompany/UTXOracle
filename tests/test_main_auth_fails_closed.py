@@ -7,13 +7,14 @@ import pytest
 
 
 def _isolate_api_main(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Re-importing api.main rebinds the `api.main` attribute of the package: restore it afterwards,
-    or later tests that patch `api.main` would patch the throwaway module instead of the served one."""
+    """Hide api.main from the import cache without importing it (a fresh process must reach the
+    ImportError inside `pytest.raises`). Re-importing rebinds the `api.main` attribute of the
+    package: monkeypatch restores it (or removes it if it was absent), so later tests that patch
+    `api.main` keep patching the served module instead of the throwaway one."""
     import api
-    import api.main as served_main
 
-    monkeypatch.setattr(api, "main", served_main)
     monkeypatch.delitem(sys.modules, "api.main", raising=False)
+    monkeypatch.setattr(api, "main", getattr(api, "main", None), raising=False)
 
 
 def test_startup_fails_when_auth_middleware_cannot_be_imported(
