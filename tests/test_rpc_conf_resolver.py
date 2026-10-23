@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from scripts.utils.rpc_cookie import default_datadir
 from tests.fake_bitcoind import load_live_rpc
 
 REPO = Path(__file__).resolve().parent.parent
@@ -308,10 +309,13 @@ def test_bitcoin_datadir_selects_the_conf_and_ignores_its_datadir_line(tmp_path)
     assert (target.datadir, target.port) == (tmp_path, 4444)
 
 
-def test_default_conf_datadir_line_moves_the_cookie(tmp_path, clean_env):
+def test_default_conf_datadir_line_moves_the_cookie(tmp_path, clean_env, monkeypatch):
     node = tmp_path / "node"
-    (clean_env / ".bitcoin").mkdir()
-    (clean_env / ".bitcoin" / "bitcoin.conf").write_text(f"datadir={node}\n")
+    # The default datadir depends on the platform (~/.bitcoin, Library/Application Support/Bitcoin, %APPDATA%).
+    monkeypatch.setenv("APPDATA", str(clean_env))
+    default = default_datadir()
+    default.mkdir(parents=True)
+    (default / "bitcoin.conf").write_text(f"datadir={node}\n")
     target = resolve(None, env={"BITCOIN_DATADIR": "ENC[AES256_GCM,data:x]"})
     assert target.datadir == node and target.cookie_path == node / ".cookie"
 

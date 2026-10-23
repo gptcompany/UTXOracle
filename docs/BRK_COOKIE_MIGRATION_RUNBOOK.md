@@ -93,9 +93,9 @@ In Bitcoin Core v28, la presenza di `rpcauth` in assenza di `rpcpassword` permet
 
 **Rollback:** ogni passo che ha modificato bitcoind, un consumatore o BRK si annulla soltanto con il **Rollback Coordinato** (sezione 5): ripristinare un solo lato lascia server e client con autenticazioni incompatibili (HTTP 401, riprodotto con Bitcoin Core v28.0.0 in regtest nella review R2).
 
-### Preparazione (prima del Passo 1): backup e verifica RPC
+### Preparazione (prima del Passo 1): backup e controllo di connettività
 
-Backup di tutto ciò che il Rollback Coordinato dovrà ripristinare, in una directory 0700, e definizione del controllo RPC reale usato nei passi successivi.
+Backup di tutto ciò che il Rollback Coordinato dovrà ripristinare, in una directory 0700, e definizione del controllo di connettività e di accesso al file di credenziale usato nei passi successivi.
 
 ```bash
 BK=/home/sam/brk-cookie-migration-backup
@@ -117,7 +117,7 @@ cp -p /media/sam/1TB/UTXOracle/.env "$BK/utxoracle.env"
   ( umask 077; { sed -n 's/^rpcuser=//p' "$BK/bitcoin.conf"; sed -n 's/^rpcpassword=//p' "$BK/bitcoin.conf"; } | paste -sd: - > "$BK/legacy.cred" )
   ```
 
-Controllo RPC reale, **attraverso ogni consumatore nel suo contesto**, non dall'host: il controllo gira nel container del consumatore (stesso UID, stesso mount, stesso file di credenziale). Un cookie montato male o una password rimasta in memoria danno HTTP 401 qui, anche se l'host riceve 200. L'output è solo etichetta, esito e codice HTTP. `/health` di BRK **non** sostituisce questo controllo: non tocca bitcoind. I consumatori UTXOracle sull'host (live, sync, daily) non hanno qui alcun controllo: un client costruito dalla shell dell'operatore non certifica il processo del servizio, e la certificazione del consumatore host è in UTXOracle#16 (auto-verifica nel ciclo di vita del consumatore).
+Controllo di connettività e di accesso al file di credenziale, **attraverso ogni consumatore nel suo contesto**, non dall'host: il controllo gira nel container del consumatore (stesso UID, stesso mount, stesso file di credenziale). Un cookie montato male o una password rimasta in memoria danno HTTP 401 qui, anche se l'host riceve 200. L'output è solo etichetta, esito e codice HTTP. `/health` di BRK **non** sostituisce questo controllo: non tocca bitcoind. I consumatori UTXOracle sull'host (live, sync, daily) non hanno qui alcun controllo: un client costruito dalla shell dell'operatore non certifica il processo del servizio, e la certificazione del consumatore host è in UTXOracle#16 (auto-verifica nel ciclo di vita del consumatore).
 
 ```bash
 rpc_check() {  # uso: rpc_check <etichetta> ctr <container> <uid:gid> <file credenziale nel container, oppure - per stdin> <url>
@@ -128,7 +128,10 @@ rpc_check() {  # uso: rpc_check <etichetta> ctr <container> <uid:gid> <file cred
   echo "$1: HTTP ${code:-000}"
 }
 ```
-Contesto reale di ciascun consumatore, da compilare dalla configurazione effettiva (`docker compose config`), non a memoria:
+Contesto reale di ciascun consumatore, da compilare dalla configurazione effettiva, non a memoria. L'ispezione mostra solo chiavi e mount, mai valori (`docker compose config` stampa argv e ambiente, quindi le credenziali: non usarlo):
+```bash
+docker compose -f <file-compose> config --format json | jq '.services["<servizio>"] | {command_keys: ((.command // []) | length), env_keys: ((.environment // {}) | keys), volumes: [.volumes[]? | {source, target}]}'
+```
 ```bash
 RPC_URL=http://127.0.0.1:8332/          # indirizzo RPC come lo vede il consumatore (rete host)
 BRK_CRED=/bitcoin/.cookie               # percorso del cookie NEL container brk (mount :ro, UID 1000)
@@ -242,7 +245,7 @@ Aggiornare il docker-compose di BRK per utilizzare il flag cookie nativo ed elim
 ---
 
 ### Passo 5: Verifica RPC Reale e Health Check
-`/health` di BRK usa solo stato locale: risponde 200 anche con autenticazione RPC rotta e non certifica la connessione a bitcoind. La prova valida è la chiamata RPC reale per client.
+`/health` di BRK usa solo stato locale: risponde 200 anche con autenticazione RPC rotta e non certifica la connessione a bitcoind. Il controllo `rpc_check` prova connettività e accesso al file di credenziale nel contesto del container, non che il processo del servizio si autentichi: quella prova viene da una chiamata RPC generata dal consumatore stesso (per BRK il conteggio filtrato dei rifiuti nei log qui sotto, per l'host UTXOracle#16).
 
 ```bash
 rpc_check "brk (cookie)" ctr brk 1000:1000 "$BRK_CRED" "$RPC_URL"
@@ -287,7 +290,7 @@ Si applica a qualunque fallimento dal Passo 2 in poi. L'ordine è obbligatorio: 
   cp -p "$BK/brk.env" /data/sata/1TB/brk-v0.3.6/.env
   sudo systemctl start brk-stack.service
   ```
-- **R4 — verifica**: una chiamata RPC reale per consumatore in container, nel suo contesto. Per i container la credenziale legacy è passata su stdin da `legacy.cred` (contesto di rete e UID reali, non il mount): la credenziale che il client carica davvero la prova il suo avvio. UTXOracle usa il fallback `rpcuser`/`rpcpassword` di `bitcoin.conf` ripristinato; le righe sotto coprono solo i container: la certificazione del consumatore host è in UTXOracle#16. `/health` di BRK non sostituisce questa prova.
+- **R4 — verifica**: controllo di connettività e di accesso al file di credenziale per consumatore in container, nel suo contesto (non prova che il servizio si autentichi: per questo il conteggio filtrato dei rifiuti nei log di BRK e UTXOracle#16). Per i container la credenziale legacy è passata su stdin da `legacy.cred` (contesto di rete e UID reali, non il mount): la credenziale che il client carica davvero la prova il suo avvio. UTXOracle usa il fallback `rpcuser`/`rpcpassword` di `bitcoin.conf` ripristinato; le righe sotto coprono solo i container: la certificazione del consumatore host è in UTXOracle#16. `/health` di BRK non sostituisce questa prova.
   ```bash
   rpc_check "brk (legacy)" ctr brk 1000:1000 - "$RPC_URL" < "$BK/legacy.cred"
   rpc_check "mempool-electrs (legacy)" ctr mempool-electrs "$ELECTRS_UID" - "$RPC_URL" < "$BK/legacy.cred"
