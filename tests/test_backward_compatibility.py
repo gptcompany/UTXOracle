@@ -88,12 +88,14 @@ class TestBackwardCompatibility:
 
         # Create mock transactions with values around 0.001 BTC
         # At $60k BTC, 0.001 BTC = $60 (common round amount)
+        # The library keeps only transactions with exactly 2 outputs (as the reference
+        # UTXOracle.py does), so each mock transaction pays $60 plus a change output.
         txs = []
-        for _ in range(100):
+        for i in range(100):
             txs.append(
                 {
-                    "vout": [{"value": 0.001}],  # $60 at $60k/BTC
-                    "vin": [{}],
+                    "vout": [{"value": 0.001}, {"value": 0.0123}],
+                    "vin": [{"txid": f"input-{i}"}],
                 }
             )
 
@@ -125,6 +127,7 @@ class TestLibraryForPhase3:
         calc = UTXOracleCalculator()
 
         # mempool.space transaction format (simplified)
+        # Both transactions have exactly 2 outputs, the only shape the library keeps.
         mempool_txs = [
             {
                 "vout": [
@@ -133,7 +136,10 @@ class TestLibraryForPhase3:
                 ],
                 "vin": [{"txid": "abc123"}],
             },
-            {"vout": [{"value": 0.001}], "vin": [{"txid": "def456"}]},
+            {
+                "vout": [{"value": 0.001}, {"value": 0.0031}],
+                "vin": [{"txid": "def456"}],
+            },
         ]
 
         result = calc.calculate_price_for_transactions(mempool_txs)

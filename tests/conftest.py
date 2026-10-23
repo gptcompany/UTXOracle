@@ -5,6 +5,7 @@ Add global fixtures here that are used across multiple test modules.
 """
 
 import os
+import sys
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
@@ -396,3 +397,23 @@ def hermetic_rpc(monkeypatch, tmp_path_factory):
     home = tmp_path_factory.mktemp("home")
     monkeypatch.setenv("HOME", str(home))
     return home
+
+
+@pytest.fixture
+def write_headers(monkeypatch):
+    """Authorization header with the write permission, for the protected write routes (F-266)."""
+    from api import auth_middleware
+    from scripts.config import mempool_config
+
+    monkeypatch.setenv("AUTH_ENABLED", "true")
+    monkeypatch.setenv("WEBSOCKET_SECRET_KEY", "test-write-secret")
+    monkeypatch.setattr(mempool_config, "_config", None)
+    # api.main imports the middleware as the top-level module; routers use api.auth_middleware.
+    for name in ("auth_middleware", "api.auth_middleware"):
+        module = sys.modules.get(name)
+        if module is not None:
+            monkeypatch.setattr(module, "_auth_instance", None)
+    token = auth_middleware.generate_token(
+        "tests", {"read", "write"}, expires_in_hours=1
+    )
+    return {"Authorization": f"Bearer {token}"}
