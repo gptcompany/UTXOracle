@@ -70,20 +70,39 @@ def test_is_encrypted_recognises_both_forms(value):
     assert not is_encrypted(None)
 
 
-def test_config_import_fails_closed_on_encrypted_jwt_secret():
+def _import_config(loader_body: str):
+    # secrets_loader is stubbed in the subprocess so the real provider (and a decryptable .env.enc)
+    # on the host cannot change the outcome.
     env = {k: v for k, v in os.environ.items() if k != "JWT_SECRET"}
     env["JWT_SECRET"] = DOTENVX_VALUE
-    result = subprocess.run(
-        [sys.executable, "-c", "import api.config"],
-        cwd=ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
+    code = (
+        "import sys, types, os\n"
+        "stub = types.ModuleType('secrets_loader')\n"
+        f"{loader_body}"
+        "sys.modules['secrets_loader'] = stub\n"
+        "import api.config\n"
+        "print('JWT_SECRET=' + os.environ.get('JWT_SECRET', '<unset>'))\n"
     )
+    return subprocess.run(
+        [sys.executable, "-c", code], cwd=ROOT, env=env, capture_output=True, text=True
+    )
+
+
+def test_config_import_fails_closed_on_encrypted_jwt_secret():
+    result = _import_config("stub.load_secrets = lambda *_a, **_k: False\n")
     assert result.returncode != 0
     assert "JWT_SECRET" in result.stderr
     assert "still encrypted" in result.stderr
     assert DOTENVX_VALUE not in result.stderr
+
+
+def test_config_import_uses_value_decrypted_by_provider():
+    result = _import_config(
+        "stub.load_secrets = lambda *_a, **_k: os.environ.update(JWT_SECRET='test-jwt-secret-not-real')\n"
+    )
+    assert result.returncode == 0, result.stderr
+    assert "JWT_SECRET=test-jwt-secret-not-real" in result.stdout
+    assert DOTENVX_VALUE not in result.stdout + result.stderr
 
 
 @pytest.mark.parametrize("key", [None, "", SOPS_VALUE, DOTENVX_VALUE])
