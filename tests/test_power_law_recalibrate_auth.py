@@ -91,11 +91,21 @@ def test_recalibrate_sends_the_login_token(page):
     assert page.inner_text("#error-container") == ""
 
 
-def test_recalibrate_without_login_points_to_login_and_sends_nothing(page):
+def test_recalibrate_without_token_still_asks_the_server(page):
+    # AUTH_ENABLED=false: the server needs no token, so the page must not block the request.
     calls = _serve(page, 200)
     _open(page, None)
     _click_recalibrate(page)
-    assert calls == []
+    assert [c["method"] for c in calls] == ["POST"]
+    assert "authorization" not in calls[0]["headers"]
+    assert page.inner_text("#error-container") == ""
+
+
+def test_recalibrate_without_token_refused_points_to_login(page):
+    calls = _serve(page, 401)
+    _open(page, None)
+    _click_recalibrate(page)
+    assert len(calls) == 1
     assert (
         page.get_attribute("#error-container a", "href")
         == "/static/login.html?return=/power_law"
@@ -103,9 +113,13 @@ def test_recalibrate_without_login_points_to_login_and_sends_nothing(page):
 
 
 @pytest.mark.parametrize("status", [401, 403])
-def test_recalibrate_rejected_token_reports_write_permission(page, status):
+def test_recalibrate_rejected_token_is_cleared_and_reports_write_permission(
+    page, status
+):
     calls = _serve(page, status)
     _open(page, FAKE_TOKEN)
     _click_recalibrate(page)
     assert len(calls) == 1
     assert "write permission" in page.inner_text("#error-container")
+    # login.html redirects back when it finds an unexpired token: the rejected one must be gone.
+    assert page.evaluate(f"localStorage.getItem({TOKEN_KEY!r})") is None
