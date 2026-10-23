@@ -40,7 +40,8 @@ def load_project_environment(loader, path: Optional[Path]) -> list[str]:
     """Run ``loader`` without letting it override the environment; return the names of dropped ciphertext keys."""
     preset = dict(os.environ)
     loader(str(path) if path else None)
-    os.environ.update(preset)
+    # Preset ciphertext is not restored: the loader may have decrypted that key from the env file.
+    os.environ.update({key: value for key, value in preset.items() if not is_encrypted(value)})
     dropped = sorted(key for key, value in os.environ.items() if is_encrypted(value))
     for key in dropped:
         del os.environ[key]

@@ -33,6 +33,14 @@ def test_environment_wins_over_env_file(monkeypatch):
     assert os.environ["UTX_TEST_KEY"] == "from-environment"
 
 
+def test_decrypted_loader_value_wins_over_preset_ciphertext(monkeypatch):
+    # systemd EnvironmentFile=.env carries JWT_SECRET as ciphertext; the loader decrypts it from .env.enc.
+    monkeypatch.setenv("UTX_TEST_JWT", SOPS_VALUE)
+    dropped = load_project_environment(_loader({"UTX_TEST_JWT": "decrypted-plain"}), None)
+    assert dropped == []
+    assert os.environ["UTX_TEST_JWT"] == "decrypted-plain"
+
+
 def test_ciphertext_written_by_loader_is_dropped(monkeypatch, caplog):
     monkeypatch.delenv("UTX_TEST_WS", raising=False)
     monkeypatch.delenv("UTX_TEST_PLAIN", raising=False)
