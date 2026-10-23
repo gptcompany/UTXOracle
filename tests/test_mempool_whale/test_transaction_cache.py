@@ -4,8 +4,21 @@ Tests for TransactionCache Utility (OrderedDict implementation)
 Task T009 - Test Coverage for O(1) LRU Cache
 """
 
+import gc
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from scripts.utils.transaction_cache import TransactionCache
+
+
+@contextmanager
+def _gc_paused():
+    """Complexity timings must not depend on gen2 pauses, which grow with the heap the session built."""
+    gc.collect()
+    gc.disable()
+    try:
+        yield
+    finally:
+        gc.enable()
 
 
 class TestTransactionCacheBasicOperations:
@@ -339,17 +352,19 @@ class TestTransactionCachePerformance:
 
         # Test with small cache
         small_cache = TransactionCache(maxlen=100)
-        start = time.perf_counter()
-        for i in range(100):
-            small_cache.add(f"tx{i:064x}", {"value": i})
-        small_time = time.perf_counter() - start
+        with _gc_paused():
+            start = time.perf_counter()
+            for i in range(100):
+                small_cache.add(f"tx{i:064x}", {"value": i})
+            small_time = time.perf_counter() - start
 
         # Test with large cache
         large_cache = TransactionCache(maxlen=10000)
-        start = time.perf_counter()
-        for i in range(10000):
-            large_cache.add(f"tx{i:064x}", {"value": i})
-        large_time = time.perf_counter() - start
+        with _gc_paused():
+            start = time.perf_counter()
+            for i in range(10000):
+                large_cache.add(f"tx{i:064x}", {"value": i})
+            large_time = time.perf_counter() - start
 
         # O(1) means large_time should be ~100x small_time, not >>100x
         # Allow 2x margin for overhead
@@ -369,15 +384,17 @@ class TestTransactionCachePerformance:
             large_cache.add(f"tx{i:064x}", {"value": i})
 
         # Test get on last item (worst case for O(N) implementations)
-        start = time.perf_counter()
-        for _ in range(1000):
-            small_cache.get(f"tx{99:064x}")
-        small_time = time.perf_counter() - start
+        with _gc_paused():
+            start = time.perf_counter()
+            for _ in range(1000):
+                small_cache.get(f"tx{99:064x}")
+            small_time = time.perf_counter() - start
 
-        start = time.perf_counter()
-        for _ in range(1000):
-            large_cache.get(f"tx{9999:064x}")
-        large_time = time.perf_counter() - start
+        with _gc_paused():
+            start = time.perf_counter()
+            for _ in range(1000):
+                large_cache.get(f"tx{9999:064x}")
+            large_time = time.perf_counter() - start
 
         # O(1) means times should be similar
         # Allow 5x margin for overhead
