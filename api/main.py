@@ -24,7 +24,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -64,6 +64,7 @@ try:
         optional_auth,
         AuthToken,
         get_auth_instance,
+        require_permission,
     )
 
     AUTH_AVAILABLE = True
@@ -84,6 +85,9 @@ except ImportError as e:
 
     async def optional_auth() -> Optional[AuthToken]:
         return AuthToken()
+
+    # No require_permission fallback on purpose: without the middleware the write routes
+    # must not be served unprotected, so importing the app fails (F-266).
 
 
 # =============================================================================
@@ -3569,7 +3573,9 @@ async def get_power_law_history(
 
 
 @app.post("/api/v1/models/power-law/recalibrate", response_model=PowerLawResponse)
-async def recalibrate_power_law_model():
+async def recalibrate_power_law_model(
+    _auth: AuthToken = Depends(require_permission("write")),
+):
     """
     Trigger model recalibration from latest price data.
 
@@ -3978,6 +3984,7 @@ async def generate_rbn_report(
 @app.delete("/api/v1/validation/rbn/cache")
 async def clear_rbn_cache(
     metric_id: Optional[str] = Query(None, description="Clear only this metric"),
+    _auth: AuthToken = Depends(require_permission("write")),
 ):
     """
     Clear cached RBN data.
