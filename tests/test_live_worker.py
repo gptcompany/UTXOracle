@@ -13,7 +13,12 @@ from scripts.live.models import (
     SourceHealth,
 )
 from scripts.live.source_clients import SourceRead
-from scripts.live.worker import LiveWorker, ProcessLockError, _carry_forward_features, _WorkerProcessLock
+from scripts.live.worker import (
+    LiveWorker,
+    ProcessLockError,
+    _carry_forward_features,
+    _WorkerProcessLock,
+)
 
 
 class QueueClient:
@@ -36,7 +41,9 @@ class RecordingResolver:
         self.calls: list[tuple[int, bool]] = []
         self._observations = deque(observations)
 
-    async def __call__(self, block_height: int, block_changed: bool) -> OracleObservation:
+    async def __call__(
+        self, block_height: int, block_changed: bool
+    ) -> OracleObservation:
         self.calls.append((block_height, block_changed))
         return self._observations.popleft()
 
@@ -106,8 +113,16 @@ async def test_worker_builds_snapshot_and_tracks_block_changes():
     mempool = QueueClient(
         "fetch_exchange_price",
         [
-            SourceRead(value=84302.11, health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:14:00Z"),
-            SourceRead(value=84305.0, health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:14:05Z"),
+            SourceRead(
+                value=84302.11,
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:14:00Z",
+            ),
+            SourceRead(
+                value=84305.0,
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:14:05Z",
+            ),
         ],
     )
     brk = QueueClient(
@@ -152,8 +167,12 @@ async def test_worker_builds_snapshot_and_tracks_block_changes():
     )
     resolver = RecordingResolver(
         [
-            OracleObservation(timestamp="2026-03-20T17:14:00Z", price=84211.52, confidence=0.82),
-            OracleObservation(timestamp="2026-03-20T17:14:05Z", price=84212.00, confidence=0.83),
+            OracleObservation(
+                timestamp="2026-03-20T17:14:00Z", price=84211.52, confidence=0.82
+            ),
+            OracleObservation(
+                timestamp="2026-03-20T17:14:05Z", price=84212.00, confidence=0.83
+            ),
         ]
     )
     timestamps = deque(
@@ -176,7 +195,9 @@ async def test_worker_builds_snapshot_and_tracks_block_changes():
 
     assert first is not None
     assert second is not None
-    assert first.comparison.utxo_vs_mempool_bps == pytest.approx(-10.745875755659792, rel=1e-6)
+    assert first.comparison.utxo_vs_mempool_bps == pytest.approx(
+        -10.745875755659792, rel=1e-6
+    )
     assert resolver.calls == [(941453, True), (941453, False)]
     assert second.utxoracle_confidence == pytest.approx(0.83)
 
@@ -186,15 +207,31 @@ async def test_worker_carries_forward_previous_values_when_sources_fail():
     electrs = QueueClient(
         "fetch_tip_height",
         [
-            SourceRead(value=941453, health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:14:00Z"),
-            SourceRead(value=941454, health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:14:10Z"),
+            SourceRead(
+                value=941453,
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:14:00Z",
+            ),
+            SourceRead(
+                value=941454,
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:14:10Z",
+            ),
         ],
     )
     mempool = QueueClient(
         "fetch_exchange_price",
         [
-            SourceRead(value=84302.11, health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:14:00Z"),
-            SourceRead(value=None, health=SourceHealth(status="unavailable", last_error="timeout"), source_timestamp=None),
+            SourceRead(
+                value=84302.11,
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:14:00Z",
+            ),
+            SourceRead(
+                value=None,
+                health=SourceHealth(status="unavailable", last_error="timeout"),
+                source_timestamp=None,
+            ),
         ],
     )
     brk = QueueClient(
@@ -211,24 +248,43 @@ async def test_worker_carries_forward_previous_values_when_sources_fail():
                 health=SourceHealth(status="healthy"),
                 source_timestamp="2026-03-20T17:13:19Z",
             ),
-            SourceRead(value=None, health=SourceHealth(status="unavailable", last_error="brk timeout"), source_timestamp=None),
+            SourceRead(
+                value=None,
+                health=SourceHealth(status="unavailable", last_error="brk timeout"),
+                source_timestamp=None,
+            ),
         ],
     )
     hyperliquid = QueueClient(
         "fetch_snapshot",
         [
             SourceRead(
-                value=HyperliquidPriceSnapshot(source="api", timestamp="2026-03-20T17:14:00Z", oracle_price=84295.40, mark_price=84310.80),
+                value=HyperliquidPriceSnapshot(
+                    source="api",
+                    timestamp="2026-03-20T17:14:00Z",
+                    oracle_price=84295.40,
+                    mark_price=84310.80,
+                ),
                 health=SourceHealth(status="healthy"),
                 source_timestamp="2026-03-20T17:14:00Z",
             ),
-            SourceRead(value=None, health=SourceHealth(status="unavailable", last_error="invalid content-type"), source_timestamp=None),
+            SourceRead(
+                value=None,
+                health=SourceHealth(
+                    status="unavailable", last_error="invalid content-type"
+                ),
+                source_timestamp=None,
+            ),
         ],
     )
     resolver = RecordingResolver(
         [
-            OracleObservation(timestamp="2026-03-20T17:14:00Z", price=84211.52, confidence=0.82),
-            OracleObservation(timestamp="2026-03-20T17:14:10Z", price=None, confidence=None),
+            OracleObservation(
+                timestamp="2026-03-20T17:14:00Z", price=84211.52, confidence=0.82
+            ),
+            OracleObservation(
+                timestamp="2026-03-20T17:14:10Z", price=None, confidence=None
+            ),
         ]
     )
     timestamps = deque(
@@ -313,7 +369,11 @@ async def test_worker_persists_snapshot_when_store_is_configured():
         ],
     )
     resolver = RecordingResolver(
-        [OracleObservation(timestamp="2026-03-20T17:14:00Z", price=84211.52, confidence=0.82)]
+        [
+            OracleObservation(
+                timestamp="2026-03-20T17:14:00Z", price=84211.52, confidence=0.82
+            )
+        ]
     )
     store = RecordingSnapshotStore()
 
@@ -382,7 +442,11 @@ async def test_worker_prefers_async_snapshot_store_when_available():
         ],
     )
     resolver = RecordingResolver(
-        [OracleObservation(timestamp="2026-03-20T17:14:00Z", price=84211.52, confidence=0.82)]
+        [
+            OracleObservation(
+                timestamp="2026-03-20T17:14:00Z", price=84211.52, confidence=0.82
+            )
+        ]
     )
     store = AsyncRecordingSnapshotStore()
 
@@ -409,36 +473,78 @@ async def test_worker_run_collects_on_market_interval_without_block_change():
     electrs = QueueClient(
         "fetch_tip_height",
         [
-            SourceRead(value=941453, health=SourceHealth(status="healthy", observed_height=941453), source_timestamp="2026-03-20T17:14:00Z"),
-            SourceRead(value=941453, health=SourceHealth(status="healthy", observed_height=941453), source_timestamp="2026-03-20T17:14:02Z"),
-            SourceRead(value=941453, health=SourceHealth(status="healthy", observed_height=941453), source_timestamp="2026-03-20T17:14:04Z"),
-            SourceRead(value=941453, health=SourceHealth(status="healthy", observed_height=941453), source_timestamp="2026-03-20T17:14:06Z"),
+            SourceRead(
+                value=941453,
+                health=SourceHealth(status="healthy", observed_height=941453),
+                source_timestamp="2026-03-20T17:14:00Z",
+            ),
+            SourceRead(
+                value=941453,
+                health=SourceHealth(status="healthy", observed_height=941453),
+                source_timestamp="2026-03-20T17:14:02Z",
+            ),
+            SourceRead(
+                value=941453,
+                health=SourceHealth(status="healthy", observed_height=941453),
+                source_timestamp="2026-03-20T17:14:04Z",
+            ),
+            SourceRead(
+                value=941453,
+                health=SourceHealth(status="healthy", observed_height=941453),
+                source_timestamp="2026-03-20T17:14:06Z",
+            ),
         ],
     )
     mempool = QueueClient(
         "fetch_exchange_price",
         [
-            SourceRead(value=84302.11, health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:14:00Z"),
-            SourceRead(value=84303.00, health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:14:06Z"),
+            SourceRead(
+                value=84302.11,
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:14:00Z",
+            ),
+            SourceRead(
+                value=84303.00,
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:14:06Z",
+            ),
         ],
     )
     brk = QueueClient(
         "fetch_curated_features",
         [
-            SourceRead(value=LiveFeatureSet(brk_realized_price=54311.39, brk_liveliness=0.63), health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:13:19Z"),
-            SourceRead(value=LiveFeatureSet(brk_realized_price=54312.00, brk_liveliness=0.631), health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:13:25Z"),
+            SourceRead(
+                value=LiveFeatureSet(brk_realized_price=54311.39, brk_liveliness=0.63),
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:13:19Z",
+            ),
+            SourceRead(
+                value=LiveFeatureSet(brk_realized_price=54312.00, brk_liveliness=0.631),
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:13:25Z",
+            ),
         ],
     )
     hyperliquid = QueueClient(
         "fetch_snapshot",
         [
             SourceRead(
-                value=HyperliquidPriceSnapshot(source="api", timestamp="2026-03-20T17:14:00Z", oracle_price=84295.40, mark_price=84310.80),
+                value=HyperliquidPriceSnapshot(
+                    source="api",
+                    timestamp="2026-03-20T17:14:00Z",
+                    oracle_price=84295.40,
+                    mark_price=84310.80,
+                ),
                 health=SourceHealth(status="healthy"),
                 source_timestamp="2026-03-20T17:14:00Z",
             ),
             SourceRead(
-                value=HyperliquidPriceSnapshot(source="api", timestamp="2026-03-20T17:14:06Z", oracle_price=84296.00, mark_price=84311.00),
+                value=HyperliquidPriceSnapshot(
+                    source="api",
+                    timestamp="2026-03-20T17:14:06Z",
+                    oracle_price=84296.00,
+                    mark_price=84311.00,
+                ),
                 health=SourceHealth(status="healthy"),
                 source_timestamp="2026-03-20T17:14:06Z",
             ),
@@ -446,8 +552,12 @@ async def test_worker_run_collects_on_market_interval_without_block_change():
     )
     resolver = RecordingResolver(
         [
-            OracleObservation(timestamp="2026-03-20T17:14:00Z", price=84211.52, confidence=0.82),
-            OracleObservation(timestamp="2026-03-20T17:14:06Z", price=84212.00, confidence=0.83),
+            OracleObservation(
+                timestamp="2026-03-20T17:14:00Z", price=84211.52, confidence=0.82
+            ),
+            OracleObservation(
+                timestamp="2026-03-20T17:14:06Z", price=84212.00, confidence=0.83
+            ),
         ]
     )
     timestamps = deque(
@@ -489,35 +599,81 @@ async def test_worker_run_collects_immediately_on_block_change_before_market_int
     electrs = QueueClient(
         "fetch_tip_height",
         [
-            SourceRead(value=941453, health=SourceHealth(status="healthy", observed_height=941453), source_timestamp="2026-03-20T17:14:00Z"),
-            SourceRead(value=941454, health=SourceHealth(status="healthy", observed_height=941454), source_timestamp="2026-03-20T17:14:01Z"),
+            SourceRead(
+                value=941453,
+                health=SourceHealth(status="healthy", observed_height=941453),
+                source_timestamp="2026-03-20T17:14:00Z",
+            ),
+            SourceRead(
+                value=941454,
+                health=SourceHealth(status="healthy", observed_height=941454),
+                source_timestamp="2026-03-20T17:14:01Z",
+            ),
         ],
     )
     mempool = QueueClient(
         "fetch_exchange_price",
         [
-            SourceRead(value=84302.11, health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:14:00Z"),
-            SourceRead(value=84305.00, health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:14:01Z"),
+            SourceRead(
+                value=84302.11,
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:14:00Z",
+            ),
+            SourceRead(
+                value=84305.00,
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:14:01Z",
+            ),
         ],
     )
     brk = QueueClient(
         "fetch_curated_features",
         [
-            SourceRead(value=LiveFeatureSet(brk_realized_price=54311.39), health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:13:19Z"),
-            SourceRead(value=LiveFeatureSet(brk_realized_price=54312.00), health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:13:20Z"),
+            SourceRead(
+                value=LiveFeatureSet(brk_realized_price=54311.39),
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:13:19Z",
+            ),
+            SourceRead(
+                value=LiveFeatureSet(brk_realized_price=54312.00),
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:13:20Z",
+            ),
         ],
     )
     hyperliquid = QueueClient(
         "fetch_snapshot",
         [
-            SourceRead(value=HyperliquidPriceSnapshot(source="api", timestamp="2026-03-20T17:14:00Z", oracle_price=84295.40, mark_price=84310.80), health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:14:00Z"),
-            SourceRead(value=HyperliquidPriceSnapshot(source="api", timestamp="2026-03-20T17:14:01Z", oracle_price=84296.00, mark_price=84311.00), health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:14:01Z"),
+            SourceRead(
+                value=HyperliquidPriceSnapshot(
+                    source="api",
+                    timestamp="2026-03-20T17:14:00Z",
+                    oracle_price=84295.40,
+                    mark_price=84310.80,
+                ),
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:14:00Z",
+            ),
+            SourceRead(
+                value=HyperliquidPriceSnapshot(
+                    source="api",
+                    timestamp="2026-03-20T17:14:01Z",
+                    oracle_price=84296.00,
+                    mark_price=84311.00,
+                ),
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:14:01Z",
+            ),
         ],
     )
     resolver = RecordingResolver(
         [
-            OracleObservation(timestamp="2026-03-20T17:14:00Z", price=84211.52, confidence=0.82),
-            OracleObservation(timestamp="2026-03-20T17:14:01Z", price=84215.00, confidence=0.84),
+            OracleObservation(
+                timestamp="2026-03-20T17:14:00Z", price=84211.52, confidence=0.82
+            ),
+            OracleObservation(
+                timestamp="2026-03-20T17:14:01Z", price=84215.00, confidence=0.84
+            ),
         ]
     )
     timestamps = deque(
@@ -605,7 +761,11 @@ async def test_worker_persists_comparison_and_curated_features_to_store(tmp_path
         ],
     )
     resolver = RecordingResolver(
-        [OracleObservation(timestamp="2026-03-20T17:14:00Z", price=84211.52, confidence=0.82)]
+        [
+            OracleObservation(
+                timestamp="2026-03-20T17:14:00Z", price=84211.52, confidence=0.82
+            )
+        ]
     )
     store = RecordingSnapshotStore()
 
@@ -624,7 +784,10 @@ async def test_worker_persists_comparison_and_curated_features_to_store(tmp_path
 
     assert snapshot is not None
     assert persisted is not None
-    assert persisted.comparison.utxo_vs_mempool_bps == snapshot.comparison.utxo_vs_mempool_bps
+    assert (
+        persisted.comparison.utxo_vs_mempool_bps
+        == snapshot.comparison.utxo_vs_mempool_bps
+    )
     assert persisted.features.brk_realized_price == pytest.approx(54311.39)
     assert persisted.features.brk_liveliness == pytest.approx(0.63)
     assert persisted.features.brk_reserve_risk == pytest.approx(4.100239e-06)
@@ -635,35 +798,81 @@ async def test_worker_marks_comparisons_unavailable_when_canonical_oracle_is_sta
     electrs = QueueClient(
         "fetch_tip_height",
         [
-            SourceRead(value=941453, health=SourceHealth(status="healthy", observed_height=941453), source_timestamp="2026-03-20T17:14:00Z"),
-            SourceRead(value=941454, health=SourceHealth(status="healthy", observed_height=941454), source_timestamp="2026-03-20T17:14:10Z"),
+            SourceRead(
+                value=941453,
+                health=SourceHealth(status="healthy", observed_height=941453),
+                source_timestamp="2026-03-20T17:14:00Z",
+            ),
+            SourceRead(
+                value=941454,
+                health=SourceHealth(status="healthy", observed_height=941454),
+                source_timestamp="2026-03-20T17:14:10Z",
+            ),
         ],
     )
     mempool = QueueClient(
         "fetch_exchange_price",
         [
-            SourceRead(value=84302.11, health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:14:00Z"),
-            SourceRead(value=84305.0, health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:14:10Z"),
+            SourceRead(
+                value=84302.11,
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:14:00Z",
+            ),
+            SourceRead(
+                value=84305.0,
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:14:10Z",
+            ),
         ],
     )
     brk = QueueClient(
         "fetch_curated_features",
         [
-            SourceRead(value=LiveFeatureSet(brk_realized_price=54311.39), health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:13:19Z"),
-            SourceRead(value=LiveFeatureSet(brk_realized_price=54312.00), health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:13:20Z"),
+            SourceRead(
+                value=LiveFeatureSet(brk_realized_price=54311.39),
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:13:19Z",
+            ),
+            SourceRead(
+                value=LiveFeatureSet(brk_realized_price=54312.00),
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:13:20Z",
+            ),
         ],
     )
     hyperliquid = QueueClient(
         "fetch_snapshot",
         [
-            SourceRead(value=HyperliquidPriceSnapshot(source="api", timestamp="2026-03-20T17:14:00Z", oracle_price=84295.40, mark_price=84310.80), health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:14:00Z"),
-            SourceRead(value=HyperliquidPriceSnapshot(source="api", timestamp="2026-03-20T17:14:10Z", oracle_price=84296.00, mark_price=84311.00), health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:14:10Z"),
+            SourceRead(
+                value=HyperliquidPriceSnapshot(
+                    source="api",
+                    timestamp="2026-03-20T17:14:00Z",
+                    oracle_price=84295.40,
+                    mark_price=84310.80,
+                ),
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:14:00Z",
+            ),
+            SourceRead(
+                value=HyperliquidPriceSnapshot(
+                    source="api",
+                    timestamp="2026-03-20T17:14:10Z",
+                    oracle_price=84296.00,
+                    mark_price=84311.00,
+                ),
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:14:10Z",
+            ),
         ],
     )
     resolver = RecordingResolver(
         [
-            OracleObservation(timestamp="2026-03-20T17:14:00Z", price=84211.52, confidence=0.82),
-            OracleObservation(timestamp="2026-03-20T17:14:10Z", price=None, confidence=None),
+            OracleObservation(
+                timestamp="2026-03-20T17:14:00Z", price=84211.52, confidence=0.82
+            ),
+            OracleObservation(
+                timestamp="2026-03-20T17:14:10Z", price=None, confidence=None
+            ),
         ]
     )
     timestamps = deque(
@@ -697,35 +906,81 @@ async def test_worker_remembers_observed_block_after_failed_initial_collection()
     electrs = QueueClient(
         "fetch_tip_height",
         [
-            SourceRead(value=941453, health=SourceHealth(status="healthy", observed_height=941453), source_timestamp="2026-03-20T17:14:00Z"),
-            SourceRead(value=941453, health=SourceHealth(status="healthy", observed_height=941453), source_timestamp="2026-03-20T17:14:05Z"),
+            SourceRead(
+                value=941453,
+                health=SourceHealth(status="healthy", observed_height=941453),
+                source_timestamp="2026-03-20T17:14:00Z",
+            ),
+            SourceRead(
+                value=941453,
+                health=SourceHealth(status="healthy", observed_height=941453),
+                source_timestamp="2026-03-20T17:14:05Z",
+            ),
         ],
     )
     mempool = QueueClient(
         "fetch_exchange_price",
         [
-            SourceRead(value=84302.11, health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:14:00Z"),
-            SourceRead(value=84305.0, health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:14:05Z"),
+            SourceRead(
+                value=84302.11,
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:14:00Z",
+            ),
+            SourceRead(
+                value=84305.0,
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:14:05Z",
+            ),
         ],
     )
     brk = QueueClient(
         "fetch_curated_features",
         [
-            SourceRead(value=LiveFeatureSet(brk_realized_price=54311.39), health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:13:19Z"),
-            SourceRead(value=LiveFeatureSet(brk_realized_price=54312.00), health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:13:20Z"),
+            SourceRead(
+                value=LiveFeatureSet(brk_realized_price=54311.39),
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:13:19Z",
+            ),
+            SourceRead(
+                value=LiveFeatureSet(brk_realized_price=54312.00),
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:13:20Z",
+            ),
         ],
     )
     hyperliquid = QueueClient(
         "fetch_snapshot",
         [
-            SourceRead(value=HyperliquidPriceSnapshot(source="api", timestamp="2026-03-20T17:14:00Z", oracle_price=84295.40, mark_price=84310.80), health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:14:00Z"),
-            SourceRead(value=HyperliquidPriceSnapshot(source="api", timestamp="2026-03-20T17:14:05Z", oracle_price=84296.00, mark_price=84311.00), health=SourceHealth(status="healthy"), source_timestamp="2026-03-20T17:14:05Z"),
+            SourceRead(
+                value=HyperliquidPriceSnapshot(
+                    source="api",
+                    timestamp="2026-03-20T17:14:00Z",
+                    oracle_price=84295.40,
+                    mark_price=84310.80,
+                ),
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:14:00Z",
+            ),
+            SourceRead(
+                value=HyperliquidPriceSnapshot(
+                    source="api",
+                    timestamp="2026-03-20T17:14:05Z",
+                    oracle_price=84296.00,
+                    mark_price=84311.00,
+                ),
+                health=SourceHealth(status="healthy"),
+                source_timestamp="2026-03-20T17:14:05Z",
+            ),
         ],
     )
     resolver = RecordingResolver(
         [
-            OracleObservation(timestamp="2026-03-20T17:14:00Z", price=None, confidence=None),
-            OracleObservation(timestamp="2026-03-20T17:14:05Z", price=84212.00, confidence=0.83),
+            OracleObservation(
+                timestamp="2026-03-20T17:14:00Z", price=None, confidence=None
+            ),
+            OracleObservation(
+                timestamp="2026-03-20T17:14:05Z", price=84212.00, confidence=0.83
+            ),
         ]
     )
     timestamps = deque(
@@ -835,7 +1090,11 @@ async def test_worker_run_releases_process_lock_after_completion(tmp_path):
         ],
     )
     resolver = RecordingResolver(
-        [OracleObservation(timestamp="2026-03-20T17:14:00Z", price=84211.52, confidence=0.82)]
+        [
+            OracleObservation(
+                timestamp="2026-03-20T17:14:00Z", price=84211.52, confidence=0.82
+            )
+        ]
     )
     worker = LiveWorker(
         electrs_client=electrs,

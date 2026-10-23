@@ -3,10 +3,9 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime, timedelta, timezone
-from typing import Annotated, List, Any, Dict
+from typing import Annotated, List, Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
-from pydantic import BaseModel
 
 from api.models.questdb import (
     PriceEntry,
@@ -58,6 +57,7 @@ def _raise_http_exception(
 # =============================================================================
 # Dual Read Logging Helpers (from main.py)
 # =============================================================================
+
 
 def _prices_historical_dual_read_enabled() -> bool:
     return os.getenv("PRICES_HISTORICAL_DUAL_READ_ENABLED", "false").lower() == "true"
@@ -117,6 +117,7 @@ def _safe_log_prices_historical_dual_read(
 # =============================================================================
 # Routes
 # =============================================================================
+
 
 @router.get("/api/prices/latest", response_model=PriceEntry)
 async def get_latest_price(
@@ -225,7 +226,9 @@ async def get_comparison_stats(
         cutoff_time = (_utc_now() - timedelta(days=days)).replace(tzinfo=None)
         row = await repo.fetchrow(query, cutoff_time)
         if not row:
-            return ComparisonStats(total_entries=0, valid_entries=0, timeframe_days=days)
+            return ComparisonStats(
+                total_entries=0, valid_entries=0, timeframe_days=days
+            )
 
         return ComparisonStats(
             avg_diff=row["avg_diff"],
@@ -312,18 +315,20 @@ async def get_address_cohorts(
         # Hardening: Ensure all cohorts belong to the same block height (Atomicity)
         heights = {row["block_height"] for row in rows}
         if len(heights) > 1:
-            # We have an inconsistent snapshot. 
-            # Strategy: pick the max height and see if it's complete, 
+            # We have an inconsistent snapshot.
+            # Strategy: pick the max height and see if it's complete,
             # otherwise fail to avoid serving Frankenstein data.
             max_height = max(heights)
             rows = [row for row in rows if row["block_height"] == max_height]
-            
+
         # For address cohorts we expect exactly 3: retail, mid_tier, whale
         if len(rows) < 3:
-            logging.error(f"Inconsistent address cohorts snapshot: expected 3 cohorts, got {len(rows)} at heights {heights}")
+            logging.error(
+                f"Inconsistent address cohorts snapshot: expected 3 cohorts, got {len(rows)} at heights {heights}"
+            )
             raise HTTPException(
-                status_code=503, 
-                detail="Inconsistent snapshot detected. Materialization job may be partial."
+                status_code=503,
+                detail="Inconsistent snapshot detected. Materialization job may be partial.",
             )
 
         # Map rows to response
@@ -453,10 +458,12 @@ async def get_wallet_waves(
             rows = [row for row in rows if row["block_height"] == max_height]
 
         if len(rows) < 6:
-            logging.error(f"Inconsistent wallet waves snapshot: expected 6 bands, got {len(rows)} at heights {heights}")
+            logging.error(
+                f"Inconsistent wallet waves snapshot: expected 6 bands, got {len(rows)} at heights {heights}"
+            )
             raise HTTPException(
                 status_code=503,
-                detail="Inconsistent snapshot detected. Materialization job may be partial."
+                detail="Inconsistent snapshot detected. Materialization job may be partial.",
             )
 
         first = rows[0]
@@ -496,7 +503,9 @@ async def get_wallet_waves(
 @router.get("/api/metrics/absorption-rates", response_model=AbsorptionRatesResponse)
 async def get_absorption_rates(
     repo: Annotated[QuestDBRepository, Depends(get_questdb_repo)],
-    window_days: int = Query(default=30, description="Window days for absorption calculation"),
+    window_days: int = Query(
+        default=30, description="Window days for absorption calculation"
+    ),
 ):
     """
     Get latest absorption rates (spec-025).
@@ -505,7 +514,9 @@ async def get_absorption_rates(
     try:
         rows = await repo.get_absorption_rates_latest(window_days)
         if not rows:
-            raise HTTPException(status_code=404, detail="No absorption data found for window")
+            raise HTTPException(
+                status_code=404, detail="No absorption data found for window"
+            )
 
         # Hardening: Atomicity check
         heights = {row["block_height"] for row in rows}
@@ -514,10 +525,12 @@ async def get_absorption_rates(
             rows = [row for row in rows if row["block_height"] == max_height]
 
         if len(rows) < 6:
-            logging.error(f"Inconsistent absorption snapshot: expected 6 bands, got {len(rows)} at heights {heights}")
+            logging.error(
+                f"Inconsistent absorption snapshot: expected 6 bands, got {len(rows)} at heights {heights}"
+            )
             raise HTTPException(
                 status_code=503,
-                detail="Inconsistent snapshot detected. Materialization job may be partial."
+                detail="Inconsistent snapshot detected. Materialization job may be partial.",
             )
 
         first = rows[0]
@@ -559,6 +572,7 @@ async def get_absorption_rates(
 # Research & Operations (spec-003 Hardening)
 # =============================================================================
 
+
 @router.get("/api/research/tier-stats", response_model=TierObservabilityResponse)
 async def get_tier_stats(
     repo: Annotated[QuestDBRepository, Depends(get_questdb_repo)],
@@ -570,7 +584,7 @@ async def get_tier_stats(
     """
     try:
         cutoff_time = (_utc_now() - timedelta(days=days)).replace(tzinfo=None)
-        
+
         # 1. Get counts per tier
         query_counts = """
             SELECT fetch_tier, count(*) as cnt
@@ -579,27 +593,31 @@ async def get_tier_stats(
             GROUP BY fetch_tier
         """
         rows = await repo.fetchall(query_counts, cutoff_time)
-        
+
         total_samples = sum(row["cnt"] for row in rows)
         stats = []
         for row in rows:
-            stats.append(TierStats(
-                tier=row["fetch_tier"],
-                count=row["cnt"],
-                percentage=(row["cnt"] / total_samples * 100) if total_samples > 0 else 0
-            ))
-            
+            stats.append(
+                TierStats(
+                    tier=row["fetch_tier"],
+                    count=row["cnt"],
+                    percentage=(row["cnt"] / total_samples * 100)
+                    if total_samples > 0
+                    else 0,
+                )
+            )
+
         # 2. Get last tier used
         last_row = await repo.fetchrow(
             "SELECT fetch_tier FROM price_analysis WHERE fetch_tier IS NOT NULL ORDER BY ts DESC LIMIT 1"
         )
         last_tier = last_row["fetch_tier"] if last_row else None
-        
+
         return TierObservabilityResponse(
             timeframe_days=days,
             total_samples=total_samples,
             stats=stats,
-            last_tier_used=last_tier
+            last_tier_used=last_tier,
         )
     except Exception as e:
         _raise_http_exception(

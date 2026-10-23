@@ -9,6 +9,9 @@ import time
 import tracemalloc
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+EXCHANGE_ADDRESSES_CSV = str(REPO_ROOT / "data" / "exchange_addresses.csv")
+
 # Import whale detector
 try:
     from scripts.whale_flow_detector import WhaleFlowDetector
@@ -46,7 +49,7 @@ def test_whale_detector_with_real_electrs_api():
     if result != 0:
         pytest.skip("electrs not available at localhost:3001")
 
-    detector = WhaleFlowDetector("/media/sam/1TB/UTXOracle/data/exchange_addresses.csv")
+    detector = WhaleFlowDetector(EXCHANGE_ADDRESSES_CSV)
 
     # Verify detector initialized
     assert detector.get_exchange_address_count() > 0
@@ -81,7 +84,7 @@ def test_fetch_latest_block_and_analyze():
     if result != 0:
         pytest.skip("electrs not available at localhost:3001")
 
-    detector = WhaleFlowDetector("/media/sam/1TB/UTXOracle/data/exchange_addresses.csv")
+    detector = WhaleFlowDetector(EXCHANGE_ADDRESSES_CSV)
 
     try:
         # Get latest block height
@@ -114,7 +117,7 @@ def test_whale_flow_signal_consistency():
     if WhaleFlowDetector is None:
         pytest.skip("WhaleFlowDetector not implemented")
 
-    detector = WhaleFlowDetector("/media/sam/1TB/UTXOracle/data/exchange_addresses.csv")
+    detector = WhaleFlowDetector(EXCHANGE_ADDRESSES_CSV)
 
     # Use mock transaction
     mock_tx = {
@@ -159,7 +162,7 @@ def test_duckdb_persistence_with_whale_data():
 
     import duckdb
 
-    db_path = Path("/media/sam/1TB/UTXOracle/data/utxoracle.duckdb")
+    db_path = REPO_ROOT / "data" / "utxoracle.duckdb"
     if not db_path.exists():
         pytest.skip("DuckDB database not found")
 
@@ -224,7 +227,7 @@ def test_end_to_end_whale_flow_pipeline():
     if WhaleFlowDetector is None:
         pytest.skip("WhaleFlowDetector not implemented")
 
-    detector = WhaleFlowDetector("/media/sam/1TB/UTXOracle/data/exchange_addresses.csv")
+    detector = WhaleFlowDetector(EXCHANGE_ADDRESSES_CSV)
 
     # Verify full pipeline components exist
     assert hasattr(detector, "_parse_addresses")
@@ -250,7 +253,7 @@ def test_block_processing_time():
     if WhaleFlowDetector is None:
         pytest.skip("WhaleFlowDetector not implemented")
 
-    detector = WhaleFlowDetector("/media/sam/1TB/UTXOracle/data/exchange_addresses.csv")
+    detector = WhaleFlowDetector(EXCHANGE_ADDRESSES_CSV)
 
     # Generate 2500 mock transactions
     mock_txs = []
@@ -294,7 +297,7 @@ def test_memory_usage_with_exchange_addresses():
 
     tracemalloc.start()
 
-    detector = WhaleFlowDetector("/media/sam/1TB/UTXOracle/data/exchange_addresses.csv")
+    detector = WhaleFlowDetector(EXCHANGE_ADDRESSES_CSV)
     _ = detector  # Ensure detector creation is not optimized away
 
     current, peak = tracemalloc.get_traced_memory()

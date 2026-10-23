@@ -5,6 +5,7 @@ Task T017: Write pytest tests for JWT lifecycle.
 
 import pytest
 import time
+from unittest.mock import patch
 from api.whale_auth import JWTAuthManager, auth_manager
 from fastapi import HTTPException
 
@@ -84,11 +85,10 @@ class TestJWTAuthManager:
         result = test_auth.generate_token(user_id)
         token = result["token"]
 
-        # Wait a bit to get into refresh window
-        time.sleep(1.5)  # 1.5 seconds should put us in refresh window
-
-        # Should now need refresh
-        assert test_auth.should_refresh(token)
+        # The refresh window opens expiry - refresh_minutes = 6 min - 5 min = 1 minute
+        # after issue: move the clock instead of sleeping.
+        with patch("api.whale_auth.time.time", return_value=time.time() + 120):
+            assert test_auth.should_refresh(token)
 
     def test_refresh_token_success(self):
         """Test successful token refresh."""
@@ -103,11 +103,10 @@ class TestJWTAuthManager:
         result = test_auth.generate_token(user_id, permissions)
         old_token = result["token"]
 
-        # Wait to get into refresh window
-        time.sleep(1.5)
-
-        # Refresh token
-        new_result = test_auth.refresh_token(old_token)
+        # Move the clock 2 minutes ahead: inside the refresh window (opens after
+        # 1 minute) and before expiry (6 minutes).
+        with patch("api.whale_auth.time.time", return_value=time.time() + 120):
+            new_result = test_auth.refresh_token(old_token)
 
         assert new_result is not None
         assert "token" in new_result
@@ -160,8 +159,8 @@ class TestJWTAuthManager:
         user_id = "test_user"
 
         # Generate two tokens
+        # Back to back, in the same second: uniqueness must not depend on the clock
         result1 = auth_manager.generate_token(user_id)
-        time.sleep(0.1)  # Small delay to ensure different timestamp
         result2 = auth_manager.generate_token(user_id)
 
         # Decode tokens to check jti

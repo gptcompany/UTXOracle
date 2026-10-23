@@ -26,7 +26,7 @@ contracts_path = (
 if str(contracts_path) not in sys.path:
     sys.path.insert(0, str(contracts_path))
 
-from whale_flow_detector_interface import WhaleFlowSignal
+from whale_flow_detector_interface import WhaleFlowSignal  # noqa: E402 - contracts dir put on sys.path above
 
 
 # Configuration
@@ -758,7 +758,6 @@ class WhaleFlowDetector:
             # T085: Fetch transactions with fallback cascade (electrs → Bitcoin RPC)
             tx_fetch_start = time.time()  # T080: Track tx fetch time
             transactions = []
-            electrs_failed = False
 
             try:
                 # Try electrs first (Tier 1 - primary)
@@ -766,7 +765,6 @@ class WhaleFlowDetector:
                     session, block_hash
                 )
             except ConnectionError as e:
-                electrs_failed = True
                 logger.warning(f"Electrs failed for block {block_height}: {e}")
 
                 # T085: Fallback to Bitcoin Core RPC (Tier 3)

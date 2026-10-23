@@ -10,7 +10,9 @@ from scripts.live.models import (
 
 
 def test_source_health_normalizes_naive_datetime_to_utc():
-    health = SourceHealth(status="healthy", last_success=datetime(2026, 3, 20, 17, 0, 0))
+    health = SourceHealth(
+        status="healthy", last_success=datetime(2026, 3, 20, 17, 0, 0)
+    )
 
     assert health.last_success is not None
     assert health.last_success.tzinfo == timezone.utc
@@ -57,4 +59,6 @@ def test_live_comparison_snapshot_normalizes_timestamp():
         utxoracle_price=84211.52,
     )
 
-    assert snapshot.timestamp == datetime(2026, 3, 20, 17, 14, 0, 123456, tzinfo=timezone.utc)
+    assert snapshot.timestamp == datetime(
+        2026, 3, 20, 17, 14, 0, 123456, tzinfo=timezone.utc
+    )

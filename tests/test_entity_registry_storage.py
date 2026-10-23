@@ -194,7 +194,9 @@ def test_flow_aggregation_marks_known_self_edges_as_internal_reshuffles(tmp_path
     assert counterparty_row == ("internal_entity_reshuffle", True)
 
 
-def test_flow_aggregation_prefers_canonical_entity_ids_from_cluster_entity_map(tmp_path: Path):
+def test_flow_aggregation_prefers_canonical_entity_ids_from_cluster_entity_map(
+    tmp_path: Path,
+):
     db_path = tmp_path / "entity_mapped.duckdb"
     _build_test_db(db_path)
     backfill(sample_limit=10, db_path=str(db_path))

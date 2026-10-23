@@ -50,7 +50,7 @@ class TestPathTraversal:
         """Files outside the specified directory should not be loaded."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create a fake HTML file outside the "safe" directory
-            parent_file = Path(tmpdir) / ".." / "UTXOracle_2025-01-01.html"
+            _parent_file = Path(tmpdir) / ".." / "UTXOracle_2025-01-01.html"
 
             # Try to load from subdirectory but with date matching parent file
             subdir = Path(tmpdir) / "safe"
@@ -253,7 +253,7 @@ class TestHTMLParsingSecurity:
             import time
 
             start = time.time()
-            result = _parse_html_file(evil_html, datetime(2025, 1, 1).date())
+            _result = _parse_html_file(evil_html, datetime(2025, 1, 1).date())
             elapsed = time.time() - start
 
             # Should not hang

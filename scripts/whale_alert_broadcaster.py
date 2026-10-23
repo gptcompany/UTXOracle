@@ -219,7 +219,11 @@ class WhaleAlertBroadcaster:
 
         # Prepare the message
         # Use to_broadcast_dict if available (from MempoolWhaleSignal), otherwise assume it's a dict or has to_dict
-        data = alert.to_broadcast_dict() if hasattr(alert, 'to_broadcast_dict') else (alert.to_dict() if hasattr(alert, 'to_dict') else alert)
+        data = (
+            alert.to_broadcast_dict()
+            if hasattr(alert, "to_broadcast_dict")
+            else (alert.to_dict() if hasattr(alert, "to_dict") else alert)
+        )
         message = json.dumps(
             {
                 "type": "whale_alert",
@@ -324,7 +328,8 @@ async def run_with_test_alerts():
     broadcaster = WhaleAlertBroadcaster(auth_enabled=False)  # Disable auth for testing
 
     # Start server
-    server_task = asyncio.create_task(broadcaster.start_server())
+    # asyncio keeps only a weak reference to tasks: hold the strong one until we return
+    server_task = asyncio.create_task(broadcaster.start_server())  # noqa: F841
 
     # Wait a bit for server to start
     await asyncio.sleep(2)

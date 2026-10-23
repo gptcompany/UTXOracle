@@ -70,14 +70,20 @@ class LiveSnapshotStore:
                 "hyperliquid_mark_price": snapshot.hyperliquid_mark_price,
                 "comparison_json": json.dumps(payload["comparison"], sort_keys=True),
                 "features_json": json.dumps(payload["features"], sort_keys=True),
-                "source_health_json": json.dumps(payload["source_health"], sort_keys=True),
-                "source_timestamps_json": json.dumps(payload["source_timestamps"], sort_keys=True),
+                "source_health_json": json.dumps(
+                    payload["source_health"], sort_keys=True
+                ),
+                "source_timestamps_json": json.dumps(
+                    payload["source_timestamps"], sort_keys=True
+                ),
                 "snapshot_json": json.dumps(payload, sort_keys=True),
             },
             at=snapshot.timestamp,
         )
         if not success:
-            logger.error("Failed to write live snapshot to QuestDB at %s", snapshot.timestamp)
+            logger.error(
+                "Failed to write live snapshot to QuestDB at %s", snapshot.timestamp
+            )
             return
 
         await self._write_derived_artifacts(snapshot)
@@ -95,7 +101,9 @@ class LiveSnapshotStore:
                 await self._signal_writer.write_signal_snapshot()
                 await self.repo.async_flush_ingestion()
         except Exception as exc:
-            logger.warning("Failed to materialize derived bundle/signal artifacts: %s", exc)
+            logger.warning(
+                "Failed to materialize derived bundle/signal artifacts: %s", exc
+            )
 
     def _supports_feature_bundle_materialization(self) -> bool:
         required_methods = (
@@ -146,7 +154,9 @@ class LiveSnapshotStore:
         elif isinstance(query, int):
             query = LiveHistoryQuery(minutes=query)
 
-        start_time = ((now or utc_now()) - timedelta(minutes=query.minutes)).replace(tzinfo=None)
+        start_time = ((now or utc_now()) - timedelta(minutes=query.minutes)).replace(
+            tzinfo=None
+        )
         rows = await self._retry_on_missing_live_snapshots(
             self.repo.fetch,
             "SELECT snapshot_json FROM live_snapshots WHERE ts >= $1 ORDER BY ts ASC",
@@ -163,7 +173,9 @@ class LiveSnapshotStore:
         if not self._initialized:
             await self.ainitialize()
 
-        cutoff = ((now or utc_now()) - timedelta(hours=self.retention_hours)).replace(tzinfo=None)
+        cutoff = ((now or utc_now()) - timedelta(hours=self.retention_hours)).replace(
+            tzinfo=None
+        )
         count_row = await self._retry_on_missing_live_snapshots(
             self.repo.fetchrow,
             "SELECT COUNT(*) AS count FROM live_snapshots WHERE ts < $1",
