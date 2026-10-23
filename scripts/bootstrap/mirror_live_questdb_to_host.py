@@ -37,10 +37,6 @@ import re
 import sys
 import time
 
-# Strict ISO-8601 timestamp shape; what `datetime.isoformat()` emits.
-_ISO_TIMESTAMP_RE = re.compile(
-    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$"
-)
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -48,6 +44,11 @@ from typing import Iterable
 
 import psycopg
 from questdb.ingress import Sender, IngressError
+
+# Strict ISO-8601 timestamp shape; what `datetime.isoformat()` emits.
+_ISO_TIMESTAMP_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$"
+)
 
 logger = logging.getLogger(__name__)
 
@@ -208,7 +209,10 @@ def _stream_rows(
 
 
 def mirror_stream(
-    conn: psycopg.Connection, sender: Sender, spec: StreamSpec, last_ts: str | None,
+    conn: psycopg.Connection,
+    sender: Sender,
+    spec: StreamSpec,
+    last_ts: str | None,
     batch_limit: int = 5000,
 ) -> tuple[int, str | None]:
     """Mirror one stream. Returns (rows_copied, new_watermark)."""
@@ -216,9 +220,7 @@ def mirror_stream(
     new_watermark = last_ts
     for row in _stream_rows(conn, spec, last_ts, batch_limit):
         ts_value = row[spec.at_column]
-        symbols = {
-            k: str(row[k]) for k in spec.symbol_cols if row.get(k) is not None
-        }
+        symbols = {k: str(row[k]) for k in spec.symbol_cols if row.get(k) is not None}
         columns = {}
         for k in spec.column_cols:
             v = row.get(k)
@@ -228,12 +230,11 @@ def mirror_stream(
             # do NOT convert to ISO string here or QuestDB rejects the row.
             columns[k] = v
         try:
-            sender.row(
-                spec.target_table, symbols=symbols, columns=columns, at=ts_value
-            )
+            sender.row(spec.target_table, symbols=symbols, columns=columns, at=ts_value)
         except IngressError as exc:
-            logger.error("ILP write failed for %s @ ts=%s: %s",
-                         spec.target_table, ts_value, exc)
+            logger.error(
+                "ILP write failed for %s @ ts=%s: %s", spec.target_table, ts_value, exc
+            )
             break
         copied += 1
         new_watermark = (
@@ -260,9 +261,7 @@ def main() -> int:
         format="%(asctime)s - %(levelname)s - %(message)s",
     )
 
-    streams = (
-        {args.stream: STREAMS[args.stream]} if args.stream else STREAMS
-    )
+    streams = {args.stream: STREAMS[args.stream]} if args.stream else STREAMS
 
     try:
         source = _source_connection()
@@ -286,7 +285,11 @@ def main() -> int:
             last_ts = state.get(name)
             try:
                 copied, new_watermark = mirror_stream(
-                    source, sender, spec, last_ts, args.batch_limit,
+                    source,
+                    sender,
+                    spec,
+                    last_ts,
+                    args.batch_limit,
                 )
             except Exception as exc:
                 logger.error("Stream %s failed: %s", name, exc)
@@ -295,7 +298,9 @@ def main() -> int:
                 state[name] = new_watermark or last_ts or ""
                 logger.info(
                     "Mirrored %s: %d rows, new watermark %s",
-                    name, copied, state[name],
+                    name,
+                    copied,
+                    state[name],
                 )
             else:
                 logger.debug("Stream %s: no new rows (watermark %s)", name, last_ts)

@@ -173,7 +173,9 @@ class MempoolApiClient(AsyncHttpSource):
             )
             response.raise_for_status()
             payload = response.json()
-            price = _coerce_float(payload.get("USD")) if isinstance(payload, dict) else None
+            price = (
+                _coerce_float(payload.get("USD")) if isinstance(payload, dict) else None
+            )
             if price is None:
                 raise ValueError("mempool price payload missing USD field")
             now = utc_now()
@@ -213,7 +215,9 @@ class BrkClient(AsyncHttpSource):
             transport=transport,
         )
 
-    async def fetch_curated_features(self, index: str = "day1") -> SourceRead[LiveFeatureSet]:
+    async def fetch_curated_features(
+        self, index: str = "day1"
+    ) -> SourceRead[LiveFeatureSet]:
         started = time.perf_counter()
         try:
             client = await self._get_client()
@@ -275,7 +279,11 @@ class BrkClient(AsyncHttpSource):
                 )
 
             now = utc_now()
-            status = "healthy" if populated_fields == len(BRK_CURATED_METRICS) else "degraded"
+            status = (
+                "healthy"
+                if populated_fields == len(BRK_CURATED_METRICS)
+                else "degraded"
+            )
             return SourceRead(
                 value=LiveFeatureSet(**values),
                 health=SourceHealth(
@@ -284,7 +292,9 @@ class BrkClient(AsyncHttpSource):
                     last_success=now,
                     details={
                         "index": index,
-                        "metrics": [metric_name for _, metric_name in BRK_CURATED_METRICS],
+                        "metrics": [
+                            metric_name for _, metric_name in BRK_CURATED_METRICS
+                        ],
                         "missing_metrics": missing_metrics,
                         "payload_detail": _describe_brk_payload(payload),
                     },
@@ -320,7 +330,9 @@ def _normalize_brk_bulk_payload(payload: Any) -> dict[str, dict[str, Any]]:
 
         if normalized:
             remaining_metrics = [
-                metric_name for _, metric_name in BRK_CURATED_METRICS if metric_name not in normalized
+                metric_name
+                for _, metric_name in BRK_CURATED_METRICS
+                if metric_name not in normalized
             ]
             for metric_name, entry in zip(remaining_metrics, unnamed_entries):
                 normalized[metric_name] = entry
@@ -386,13 +398,16 @@ class HyperliquidSnapshotClient(AsyncHttpSource):
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         super().__init__(
-            base_url or os.getenv("HYPERLIQUID_NODE_API_URL", "http://127.0.0.1:3001/info"),
+            base_url
+            or os.getenv("HYPERLIQUID_NODE_API_URL", "http://127.0.0.1:3001/info"),
             timeout_seconds=timeout_seconds,
             client=client,
             transport=transport,
         )
-        self.snapshot_path = snapshot_path if snapshot_path is not None else os.getenv(
-            "HYPERLIQUID_NODE_SNAPSHOT_PATH", ""
+        self.snapshot_path = (
+            snapshot_path
+            if snapshot_path is not None
+            else os.getenv("HYPERLIQUID_NODE_SNAPSHOT_PATH", "")
         )
         self.data_root = Path(
             data_root
@@ -427,7 +442,9 @@ class HyperliquidSnapshotClient(AsyncHttpSource):
 
         if file_read.value is not None:
             details = dict(file_read.health.details)
-            details["fallback_reason"] = api_read.health.last_error or "node API unavailable"
+            details["fallback_reason"] = (
+                api_read.health.last_error or "node API unavailable"
+            )
             return SourceRead(
                 value=file_read.value,
                 health=file_read.health.model_copy(update={"details": details}),
@@ -576,7 +593,10 @@ class HyperliquidSnapshotClient(AsyncHttpSource):
                 source_timestamp=filtered_snapshot.timestamp,
             )
 
-        candidate_dirs = [self.data_root / "data" / self.symbol, self.data_root / self.symbol]
+        candidate_dirs = [
+            self.data_root / "data" / self.symbol,
+            self.data_root / self.symbol,
+        ]
         for candidate_dir in candidate_dirs:
             if not candidate_dir.exists():
                 continue
@@ -758,8 +778,8 @@ def _read_hyperliquid_filtered_file(
     now = utc_now()
     try:
         # Optimization: iterate lines and stop if we find a very fresh one.
-        # Since records are usually in order, we can't easily skip to the end 
-        # of a .zst without a seek map, but we can stop processing if we have 
+        # Since records are usually in order, we can't easily skip to the end
+        # of a .zst without a seek map, but we can stop processing if we have
         # what we need and it's fresh enough.
         # For a live service, "fresh enough" means < 60s old.
         for line in _iter_hyperliquid_lines(path):
@@ -770,7 +790,7 @@ def _read_hyperliquid_filtered_file(
                 record = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            
+
             record_timestamp = (
                 coerce_utc_datetime(record.get("block_time"))
                 or coerce_utc_datetime(record.get("local_time"))
@@ -796,10 +816,10 @@ def _read_hyperliquid_filtered_file(
                         logger.debug(
                             "Hyperliquid L4 record found but price extraction failed. "
                             "Schema might have changed. Payload snippet: %s",
-                            str(record)[:200]
+                            str(record)[:200],
                         )
                     continue
-                
+
                 timestamp = max(
                     [
                         value
@@ -810,7 +830,9 @@ def _read_hyperliquid_filtered_file(
                                 else None
                             ),
                             coerce_utc_datetime(
-                                mark_entry.get("last_update_time") if mark_entry else None
+                                mark_entry.get("last_update_time")
+                                if mark_entry
+                                else None
                             ),
                             record_timestamp,
                         )
@@ -824,8 +846,8 @@ def _read_hyperliquid_filtered_file(
                     oracle_price=oracle_price,
                     mark_price=mark_price,
                 )
-                
-                # Early stop: if this record is fresh enough (< 30s), it's highly likely 
+
+                # Early stop: if this record is fresh enough (< 30s), it's highly likely
                 # to be the latest or close enough for this poll cycle.
                 # In large .zst files, this saves significant CPU.
                 if (now - timestamp).total_seconds() < 30:
@@ -845,28 +867,28 @@ def _iter_hyperliquid_lines(path: Path, max_bytes: int = 1024 * 1024):
     if path.suffix == ".zst":
         if zstd is None:
             raise OSError("zstandard dependency is not available")
-        
+
         file_size = path.stat().st_size
         with path.open("rb") as handle:
             # If file is larger than max_bytes, we try to seek to near the end.
             # However, Zstd frames must be decompressed from a valid frame start.
             # For simplicity in this MVP, if it's a single frame, we must read all.
-            # If it's multi-frame or we just want to avoid the "IO bomb", 
+            # If it's multi-frame or we just want to avoid the "IO bomb",
             # we can use a decompression stream and stop early from the *end*
             # logic is complex for zst seeking.
-            # 
-            # Refined approach: use ZstdDecompressor().stream_reader and 
-            # skip data if we were doing a full scan, but here we just 
+            #
+            # Refined approach: use ZstdDecompressor().stream_reader and
+            # skip data if we were doing a full scan, but here we just
             # want to ensure we don't hold the whole thing in memory.
-            
+
             dctx = zstd.ZstdDecompressor()
             reader = dctx.stream_reader(handle)
             wrapper = io.TextIOWrapper(reader, encoding="utf-8")
             try:
                 # We still have to read, but we will collect ONLY the last N lines
-                # to keep memory usage low. 
+                # to keep memory usage low.
                 # For a 5s live service, the "IO bomb" is the decompression CPU time.
-                # If the file is 100MB, it takes ~1s. 
+                # If the file is 100MB, it takes ~1s.
                 # Future: Use zstd seekable format if available.
                 for line in wrapper:
                     yield line
@@ -936,7 +958,9 @@ def _build_hyperliquid_coin_keys(
     return tuple(keys)
 
 
-def _read_hyperliquid_csv_snapshot(base_dir: Path, symbol: str) -> HyperliquidPriceSnapshot | None:
+def _read_hyperliquid_csv_snapshot(
+    base_dir: Path, symbol: str
+) -> HyperliquidPriceSnapshot | None:
     asset_context_path = base_dir / f"{symbol}_main_asset_context.csv"
     candles_path = base_dir / f"{symbol}_main_candles.csv"
 

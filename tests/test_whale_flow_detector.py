@@ -18,6 +18,9 @@ import json
 import csv
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+EXCHANGE_ADDRESSES_CSV = str(REPO_ROOT / "data" / "exchange_addresses.csv")
+
 # Import will fail initially (RED phase) - this is expected
 try:
     from scripts.whale_flow_detector import WhaleFlowDetector
@@ -25,11 +28,9 @@ except ImportError:
     WhaleFlowDetector = None
 
 # Import contract from specs directory (add to path if needed)
-import sys
+import sys  # noqa: E402
 
-specs_contracts_path = Path(
-    "/media/sam/1TB/UTXOracle/specs/004-whale-flow-detection/contracts"
-)
+specs_contracts_path = REPO_ROOT / "specs" / "004-whale-flow-detection" / "contracts"
 if str(specs_contracts_path) not in sys.path:
     sys.path.insert(0, str(specs_contracts_path))
 
@@ -40,7 +41,7 @@ from whale_flow_detector_interface import WhaleFlowSignal  # noqa: E402
 @pytest.fixture
 def exchange_addresses_csv():
     """Path to exchange addresses CSV."""
-    return "/media/sam/1TB/UTXOracle/data/exchange_addresses.csv"
+    return EXCHANGE_ADDRESSES_CSV
 
 
 @pytest.fixture
@@ -57,9 +58,7 @@ def exchange_addresses_set(exchange_addresses_csv):
 @pytest.fixture
 def whale_transactions_sample():
     """Load sample transactions from fixtures."""
-    fixture_path = Path(
-        "/media/sam/1TB/UTXOracle/tests/fixtures/whale_transactions_sample.json"
-    )
+    fixture_path = REPO_ROOT / "tests" / "fixtures" / "whale_transactions_sample.json"
     with open(fixture_path, "r") as f:
         return json.load(f)
 
@@ -108,7 +107,7 @@ def test_parse_addresses_from_transaction(whale_transactions_sample):
 
     # Test with INFLOW transaction (index 0)
     tx = whale_transactions_sample[0]
-    detector = WhaleFlowDetector("/media/sam/1TB/UTXOracle/data/exchange_addresses.csv")
+    detector = WhaleFlowDetector(EXCHANGE_ADDRESSES_CSV)
 
     input_addrs, output_addrs = detector._parse_addresses(tx)
 
@@ -134,7 +133,7 @@ def test_classify_transaction_inflow(whale_transactions_sample, exchange_address
         pytest.skip("WhaleFlowDetector not implemented yet (RED phase)")
 
     tx = whale_transactions_sample[0]  # INFLOW example
-    detector = WhaleFlowDetector("/media/sam/1TB/UTXOracle/data/exchange_addresses.csv")
+    detector = WhaleFlowDetector(EXCHANGE_ADDRESSES_CSV)
 
     input_addrs, output_addrs = detector._parse_addresses(tx)
     flow_type, multiplier = detector._classify_transaction(input_addrs, output_addrs)
@@ -158,7 +157,7 @@ def test_classify_transaction_outflow(
         pytest.skip("WhaleFlowDetector not implemented yet (RED phase)")
 
     tx = whale_transactions_sample[1]  # OUTFLOW example
-    detector = WhaleFlowDetector("/media/sam/1TB/UTXOracle/data/exchange_addresses.csv")
+    detector = WhaleFlowDetector(EXCHANGE_ADDRESSES_CSV)
 
     input_addrs, output_addrs = detector._parse_addresses(tx)
     flow_type, multiplier = detector._classify_transaction(input_addrs, output_addrs)
@@ -182,7 +181,7 @@ def test_classify_transaction_internal(
         pytest.skip("WhaleFlowDetector not implemented yet (RED phase)")
 
     tx = whale_transactions_sample[2]  # INTERNAL example
-    detector = WhaleFlowDetector("/media/sam/1TB/UTXOracle/data/exchange_addresses.csv")
+    detector = WhaleFlowDetector(EXCHANGE_ADDRESSES_CSV)
 
     input_addrs, output_addrs = detector._parse_addresses(tx)
     flow_type, multiplier = detector._classify_transaction(input_addrs, output_addrs)
@@ -206,7 +205,7 @@ def test_calculate_net_flow(whale_transactions_sample):
         pytest.skip("WhaleFlowDetector not implemented yet (RED phase)")
 
     # Use first 3 transactions: inflow (50.1 BTC), outflow (25.5 BTC), internal (100 BTC)
-    detector = WhaleFlowDetector("/media/sam/1TB/UTXOracle/data/exchange_addresses.csv")
+    detector = WhaleFlowDetector(EXCHANGE_ADDRESSES_CSV)
 
     # Mock transaction processing
     test_txs = whale_transactions_sample[:3]
@@ -233,7 +232,7 @@ def test_determine_direction_accumulation():
     if WhaleFlowDetector is None:
         pytest.skip("WhaleFlowDetector not implemented yet (RED phase)")
 
-    detector = WhaleFlowDetector("/media/sam/1TB/UTXOracle/data/exchange_addresses.csv")
+    detector = WhaleFlowDetector(EXCHANGE_ADDRESSES_CSV)
 
     # Simulate large outflow (whales withdrawing)
     net_flow_btc = -150.0  # 150 BTC outflow
@@ -253,7 +252,7 @@ def test_determine_direction_distribution():
     if WhaleFlowDetector is None:
         pytest.skip("WhaleFlowDetector not implemented yet (RED phase)")
 
-    detector = WhaleFlowDetector("/media/sam/1TB/UTXOracle/data/exchange_addresses.csv")
+    detector = WhaleFlowDetector(EXCHANGE_ADDRESSES_CSV)
 
     # Simulate large inflow (whales depositing to sell)
     net_flow_btc = 150.0  # 150 BTC inflow
@@ -273,7 +272,7 @@ def test_determine_direction_neutral():
     if WhaleFlowDetector is None:
         pytest.skip("WhaleFlowDetector not implemented yet (RED phase)")
 
-    detector = WhaleFlowDetector("/media/sam/1TB/UTXOracle/data/exchange_addresses.csv")
+    detector = WhaleFlowDetector(EXCHANGE_ADDRESSES_CSV)
 
     # Simulate small net flow
     for net_flow in [0, 50, -50, 99, -99]:
@@ -297,7 +296,7 @@ def test_analyze_block_with_mock_data(whale_transactions_sample):
     if WhaleFlowDetector is None:
         pytest.skip("WhaleFlowDetector not implemented yet (RED phase)")
 
-    detector = WhaleFlowDetector("/media/sam/1TB/UTXOracle/data/exchange_addresses.csv")
+    detector = WhaleFlowDetector(EXCHANGE_ADDRESSES_CSV)
 
     # Mock analyze_block to use fixture data instead of API call
     # (Integration tests will test real API)

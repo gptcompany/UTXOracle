@@ -13,6 +13,7 @@ RESERVE_RISK_CENTER = 0.003
 RESERVE_RISK_SCALE = 100.0
 VALUATION_CENTER = 1.0
 
+
 class SignalSnapshotWriter:
     def __init__(self, repo: QuestDBRepository):
         self.repo = repo
@@ -33,20 +34,25 @@ class SignalSnapshotWriter:
                 return value
         return None
 
-    def calculate_regime_score(self, nupl: float | None, reserve_risk: float | None) -> float:
-        # NUPL scale maps roughly to regime. 
+    def calculate_regime_score(
+        self, nupl: float | None, reserve_risk: float | None
+    ) -> float:
+        # NUPL scale maps roughly to regime.
         # Typically NUPL is between -0.5 and 1.0. We clamp to [-1, 1]
         score = 0.0
         inputs = 0
         if nupl is not None:
             score += max(-1.0, min(1.0, nupl * 1.5))
             inputs += 1
-        
+
         if reserve_risk is not None:
             # high reserve risk = high price vs hodl = bearish regime (maybe)
             # normalize RR: e.g. 0.001 to 0.01 is common, so we just use an arbitrary safe mapping for now to satisfy [-1, 1] bounds
-            rr_mapped = max(-1.0, min(1.0, (reserve_risk - RESERVE_RISK_CENTER) * RESERVE_RISK_SCALE))
-            score -= rr_mapped # Inverse mapping
+            rr_mapped = max(
+                -1.0,
+                min(1.0, (reserve_risk - RESERVE_RISK_CENTER) * RESERVE_RISK_SCALE),
+            )
+            score -= rr_mapped  # Inverse mapping
             inputs += 1
 
         if inputs == 0:
@@ -60,11 +66,11 @@ class SignalSnapshotWriter:
         absorption = self._as_float(flow.get("absorption_rate_24h"))
         if absorption is None:
             absorption = 1.0
-        
+
         # normalize to [-1, 1]
         flow_mapped = max(-1.0, min(1.0, net_flow_btc / FLOW_SCALE_BTC))
         abs_mapped = max(-1.0, min(1.0, (absorption - 1.0)))
-        
+
         return (flow_mapped + abs_mapped) / 2.0
 
     def extract_flow_inputs(self, flow_bundle: Dict[str, Any]) -> Dict[str, Any]:
@@ -115,14 +121,20 @@ class SignalSnapshotWriter:
                 absorption_rates,
                 "institutional_absorption",
             )
-            retail_absorption = self._first_numeric(absorption_rates, "retail_absorption")
+            retail_absorption = self._first_numeric(
+                absorption_rates, "retail_absorption"
+            )
             if institutional_absorption is not None and retail_absorption is not None:
                 absorption_context = 1.0 + institutional_absorption - retail_absorption
 
         return {
             "net_flow_btc": net_flow_btc if net_flow_btc is not None else 0.0,
-            "absorption_rate_24h": absorption_context if absorption_context is not None else 1.0,
-            "absorption_context": absorption_context if absorption_context is not None else 1.0,
+            "absorption_rate_24h": absorption_context
+            if absorption_context is not None
+            else 1.0,
+            "absorption_context": absorption_context
+            if absorption_context is not None
+            else 1.0,
             "dominant_absorber": absorption_rates.get("dominant_absorber"),
             "absorption_confidence": absorption_rates.get("confidence"),
         }
@@ -212,17 +224,20 @@ class SignalSnapshotWriter:
                 if bundle_status == "healthy":
                     valid_inputs += 1
                 elif bundle_status:
-                    degraded_reasons.append(f"{meta.get('bundle_id')} is {bundle_status}")
+                    degraded_reasons.append(
+                        f"{meta.get('bundle_id')} is {bundle_status}"
+                    )
 
             service_status = self._derive_service_status(bundle_statuses)
 
-            quality_score = valid_inputs / expected_inputs if expected_inputs > 0 else 0.0
+            quality_score = (
+                valid_inputs / expected_inputs if expected_inputs > 0 else 0.0
+            )
 
             # Calculate scores
             macro_metrics = macro.get("macro_metrics", {})
             regime = self.calculate_regime_score(
-                macro_metrics.get("nupl"), 
-                macro_metrics.get("reserve_risk")
+                macro_metrics.get("nupl"), macro_metrics.get("reserve_risk")
             )
 
             flow_metrics = self.extract_flow_inputs(flow)
@@ -232,7 +247,7 @@ class SignalSnapshotWriter:
             valuation = self.calculate_valuation_score(valuation_inputs.get("mvrv"))
 
             bias = self.evaluate_bias(regime, flow_score, valuation)
-            
+
             participating_scores = []
             if macro_meta.get("bundle_status") == "healthy":
                 participating_scores.append(regime)
@@ -244,13 +259,15 @@ class SignalSnapshotWriter:
             if not participating_scores:
                 conviction = 0.0
             else:
-                signs = [1 if s > 0 else -1 if s < 0 else 0 for s in participating_scores]
+                signs = [
+                    1 if s > 0 else -1 if s < 0 else 0 for s in participating_scores
+                ]
                 pos = signs.count(1)
                 neg = signs.count(-1)
                 conviction = max(pos, neg) / len(participating_scores)
 
             produced_at = datetime.now(timezone.utc)
-            
+
             # The sequence_id should be monotonic for signals. We can fetch the latest sequence_id and increment.
             # But the prompt said we could just use a timestamp-based or query the db.
             # Let's query latest sequence_id
@@ -286,10 +303,13 @@ class SignalSnapshotWriter:
                         "reserve_risk_scale": RESERVE_RISK_SCALE,
                         "valuation_center": VALUATION_CENTER,
                     },
-                    "regime_components": {"nupl": macro_metrics.get("nupl"), "reserve_risk": macro_metrics.get("reserve_risk")},
+                    "regime_components": {
+                        "nupl": macro_metrics.get("nupl"),
+                        "reserve_risk": macro_metrics.get("reserve_risk"),
+                    },
                     "flow_components": flow_metrics,
-                    "valuation_components": valuation_inputs
-                }
+                    "valuation_components": valuation_inputs,
+                },
             }
 
             symbols = {
@@ -302,10 +322,14 @@ class SignalSnapshotWriter:
                 "payload_json": json.dumps(payload),
                 "ts": produced_at,
             }
-            
-            await self.repo.async_send_row("btc_signal_snapshots", symbols, columns, produced_at)
+
+            await self.repo.async_send_row(
+                "btc_signal_snapshots", symbols, columns, produced_at
+            )
             await self.repo.async_flush_ingestion()
 
-            logger.info(f"Signal snapshot written: seq={seq_id} status={service_status}")
+            logger.info(
+                f"Signal snapshot written: seq={seq_id} status={service_status}"
+            )
         except Exception as e:
             logger.error(f"Failed to write signal snapshot: {e}")

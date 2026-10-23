@@ -54,4 +54,3 @@ def normalize_live_snapshot(snapshot: LiveSnapshot) -> TradableSnapshot:
         required_source_statuses=source_statuses,
         required_source_timestamps=source_timestamps,
     )
-

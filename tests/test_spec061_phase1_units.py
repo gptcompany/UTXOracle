@@ -20,9 +20,7 @@ def _verify(*units: Path) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True, timeout=15)
 
 
-@pytest.mark.skipif(
-    not _HAS_SYSTEMD_ANALYZE, reason="systemd-analyze not present"
-)
+@pytest.mark.skipif(not _HAS_SYSTEMD_ANALYZE, reason="systemd-analyze not present")
 def test_utxo_creation_catchup_service_valid():
     assert CREATION_CATCHUP_SERVICE.exists()
     result = _verify(CREATION_CATCHUP_SERVICE)
@@ -40,13 +38,13 @@ def test_utxo_creation_catchup_service_contract():
     assert "EnvironmentFile=-/media/sam/1TB/UTXOracle/.env" in content
     assert "Restart=on-failure" in content
     assert "RestartSec=60s" in content
-    assert "ExecStopPost=" in content
-    assert "DISCORD_WEBHOOK_URL" in content
+    # "-": a failing notification hook must not change the unit result.
+    assert "ExecStopPost=-/bin/sh" in content
+    assert "scripts/alerts/ntfy_dati.sh 3 warning" in content
+    assert "DISCORD" not in content
 
 
-@pytest.mark.skipif(
-    not _HAS_SYSTEMD_ANALYZE, reason="systemd-analyze not present"
-)
+@pytest.mark.skipif(not _HAS_SYSTEMD_ANALYZE, reason="systemd-analyze not present")
 def test_utxo_spent_backfill_service_valid():
     assert SPENT_BACKFILL_SERVICE.exists()
     result = _verify(SPENT_BACKFILL_SERVICE)
@@ -65,5 +63,7 @@ def test_utxo_spent_backfill_service_contract():
     assert "EnvironmentFile=-/media/sam/1TB/UTXOracle/.env" in content
     assert "Restart=on-failure" in content
     assert "RestartSec=60s" in content
-    assert "ExecStopPost=" in content
-    assert "DISCORD_WEBHOOK_URL" in content
+    # "-": a failing notification hook must not change the unit result.
+    assert "ExecStopPost=-/bin/sh" in content
+    assert "scripts/alerts/ntfy_dati.sh 3 warning" in content
+    assert "DISCORD" not in content

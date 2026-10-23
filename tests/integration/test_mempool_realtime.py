@@ -16,7 +16,7 @@ Tests the complete flow:
 import asyncio
 import json
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 from pathlib import Path
 import sys
 
@@ -170,7 +170,7 @@ class TestMempoolWhaleMonitorIntegration:
         """Low fee transactions should get low urgency score"""
 
         # 5 sat/vB = low urgency
-        tx_data = {
+        _tx_data = {
             "txid": "10fee123" + "0" * 56,  # Valid hex
             "btc_value": 150.0,
             "fee_rate": 5.0,

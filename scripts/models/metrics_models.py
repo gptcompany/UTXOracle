@@ -1875,8 +1875,7 @@ class URPDFeaturesResult:
 
         if not 0.0 <= self.distribution_entropy <= 1.0:
             raise ValueError(
-                "distribution_entropy must be in [0, 1]: "
-                f"{self.distribution_entropy}"
+                f"distribution_entropy must be in [0, 1]: {self.distribution_entropy}"
             )
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError(f"confidence must be in [0, 1]: {self.confidence}")

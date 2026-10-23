@@ -38,7 +38,7 @@ The `--questdb-reads --questdb-only` combination is the production target for th
 | 0 | Success — all requested dates produced and persisted (or computed in dry-run). |
 | non-zero | Python exception propagated. Includes: QuestDB unreachable (FR-006), missing `block_heights` row for date, missing `daily_prices` row for date, any unhandled exception in calculation. |
 
-The script does NOT use distinct numeric exit codes per error class. The structured ERROR log on stderr/journal is the authoritative source for failure type. Discord webhook (FR-012) carries a one-line summary.
+The script does NOT use distinct numeric exit codes per error class. The structured ERROR log on stderr/journal is the authoritative source for failure type. The ntfy notification on the dati topic (FR-012) carries a one-line summary.
 
 ## stdout / stderr surface
 
@@ -57,18 +57,20 @@ Traceback (most recent call last):
 psycopg2.OperationalError: could not connect to server: Connection refused
 ```
 
-**Discord webhook payload on failure (FR-012)**:
-```json
-{
-  "content": "🚨 UTXOracle aggregator failed for 2026-06-04: OperationalError — could not connect to QuestDB on :8812"
-}
+**ntfy publish on failure (FR-012)**: `POST <NTFY_BASE_URL>/<NTFY_TOPIC_DATI>` (no default server: without a valid http(s) `NTFY_BASE_URL` and a topic nothing is published and the variable name is logged) with headers
+`Priority: 3` (the Dell's cap), `Tags: warning`,
+`Title: dati/utxoracle: aggregator failed for 2026-06-04 su <host>` and the body
+
+```
+OperationalError - aggregator failure
 ```
 
-No webhook is sent on success.
+The body carries the exception class only, never its message. The topic and URL are secrets and are never logged. A failed publish is logged as a WARNING with the
+exception class (and HTTP code) and does not mask the aggregator exception. No notification is sent on success.
 
 ## Observability invariants (FR-011 / FR-012)
 
-| Event | INFO log | ERROR log | Discord webhook |
+| Event | INFO log | ERROR log | ntfy dati |
 |---|---|---|---|
 | Successful single-date run | yes | no | no |
 | Failed single-date run | (initial INFO may exist) | yes (with traceback) | yes (one-line) |
