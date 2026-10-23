@@ -42,4 +42,3 @@ jobs:
       # playwright's chromium and a live stack, neither exists on the hosted runner.
       # Run them by hand (tests/e2e/README.md).
       pytest-args: '--ignore=tests/e2e'
-
