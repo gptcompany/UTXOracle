@@ -30,7 +30,9 @@ def test_revocation_covers_tokens_issued_by_another_instance():
     token = issuer.generate_token("monitoring-service")
     assert server.validate_token(token) is not None
 
-    assert server.revoke_token("monitoring-service") is False  # not in this instance's active set
+    assert (
+        server.revoke_token("monitoring-service") is False
+    )  # not in this instance's active set
     assert server.validate_token(token) is None
 
 
@@ -60,7 +62,9 @@ def test_cleanup_keeps_revocations_for_tokens_still_alive():
     token = _auth(hours=168).generate_token("monitoring-service")
     auth.revoke_token("monitoring-service")
     auth.generate_token("other")
-    auth.active_tokens["other"].expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    auth.active_tokens["other"].expires_at = datetime.now(timezone.utc) - timedelta(
+        seconds=1
+    )
     auth.cleanup_expired_tokens()
 
     assert "other" not in auth.active_tokens
