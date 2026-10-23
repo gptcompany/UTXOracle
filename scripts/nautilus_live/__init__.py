@@ -1,2 +1,1 @@
 """Nautilus live integration package."""
-

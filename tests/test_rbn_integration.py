@@ -467,11 +467,14 @@ class TestValidationEndpoints:
         mock_validator = MagicMock()
         mock_validator.validate_metric = AsyncMock(side_effect=upstream_error)
 
-        with patch(
-            "scripts.integrations.rbn_fetcher.RBNFetcher", return_value=mock_fetcher
-        ), patch(
-            "scripts.integrations.rbn_validator.ValidationService",
-            return_value=mock_validator,
+        with (
+            patch(
+                "scripts.integrations.rbn_fetcher.RBNFetcher", return_value=mock_fetcher
+            ),
+            patch(
+                "scripts.integrations.rbn_validator.ValidationService",
+                return_value=mock_validator,
+            ),
         ):
             response = client.get(
                 "/api/v1/validation/rbn/mvrv_z",

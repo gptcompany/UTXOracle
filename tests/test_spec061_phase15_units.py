@@ -22,9 +22,7 @@ def _verify(*units: Path) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True, timeout=15)
 
 
-@pytest.mark.skipif(
-    not _HAS_SYSTEMD_ANALYZE, reason="systemd-analyze not present"
-)
+@pytest.mark.skipif(not _HAS_SYSTEMD_ANALYZE, reason="systemd-analyze not present")
 def test_block_heights_catchup_units_valid():
     assert BLOCK_HEIGHTS_SERVICE.exists()
     assert BLOCK_HEIGHTS_TIMER.exists()
@@ -54,9 +52,7 @@ def test_block_heights_catchup_unit_contract():
     assert "Unit=utxoracle-block-heights-catchup.service" in timer
 
 
-@pytest.mark.skipif(
-    not _HAS_SYSTEMD_ANALYZE, reason="systemd-analyze not present"
-)
+@pytest.mark.skipif(not _HAS_SYSTEMD_ANALYZE, reason="systemd-analyze not present")
 def test_daily_prices_refresh_units_valid():
     assert DAILY_PRICES_SERVICE.exists()
     assert DAILY_PRICES_TIMER.exists()

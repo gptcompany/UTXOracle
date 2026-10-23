@@ -147,9 +147,9 @@ class TestQuestDBSave:
         with patch("scripts.daily_analysis.QuestDBRepository") as mock_repo_cls:
             mock_repo = Mock()
             mock_repo_cls.return_value = mock_repo
-            
+
             save_to_questdb(data)
-            
+
             assert mock_repo._send_row.called
             call_args = mock_repo._send_row.call_args
             assert call_args[0][0] == "price_analysis"
@@ -180,7 +180,6 @@ class TestPriceValidation:
     def test_validate_price_data_divergence_warning(self):
         """T103: Large divergence should trigger warning but return True (valid)"""
         from scripts.daily_analysis import validate_price_data
-        import logging
 
         config = {
             "UTXORACLE_CONFIDENCE_THRESHOLD": 0.3,
@@ -235,13 +234,16 @@ class TestFailureRecovery:
             "BITCOIN_DATADIR": "~/.bitcoin",
         }
 
-        with patch(
-            "scripts.daily_analysis._fetch_from_mempool_local",
-            side_effect=requests.RequestException("tier1 down"),
-        ), patch(
-            "scripts.daily_analysis._fetch_from_mempool_public",
-            return_value=[{"txid": "abc"}],
-        ) as mock_fallback:
+        with (
+            patch(
+                "scripts.daily_analysis._fetch_from_mempool_local",
+                side_effect=requests.RequestException("tier1 down"),
+            ),
+            patch(
+                "scripts.daily_analysis._fetch_from_mempool_public",
+                return_value=[{"txid": "abc"}],
+            ) as mock_fallback,
+        ):
             transactions, tier = fetch_bitcoin_transactions(config)
 
         assert transactions == [{"txid": "abc"}]

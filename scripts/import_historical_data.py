@@ -23,6 +23,7 @@ from typing import Optional, Dict
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import duckdb
+
 # Use SOPS-encrypted secrets
 sys.path.insert(0, "/media/sam/1TB/claude-hooks-shared/scripts")
 from secrets_loader import load_secrets
@@ -30,9 +31,7 @@ from scripts.config import UTXORACLE_DB_PATH
 
 # Load config
 load_secrets()
-DUCKDB_PATH = os.getenv(
-    "DUCKDB_PATH", str(UTXORACLE_DB_PATH)
-)
+DUCKDB_PATH = os.getenv("DUCKDB_PATH", str(UTXORACLE_DB_PATH))
 HISTORICAL_DIR = Path(__file__).parent.parent / "historical_data" / "html_files"
 LOG_DIR = Path(__file__).parent.parent / "logs"
 
