@@ -63,6 +63,7 @@ try:
         require_auth,
         optional_auth,
         AuthToken,
+        get_auth_instance,
         require_permission,
     )
 
@@ -169,6 +170,9 @@ async def lifespan(app: FastAPI):
     # Startup
     logging.info("=" * 60)
     logging.info("UTXOracle API starting...")
+    if AUTH_AVAILABLE:
+        # Fail closed at startup: a missing or still-encrypted signing key must stop the service.
+        get_auth_instance()
 
     # Initialize QuestDB
     questdb_repo = QuestDBRepository()

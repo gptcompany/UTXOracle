@@ -20,6 +20,9 @@ pytest_plugins = ["tests.fixtures.sopr_fixtures"]
 
 if not os.getenv("JWT_SECRET"):
     os.environ["JWT_SECRET"] = "test-secret"
+# The app fails closed at startup without a REST signing key.
+if not os.getenv("WEBSOCKET_SECRET_KEY"):
+    os.environ["WEBSOCKET_SECRET_KEY"] = "test-rest-secret"
 
 
 @pytest.fixture
