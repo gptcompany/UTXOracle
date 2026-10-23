@@ -122,7 +122,9 @@ def test_backfill_batches_at_threshold():
 
     with (
         patch.object(module, "_iter_block_updates", side_effect=fake_iter),
-        patch.object(module, "_open_questdb_pg", return_value=_FakeConnection(captured)),
+        patch.object(
+            module, "_open_questdb_pg", return_value=_FakeConnection(captured)
+        ),
     ):
         rows = module.backfill(927968, 927968, workers=2)
 
@@ -140,8 +142,7 @@ def test_backfill_flushes_each_block_when_above_threshold():
     from scripts.bootstrap import tip_spent_backfill_via_rpc as module
 
     fake_blocks = {
-        h: [(h, f"tx{h}{i:056d}", i % 4) for i in range(1200)]
-        for h in (927968, 927969)
+        h: [(h, f"tx{h}{i:056d}", i % 4) for i in range(1200)] for h in (927968, 927969)
     }
 
     def fake_iter(start, end, workers=8):
@@ -151,7 +152,9 @@ def test_backfill_flushes_each_block_when_above_threshold():
     captured: list[tuple[str, list]] = []
     with (
         patch.object(module, "_iter_block_updates", side_effect=fake_iter),
-        patch.object(module, "_open_questdb_pg", return_value=_FakeConnection(captured)),
+        patch.object(
+            module, "_open_questdb_pg", return_value=_FakeConnection(captured)
+        ),
     ):
         rows = module.backfill(927968, 927969, workers=2)
 
@@ -171,7 +174,9 @@ def test_backfill_flushes_trailing_partial_batch():
     captured: list[tuple[str, list]] = []
     with (
         patch.object(module, "_iter_block_updates", side_effect=fake_iter),
-        patch.object(module, "_open_questdb_pg", return_value=_FakeConnection(captured)),
+        patch.object(
+            module, "_open_questdb_pg", return_value=_FakeConnection(captured)
+        ),
     ):
         rows = module.backfill(927968, 927968)
 

@@ -5,3 +5,5 @@ the full router split. Production services must not use this module.
 """
 
 from api.main import app
+
+__all__ = ["app"]  # entrypoint: uvicorn api.apps.legacy:app

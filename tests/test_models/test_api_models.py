@@ -5,7 +5,6 @@ TDD: These tests MUST FAIL before implementation (RED phase).
 Run: uv run pytest tests/test_models/test_api_models.py -v
 """
 
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -83,6 +82,7 @@ class TestGetModelPrediction:
         response = client.get("/api/v1/models/unknown-model/predict")
 
         assert response.status_code == 404
+
 
 class TestCreateEnsemble:
     """Tests for POST /api/v1/models/ensemble endpoint."""

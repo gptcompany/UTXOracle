@@ -391,5 +391,7 @@ def write_headers(monkeypatch):
         module = sys.modules.get(name)
         if module is not None:
             monkeypatch.setattr(module, "_auth_instance", None)
-    token = auth_middleware.generate_token("tests", {"read", "write"}, expires_in_hours=1)
+    token = auth_middleware.generate_token(
+        "tests", {"read", "write"}, expires_in_hours=1
+    )
     return {"Authorization": f"Bearer {token}"}

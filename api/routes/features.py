@@ -32,6 +32,7 @@ BUNDLE_CONTRACTS = {
     },
 }
 
+
 def _empty_bundle(bundle_type: str) -> Dict[str, Any]:
     contract = BUNDLE_CONTRACTS[bundle_type]
     payload = {
@@ -41,7 +42,7 @@ def _empty_bundle(bundle_type: str) -> Dict[str, Any]:
             "sequence_id": 0,
             "produced_at": datetime.now(timezone.utc).isoformat(),
             "bundle_status": "empty",
-            "degraded_reasons": ["Database empty or not materialized"]
+            "degraded_reasons": ["Database empty or not materialized"],
         }
     }
     for key in contract["payload_keys"]:
@@ -65,36 +66,39 @@ def _misconfigured_bundle(bundle_type: str, reason: str) -> Dict[str, Any]:
         payload[key] = {}
     return payload
 
+
 @router.get("/{bundle_type}/latest")
 async def get_bundle_latest(request: Request, bundle_type: str):
     if bundle_type not in BUNDLE_CONTRACTS:
         raise HTTPException(status_code=404, detail="Unknown bundle type")
-        
+
     contract = BUNDLE_CONTRACTS[bundle_type]
     bundle_id = contract["bundle_id"]
     repo = getattr(request.app.state, "questdb_repo", None)
-    
+
     if not repo:
         return _misconfigured_bundle(bundle_type, "QuestDB repository unavailable")
-        
+
     try:
         row = await repo.get_latest_feature_bundle(bundle_id)
         if not row:
             return _empty_bundle(bundle_type)
-            
+
         payload = json.loads(row["payload_json"])
-        
+
         # Ensure metadata exists
         if "metadata" not in payload:
             payload["metadata"] = {
                 "schema_version": "v1",
                 "bundle_id": bundle_id,
                 "sequence_id": row["sequence_id"],
-                "produced_at": row["produced_at"].isoformat() if isinstance(row["produced_at"], datetime) else str(row["produced_at"]),
+                "produced_at": row["produced_at"].isoformat()
+                if isinstance(row["produced_at"], datetime)
+                else str(row["produced_at"]),
                 "bundle_status": row["bundle_status"],
-                "degraded_reasons": []
+                "degraded_reasons": [],
             }
-            
+
         return payload
     except Exception as exc:
         logger.exception("Failed to fetch latest feature bundle %s: %s", bundle_id, exc)
@@ -110,22 +114,25 @@ async def get_bundle_history(
 ):
     if bundle_type not in BUNDLE_CONTRACTS:
         raise HTTPException(status_code=404, detail="Unknown bundle type")
-        
+
     contract = BUNDLE_CONTRACTS[bundle_type]
     bundle_id = contract["bundle_id"]
     repo = getattr(request.app.state, "questdb_repo", None)
-    
+
     if not repo:
         raise HTTPException(status_code=503, detail="QuestDB repository unavailable")
-        
+
     try:
         rows = await repo.get_feature_bundle_history(bundle_id, limit + 1, page_token)
         if not rows:
-            return {"items": [], "pagination": {"next_page_token": None, "has_more": False}}
+            return {
+                "items": [],
+                "pagination": {"next_page_token": None, "has_more": False},
+            }
 
         has_more = len(rows) > limit
         visible_rows = rows[:limit]
-            
+
         items = []
         for row in visible_rows:
             payload = json.loads(row["payload_json"])
@@ -134,18 +141,24 @@ async def get_bundle_history(
                     "schema_version": "v1",
                     "bundle_id": bundle_id,
                     "sequence_id": row["sequence_id"],
-                    "produced_at": row["produced_at"].isoformat() if isinstance(row["produced_at"], datetime) else str(row["produced_at"]),
+                    "produced_at": row["produced_at"].isoformat()
+                    if isinstance(row["produced_at"], datetime)
+                    else str(row["produced_at"]),
                     "bundle_status": row["bundle_status"],
-                    "degraded_reasons": []
+                    "degraded_reasons": [],
                 }
             items.append(payload)
-            
-        next_page_token = str(items[-1]["metadata"]["sequence_id"]) if has_more and items else None
+
+        next_page_token = (
+            str(items[-1]["metadata"]["sequence_id"]) if has_more and items else None
+        )
 
         return {
             "items": items,
             "pagination": {"next_page_token": next_page_token, "has_more": has_more},
         }
     except Exception as exc:
-        logger.exception("Failed to fetch feature bundle history %s: %s", bundle_id, exc)
+        logger.exception(
+            "Failed to fetch feature bundle history %s: %s", bundle_id, exc
+        )
         raise HTTPException(status_code=503, detail="Failed to fetch bundle history")

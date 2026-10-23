@@ -24,7 +24,10 @@ def _requires_write(dependant) -> bool:
     for dep in dependant.dependencies:
         call = dep.call
         if getattr(call, "__name__", "") == "permission_checker":
-            if inspect.getclosurevars(call).nonlocals.get("required_permission") == "write":
+            if (
+                inspect.getclosurevars(call).nonlocals.get("required_permission")
+                == "write"
+            ):
                 return True
         if _requires_write(dep):
             return True
@@ -63,12 +66,16 @@ def client(monkeypatch, questdb_repo_mock):
 def _token(permissions: set[str]) -> str:
     from api import auth_middleware
 
-    return auth_middleware.generate_token("write-auth-test", permissions, expires_in_hours=1)
+    return auth_middleware.generate_token(
+        "write-auth-test", permissions, expires_in_hours=1
+    )
 
 
 def _call(client, method, path, body, token=None):
     headers = {"Authorization": f"Bearer {token}"} if token else {}
-    return getattr(client, method)(path, headers=headers, **({"json": body} if body else {}))
+    return getattr(client, method)(
+        path, headers=headers, **({"json": body} if body else {})
+    )
 
 
 def test_every_registered_write_route_requires_write():
@@ -129,7 +136,11 @@ def test_write_token_reaches_the_handler(client, monkeypatch):
 
     monkeypatch.setattr(rbn_fetcher, "RBNFetcher", lambda: FakeFetcher())
     response = _call(
-        client, "delete", "/api/v1/validation/rbn/cache", None, _token({"read", "write"})
+        client,
+        "delete",
+        "/api/v1/validation/rbn/cache",
+        None,
+        _token({"read", "write"}),
     )
     assert response.status_code == 200
     assert cleared == [None]

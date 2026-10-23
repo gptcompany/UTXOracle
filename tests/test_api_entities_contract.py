@@ -74,7 +74,9 @@ class ContractEntityRepo:
     async def get_entity_provenance(self, entity_id: str):
         return self.provenance_row
 
-    async def get_entity_history(self, entity_id: str, limit: int, after_date: datetime | None = None):
+    async def get_entity_history(
+        self, entity_id: str, limit: int, after_date: datetime | None = None
+    ):
         return self.history_rows[:limit]
 
     async def get_entity_flows(
@@ -90,7 +92,9 @@ class ContractEntityRepo:
     ):
         rows = list(self.flow_rows)
         if classification is not None:
-            rows = [row for row in rows if row["movement_classification"] == classification]
+            rows = [
+                row for row in rows if row["movement_classification"] == classification
+            ]
         if min_value:
             rows = [row for row in rows if row["btc_amount"] >= min_value]
         return rows[:limit]
@@ -151,7 +155,9 @@ def test_entity_metadata_contract_serializes_identity_and_provenance(api_client)
 def test_entity_history_contract_serializes_required_fields(api_client):
     repo = ContractEntityRepo()
     with _override_repo(api_client.app, repo):
-        response = api_client.get("/api/entities/btc:entity:curated:binance/history?limit=1")
+        response = api_client.get(
+            "/api/entities/btc:entity:curated:binance/history?limit=1"
+        )
 
     assert response.status_code == 200
     payload = response.json()
@@ -171,7 +177,9 @@ def test_entity_history_contract_serializes_required_fields(api_client):
 def test_entity_flow_contract_serializes_required_fields(api_client):
     repo = ContractEntityRepo()
     with _override_repo(api_client.app, repo):
-        response = api_client.get("/api/entities/flows?entity_id=btc:entity:curated:binance&limit=1")
+        response = api_client.get(
+            "/api/entities/flows?entity_id=btc:entity:curated:binance&limit=1"
+        )
 
     assert response.status_code == 200
     payload = response.json()
