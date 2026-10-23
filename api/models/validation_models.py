@@ -218,10 +218,10 @@ class RBNMetricResponse(BaseModel):
                     RBNDataPoint(date=d, value=v) for d, v in zip(dates, values)
                 ]
 
-        raw_timestamp = response.get("timestamp", datetime.now(timezone.utc).isoformat())
-        parsed_timestamp = datetime.fromisoformat(
-            raw_timestamp.replace("Z", "+00:00")
+        raw_timestamp = response.get(
+            "timestamp", datetime.now(timezone.utc).isoformat()
         )
+        parsed_timestamp = datetime.fromisoformat(raw_timestamp.replace("Z", "+00:00"))
         if parsed_timestamp.tzinfo is not None:
             parsed_timestamp = parsed_timestamp.astimezone(timezone.utc).replace(
                 tzinfo=None

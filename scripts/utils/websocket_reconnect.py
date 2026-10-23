@@ -38,7 +38,6 @@ from typing import Optional, Callable, Awaitable
 
 try:
     import websockets
-    from websockets.exceptions import WebSocketException
 
     WEBSOCKETS_AVAILABLE = True
 except ImportError:

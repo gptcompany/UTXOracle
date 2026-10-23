@@ -29,8 +29,7 @@ Usage:
 """
 
 from datetime import datetime
-from typing import Optional, Any, Dict
-import json
+from typing import Optional
 import logging
 
 from api.questdb_repository import QuestDBRepository
@@ -65,9 +64,7 @@ def save_metrics_to_db(
     """
     try:
         symbols = {}
-        columns = {
-            "created_at": datetime.utcnow()
-        }
+        columns = {"created_at": datetime.utcnow()}
 
         if monte_carlo:
             mc_cols = [
@@ -126,7 +123,10 @@ def save_metrics_to_db(
             for src_col, db_col in ws_cols:
                 if src_col in wasserstein:
                     val = wasserstein[src_col]
-                    if db_col in ["wasserstein_shift_direction", "wasserstein_regime_status"]:
+                    if db_col in [
+                        "wasserstein_shift_direction",
+                        "wasserstein_regime_status",
+                    ]:
                         symbols[db_col] = str(val)
                     else:
                         columns[db_col] = val
@@ -140,7 +140,7 @@ def save_metrics_to_db(
             symbols=symbols,
             columns=columns,
             at=timestamp,
-            flush=True # Flush metrics immediately for low-latency dashboards
+            flush=True,  # Flush metrics immediately for low-latency dashboards
         )
 
     except Exception as e:
@@ -156,45 +156,47 @@ def load_metrics_from_db(
 ) -> list[dict]:
     """
     Load metrics from QuestDB.
-    Note: This is a synchronous wrapper around an async call. 
+    Note: This is a synchronous wrapper around an async call.
     In production environments, it is better to use the async repo methods directly.
     """
     import asyncio
-    
+
     async def _async_load():
         if not _repo._pool:
             await _repo.initialize()
-        
+
         query = "SELECT * FROM metrics"
         conditions = []
         params = []
-        
+
         if start_date:
             conditions.append("ts >= $1")
             params.append(start_date)
             idx = 2
         else:
             idx = 1
-            
+
         if end_date:
             conditions.append(f"ts <= ${idx}")
             params.append(end_date)
-        
+
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
-        
+
         query += f" ORDER BY ts DESC LIMIT {limit}"
-        
+
         records = await _repo.fetch(query, *params)
         return [dict(r) for r in records]
 
     try:
         # Check if we are already in an event loop
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()  # raises RuntimeError when no loop is running
             # If in a loop, we can't block. This is a design conflict for sync metrics loading.
             # Fallback to a warning and empty list if called from within async.
-            logger.warning("load_metrics_from_db called from async context, use repo.fetch directly.")
+            logger.warning(
+                "load_metrics_from_db called from async context, use repo.fetch directly."
+            )
             return []
         except RuntimeError:
             return asyncio.run(_async_load())

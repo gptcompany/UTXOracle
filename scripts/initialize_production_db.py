@@ -9,22 +9,18 @@ Creates:
 - prediction_outcomes table (for correlation tracking)
 """
 
-import duckdb
-import sys
+import asyncio
 import logging
-from pathlib import Path
+import os
+import sys
+
+from api.questdb_repository import create_tables_if_not_exist
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
-
-import asyncio
-import os
-import sys
-import logging
-from api.questdb_repository import create_tables_if_not_exist
 
 async def initialize_production_database():
     """
@@ -37,7 +33,7 @@ async def initialize_production_database():
 
     try:
         await create_tables_if_not_exist()
-        
+
         logging.info("")
         logging.info("=" * 60)
         logging.info("✅ QUESTDB DATABASE INITIALIZATION COMPLETE!")
@@ -70,6 +66,7 @@ async def main():
 
     # Exit with appropriate code
     sys.exit(0 if success else 1)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

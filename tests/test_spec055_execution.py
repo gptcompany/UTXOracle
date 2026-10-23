@@ -339,7 +339,9 @@ def test_live_health_and_ready_use_30s_stale_threshold(client, mock_snapshot_sto
 def test_operator_stage_config_failure_defaults_to_safe_mode(monkeypatch):
     from api.routes import execution
 
-    monkeypatch.setattr(execution, "EXECUTION_SAFETY_PATH", "/tmp/missing-execution-safety.yaml")
+    monkeypatch.setattr(
+        execution, "EXECUTION_SAFETY_PATH", "/tmp/missing-execution-safety.yaml"
+    )
 
     stage, mode = execution._get_operator_stage()
     assert stage == OperatorStage.shadow

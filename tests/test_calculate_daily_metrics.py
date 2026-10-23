@@ -3,18 +3,22 @@ import pytest
 from datetime import date
 from statistics import stdev
 
-from scripts.metrics.calculate_daily_metrics import calculate_daily_mvrv, persist_metrics
+from scripts.metrics.calculate_daily_metrics import (
+    calculate_daily_mvrv,
+    persist_metrics,
+)
+
 
 def test_calculate_daily_mvrv_success():
     # Setup mock duckdb
-    conn = duckdb.connect(':memory:')
-    conn.execute('''
+    conn = duckdb.connect(":memory:")
+    conn.execute("""
         CREATE TABLE utxo_snapshots (
             block_height INTEGER,
             market_cap_usd DOUBLE,
             realized_cap_usd DOUBLE
         )
-    ''')
+    """)
     # Insert some dummy history to satisfy stdev calculation (requires at least 30 items)
     for i in range(40):
         conn.execute(f"INSERT INTO utxo_snapshots VALUES ({i}, {1000 + i * 10}, 800)")
@@ -30,15 +34,16 @@ def test_calculate_daily_mvrv_success():
     assert mvrv_z_rbn is not None
     assert mvrv_z_rbn > 0
 
+
 def test_calculate_daily_mvrv_insufficient_history():
-    conn = duckdb.connect(':memory:')
-    conn.execute('''
+    conn = duckdb.connect(":memory:")
+    conn.execute("""
         CREATE TABLE utxo_snapshots (
             block_height INTEGER,
             market_cap_usd DOUBLE,
             realized_cap_usd DOUBLE
         )
-    ''')
+    """)
     market_cap = 1500.0
     realized_cap = 1000.0
 
@@ -48,8 +53,9 @@ def test_calculate_daily_mvrv_insufficient_history():
     assert mvrv_z is not None
     assert mvrv_z_rbn is None
 
+
 def test_calculate_daily_mvrv_zero_realized_cap():
-    conn = duckdb.connect(':memory:')
+    conn = duckdb.connect(":memory:")
     market_cap = 1500.0
     realized_cap = 0.0
 
@@ -61,15 +67,15 @@ def test_calculate_daily_mvrv_zero_realized_cap():
 
 
 def test_calculate_daily_mvrv_rbn_uses_historical_cutoff():
-    conn = duckdb.connect(':memory:')
+    conn = duckdb.connect(":memory:")
     conn.execute(
-        '''
+        """
         CREATE TABLE utxo_snapshots (
             block_height INTEGER,
             market_cap_usd DOUBLE,
             realized_cap_usd DOUBLE
         )
-        '''
+        """
     )
 
     # Historical window up to block 40 should determine the score.
@@ -100,15 +106,15 @@ def test_calculate_daily_mvrv_rbn_uses_historical_cutoff():
 
 
 def test_calculate_daily_mvrv_rbn_requires_history_by_backfill_day():
-    conn = duckdb.connect(':memory:')
+    conn = duckdb.connect(":memory:")
     conn.execute(
-        '''
+        """
         CREATE TABLE utxo_snapshots (
             block_height INTEGER,
             market_cap_usd DOUBLE,
             realized_cap_usd DOUBLE
         )
-        '''
+        """
     )
 
     for height in range(1, 61):
@@ -117,9 +123,7 @@ def test_calculate_daily_mvrv_rbn_requires_history_by_backfill_day():
             [height, 1000.0 + (height * 10.0), 800.0],
         )
 
-    _, _, mvrv_z_rbn = calculate_daily_mvrv(
-        conn, 1_500.0, 1_000.0, as_of_block=20
-    )
+    _, _, mvrv_z_rbn = calculate_daily_mvrv(conn, 1_500.0, 1_000.0, as_of_block=20)
 
     # Only 20 historical points existed at block 20, so RBN-compatible score
     # should remain unavailable even if later snapshots exist.
@@ -127,7 +131,7 @@ def test_calculate_daily_mvrv_rbn_requires_history_by_backfill_day():
 
 
 def test_persist_metrics_works_with_legacy_mvrv_daily_schema():
-    conn = duckdb.connect(':memory:')
+    conn = duckdb.connect(":memory:")
     conn.execute(
         """
         CREATE TABLE mvrv_daily (
@@ -168,7 +172,7 @@ def test_persist_metrics_works_with_legacy_mvrv_daily_schema():
 
 
 def test_persist_metrics_stores_mvrv_z_rbn_when_column_exists():
-    conn = duckdb.connect(':memory:')
+    conn = duckdb.connect(":memory:")
     conn.execute(
         """
         CREATE TABLE mvrv_daily (

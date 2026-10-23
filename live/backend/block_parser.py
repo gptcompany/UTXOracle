@@ -22,14 +22,16 @@ def read_varint(data: bytes, offset: int) -> Tuple[int, int]:
     if first_byte < 0xFD:
         return (first_byte, offset + 1)
     elif first_byte == 0xFD:
-        return (struct.unpack("<H", data[offset + 1:offset + 3])[0], offset + 3)
+        return (struct.unpack("<H", data[offset + 1 : offset + 3])[0], offset + 3)
     elif first_byte == 0xFE:
-        return (struct.unpack("<I", data[offset + 1:offset + 5])[0], offset + 5)
+        return (struct.unpack("<I", data[offset + 1 : offset + 5])[0], offset + 5)
     else:  # 0xFF
-        return (struct.unpack("<Q", data[offset + 1:offset + 9])[0], offset + 9)
+        return (struct.unpack("<Q", data[offset + 1 : offset + 9])[0], offset + 9)
 
 
-def parse_transaction_from_block(data: bytes, offset: int) -> Tuple[List[Tuple[float, float]], int]:
+def parse_transaction_from_block(
+    data: bytes, offset: int
+) -> Tuple[List[Tuple[float, float]], int]:
     """
     Parse a single transaction from block data.
 
@@ -39,15 +41,18 @@ def parse_transaction_from_block(data: bytes, offset: int) -> Tuple[List[Tuple[f
     Full validation is not needed for baseline price calculation.
     """
     try:
-        start_offset = offset
-
-        # Read version (4 bytes)
-        version = struct.unpack("<I", data[offset:offset + 4])[0]
+        # Read version (4 bytes): the value is not needed, but the unpack still
+        # rejects truncated data
+        struct.unpack("<I", data[offset : offset + 4])
         offset += 4
 
         # Check for SegWit marker (0x00 0x01)
         is_segwit = False
-        if offset + 2 <= len(data) and data[offset] == 0x00 and data[offset + 1] == 0x01:
+        if (
+            offset + 2 <= len(data)
+            and data[offset] == 0x00
+            and data[offset + 1] == 0x01
+        ):
             is_segwit = True
             offset += 2
 
@@ -74,7 +79,7 @@ def parse_transaction_from_block(data: bytes, offset: int) -> Tuple[List[Tuple[f
         outputs = []
         for _ in range(output_count):
             # Value (8 bytes, satoshis)
-            value_satoshis = struct.unpack("<Q", data[offset:offset + 8])[0]
+            value_satoshis = struct.unpack("<Q", data[offset : offset + 8])[0]
             offset += 8
 
             # Script length
@@ -105,7 +110,9 @@ def parse_transaction_from_block(data: bytes, offset: int) -> Tuple[List[Tuple[f
         return ([], offset + 250)  # Approximate tx size skip
 
 
-def extract_transactions_from_block(block_bytes: bytes, block_timestamp: float) -> List[Tuple[float, float]]:
+def extract_transactions_from_block(
+    block_bytes: bytes, block_timestamp: float
+) -> List[Tuple[float, float]]:
     """
     Extract all transaction outputs from a raw block.
 
@@ -136,7 +143,9 @@ def extract_transactions_from_block(block_bytes: bytes, block_timestamp: float) 
                 if 1e-5 <= amount_btc <= 1e5:
                     all_outputs.append((amount_btc, block_timestamp))
 
-        logger.info(f"Extracted {len(all_outputs)} outputs from {tx_count} transactions")
+        logger.info(
+            f"Extracted {len(all_outputs)} outputs from {tx_count} transactions"
+        )
         return all_outputs
 
     except Exception as e:

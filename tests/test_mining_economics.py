@@ -138,7 +138,7 @@ class TestMiningPulseRPCIntegration:
         def mock_getblock_by_hash(block_hash):
             height = int(block_hash.split("_")[1]) if "_" in block_hash else 875000
             # Alternate: odd heights = 500s (fast), even heights = 700s (slow)
-            interval = 500 if height % 2 == 1 else 700
+            _interval = 500 if height % 2 == 1 else 700
             # Calculate cumulative time
             base_time = 1734600000
             for h in range(875000, height, -1):
