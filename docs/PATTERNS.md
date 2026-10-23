@@ -6,4 +6,4 @@ This file is an **index**, not a documentation repository. Each entry below cros
 
 When and how to migrate a read helper off a legacy data store (DuckDB) onto QuestDB without breaking existing callers.
 
-→ **Canonical pattern**: [spec-062 plan, Appendix A](../specs/062-aggregator-zero-duckdb/plan.md#appendix-a--strangler-fig-migration-pattern-canonical-per-fr-010)
+→ **Canonical pattern**: [spec-062 plan, Appendix A](https://github.com/gptcompany/UTXOracle/blob/main/specs/062-aggregator-zero-duckdb/plan.md#appendix-a--strangler-fig-migration-pattern-canonical-per-fr-010)

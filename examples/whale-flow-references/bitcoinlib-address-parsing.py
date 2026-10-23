@@ -25,7 +25,7 @@ MOCK_TX_DATA = {
       },
       "scriptsig": "483045022100884d142d86652a3f47ba4746ec719bbfbd040a570b1deccbb6498c75c4ae24cb02204b913739185cf427c712848e04de1e5420343a4902b030de7244c8242341716601",
       "scriptsig_asm": "OP_PUSHBYTES_72 3045022100884d142d86652a3f47ba4746ec719bbfbd040a570b1deccbb6498c75c4ae24cb02204b913739185cf427c712848e04de1e5420343a4902b030de7244c8242341716601 OP_PUSHBYTES_1 01",
-      "is_coinbase": false
+      "is_coinbase": False
     }
   ],
   "vout": [
@@ -45,7 +45,7 @@ MOCK_TX_DATA = {
     }
   ],
   "status": {
-    "confirmed": true,
+    "confirmed": True,
     "block_height": 600000,
     "block_hash": "0000000000000000000a2c5f1e9c4a8a4bc9e7a362a1a2f897d2c84b40e4b66a",
     "block_time": 1571769413

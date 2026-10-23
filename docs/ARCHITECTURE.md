@@ -1,7 +1,7 @@
 # UTXOracle Architecture
 
 > **2026-03-31 Update**: spec-041 has begun. The production live boundary now boots through `api.apps.live:app` on `8011`, while the mixed historical surface is explicit legacy via `api.apps.legacy:app` on `8001`.
-> Read [`docs/LIVE_STACK_ROLE_MATRIX.md`](docs/LIVE_STACK_ROLE_MATRIX.md) first for current role assignment and runtime endpoints.
+> Read [`docs/LIVE_STACK_ROLE_MATRIX.md`](LIVE_STACK_ROLE_MATRIX.md) first for current role assignment and runtime endpoints.
 > Current host runtime verified on 2026-03-31: `UTXOracle Live API` on `8011` (production Docker app) | `UTXOracle API` on `8001` (legacy systemd app) | `BRK` on `7070` | `electrs` on `3002` | `mempool-api` on `8999`.
 
 > **Note**: This file is the canonical source for architecture documentation.
@@ -124,8 +124,8 @@ Recorded live run on 2026-03-31:
 
 Artifacts and operator procedure:
 
-- [`specs/042-questdb-charting-validation/artifacts/realized-price-reference/README.md`](../specs/042-questdb-charting-validation/artifacts/realized-price-reference/README.md)
-- [`specs/042-questdb-charting-validation/operator-notes.md`](../specs/042-questdb-charting-validation/operator-notes.md)
+- [`specs/042-questdb-charting-validation/artifacts/realized-price-reference/README.md`](https://github.com/gptcompany/UTXOracle/blob/main/specs/042-questdb-charting-validation/artifacts/realized-price-reference/README.md)
+- [`specs/042-questdb-charting-validation/operator-notes.md`](https://github.com/gptcompany/UTXOracle/blob/main/specs/042-questdb-charting-validation/operator-notes.md)
 
 ## Retained Legacy Batch/Comparison Path (spec-003 Maintenance Scope)
 
