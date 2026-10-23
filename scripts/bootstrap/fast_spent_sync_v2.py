@@ -17,12 +17,12 @@ Usage:
 import argparse
 
 from scripts.config import UTXORACLE_DB_PATH
+from scripts.utils.rpc_cookie import resolve_target
 import base64
 import csv
 import http.client
 import json
 import logging
-import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -43,29 +43,20 @@ class BitcoinRPC:
     """Thread-safe Bitcoin Core RPC client."""
 
     def __init__(self, datadir: str = None):
-        # Try env vars first, then bitcoin.conf, then cookie
-        user = os.getenv("BITCOIN_RPC_USER")
-        pw = os.getenv("BITCOIN_RPC_PASSWORD")
-
-        if not user or not pw:
-            # Try reading from bitcoin.conf
-            conf_path = Path(os.path.expanduser("~/.bitcoin/bitcoin.conf"))
-            if conf_path.exists():
-                with open(conf_path) as f:
-                    for line in f:
-                        line = line.strip()
-                        if line.startswith("rpcuser="):
-                            user = line.split("=", 1)[1]
-                        elif line.startswith("rpcpassword="):
-                            pw = line.split("=", 1)[1]
+        # Connection settings come from scripts.utils.rpc_cookie.resolve_target.
+        # Auth policy unchanged (see the runbook): user/password (env, then
+        # bitcoin.conf) before the cookie, read once.
+        target = resolve_target(datadir)
+        self.host, self.port = target.host, target.port
+        user, pw = target.fallback or (None, None)
 
         if not user or not pw:
             # Fallback to cookie auth
-            datadir = datadir or os.getenv(
-                "BITCOIN_DATADIR", "/media/sam/3TB-WDC/Bitcoin"
-            )
-            cookie_path = Path(datadir) / ".cookie"
-            with open(cookie_path) as f:
+            if target.cookie_path is None:
+                raise RuntimeError(
+                    "No RPC credentials and cookie disabled by norpccookiefile"
+                )
+            with open(target.cookie_path) as f:
                 cookie = f.read().strip()
             user, pw = cookie.split(":")
 
@@ -74,7 +65,7 @@ class BitcoinRPC:
     def call(self, method: str, *params):
         """Thread-safe RPC call - creates new connection per request."""
         payload = json.dumps({"method": method, "params": list(params), "id": 1})
-        conn = http.client.HTTPConnection("localhost", 8332, timeout=120)
+        conn = http.client.HTTPConnection(self.host, self.port, timeout=120)
         try:
             conn.request(
                 "POST",

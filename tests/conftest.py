@@ -381,6 +381,28 @@ def wave2_empty_snapshot_client(monkeypatch, wave2_empty_snapshot_duckdb_path):
 
 
 @pytest.fixture
+def hermetic_rpc(monkeypatch, tmp_path_factory):
+    """RPC tests never read real secrets, ~/.bitcoin or BITCOIN_* variables.
+
+    `import scripts.sync_utxo_lifecycle` runs the shared secrets_loader, and the
+    connection resolver reads $HOME/.bitcoin and BITCOIN_*: stub the loader before
+    any consumer import, drop the variables and point HOME at an empty directory.
+    Returns that HOME.
+    """
+    import sys
+    import types
+
+    stub = types.ModuleType("secrets_loader")
+    stub.load_secrets = lambda *args, **kwargs: None
+    monkeypatch.setitem(sys.modules, "secrets_loader", stub)
+    for var in [name for name in os.environ if name.startswith("BITCOIN_")]:
+        monkeypatch.delenv(var)
+    home = tmp_path_factory.mktemp("home")
+    monkeypatch.setenv("HOME", str(home))
+    return home
+
+
+@pytest.fixture
 def write_headers(monkeypatch):
     """Authorization header with the write permission, for the protected write routes (F-266)."""
     from api import auth_middleware

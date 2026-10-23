@@ -10,9 +10,7 @@ from collections import deque
 from dataclasses import dataclass
 from typing import List, Tuple, Optional
 import time
-import os
 import math
-import platform
 
 from .bitcoin_rpc import BitcoinRPC
 
@@ -45,7 +43,8 @@ class BaselineCalculator:
         self.spike_stencil = self._create_spike_stencil()
 
         # T112 & T115: RPC initialization
-        self.bitcoin_datadir = bitcoin_datadir or self._get_default_datadir()
+        # None: the shared resolver picks the datadir (BITCOIN_DATADIR, bitcoin.conf).
+        self.bitcoin_datadir = bitcoin_datadir
         try:
             self.rpc = BitcoinRPC(datadir=self.bitcoin_datadir)
             # Load historical blocks at startup
@@ -70,17 +69,6 @@ class BaselineCalculator:
             )
             # Allow startup without baseline if node is offline
             self.rpc = None
-
-    def _get_default_datadir(self):
-        """Helper to find default Bitcoin data directory."""
-        system = os.name
-        if system == "nt":  # Windows
-            return os.path.join(os.environ.get("APPDATA", ""), "Bitcoin")
-
-        if platform.system() == "Darwin":  # macOS
-            return os.path.expanduser("~/Library/Application Support/Bitcoin")
-
-        return os.path.expanduser("~/.bitcoin")  # Linux
 
     def _initialize_histogram_bins(self) -> List[float]:
         """Initialize histogram bins (same as UTXOracle.py)."""
