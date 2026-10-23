@@ -6,6 +6,16 @@ import sys
 import pytest
 
 
+def _isolate_api_main(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Re-importing api.main rebinds the `api.main` attribute of the package: restore it afterwards,
+    or later tests that patch `api.main` would patch the throwaway module instead of the served one."""
+    import api
+    import api.main as served_main
+
+    monkeypatch.setattr(api, "main", served_main)
+    monkeypatch.delitem(sys.modules, "api.main", raising=False)
+
+
 def test_startup_fails_when_auth_middleware_cannot_be_imported(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -14,7 +24,7 @@ def test_startup_fails_when_auth_middleware_cannot_be_imported(
     # A None entry in sys.modules makes `import` raise ImportError, whatever the module path.
     monkeypatch.setitem(sys.modules, "api.auth_middleware", None)
     monkeypatch.setitem(sys.modules, "auth_middleware", None)
-    monkeypatch.delitem(sys.modules, "api.main", raising=False)
+    _isolate_api_main(monkeypatch)
 
     with pytest.raises(ImportError):
         importlib.import_module("api.main")
@@ -29,7 +39,7 @@ def test_main_has_no_auth_fallback_and_uses_the_package_middleware(
     monkeypatch.setitem(
         sys.modules, "auth_middleware", None
     )  # the old, path-hacked import location
-    monkeypatch.delitem(sys.modules, "api.main", raising=False)
+    _isolate_api_main(monkeypatch)
 
     main = importlib.import_module("api.main")
 
