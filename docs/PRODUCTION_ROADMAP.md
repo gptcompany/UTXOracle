@@ -12,7 +12,7 @@ SSOT) is referenced but not detailed here — it deserves its own spec.
 | # | Gate | Status |
 |---|---|---|
 | 1 | Target host | ✅ RESOLVED: same single Linux host for Phase 1/2 |
-| 2 | Alerting channel | ✅ RESOLVED: Discord webhook via `DISCORD_WEBHOOK_URL` for Phase 1 |
+| 2 | Alerting channel | ✅ RESOLVED: ntfy topic dati via `NTFY_TOPIC_DATI` for Phase 1 (was a Discord webhook, retired in gbg-agents#709) |
 | 3 | Backup destination | ⏸️ DEFERRED: tracked under spec-063, not blocking Phase 1/1.5/2/3a/3b/3d/3e |
 | 4 | WS p95 connections | ✅ RESOLVED as "unknown, instrument first" — no Rust decision before §4a |
 | 5 | BRK :7070 | ✅ RESOLVED: keep local on :7070 (aligned from legacy 7071), restart/harden, unless owner provides a remote BRK endpoint |
@@ -142,8 +142,9 @@ Upstream issues:
 1. **Deployment target**: same host as dev, separate Linux box, or
    Kubernetes? The systemd units below assume single-host Linux and
    hard-code `User=sam` + `WorkingDirectory=/media/sam/1TB/UTXOracle`.
-2. **Alerting channel**: Discord webhook, PagerDuty, or other? Phase 1
-   defaults to Discord via `DISCORD_WEBHOOK_URL` env var.
+2. **Alerting channel**: ntfy, PagerDuty, or other? Phase 1
+   uses the ntfy dati topic via the `NTFY_TOPIC_DATI` env var (the Discord
+   webhook was retired in gbg-agents#709).
 3. **Backup destination**: S3 bucket name, NAS path, or separate disk?
    Must be settled before Phase 3 backup tests.
 4. **Expected WS p95 concurrent connections**: gates the Rust/Python
@@ -203,10 +204,10 @@ Upstream issues:
 4. **Add structured logging to the supervisor scripts** so journald can
    ship them to whatever log aggregator the operator chooses.
 
-5. **Discord webhook on terminal state.** Already wired in
-   `spec061_post_mirror_chain.sh` (G4). Extend the same pattern to the
-   new supervisor units via an `ExecStopPost=` hook that curl-pings the
-   webhook on non-zero exit.
+5. **ntfy on terminal state.** Already wired in
+   `spec061_post_mirror_chain.sh` (G4) through `scripts/alerts/ntfy_dati.sh`.
+   The supervisor units use the same script from an `ExecStopPost=` hook on
+   a non-success `SERVICE_RESULT`.
 
 ### Success criteria
 
@@ -685,7 +686,7 @@ Before any code work starts, the owner should confirm:
       separate Linux box, or Kubernetes. (Codex default: same single
       host for Phase 1/2; units hard-code `sam` +
       `/media/sam/1TB/UTXOracle`.)
-- [ ] **2.** Alerting channel: Discord webhook URL (default for Phase 1),
+- [ ] **2.** Alerting channel: ntfy dati topic (default for Phase 1),
       PagerDuty, or other.
 - [x] **3. DEFERRED (owner decision 2026-06-04).** Backup destination
       is explicitly deferred. §3.c (backup strategy) is removed from

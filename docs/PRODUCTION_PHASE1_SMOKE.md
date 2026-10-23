@@ -8,7 +8,7 @@ Latest verification date: 2026-06-05.
 
 | Area | Result | Notes |
 | --- | --- | --- |
-| Phase 1 supervisor units | PASS | Creation and spent services still verify and keep the Discord failure hook. |
+| Phase 1 supervisor units | PASS | Creation and spent services still verify and keep the ntfy dati failure hook (`ExecStopPost`, `scripts/alerts/ntfy_dati.sh`). |
 | Phase 1.5 original DuckDB timers | REVOKED | Revoked 2026-06-04. The old service definitions scheduled DuckDB writers and must not be installed. |
 | Phase 1.5-v2 QuestDB timers | PASS | The installable service files now point to QuestDB-native writer modules. |
 | QuestDB source tables | PASS | `block_heights` and `daily_prices` exist with `walEnabled=True`, `dedup=True`. |

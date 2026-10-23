@@ -40,8 +40,10 @@ def test_utxo_creation_catchup_service_contract():
     assert "EnvironmentFile=-/media/sam/1TB/UTXOracle/.env" in content
     assert "Restart=on-failure" in content
     assert "RestartSec=60s" in content
-    assert "ExecStopPost=" in content
-    assert "DISCORD_WEBHOOK_URL" in content
+    # "-": a failing notification hook must not change the unit result.
+    assert "ExecStopPost=-/bin/sh" in content
+    assert "scripts/alerts/ntfy_dati.sh 3 warning" in content
+    assert "DISCORD" not in content
 
 
 @pytest.mark.skipif(
@@ -65,5 +67,7 @@ def test_utxo_spent_backfill_service_contract():
     assert "EnvironmentFile=-/media/sam/1TB/UTXOracle/.env" in content
     assert "Restart=on-failure" in content
     assert "RestartSec=60s" in content
-    assert "ExecStopPost=" in content
-    assert "DISCORD_WEBHOOK_URL" in content
+    # "-": a failing notification hook must not change the unit result.
+    assert "ExecStopPost=-/bin/sh" in content
+    assert "scripts/alerts/ntfy_dati.sh 3 warning" in content
+    assert "DISCORD" not in content

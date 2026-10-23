@@ -5,6 +5,7 @@ Tasks T009-T012: JWT token generation, validation, refresh mechanism.
 
 import jwt
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, Tuple
 from fastapi import HTTPException, WebSocket
@@ -55,7 +56,7 @@ class JWTAuthManager:
             "exp": expiry.timestamp(),
             "iat": now.timestamp(),
             "permissions": permissions,
-            "jti": f"{user_id}-{int(now.timestamp())}",  # JWT ID for tracking
+            "jti": f"{user_id}-{uuid.uuid4().hex}",  # unique per token (RFC 7519 4.1.7)
         }
 
         token = jwt.encode(payload, self.secret, algorithm=self.algorithm)
