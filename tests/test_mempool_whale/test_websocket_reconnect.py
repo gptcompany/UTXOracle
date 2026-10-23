@@ -17,23 +17,14 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime, timezone
 
-# Import module under test
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts" / "utils"))
-
-try:
-    from websocket_reconnect import (
-        WebSocketReconnector,
-        ConnectionState,
-        ReconnectionStats,
-    )
-
-    WEBSOCKETS_AVAILABLE = True
-except ImportError:
-    WEBSOCKETS_AVAILABLE = False
-    pytest.skip("websockets library not available", allow_module_level=True)
+# Import through the package: the tests patch "scripts.utils.websocket_reconnect.*", and a
+# second copy of the module imported as a top-level `websocket_reconnect` (via sys.path)
+# has its own globals, so WEBSOCKETS_AVAILABLE would not be patched on the class under test.
+from scripts.utils.websocket_reconnect import (
+    WebSocketReconnector,
+    ConnectionState,
+    ReconnectionStats,
+)
 
 
 class TestConnectionState:

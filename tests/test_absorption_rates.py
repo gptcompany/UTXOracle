@@ -296,8 +296,8 @@ def sample_wallet_waves_historical_whale_dominant():
 class TestAbsorptionRatesAPI:
     """API integration tests for absorption rates endpoints.
 
-    These tests require a running API server and database.
-    Marked as integration tests (skip in CI without DB).
+    The repository is the shared QuestDB mock from tests/conftest.py, so no server
+    or database is needed.
     """
 
     @pytest.mark.integration
@@ -319,24 +319,37 @@ class TestAbsorptionRatesAPI:
             assert "retail_absorption" in data
             assert "institutional_absorption" in data
 
-    @pytest.mark.integration
-    def test_absorption_rates_window_parameter(self, client):
-        """Test window parameter validation."""
-        # Valid windows
-        for window in ["7d", "30d", "90d"]:
-            response = client.get(f"/api/metrics/absorption-rates?window={window}")
-            # May return 404 if DB not populated, or 200 on success
-            assert response.status_code in [200, 404, 503]
+    def test_absorption_rates_window_parameter(self, client, questdb_repo_mock):
+        """The window is `window_days`, an integer forwarded to the repository."""
+        for window in [7, 30, 90]:
+            response = client.get(f"/api/metrics/absorption-rates?window_days={window}")
+            assert response.status_code == 200
+            questdb_repo_mock.get_absorption_rates_latest.assert_awaited_with(window)
 
-        # Invalid window should return 422 (validation error)
-        response = client.get("/api/metrics/absorption-rates?window=15d")
+        # Not an integer → FastAPI validation error
+        response = client.get("/api/metrics/absorption-rates?window_days=15d")
         assert response.status_code == 422
+
+        # A window with no materialized snapshot → 404
+        questdb_repo_mock.get_absorption_rates_latest.return_value = []
+        response = client.get("/api/metrics/absorption-rates?window_days=15")
+        assert response.status_code == 404
+
+    def test_absorption_rates_partial_snapshot_is_503(self, client, questdb_repo_mock):
+        """Fewer than the 6 wallet bands means a partial materialization → 503."""
+        bands = questdb_repo_mock.get_absorption_rates_latest.return_value
+        questdb_repo_mock.get_absorption_rates_latest.return_value = bands[:3]
+
+        response = client.get("/api/metrics/absorption-rates")
+
+        assert response.status_code == 503
 
 
 @pytest.fixture
-def client():
-    """Create test client for API tests."""
+def client(questdb_repo_mock):
+    """Test client that runs the app lifespan against the shared QuestDB mock."""
     from fastapi.testclient import TestClient
     from api.main import app
 
-    return TestClient(app)
+    with TestClient(app) as test_client:
+        yield test_client

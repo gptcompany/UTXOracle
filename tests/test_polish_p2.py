@@ -11,7 +11,7 @@ import os
 import sys
 import types
 import uuid
-from unittest.mock import patch, MagicMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -36,7 +36,7 @@ from api.main import ServiceCheck
 
 
 @pytest.mark.asyncio
-async def test_health_endpoint_all_services_healthy(client):
+async def test_health_endpoint_all_services_healthy(client, questdb_repo_mock):
     """
     Test /health endpoint when all services are healthy.
 
@@ -49,7 +49,6 @@ async def test_health_endpoint_all_services_healthy(client):
     with (
         patch("api.main.check_electrs_connectivity") as mock_electrs,
         patch("api.main.check_mempool_backend") as mock_mempool,
-        patch("api.main.get_db_connection") as mock_db,
     ):
         # Mock all services as healthy - return ServiceCheck objects directly
         mock_electrs.return_value = ServiceCheck(
@@ -58,10 +57,7 @@ async def test_health_endpoint_all_services_healthy(client):
         mock_mempool.return_value = ServiceCheck(
             status="ok", latency_ms=22.5, last_success="2025-11-18T10:00:00"
         )
-        mock_db_conn = MagicMock()
-        mock_db_conn.execute.return_value.fetchone.return_value = (1,)
-        mock_db_conn.execute.return_value.fetchall.return_value = []
-        mock_db.return_value = mock_db_conn
+        questdb_repo_mock.fetchrow = AsyncMock(return_value={"?column?": 1})
 
         response = client.get("/health")
 
@@ -89,7 +85,7 @@ async def test_health_endpoint_all_services_healthy(client):
 
 
 @pytest.mark.asyncio
-async def test_health_endpoint_database_offline(client):
+async def test_health_endpoint_database_offline(client, questdb_repo_mock):
     """
     Test /health endpoint when database is offline (critical service).
 
@@ -100,14 +96,15 @@ async def test_health_endpoint_database_offline(client):
     with (
         patch("api.main.check_electrs_connectivity") as mock_electrs,
         patch("api.main.check_mempool_backend") as mock_mempool,
-        patch("api.main.get_db_connection") as mock_db,
     ):
         # Mock healthy external services
         mock_electrs.return_value = ServiceCheck(status="ok", latency_ms=15.2)
         mock_mempool.return_value = ServiceCheck(status="ok", latency_ms=22.5)
 
         # Mock database offline
-        mock_db.side_effect = Exception("Database connection failed")
+        questdb_repo_mock.fetchrow = AsyncMock(
+            side_effect=Exception("Database connection failed")
+        )
 
         response = client.get("/health")
 
@@ -117,11 +114,12 @@ async def test_health_endpoint_database_offline(client):
         # Database offline is critical
         assert data["status"] == "unhealthy"
         assert data["checks"]["database"]["status"] == "error"
-        assert "Database connection failed" in data["checks"]["database"]["error"]
+        # the endpoint hides the driver error from clients
+        assert data["checks"]["database"]["error"] == "database unavailable"
 
 
 @pytest.mark.asyncio
-async def test_health_endpoint_electrs_timeout(client):
+async def test_health_endpoint_electrs_timeout(client, questdb_repo_mock):
     """
     Test /health endpoint when electrs is timing out (non-critical).
 
@@ -132,13 +130,9 @@ async def test_health_endpoint_electrs_timeout(client):
     with (
         patch("api.main.check_electrs_connectivity") as mock_electrs,
         patch("api.main.check_mempool_backend") as mock_mempool,
-        patch("api.main.get_db_connection") as mock_db,
     ):
         # Mock database healthy
-        mock_db_conn = MagicMock()
-        mock_db_conn.execute.return_value.fetchone.return_value = (1,)
-        mock_db_conn.execute.return_value.fetchall.return_value = []
-        mock_db.return_value = mock_db_conn
+        questdb_repo_mock.fetchrow = AsyncMock(return_value={"?column?": 1})
 
         # Mock mempool backend healthy
         mock_mempool.return_value = ServiceCheck(status="ok", latency_ms=22.5)
@@ -160,7 +154,7 @@ async def test_health_endpoint_electrs_timeout(client):
 
 
 @pytest.mark.asyncio
-async def test_health_endpoint_latency_tracking(client):
+async def test_health_endpoint_latency_tracking(client, questdb_repo_mock):
     """
     Test that health endpoint tracks service latency correctly.
 
@@ -171,7 +165,6 @@ async def test_health_endpoint_latency_tracking(client):
     with (
         patch("api.main.check_electrs_connectivity") as mock_electrs,
         patch("api.main.check_mempool_backend") as mock_mempool,
-        patch("api.main.get_db_connection") as mock_db,
     ):
         # Mock all services with latency
         mock_electrs.return_value = ServiceCheck(
@@ -180,10 +173,7 @@ async def test_health_endpoint_latency_tracking(client):
         mock_mempool.return_value = ServiceCheck(
             status="ok", latency_ms=45.67, last_success="2025-11-18T10:00:00"
         )
-        mock_db_conn = MagicMock()
-        mock_db_conn.execute.return_value.fetchone.return_value = (1,)
-        mock_db_conn.execute.return_value.fetchall.return_value = []
-        mock_db.return_value = mock_db_conn
+        questdb_repo_mock.fetchrow = AsyncMock(return_value={"?column?": 1})
 
         response = client.get("/health")
 
@@ -198,15 +188,16 @@ async def test_health_endpoint_latency_tracking(client):
 
 
 @pytest.mark.asyncio
-async def test_health_endpoint_live_summary_stale_degrades_overall_status(client):
+async def test_health_endpoint_live_summary_stale_degrades_overall_status(
+    client, questdb_repo_mock
+):
     with (
         patch("api.main.LIVE_ENABLED", True),
         patch("api.main.check_electrs_connectivity") as mock_electrs,
         patch("api.main.check_mempool_backend") as mock_mempool,
-        patch("api.main.get_db_connection") as mock_db,
         patch("api.routes.live.get_live_snapshot_store", return_value=object()),
         patch(
-            "api.routes.live.build_live_health_summary",
+            "api.routes.live.build_live_health_summary_async",
             return_value={
                 "status": "stale",
                 "timestamp": "2026-03-21T10:00:00+00:00",
@@ -218,10 +209,7 @@ async def test_health_endpoint_live_summary_stale_degrades_overall_status(client
     ):
         mock_electrs.return_value = ServiceCheck(status="ok", latency_ms=15.2)
         mock_mempool.return_value = ServiceCheck(status="ok", latency_ms=22.5)
-        mock_db_conn = MagicMock()
-        mock_db_conn.execute.return_value.fetchone.return_value = (1,)
-        mock_db_conn.execute.return_value.fetchall.return_value = []
-        mock_db.return_value = mock_db_conn
+        questdb_repo_mock.fetchrow = AsyncMock(return_value={"?column?": 1})
 
         response = client.get("/health")
 
@@ -234,24 +222,22 @@ async def test_health_endpoint_live_summary_stale_degrades_overall_status(client
 
 
 @pytest.mark.asyncio
-async def test_health_endpoint_live_summary_unavailable_marks_live_check_error(client):
+async def test_health_endpoint_live_summary_unavailable_marks_live_check_error(
+    client, questdb_repo_mock
+):
     with (
         patch("api.main.LIVE_ENABLED", True),
         patch("api.main.check_electrs_connectivity") as mock_electrs,
         patch("api.main.check_mempool_backend") as mock_mempool,
-        patch("api.main.get_db_connection") as mock_db,
         patch("api.routes.live.get_live_snapshot_store", return_value=object()),
         patch(
-            "api.routes.live.build_live_health_summary",
+            "api.routes.live.build_live_health_summary_async",
             return_value={"status": "unavailable", "sources": {}},
         ),
     ):
         mock_electrs.return_value = ServiceCheck(status="ok", latency_ms=15.2)
         mock_mempool.return_value = ServiceCheck(status="ok", latency_ms=22.5)
-        mock_db_conn = MagicMock()
-        mock_db_conn.execute.return_value.fetchone.return_value = (1,)
-        mock_db_conn.execute.return_value.fetchall.return_value = []
-        mock_db.return_value = mock_db_conn
+        questdb_repo_mock.fetchrow = AsyncMock(return_value={"?column?": 1})
 
         response = client.get("/health")
 
@@ -264,15 +250,16 @@ async def test_health_endpoint_live_summary_unavailable_marks_live_check_error(c
 
 
 @pytest.mark.asyncio
-async def test_health_endpoint_live_summary_healthy_preserves_healthy_status(client):
+async def test_health_endpoint_live_summary_healthy_preserves_healthy_status(
+    client, questdb_repo_mock
+):
     with (
         patch("api.main.LIVE_ENABLED", True),
         patch("api.main.check_electrs_connectivity") as mock_electrs,
         patch("api.main.check_mempool_backend") as mock_mempool,
-        patch("api.main.get_db_connection") as mock_db,
         patch("api.routes.live.get_live_snapshot_store", return_value=object()),
         patch(
-            "api.routes.live.build_live_health_summary",
+            "api.routes.live.build_live_health_summary_async",
             return_value={
                 "status": "healthy",
                 "timestamp": "2026-03-21T10:00:00+00:00",
@@ -284,10 +271,7 @@ async def test_health_endpoint_live_summary_healthy_preserves_healthy_status(cli
     ):
         mock_electrs.return_value = ServiceCheck(status="ok", latency_ms=15.2)
         mock_mempool.return_value = ServiceCheck(status="ok", latency_ms=22.5)
-        mock_db_conn = MagicMock()
-        mock_db_conn.execute.return_value.fetchone.return_value = (1,)
-        mock_db_conn.execute.return_value.fetchall.return_value = []
-        mock_db.return_value = mock_db_conn
+        questdb_repo_mock.fetchrow = AsyncMock(return_value={"?column?": 1})
 
         response = client.get("/health")
 
@@ -363,7 +347,7 @@ def test_correlation_id_different_across_requests(client):
 
 
 @pytest.mark.asyncio
-async def test_health_endpoint_handles_malformed_db_response(client):
+async def test_health_endpoint_handles_malformed_db_response(client, questdb_repo_mock):
     """
     Test /health endpoint handles malformed database responses gracefully.
 
@@ -374,18 +358,13 @@ async def test_health_endpoint_handles_malformed_db_response(client):
     with (
         patch("api.main.check_electrs_connectivity") as mock_electrs,
         patch("api.main.check_mempool_backend") as mock_mempool,
-        patch("api.main.get_db_connection") as mock_db,
     ):
         # Mock healthy external services
         mock_electrs.return_value = ServiceCheck(status="ok", latency_ms=15.2)
         mock_mempool.return_value = ServiceCheck(status="ok", latency_ms=22.5)
 
         # Mock database returning unexpected data
-        mock_db_conn = MagicMock()
-        mock_db_conn.execute.return_value.fetchone.side_effect = TypeError(
-            "Unexpected type"
-        )
-        mock_db.return_value = mock_db_conn
+        questdb_repo_mock.fetchrow = AsyncMock(side_effect=TypeError("Unexpected type"))
 
         response = client.get("/health")
 
