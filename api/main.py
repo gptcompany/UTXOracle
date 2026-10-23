@@ -24,7 +24,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -60,8 +60,14 @@ except ImportError as e:
 
 # F-240: no fallback. The REST authentication is imported from the package (the same module the
 # /v1/streams router uses); if it cannot be imported the application must not start, instead of
-# running with a silent no-op "dev" dependency.
-from api.auth_middleware import require_auth, optional_auth, AuthToken  # noqa: E402,F401
+# running with a silent no-op "dev" dependency. That also keeps the write routes from being served
+# unprotected (F-266).
+from api.auth_middleware import (  # noqa: E402,F401
+    require_auth,
+    optional_auth,
+    AuthToken,
+    require_permission,
+)
 
 
 # =============================================================================
@@ -3544,7 +3550,9 @@ async def get_power_law_history(
 
 
 @app.post("/api/v1/models/power-law/recalibrate", response_model=PowerLawResponse)
-async def recalibrate_power_law_model():
+async def recalibrate_power_law_model(
+    _auth: AuthToken = Depends(require_permission("write")),
+):
     """
     Trigger model recalibration from latest price data.
 
@@ -3953,6 +3961,7 @@ async def generate_rbn_report(
 @app.delete("/api/v1/validation/rbn/cache")
 async def clear_rbn_cache(
     metric_id: Optional[str] = Query(None, description="Clear only this metric"),
+    _auth: AuthToken = Depends(require_permission("write")),
 ):
     """
     Clear cached RBN data.
