@@ -293,6 +293,7 @@
     </div>
 
     <script src="/frontend/charts/power_law_chart.js"></script>
+    <script src="/static/js/auth.js"></script>
     <script>
         // Initialize chart on page load
         document.addEventListener('DOMContentLoaded', async () => {
@@ -359,10 +360,28 @@
             btn.textContent = 'Recalibrating...';
 
             try {
+                // The route may need a token with the write permission (the server decides: with
+                // auth disabled it needs none). The token comes from the login page and lives only
+                // in this browser, never in the static files.
+                const loginLink = '<a href="/static/login.html?return=/power_law">log in</a>';
+                let token = authManager.getToken();
+                if (token && authManager.isTokenExpired()) {
+                    authManager.clearToken();
+                    token = null;
+                }
+
                 const response = await fetch('/api/v1/models/power-law/recalibrate', {
-                    method: 'POST'
+                    method: 'POST',
+                    headers: token ? { 'Authorization': `Bearer ${token}` } : {}
                 });
 
+                if (response.status === 401 || response.status === 403) {
+                    // Drop the rejected token: login.html would otherwise find it unexpired and
+                    // bounce straight back to this page in a loop.
+                    authManager.clearToken();
+                    showError(`Recalibration refused (${response.status}): a token with write permission is required, ${loginLink} again.`);
+                    return;
+                }
                 if (!response.ok) {
                     throw new Error(`Recalibration failed: ${response.status}`);
                 }

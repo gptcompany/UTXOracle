@@ -13,7 +13,7 @@ from datetime import date
 from typing import Annotated
 
 import pandas as pd
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.models.model_framework import (
     BacktestResultResponse,
@@ -22,6 +22,7 @@ from api.models.model_framework import (
     ModelInfoResponse,
     ModelPredictionResponse,
 )
+from api.auth_middleware import require_permission
 from scripts.models import ModelRegistry
 from scripts.models.backtest.model_backtester import ModelBacktester
 from scripts.models.ensemble import EnsembleConfig, EnsembleModel
@@ -115,7 +116,10 @@ async def get_model_prediction(
 
 
 @router.post("/ensemble", response_model=ModelPredictionResponse)
-async def create_ensemble(request: EnsembleCreateRequest) -> ModelPredictionResponse:
+async def create_ensemble(
+    request: EnsembleCreateRequest,
+    _auth=Depends(require_permission("write")),
+) -> ModelPredictionResponse:
     """Create and predict with an ensemble model."""
     # Map slugs to model names
     model_names = []
