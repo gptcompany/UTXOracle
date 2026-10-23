@@ -19,7 +19,6 @@ import json
 import argparse
 import logging
 
-from api.questdb_repository import QuestDBRepository
 from datetime import datetime
 from typing import Dict, Optional, List
 from pathlib import Path
@@ -38,6 +37,7 @@ from secrets_loader import load_secrets
 # Local imports
 from UTXOracle_library import UTXOracleCalculator
 from scripts.config import UTXORACLE_DB_PATH
+from api.questdb_repository import QuestDBRepository  # noqa: E402
 
 # Whale Flow Detector (spec-004) - import after scripts/ is in path
 try:
