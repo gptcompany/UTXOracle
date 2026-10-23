@@ -39,10 +39,9 @@ def parse_transaction_from_block(data: bytes, offset: int) -> Tuple[List[Tuple[f
     Full validation is not needed for baseline price calculation.
     """
     try:
-        start_offset = offset
-
-        # Read version (4 bytes)
-        version = struct.unpack("<I", data[offset:offset + 4])[0]
+        # Read version (4 bytes): the value is not needed, but the unpack still
+        # rejects truncated data
+        struct.unpack("<I", data[offset:offset + 4])
         offset += 4
 
         # Check for SegWit marker (0x00 0x01)

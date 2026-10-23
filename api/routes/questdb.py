@@ -3,10 +3,9 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime, timedelta, timezone
-from typing import Annotated, List, Any, Dict
+from typing import Annotated, List, Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
-from pydantic import BaseModel
 
 from api.models.questdb import (
     PriceEntry,

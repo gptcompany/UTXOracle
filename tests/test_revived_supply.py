@@ -472,8 +472,9 @@ class TestRevivedSupplyAPIEndpoint:
         client = TestClient(app, raise_server_exceptions=False)
         response = client.get("/api/metrics/revived-supply")
 
-        # Should get valid response or graceful error
-        assert response.status_code in [200, 404, 500, 503]
+        # Should get valid response or graceful error; 501 is the stub answer of the
+        # route when the QuestDB-backed implementation is not wired (see api/main.py)
+        assert response.status_code in [200, 404, 500, 501, 503]
 
         if response.status_code == 200:
             data = response.json()
