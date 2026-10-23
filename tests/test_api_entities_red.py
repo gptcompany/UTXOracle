@@ -20,7 +20,15 @@ class FakeEntityRepo:
         self.metadata_calls: list[str] = []
         self.history_calls: list[tuple[str, int, datetime | None]] = []
         self.flow_calls: list[
-            tuple[float, str | None, str | None, int, datetime | None, datetime | None, datetime | None]
+            tuple[
+                float,
+                str | None,
+                str | None,
+                int,
+                datetime | None,
+                datetime | None,
+                datetime | None,
+            ]
         ] = []
 
     async def get_entity_metadata(self, entity_id: str):
@@ -55,7 +63,9 @@ class FakeEntityRepo:
             )
         }
 
-    async def get_entity_history(self, entity_id: str, limit: int, after_date: datetime | None = None):
+    async def get_entity_history(
+        self, entity_id: str, limit: int, after_date: datetime | None = None
+    ):
         self.history_calls.append((entity_id, limit, after_date))
         rows = [
             {"date": datetime(2026, 4, 1, tzinfo=timezone.utc)},
@@ -76,7 +86,15 @@ class FakeEntityRepo:
         after_window_start: datetime | None = None,
     ):
         self.flow_calls.append(
-            (min_value, classification, entity_id, limit, window_start, window_end, after_window_start)
+            (
+                min_value,
+                classification,
+                entity_id,
+                limit,
+                window_start,
+                window_end,
+                after_window_start,
+            )
         )
         return [
             {
@@ -166,7 +184,9 @@ def test_entity_metadata_route_accepts_legacy_cluster_alias(api_client):
 def test_entity_history_route_paginates_oldest_to_newest(api_client):
     repo = FakeEntityRepo()
     with _override_repo(api_client.app, repo):
-        response = api_client.get("/api/entities/btc:entity:curated:binance/history?limit=2")
+        response = api_client.get(
+            "/api/entities/btc:entity:curated:binance/history?limit=2"
+        )
 
     assert response.status_code == 200
     payload = response.json()
@@ -211,7 +231,9 @@ def test_entity_flows_route_returns_contract_shape_and_filter(api_client):
     assert flow_call[6] is None
 
 
-def test_entity_flows_route_normalizes_known_self_edges_to_internal_reshuffles(api_client):
+def test_entity_flows_route_normalizes_known_self_edges_to_internal_reshuffles(
+    api_client,
+):
     repo = FakeEntityRepo()
 
     async def _internal_flow(**kwargs):
@@ -243,7 +265,9 @@ def test_entity_flows_route_normalizes_known_self_edges_to_internal_reshuffles(a
     repo.get_entity_flows = _internal_flow
 
     with _override_repo(api_client.app, repo):
-        response = api_client.get("/api/entities/flows?entity_id=btc:entity:curated:binance")
+        response = api_client.get(
+            "/api/entities/flows?entity_id=btc:entity:curated:binance"
+        )
 
     assert response.status_code == 200
     payload = response.json()

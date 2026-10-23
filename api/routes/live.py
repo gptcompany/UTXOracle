@@ -8,7 +8,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from scripts.live.models import LiveComparisonSnapshot, LiveHistoryQuery, LiveSnapshot, utc_now
+from scripts.live.models import (
+    LiveComparisonSnapshot,
+    LiveHistoryQuery,
+    LiveSnapshot,
+    utc_now,
+)
 from scripts.live.storage import LiveSnapshotStore
 
 router = APIRouter(prefix="/live", tags=["live"])
@@ -38,7 +43,9 @@ def _require_snapshot(store: LiveSnapshotStore) -> LiveSnapshot:
     return snapshot
 
 
-def _build_live_health_summary_from_snapshot(snapshot: LiveSnapshot | None) -> dict[str, object]:
+def _build_live_health_summary_from_snapshot(
+    snapshot: LiveSnapshot | None,
+) -> dict[str, object]:
     if snapshot is None:
         return {
             "status": "unavailable",
@@ -49,19 +56,19 @@ def _build_live_health_summary_from_snapshot(snapshot: LiveSnapshot | None) -> d
     age_seconds = (now - snapshot.timestamp).total_seconds()
 
     source_statuses = {
-        name: health.status
-        for name, health in snapshot.source_health.items()
+        name: health.status for name, health in snapshot.source_health.items()
     }
-    
+
     if age_seconds >= 30:
         overall_status = "stale"
     else:
         overall_status = (
             "healthy"
-            if source_statuses and all(status == "healthy" for status in source_statuses.values())
+            if source_statuses
+            and all(status == "healthy" for status in source_statuses.values())
             else "degraded"
         )
-        
+
     return {
         "status": overall_status,
         "timestamp": snapshot.timestamp.isoformat(),
@@ -75,7 +82,9 @@ def build_live_health_summary(store: LiveSnapshotStore) -> dict[str, object]:
     return _build_live_health_summary_from_snapshot(store.get_latest())
 
 
-async def build_live_health_summary_async(store: LiveSnapshotStore) -> dict[str, object]:
+async def build_live_health_summary_async(
+    store: LiveSnapshotStore,
+) -> dict[str, object]:
     snapshot = await _call_store(store, "get_latest")
     return _build_live_health_summary_from_snapshot(snapshot)
 
@@ -125,13 +134,12 @@ async def get_live_ready(
         raise HTTPException(status_code=503, detail="live snapshot unavailable")
     now = utc_now()
     age_seconds = (now - snapshot.timestamp).total_seconds()
-    
+
     if age_seconds >= 30:
         raise HTTPException(
-            status_code=503, 
-            detail=f"live data is stale ({age_seconds:.1f}s old)"
+            status_code=503, detail=f"live data is stale ({age_seconds:.1f}s old)"
         )
-        
+
     return {
         "status": "ready",
         "timestamp": snapshot.timestamp,

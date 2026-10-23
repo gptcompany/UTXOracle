@@ -10,11 +10,12 @@ import random
 import os
 import platform
 
+
 def announce_notification():
     """Announce notification using system-appropriate TTS command."""
     try:
         # Get engineer name if available
-        engineer_name = os.getenv('ENGINEER_NAME', '').strip()
+        engineer_name = os.getenv("ENGINEER_NAME", "").strip()
 
         # Create notification message with 30% chance to include name
         if engineer_name and random.random() < 0.3:
@@ -25,20 +26,18 @@ def announce_notification():
         # Use system-appropriate TTS command
         system = platform.system().lower()
         if system == "darwin":  # macOS
-            subprocess.run([
-                "say", "-v", "Samantha", message
-            ],
-            capture_output=True,  # Suppress output
-            timeout=10  # 10-second timeout
+            subprocess.run(
+                ["say", "-v", "Samantha", message],
+                capture_output=True,  # Suppress output
+                timeout=10,  # 10-second timeout
             )
         elif system == "linux":  # Linux (Ubuntu, etc.)
-            subprocess.run([
-                "spd-say", "-t", "female1", message
-            ],
-            capture_output=True,  # Suppress output
-            timeout=10  # 10-second timeout
+            subprocess.run(
+                ["spd-say", "-t", "female1", message],
+                capture_output=True,  # Suppress output
+                timeout=10,  # 10-second timeout
             )
-        
+
     except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
         # Fail silently if say command encounters issues
         pass
@@ -46,22 +45,24 @@ def announce_notification():
         # Fail silently for any other errors
         pass
 
+
 def main():
     try:
         # Read JSON input from stdin
         input_data = json.loads(sys.stdin.read())
-        
+
         # Only announce for specific notification types (not generic waiting)
-        message = input_data.get('message', '')
-        if message != 'Claude is waiting for your input':
+        message = input_data.get("message", "")
+        if message != "Claude is waiting for your input":
             announce_notification()
-        
+
         sys.exit(0)
-        
+
     except json.JSONDecodeError:
         sys.exit(0)
     except Exception:
         sys.exit(0)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

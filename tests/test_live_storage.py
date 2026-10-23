@@ -15,7 +15,9 @@ from scripts.live.models import (
 from scripts.live.storage import LiveSnapshotStore
 
 
-def _build_snapshot(*, timestamp: datetime, block_height: int, price: float) -> LiveSnapshot:
+def _build_snapshot(
+    *, timestamp: datetime, block_height: int, price: float
+) -> LiveSnapshot:
     return LiveSnapshot(
         timestamp=timestamp,
         block_height=block_height,
@@ -78,7 +80,11 @@ class FakeQuestDBRepo:
         self.fetch_calls.append((sql, args))
         if "COUNT(*) AS count" in sql:
             cutoff = args[0]
-            return {"count": sum(1 for row in self.rows if row["ts"].replace(tzinfo=None) < cutoff)}
+            return {
+                "count": sum(
+                    1 for row in self.rows if row["ts"].replace(tzinfo=None) < cutoff
+                )
+            }
         if "ORDER BY ts DESC LIMIT 1" in sql:
             if not self.rows:
                 return None
@@ -97,7 +103,9 @@ class FakeQuestDBRepo:
     async def execute(self, sql, *args):
         self.execute_calls.append((sql, args))
         cutoff = args[0]
-        self.rows = [row for row in self.rows if row["ts"].replace(tzinfo=None) >= cutoff]
+        self.rows = [
+            row for row in self.rows if row["ts"].replace(tzinfo=None) >= cutoff
+        ]
         return "DELETE"
 
 
@@ -129,9 +137,15 @@ def test_store_returns_recent_history_in_ascending_order():
     store = LiveSnapshotStore(repo=repo)
     store.initialize(for_write=True)
 
-    older = _build_snapshot(timestamp=now - timedelta(minutes=12), block_height=941450, price=84100.0)
-    middle = _build_snapshot(timestamp=now - timedelta(minutes=5), block_height=941451, price=84200.0)
-    latest = _build_snapshot(timestamp=now - timedelta(minutes=1), block_height=941452, price=84300.0)
+    older = _build_snapshot(
+        timestamp=now - timedelta(minutes=12), block_height=941450, price=84100.0
+    )
+    middle = _build_snapshot(
+        timestamp=now - timedelta(minutes=5), block_height=941451, price=84200.0
+    )
+    latest = _build_snapshot(
+        timestamp=now - timedelta(minutes=1), block_height=941452, price=84300.0
+    )
 
     store.write_snapshot(older)
     store.write_snapshot(middle)
@@ -149,7 +163,9 @@ def test_store_prunes_rows_older_than_retention_window():
     store = LiveSnapshotStore(repo=repo, retention_hours=1)
     store.initialize(for_write=True)
 
-    stale_snapshot = _build_snapshot(timestamp=now - timedelta(hours=2), block_height=941430, price=83000.0)
+    stale_snapshot = _build_snapshot(
+        timestamp=now - timedelta(hours=2), block_height=941430, price=83000.0
+    )
     fresh_snapshot = _build_snapshot(timestamp=now, block_height=941456, price=84211.52)
 
     store.write_snapshot(stale_snapshot)
@@ -168,7 +184,9 @@ def test_store_write_snapshot_applies_retention_automatically():
     store.initialize(for_write=True)
 
     store.write_snapshot(
-        _build_snapshot(timestamp=now - timedelta(hours=2), block_height=941430, price=83000.0)
+        _build_snapshot(
+            timestamp=now - timedelta(hours=2), block_height=941430, price=83000.0
+        )
     )
     store.write_snapshot(
         _build_snapshot(timestamp=now, block_height=941456, price=84211.52)
@@ -178,7 +196,10 @@ def test_store_write_snapshot_applies_retention_automatically():
 
     assert [item.block_height for item in history] == [941456]
     assert repo.execute_calls == [
-        ("DELETE FROM live_snapshots WHERE ts < $1", ((now - timedelta(hours=1)).replace(tzinfo=None),))
+        (
+            "DELETE FROM live_snapshots WHERE ts < $1",
+            ((now - timedelta(hours=1)).replace(tzinfo=None),),
+        )
     ]
 
 
@@ -194,7 +215,9 @@ def test_store_prune_failure_does_not_break_snapshot_writes():
     store.initialize(for_write=True)
 
     store.write_snapshot(
-        _build_snapshot(timestamp=now - timedelta(hours=2), block_height=941430, price=83000.0)
+        _build_snapshot(
+            timestamp=now - timedelta(hours=2), block_height=941430, price=83000.0
+        )
     )
     store.write_snapshot(
         _build_snapshot(timestamp=now, block_height=941456, price=84211.52)
@@ -205,7 +228,10 @@ def test_store_prune_failure_does_not_break_snapshot_writes():
     assert latest is not None
     assert latest.block_height == 941456
     assert repo.execute_calls == [
-        ("DELETE FROM live_snapshots WHERE ts < $1", ((now - timedelta(hours=1)).replace(tzinfo=None),))
+        (
+            "DELETE FROM live_snapshots WHERE ts < $1",
+            ((now - timedelta(hours=1)).replace(tzinfo=None),),
+        )
     ]
 
 
@@ -253,7 +279,9 @@ def test_store_write_snapshot_initializes_repo_on_demand():
 
 async def test_store_questdb_history_uses_python_cutoff_timestamp():
     now = datetime(2026, 3, 31, 16, 30, tzinfo=timezone.utc)
-    snapshot = _build_snapshot(timestamp=now - timedelta(minutes=3), block_height=941460, price=84321.11)
+    snapshot = _build_snapshot(
+        timestamp=now - timedelta(minutes=3), block_height=941460, price=84321.11
+    )
     calls: list[tuple[str, object]] = []
 
     class RecordingRepo(FakeQuestDBRepo):

@@ -9,11 +9,11 @@ site_description: Technical documentation for UTXOracle
 repo_url: https://github.com/gptcompany/UTXOracle
 
 nav:
-  - Home: index.md
   - Architecture: ARCHITECTURE.md
-  - API Reference: api/index.md
+  - API Reference: WHALE_API_DOCUMENTATION.md
+  - Operations: OPERATIONS.md
   - Runbooks:
-      - Overview: runbooks/index.md
+      - Streams contract: RUNBOOK_SPEC061.md
 
 theme:
   name: material

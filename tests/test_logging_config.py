@@ -87,7 +87,7 @@ async def test_correlation_id_middleware_generates_uuid():
         return response
 
     # Execute middleware
-    response = await middleware.dispatch(request, mock_call_next)
+    _response = await middleware.dispatch(request, mock_call_next)
 
     # Verify correlation_id was added to request.state
     assert hasattr(request.state, "correlation_id")

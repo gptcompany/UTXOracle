@@ -86,7 +86,9 @@ def _align_series(
     timestamp_field: str,
 ) -> tuple[list[tuple[str, dict[str, Any], dict[str, Any]]], list[str]]:
     questdb_items = _normalize_payload(questdb_payload, timestamp_field=timestamp_field)
-    baseline_items = _normalize_payload(baseline_payload, timestamp_field=timestamp_field)
+    baseline_items = _normalize_payload(
+        baseline_payload, timestamp_field=timestamp_field
+    )
 
     questdb_index = {
         str(item.get(timestamp_field, f"item_{index}")): item
@@ -108,15 +110,26 @@ def normalize_prices_historical_payload(payload: Any) -> list[dict[str, Any]]:
     for item in _normalize_payload(payload, timestamp_field="timestamp"):
         timestamp = _first_present(item, "date", "timestamp")
         if timestamp is None:
-            raise ValueError("prices-historical payload requires a timestamp or date field")
+            raise ValueError(
+                "prices-historical payload requires a timestamp or date field"
+            )
         normalized_items.append(
             {
                 "date": _normalize_date_key(timestamp),
-                "utxoracle_price": _coerce_float(_first_present(item, "utxoracle_price")),
-                "mempool_price": _coerce_float(
-                    _first_present(item, "mempool_price", "exchange_price", "mempool_exchange_price")
+                "utxoracle_price": _coerce_float(
+                    _first_present(item, "utxoracle_price")
                 ),
-                "confidence": _coerce_float(_first_present(item, "confidence", "utxoracle_confidence")),
+                "mempool_price": _coerce_float(
+                    _first_present(
+                        item,
+                        "mempool_price",
+                        "exchange_price",
+                        "mempool_exchange_price",
+                    )
+                ),
+                "confidence": _coerce_float(
+                    _first_present(item, "confidence", "utxoracle_confidence")
+                ),
                 "diff_amount": _coerce_float(
                     _first_present(item, "diff_amount", "price_difference")
                 ),
@@ -208,7 +221,8 @@ def compare_prices_historical_payloads(
         route_id=PRICES_HISTORICAL_ROUTE_ID,
         questdb_payload=normalized_payload,
         baseline_payload=baseline_payload,
-        field_tolerances_pct=field_tolerances_pct or DEFAULT_PRICES_HISTORICAL_TOLERANCES_PCT,
+        field_tolerances_pct=field_tolerances_pct
+        or DEFAULT_PRICES_HISTORICAL_TOLERANCES_PCT,
         dataset_id=dataset_id,
         allow_missing_baseline=allow_missing_baseline,
         timestamp_field="date",
@@ -296,7 +310,9 @@ def compare_payloads(
                 baseline_value, (int, float)
             ):
                 raise TypeError(f"Field '{field_path}' must resolve to numeric values")
-            diffs.append(_relative_diff_percent(float(questdb_value), float(baseline_value)))
+            diffs.append(
+                _relative_diff_percent(float(questdb_value), float(baseline_value))
+            )
 
         if not diffs:
             result = {
@@ -353,7 +369,9 @@ def _parse_field_tolerances(items: list[str]) -> dict[str, float]:
     parsed: dict[str, float] = {}
     for item in items:
         if "=" not in item:
-            raise ValueError(f"Invalid --field value '{item}'. Expected field=tolerance_pct")
+            raise ValueError(
+                f"Invalid --field value '{item}'. Expected field=tolerance_pct"
+            )
         field, value = item.split("=", 1)
         parsed[field.strip()] = float(value)
     if not parsed:
@@ -418,7 +436,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.route_family == PRICES_HISTORICAL_ROUTE_ID:
         if not args.baseline_duckdb:
-            raise ValueError("--baseline-duckdb is required for --route-family prices-historical")
+            raise ValueError(
+                "--baseline-duckdb is required for --route-family prices-historical"
+            )
         field_tolerances_pct = (
             _parse_field_tolerances(args.field)
             if args.field
@@ -436,7 +456,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     else:
         if not args.route_id:
-            raise ValueError("--route-id is required when --route-family is not provided")
+            raise ValueError(
+                "--route-id is required when --route-family is not provided"
+            )
         field_tolerances_pct = _parse_field_tolerances(args.field)
         questdb_payload = _load_json(args.questdb)
         baseline_payload = _load_json(args.baseline) if args.baseline else None

@@ -77,7 +77,7 @@ class MempoolWhaleMonitor:
 
         # Load configuration
         config = get_config()
-        
+
         # Initialize QuestDB repository
         self.repo = QuestDBRepository()
 
@@ -114,7 +114,9 @@ class MempoolWhaleMonitor:
             update_interval_seconds=60,
         )
 
-        logger.info(f"Mempool whale monitor initialized with {len(self.exchange_addresses)} exchange addresses")
+        logger.info(
+            f"Mempool whale monitor initialized with {len(self.exchange_addresses)} exchange addresses"
+        )
         logger.info(f"Whale threshold: {whale_threshold_btc} BTC")
         logger.info("Using QuestDB for persistence")
 
@@ -193,26 +195,48 @@ class MempoolWhaleMonitor:
                     try:
                         with open(lob_path, "r", encoding="utf-8") as f:
                             lob = json.load(f)
-                        
-                        bids = lob.get('levels', [[]])[0]
-                        asks = lob.get('levels', [[], []])[1]
-                        
+
+                        bids = lob.get("levels", [[]])[0]
+                        asks = lob.get("levels", [[], []])[1]
+
                         if bids and asks:
-                            best_bid = float(bids[0].get('px', 0))
-                            best_ask = float(asks[0].get('px', 0))
-                            
+                            best_bid = float(bids[0].get("px", 0))
+                            best_ask = float(asks[0].get("px", 0))
+
                             # Calculate liquidity within 1% spread
-                            bids_1pct = sum([float(level.get('sz', 0)) for level in bids if float(level.get('px', 0)) > best_bid * 0.99])
-                            asks_1pct = sum([float(level.get('sz', 0)) for level in asks if float(level.get('px', 0)) < best_ask * 1.01])
-                            
+                            bids_1pct = sum(
+                                [
+                                    float(level.get("sz", 0))
+                                    for level in bids
+                                    if float(level.get("px", 0)) > best_bid * 0.99
+                                ]
+                            )
+                            asks_1pct = sum(
+                                [
+                                    float(level.get("sz", 0))
+                                    for level in asks
+                                    if float(level.get("px", 0)) < best_ask * 1.01
+                                ]
+                            )
+
                             btc_value_float = float(signal.btc_value)
-                            
+
                             # Discard if impact is minimal (< 50% of 1% LOB depth)
-                            if signal.flow_type == FlowType.INFLOW and btc_value_float < (bids_1pct * 0.5):
-                                logger.debug(f"Discarding INFLOW: Insufficient Market Impact ({btc_value_float:.2f} < {bids_1pct*0.5:.2f})")
+                            if (
+                                signal.flow_type == FlowType.INFLOW
+                                and btc_value_float < (bids_1pct * 0.5)
+                            ):
+                                logger.debug(
+                                    f"Discarding INFLOW: Insufficient Market Impact ({btc_value_float:.2f} < {bids_1pct * 0.5:.2f})"
+                                )
                                 return
-                            if signal.flow_type == FlowType.OUTFLOW and btc_value_float < (asks_1pct * 0.5):
-                                logger.debug(f"Discarding OUTFLOW: Insufficient Market Impact ({btc_value_float:.2f} < {asks_1pct*0.5:.2f})")
+                            if (
+                                signal.flow_type == FlowType.OUTFLOW
+                                and btc_value_float < (asks_1pct * 0.5)
+                            ):
+                                logger.debug(
+                                    f"Discarding OUTFLOW: Insufficient Market Impact ({btc_value_float:.2f} < {asks_1pct * 0.5:.2f})"
+                                )
                                 return
                     except Exception as e:
                         logger.error(f"LOB integration failed: {e}")
@@ -321,37 +345,47 @@ class MempoolWhaleMonitor:
         """
         prediction_id = str(uuid.uuid4())
         raw_data = tx_data.get("raw_data", {})
-        
+
         # Extract addresses from input/output
         involved_addresses = []
         for vin in raw_data.get("vin", []):
-            if vin.get("is_coinbase", False): continue
+            if vin.get("is_coinbase", False):
+                continue
             if "prevout" in vin and "scriptpubkey_address" in vin["prevout"]:
                 involved_addresses.append(vin["prevout"]["scriptpubkey_address"])
         for vout in raw_data.get("vout", []):
             if "scriptpubkey_address" in vout:
                 involved_addresses.append(vout["scriptpubkey_address"])
-                
+
         # Identify exchange addresses using preloaded RAM cache (O(1) lookup)
-        cache = getattr(self, 'registry_cache', self.exchange_addresses)
+        cache = getattr(self, "registry_cache", self.exchange_addresses)
         identified = {addr: cache[addr] for addr in involved_addresses if addr in cache}
-        
+
         # Classify flow type and analyze involved exchanges
         flow_type = FlowType.UNKNOWN
-        involved_exchanges = list(set(identified.values()))
-        
+
         # Check inputs and outputs for specific exchange involvement
-        inflow_addresses = {addr for vout in raw_data.get("vout", []) for addr in [vout.get("scriptpubkey_address")] if addr in identified}
-        outflow_addresses = {addr for vin in raw_data.get("vin", []) for addr in [vin.get("prevout", {}).get("scriptpubkey_address")] if addr in identified}
-        
+        inflow_addresses = {
+            addr
+            for vout in raw_data.get("vout", [])
+            for addr in [vout.get("scriptpubkey_address")]
+            if addr in identified
+        }
+        outflow_addresses = {
+            addr
+            for vin in raw_data.get("vin", [])
+            for addr in [vin.get("prevout", {}).get("scriptpubkey_address")]
+            if addr in identified
+        }
+
         inflow_exchanges = {identified[addr] for addr in inflow_addresses}
         outflow_exchanges = {identified[addr] for addr in outflow_addresses}
-        
+
         # Logic refinement:
         # 1. Internal transfer: Input and Output share exchanges (or across different exchanges)
         # 2. Inflow: Only Output involves an exchange
         # 3. Outflow: Only Input involves an exchange
-        
+
         if inflow_exchanges and outflow_exchanges:
             flow_type = FlowType.INTERNAL
             confidence = 0.98 if inflow_exchanges == outflow_exchanges else 0.9
@@ -368,7 +402,9 @@ class MempoolWhaleMonitor:
 
         # Predict confirmation block based on fee rate
         try:
-            predicted_block = self.urgency_scorer.predict_confirmation_block(tx_data["fee_rate"])
+            predicted_block = self.urgency_scorer.predict_confirmation_block(
+                tx_data["fee_rate"]
+            )
         except RuntimeError:
             predicted_block = None
 
@@ -402,7 +438,9 @@ class MempoolWhaleMonitor:
                 symbols={
                     "prediction_id": signal.prediction_id,
                     "transaction_id": signal.transaction_id,
-                    "flow_type": signal.flow_type.value if hasattr(signal.flow_type, "value") else str(signal.flow_type),
+                    "flow_type": signal.flow_type.value
+                    if hasattr(signal.flow_type, "value")
+                    else str(signal.flow_type),
                 },
                 columns={
                     "btc_value": float(signal.btc_value),
@@ -411,12 +449,16 @@ class MempoolWhaleMonitor:
                     "rbf_enabled": bool(signal.rbf_enabled),
                     "ts": signal.detection_timestamp,
                     "predicted_confirmation_block": signal.predicted_confirmation_block,
-                    "exchange_addresses": ",".join(signal.exchange_addresses) if signal.exchange_addresses else "",
-                    "confidence_score": float(signal.confidence_score) if signal.confidence_score is not None else None,
+                    "exchange_addresses": ",".join(signal.exchange_addresses)
+                    if signal.exchange_addresses
+                    else "",
+                    "confidence_score": float(signal.confidence_score)
+                    if signal.confidence_score is not None
+                    else None,
                     "was_modified": bool(signal.was_modified),
                     "created_at": signal.created_at,
                 },
-                at=signal.detection_timestamp
+                at=signal.detection_timestamp,
             )
 
             if success:
@@ -425,7 +467,9 @@ class MempoolWhaleMonitor:
                     f"Persisted prediction {signal.prediction_id[:8]}... to QuestDB"
                 )
             else:
-                logger.error(f"Failed to persist prediction {signal.prediction_id[:8]}... to QuestDB")
+                logger.error(
+                    f"Failed to persist prediction {signal.prediction_id[:8]}... to QuestDB"
+                )
 
         except Exception as e:
             logger.error(f"Failed to persist to database: {e}", exc_info=True)
@@ -466,18 +510,22 @@ class MempoolWhaleMonitor:
             # Query all known clusters from QuestDB
             query = "SELECT address, cluster_id FROM active_exchange_registry"
             rows = await self.repo.fetch(query)
-            
+
             # Combine CSV-loaded addresses with DB registry
-            self.registry_cache = {row['address']: row['cluster_id'] for row in rows}
-            
+            self.registry_cache = {row["address"]: row["cluster_id"] for row in rows}
+
             # If CSV has entries not in DB (or newer), they take precedence
             for addr, cluster in self.exchange_addresses.items():
                 self.registry_cache[addr] = cluster
-                
-            logger.info(f"Registry preloaded: {len(self.registry_cache)} addresses cached in RAM.")
+
+            logger.info(
+                f"Registry preloaded: {len(self.registry_cache)} addresses cached in RAM."
+            )
             self.is_healthy = len(self.registry_cache) > 0
             if not self.is_healthy:
-                logger.error("⚠️ Whale monitor started in DEGRADED state: empty registry")
+                logger.error(
+                    "⚠️ Whale monitor started in DEGRADED state: empty registry"
+                )
         except Exception as e:
             logger.error(f"Failed to preload registry from DB: {e}")
             self.registry_cache = self.exchange_addresses
@@ -497,7 +545,7 @@ class MempoolWhaleMonitor:
     async def start(self):
         """Start the mempool whale monitor"""
         logger.info("🚀 Starting mempool whale monitor...")
-        
+
         # Load registry into RAM before accepting any transactions
         await self._preload_registry()
 

@@ -2,7 +2,9 @@ from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock
 
 
-def test_wallet_waves_endpoint_returns_current_distribution(wave1_client, questdb_repo_mock):
+def test_wallet_waves_endpoint_returns_current_distribution(
+    wave1_client, questdb_repo_mock
+):
     wave1_client.app.state.questdb_repo = questdb_repo_mock
     response = wave1_client.get("/api/metrics/wallet-waves")
 
@@ -15,7 +17,9 @@ def test_wallet_waves_endpoint_returns_current_distribution(wave1_client, questd
     assert 0.0 <= data["confidence"] <= 1.0
 
 
-def test_wallet_waves_history_is_explicitly_unavailable(wave1_client, questdb_repo_mock):
+def test_wallet_waves_history_is_explicitly_unavailable(
+    wave1_client, questdb_repo_mock
+):
     wave1_client.app.state.questdb_repo = questdb_repo_mock
     response = wave1_client.get("/api/metrics/wallet-waves/history?days=30")
 
@@ -23,7 +27,9 @@ def test_wallet_waves_history_is_explicitly_unavailable(wave1_client, questdb_re
     assert response.json()["detail"] == "Not Found"
 
 
-def test_absorption_rates_uses_real_historical_baseline(wave1_client, questdb_repo_mock):
+def test_absorption_rates_uses_real_historical_baseline(
+    wave1_client, questdb_repo_mock
+):
     wave1_client.app.state.questdb_repo = questdb_repo_mock
     response = wave1_client.get("/api/metrics/absorption-rates?window=30d")
 
@@ -42,7 +48,14 @@ def test_absorption_rates_reports_insufficient_history_explicitly(
 
     empty_rows = []
     for row in questdb_repo_mock.get_absorption_rates_latest.return_value:
-        empty_rows.append({**row, "absorption_rate": None, "has_historical_data": False, "confidence": 0.4})
+        empty_rows.append(
+            {
+                **row,
+                "absorption_rate": None,
+                "has_historical_data": False,
+                "confidence": 0.4,
+            }
+        )
     questdb_repo_mock.get_absorption_rates_latest = AsyncMock(return_value=empty_rows)
 
     response = wave1_low_history_client.get("/api/metrics/absorption-rates?window=30d")
@@ -56,6 +69,7 @@ def test_absorption_rates_reports_insufficient_history_explicitly(
 
 def test_wave1_routes_return_503_when_questdb_repo_is_missing():
     from api.main import app
+
     if hasattr(app.state, "questdb_repo"):
         delattr(app.state, "questdb_repo")
 
@@ -70,30 +84,36 @@ def test_wave1_routes_return_503_when_questdb_repo_is_missing():
         ]:
             response = client.get(path)
             assert response.status_code == 503
-            assert response.json()["detail"] == "QuestDB repository unavailable. API startup may be incomplete."
+            assert (
+                response.json()["detail"]
+                == "QuestDB repository unavailable. API startup may be incomplete."
+            )
     finally:
         client.close()
 
 
 def test_cost_basis_endpoint_returns_metrics(wave1_client, questdb_repo_mock):
     from unittest.mock import AsyncMock
+
     wave1_client.app.state.questdb_repo = questdb_repo_mock
-    questdb_repo_mock.get_cost_basis_latest = AsyncMock(return_value={
-        "ts": "2025-12-16T10:00:00Z",
-        "block_height": 875000,
-        "current_price_usd": 95000.0,
-        "total_cost_basis": 34189.19,
-        "sth_cost_basis": 66428.57,
-        "lth_cost_basis": 26666.67,
-        "sth_mvrv": 1.43,
-        "lth_mvrv": 3.56,
-        "sth_supply_btc": 3.5,
-        "lth_supply_btc": 15.0,
-        "confidence": 0.85
-    })
-    
+    questdb_repo_mock.get_cost_basis_latest = AsyncMock(
+        return_value={
+            "ts": "2025-12-16T10:00:00Z",
+            "block_height": 875000,
+            "current_price_usd": 95000.0,
+            "total_cost_basis": 34189.19,
+            "sth_cost_basis": 66428.57,
+            "lth_cost_basis": 26666.67,
+            "sth_mvrv": 1.43,
+            "lth_mvrv": 3.56,
+            "sth_supply_btc": 3.5,
+            "lth_supply_btc": 15.0,
+            "confidence": 0.85,
+        }
+    )
+
     response = wave1_client.get("/api/metrics/cost-basis")
-    
+
     assert response.status_code == 200
     data = response.json()
     assert data["block_height"] == 875000
@@ -103,19 +123,21 @@ def test_cost_basis_endpoint_returns_metrics(wave1_client, questdb_repo_mock):
 
 def test_urpd_features_endpoint_returns_metrics(wave1_client, questdb_repo_mock):
     wave1_client.app.state.questdb_repo = questdb_repo_mock
-    questdb_repo_mock.get_urpd_features_latest = AsyncMock(return_value={
-        "ts": "2025-12-16T10:00:00Z",
-        "block_height": 875000,
-        "current_price_usd": 95000.0,
-        "bucket_size_usd": 5000.0,
-        "total_supply_btc": 19.2,
-        "supply_below_price_pct": 71.3,
-        "supply_above_price_pct": 28.7,
-        "top_bucket_concentration": 12.4,
-        "dominant_bucket_distance_pct": -6.1,
-        "distribution_entropy": 0.88,
-        "confidence": 0.85,
-    })
+    questdb_repo_mock.get_urpd_features_latest = AsyncMock(
+        return_value={
+            "ts": "2025-12-16T10:00:00Z",
+            "block_height": 875000,
+            "current_price_usd": 95000.0,
+            "bucket_size_usd": 5000.0,
+            "total_supply_btc": 19.2,
+            "supply_below_price_pct": 71.3,
+            "supply_above_price_pct": 28.7,
+            "top_bucket_concentration": 12.4,
+            "dominant_bucket_distance_pct": -6.1,
+            "distribution_entropy": 0.88,
+            "confidence": 0.85,
+        }
+    )
 
     response = wave1_client.get("/api/metrics/urpd-features")
 

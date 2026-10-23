@@ -48,6 +48,7 @@ from scripts.config import UTXORACLE_DB_PATH
 import numpy as np
 import pyarrow as pa
 import pyarrow.csv as pv_csv
+
 # Use SOPS-encrypted secrets
 sys.path.insert(0, "/media/sam/1TB/claude-hooks-shared/scripts")
 from secrets_loader import load_secrets
@@ -633,6 +634,7 @@ def save_clusters_bulk(
 def main():
     """Run ultra-fast clustering pipeline."""
     import argparse
+
     parser = argparse.ArgumentParser(description="Ultra-fast Address Clustering (v3)")
     parser.add_argument(
         "--sync-questdb",
@@ -688,7 +690,7 @@ def main():
             import duckdb
             from scripts.bootstrap.sync_clusters_to_questdb import sync_clusters
             from api.questdb_repository import QuestDBRepository
-            
+
             async def run_sync():
                 repo = QuestDBRepository()
                 await repo.initialize()
@@ -698,7 +700,7 @@ def main():
                 finally:
                     conn.close()
                     await repo.close()
-                    
+
             asyncio.run(run_sync())
             print("  ✅ QuestDB sync completed successfully.")
         except Exception as e:

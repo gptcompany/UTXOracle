@@ -82,7 +82,10 @@ def test_compare_payloads_supports_nested_fields_and_single_objects():
 def test_compare_payloads_can_skip_when_baseline_is_missing():
     report = compare_payloads(
         route_id="live-comparison-latest",
-        questdb_payload={"timestamp": "2026-03-30T10:00:00Z", "utxoracle_price": 66000.0},
+        questdb_payload={
+            "timestamp": "2026-03-30T10:00:00Z",
+            "utxoracle_price": 66000.0,
+        },
         baseline_payload=None,
         field_tolerances_pct={"utxoracle_price": 0.1},
         allow_missing_baseline=True,
@@ -96,8 +99,12 @@ def test_compare_payloads_can_skip_when_baseline_is_missing():
 def test_append_dual_read_event_writes_jsonl_record(tmp_path: Path):
     report = compare_payloads(
         route_id="live-price-history",
-        questdb_payload=[{"timestamp": "2026-03-30T10:00:00Z", "utxoracle_price": 66000.0}],
-        baseline_payload=[{"timestamp": "2026-03-30T10:00:00Z", "utxoracle_price": 68000.0}],
+        questdb_payload=[
+            {"timestamp": "2026-03-30T10:00:00Z", "utxoracle_price": 66000.0}
+        ],
+        baseline_payload=[
+            {"timestamp": "2026-03-30T10:00:00Z", "utxoracle_price": 68000.0}
+        ],
         field_tolerances_pct={"utxoracle_price": 0.1},
         dataset_id="btc-usd",
     )
@@ -198,16 +205,57 @@ def _create_price_analysis_duckdb(db_path: Path) -> None:
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
-                ("2026-03-28", 66000.0, 65990.0, -10.0, -0.02, 0.81, 120, True, None, None, None, None),
-                ("2026-03-29", 66100.0, 66090.0, -10.0, -0.02, 0.82, 125, True, None, None, None, None),
-                ("2026-03-30", 66200.0, 66180.0, -20.0, -0.03, 0.83, 130, True, None, None, None, None),
+                (
+                    "2026-03-28",
+                    66000.0,
+                    65990.0,
+                    -10.0,
+                    -0.02,
+                    0.81,
+                    120,
+                    True,
+                    None,
+                    None,
+                    None,
+                    None,
+                ),
+                (
+                    "2026-03-29",
+                    66100.0,
+                    66090.0,
+                    -10.0,
+                    -0.02,
+                    0.82,
+                    125,
+                    True,
+                    None,
+                    None,
+                    None,
+                    None,
+                ),
+                (
+                    "2026-03-30",
+                    66200.0,
+                    66180.0,
+                    -20.0,
+                    -0.03,
+                    0.83,
+                    130,
+                    True,
+                    None,
+                    None,
+                    None,
+                    None,
+                ),
             ],
         )
     finally:
         conn.close()
 
 
-def test_load_prices_historical_baseline_from_duckdb_uses_latest_lookback_window(tmp_path: Path):
+def test_load_prices_historical_baseline_from_duckdb_uses_latest_lookback_window(
+    tmp_path: Path,
+):
     db_path = tmp_path / "utxoracle.duckdb"
     _create_price_analysis_duckdb(db_path)
 
@@ -218,7 +266,9 @@ def test_load_prices_historical_baseline_from_duckdb_uses_latest_lookback_window
     assert rows[1]["utxoracle_price"] == 66180.0
 
 
-def test_run_prices_historical_dual_read_compares_route_payload_against_duckdb_baseline(tmp_path: Path):
+def test_run_prices_historical_dual_read_compares_route_payload_against_duckdb_baseline(
+    tmp_path: Path,
+):
     db_path = tmp_path / "utxoracle.duckdb"
     log_path = tmp_path / "prices_dual_read.jsonl"
     _create_price_analysis_duckdb(db_path)
@@ -257,7 +307,9 @@ def test_run_prices_historical_dual_read_compares_route_payload_against_duckdb_b
     assert event["severity"] == "info"
 
 
-def test_main_supports_prices_historical_route_family_with_duckdb_baseline(tmp_path: Path):
+def test_main_supports_prices_historical_route_family_with_duckdb_baseline(
+    tmp_path: Path,
+):
     db_path = tmp_path / "utxoracle.duckdb"
     questdb_path = tmp_path / "questdb.json"
     report_path = tmp_path / "report.json"

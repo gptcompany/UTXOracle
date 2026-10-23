@@ -12,10 +12,8 @@ Usage:
 
 import argparse
 import asyncio
-import logging
 import os
 import sys
-from typing import Any
 
 import duckdb
 
@@ -66,7 +64,7 @@ async def sync_clusters(
     load completes successfully.
     """
     logger.info("Starting address_clusters sync from DuckDB to QuestDB...")
-    
+
     # 1. Check if DuckDB table exists and has data
     try:
         count_res = conn.execute("SELECT COUNT(*) FROM address_clusters").fetchone()
@@ -74,7 +72,7 @@ async def sync_clusters(
         if total_rows == 0:
             logger.warning("No rows found in DuckDB address_clusters. Aborting sync.")
             return False
-            
+
         logger.info(f"Found {total_rows:,} address clusters in DuckDB.")
     except Exception as e:
         logger.error(f"Failed to query DuckDB address_clusters: {e}")
@@ -103,20 +101,22 @@ async def sync_clusters(
         batch = cursor.fetchmany(batch_size)
         if not batch:
             break
-            
+
         rows_to_insert = []
         for row in batch:
-            rows_to_insert.append({
-                "address": row[0],
-                "cluster_id": row[1],
-                "first_seen": row[2],
-                "last_seen": row[3],
-                "is_exchange_likely": bool(row[4]) if row[4] is not None else False,
-                "label": row[5],
-                # Default confidence based on spec-047 guidelines: 0.8 if labeled, 0.6 otherwise
-                "confidence": 0.8 if row[5] else 0.6
-            })
-            
+            rows_to_insert.append(
+                {
+                    "address": row[0],
+                    "cluster_id": row[1],
+                    "first_seen": row[2],
+                    "last_seen": row[3],
+                    "is_exchange_likely": bool(row[4]) if row[4] is not None else False,
+                    "label": row[5],
+                    # Default confidence based on spec-047 guidelines: 0.8 if labeled, 0.6 otherwise
+                    "confidence": 0.8 if row[5] else 0.6,
+                }
+            )
+
         for r in rows_to_insert:
             row_success = repo.stage_address_cluster(r)
             if not row_success:
@@ -137,25 +137,32 @@ async def sync_clusters(
     logger.info(f"✅ Successfully synchronized {total_synced:,} clusters to QuestDB.")
     return True
 
+
 async def main():
     parser = argparse.ArgumentParser(description="Sync Address Clusters to QuestDB")
-    parser.add_argument("--batch-size", type=int, default=100000, help="Batch size for reading from DuckDB")
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=100000,
+        help="Batch size for reading from DuckDB",
+    )
     args = parser.parse_args()
 
     repo = QuestDBRepository()
     await repo.initialize()
-    
+
     if not os.path.exists(DUCKDB_PATH):
         logger.error(f"DuckDB database not found at {DUCKDB_PATH}")
         return
 
     conn = duckdb.connect(DUCKDB_PATH, read_only=True)
-    
+
     try:
         await sync_clusters(repo, conn, args.batch_size)
     finally:
         conn.close()
         await repo.close()
+
 
 if __name__ == "__main__":
     asyncio.run(main())

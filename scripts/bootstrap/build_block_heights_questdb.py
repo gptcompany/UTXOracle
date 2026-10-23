@@ -152,7 +152,9 @@ def build_block_heights(
 
     try:
         sender.establish()
-        for height, block_time in iter_block_timestamps(start_block, end_block, workers):
+        for height, block_time in iter_block_timestamps(
+            start_block, end_block, workers
+        ):
             sender.row(
                 "block_heights",
                 symbols={},
@@ -195,7 +197,9 @@ def main() -> int:
     args = parser.parse_args()
 
     logging.basicConfig(
-        level=logging.DEBUG if args.verbose else _resolve_log_level(os.getenv("LOG_LEVEL")),
+        level=logging.DEBUG
+        if args.verbose
+        else _resolve_log_level(os.getenv("LOG_LEVEL")),
         format="%(asctime)s - %(levelname)s - %(message)s",
     )
 
