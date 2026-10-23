@@ -3,6 +3,9 @@
 # - tests/fixtures/whale_transactions_sample.json (112): indirizzi e script Bitcoin pubblici.
 # - specs/006-.../contracts/websocket.md (2): Sec-WebSocket-Key di esempio (RFC 6455).
 # - specs/027-binary-cdd/research.md (1): parametro numerico "threshold=2.0".
+# - tests/test_power_law_recalibrate_auth.py:21: JWT sintetico con solo exp e firma fittizia di 4 caratteri.
+# - docs/WHALE_FLOW_DETECTOR.md:465 e AUTO_BACKFILL_IMPLEMENTATION_REPORT.md:556 (curl-auth-user, 4 commit): password segnaposto
+#   di esempio nella documentazione, non credenziali.
 # NON presenti di proposito: i 3 hit su due segreti JWT nella storia pubblica
 # (PRODUCTION_READINESS_FINAL_REPORT.md:150 e utxoracle-api.service:54). Si aggiungono
 # solo dopo la rotazione (gbg-agents F-215, #743). Fino ad allora Security Scan resta rosso.
@@ -121,3 +124,8 @@
 64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:88
 64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:94
 80a7d5fe939b5c39205086d014b718d3fa0b8316:specs/027-binary-cdd/research.md:generic-api-key:46
+5dd5ef57b70228d85e408cc822cbfbc778c279c3:docs/session_reports/AUTO_BACKFILL_IMPLEMENTATION_REPORT.md:curl-auth-user:556
+64c317aafb39aef4cf626ba3e5d82f75482b226d:docs/session_reports/AUTO_BACKFILL_IMPLEMENTATION_REPORT.md:curl-auth-user:556
+64c317aafb39aef4cf626ba3e5d82f75482b226d:docs/WHALE_FLOW_DETECTOR.md:curl-auth-user:465
+c4fd3bbaa9e37925d4a7ee354bda42aa4ea74813:tests/test_power_law_recalibrate_auth.py:generic-api-key:21
+e6e2b0fa3e22b0dd81851bcd0132a26e6b997a55:docs/WHALE_FLOW_DETECTOR.md:curl-auth-user:465
