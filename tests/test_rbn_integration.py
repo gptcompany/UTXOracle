@@ -253,10 +253,11 @@ class TestRBNFetcher:
         fetcher = RBNFetcher(config=rbn_config, cache_dir=temp_cache_dir)
 
         with pytest.raises(ValueError, match="Unknown metric"):
-            # Use asyncio.run for sync test
+            # asyncio.get_event_loop() raises when an earlier test closed the
+            # thread's loop (and is deprecated without a running loop): run on a fresh one.
             import asyncio
 
-            asyncio.get_event_loop().run_until_complete(
+            asyncio.run(
                 fetcher.fetch_metric(
                     metric_id="invalid_metric",
                     start_date=date(2024, 12, 1),
