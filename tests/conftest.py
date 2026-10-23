@@ -20,6 +20,10 @@ pytest_plugins = ["tests.fixtures.sopr_fixtures"]
 if not os.getenv("JWT_SECRET"):
     os.environ["JWT_SECRET"] = "test-secret"
 
+# REST auth fails closed at startup without a signing key (F-238): app tests need a non-secret placeholder.
+if not os.getenv("WEBSOCKET_SECRET_KEY"):
+    os.environ["WEBSOCKET_SECRET_KEY"] = "test-only-signing-key-not-a-secret"
+
 
 @pytest.fixture
 def questdb_repo_mock(monkeypatch):
