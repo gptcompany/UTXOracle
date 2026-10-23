@@ -58,9 +58,13 @@ async def test_electrs_block_oracle_resolver_fetches_and_caches_current_block():
         if request.url.path == "/block/0000abc/txids":
             return httpx.Response(200, json=["tx1", "tx2"])
         if request.url.path == "/tx/tx1":
-            return httpx.Response(200, json={"txid": "tx1", "vout": [{"value": 100000000}]})
+            return httpx.Response(
+                200, json={"txid": "tx1", "vout": [{"value": 100000000}]}
+            )
         if request.url.path == "/tx/tx2":
-            return httpx.Response(200, json={"txid": "tx2", "vout": [{"value": 50000000}]})
+            return httpx.Response(
+                200, json={"txid": "tx2", "vout": [{"value": 50000000}]}
+            )
         raise AssertionError(f"unexpected path: {request.url.path}")
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
@@ -126,7 +130,9 @@ async def test_runtime_run_initializes_store_before_worker_run(monkeypatch, tmp_
     async def fake_ainitialize(*, for_write: bool = False):
         calls.append(("ainitialize", for_write))
 
-    async def fake_run(*, market_interval_seconds: float, block_poll_interval_seconds: float):
+    async def fake_run(
+        *, market_interval_seconds: float, block_poll_interval_seconds: float
+    ):
         assert market_interval_seconds == 5.0
         assert block_poll_interval_seconds == 2.0
         return []
@@ -142,7 +148,9 @@ async def test_runtime_run_initializes_store_before_worker_run(monkeypatch, tmp_
 
 
 @pytest.mark.asyncio
-async def test_build_live_runtime_uses_default_lock_path_when_env_missing(monkeypatch, tmp_path):
+async def test_build_live_runtime_uses_default_lock_path_when_env_missing(
+    monkeypatch, tmp_path
+):
     monkeypatch.delenv("LIVE_WORKER_LOCK_PATH", raising=False)
     monkeypatch.delenv("LIVE_DB_PATH", raising=False)
     monkeypatch.setenv("ELECTRS_HTTP_URL", "http://electrs.local")

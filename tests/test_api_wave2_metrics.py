@@ -13,7 +13,11 @@ def test_wave2_routes_return_503_when_utxo_db_is_missing(monkeypatch, tmp_path):
         for path in ["/api/metrics/nupl"]:
             response = client.get(path)
             assert response.status_code in (404, 503)
-            assert "UTXO lifecycle table not found. Schema migration pending." in response.json()["detail"] or "UTXO lifecycle database not found" in response.json()["detail"]
+            assert (
+                "UTXO lifecycle table not found. Schema migration pending."
+                in response.json()["detail"]
+                or "UTXO lifecycle database not found" in response.json()["detail"]
+            )
     finally:
         client.close()
 
@@ -47,7 +51,10 @@ def test_wave2_routes_return_404_when_snapshot_is_empty(wave2_empty_snapshot_cli
     ]:
         response = wave2_empty_snapshot_client.get(path)
         assert response.status_code in (404, 503)
-        assert expected_detail in response.json()["detail"] or "UTXO lifecycle table not found" in response.json()["detail"]
+        assert (
+            expected_detail in response.json()["detail"]
+            or "UTXO lifecycle table not found" in response.json()["detail"]
+        )
 
 
 def test_reserve_risk_route_remains_explicitly_held(monkeypatch, wave2_duckdb_path):

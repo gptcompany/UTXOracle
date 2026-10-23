@@ -213,8 +213,8 @@ class TestWebhookDeliveryStatusTransitions:
 # =============================================================================
 
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock
+import pytest  # noqa: E402
+from unittest.mock import AsyncMock, MagicMock  # noqa: E402
 
 
 class TestWebhookDispatcher:

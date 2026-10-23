@@ -39,7 +39,7 @@ no cursors, no second roundtrip.
 ```
 
 Pinned OpenAPI 3.0.3 contract:
-[`specs/061-stream-consumption-contract/contracts/streams_health.openapi.yaml`](../specs/061-stream-consumption-contract/contracts/streams_health.openapi.yaml)
+[`specs/061-stream-consumption-contract/contracts/streams_health.openapi.yaml`](https://github.com/gptcompany/UTXOracle/blob/main/specs/061-stream-consumption-contract/contracts/streams_health.openapi.yaml)
 
 ### 3. The 13 canonical stream names
 
@@ -114,7 +114,7 @@ QuestDB single-tenant via PG-wire on `:8812`, fronted by the existing
 FastAPI surface (`api/main.py`) with the existing `HTTPBearer` auth
 dependency. No mixed backends. No partition-layout knowledge required.
 
-Backend rationale: [`specs/061-stream-consumption-contract/decisions.md::D1`](../specs/061-stream-consumption-contract/decisions.md).
+Backend rationale: [`specs/061-stream-consumption-contract/decisions.md::D1`](https://github.com/gptcompany/UTXOracle/blob/main/specs/061-stream-consumption-contract/decisions.md).
 
 ### 7. Schema evolution rule (the durable contract)
 
@@ -175,8 +175,8 @@ runs the full chain unattended. It writes terminal state to
 - Producer issue: gptcompany/UTXOracle#8 (closes when acceptance gate green)
 - Consumer source PR: gptcompany/nautilus_dev#146 (the contract document)
 - Implementation branch: `gptcompany/UTXOracle:061-stream-consumption-contract`
-- Decision records: [`specs/061-stream-consumption-contract/decisions.md`](../specs/061-stream-consumption-contract/decisions.md) (D1-D6)
-- Spec quickstart: [`specs/061-stream-consumption-contract/quickstart.md`](../specs/061-stream-consumption-contract/quickstart.md)
+- Decision records: [`specs/061-stream-consumption-contract/decisions.md`](https://github.com/gptcompany/UTXOracle/blob/main/specs/061-stream-consumption-contract/decisions.md) (D1-D6)
+- Spec quickstart: [`specs/061-stream-consumption-contract/quickstart.md`](https://github.com/gptcompany/UTXOracle/blob/main/specs/061-stream-consumption-contract/quickstart.md)
 
 ### 12. TL;DR
 

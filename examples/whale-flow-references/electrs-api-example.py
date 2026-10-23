@@ -6,6 +6,7 @@ This is the primary data source for the Whale Flow Detector.
 import requests
 import json
 import os
+import sys
 
 # Configuration from environment or defaults
 ELECTRS_API_URL = os.getenv("ELECTRS_API_URL", "http://localhost:3001")

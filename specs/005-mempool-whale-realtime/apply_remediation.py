@@ -339,7 +339,7 @@ All original files backed up to: {self.backup_dir}
             # Generate validation artifacts
             print("📋 Generating validation artifacts...")
             self.generate_validation_checklist()
-            summary = self.generate_summary_report()
+            self.generate_summary_report()
 
             print()
             print("=" * 60)

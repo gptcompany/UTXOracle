@@ -18,6 +18,7 @@ import sys
 import json
 import argparse
 import logging
+
 from datetime import datetime
 from typing import Dict, Optional, List
 from pathlib import Path
@@ -36,6 +37,7 @@ from secrets_loader import load_secrets
 # Local imports
 from UTXOracle_library import UTXOracleCalculator
 from scripts.config import UTXORACLE_DB_PATH
+from api.questdb_repository import QuestDBRepository  # noqa: E402
 
 # Whale Flow Detector (spec-004) - import after scripts/ is in path
 try:
@@ -49,7 +51,7 @@ try:
     from scripts.metrics.monte_carlo_fusion import monte_carlo_fusion
     from scripts.metrics.active_addresses import count_active_addresses
     from scripts.metrics.tx_volume import calculate_tx_volume
-    from scripts.metrics import save_metrics_to_db
+    from scripts.metrics import save_metrics_to_db  # noqa: F401 - availability probe
 
     METRICS_ENABLED = True
 except ImportError:
@@ -58,7 +60,7 @@ except ImportError:
 
 # Advanced On-Chain Analytics (spec-009 + spec-019) - Power Law, Symbolic Dynamics, Fractal Dimension
 try:
-    from scripts.metrics.monte_carlo_fusion import (
+    from scripts.metrics.monte_carlo_fusion import (  # noqa: F401 - availability probe
         enhanced_fusion,
         sopr_to_vote,
         ENHANCED_WEIGHTS,
@@ -103,7 +105,7 @@ except ImportError:
 
 # Webhook Alert System (spec-011) - Signal, Price, and Whale alerts
 try:
-    from scripts.alerts import (
+    from scripts.alerts import (  # noqa: F401 - availability probe
         emit_alert_sync,
         create_signal_event,
         create_price_event,
@@ -127,13 +129,13 @@ except ImportError:
 
 # UTXO Lifecycle Engine (spec-017) - Realized Cap, MVRV, NUPL, HODL Waves
 try:
-    from scripts.metrics.utxo_lifecycle import (
+    from scripts.metrics.utxo_lifecycle import (  # noqa: F401 - availability probe
         init_schema as init_utxo_schema,
         init_indexes as init_utxo_indexes,
         get_sync_state as get_utxo_sync_state,
         get_sth_lth_supply,
     )
-    from scripts.metrics.realized_metrics import (
+    from scripts.metrics.realized_metrics import (  # noqa: F401 - availability probe
         calculate_realized_cap,
         calculate_market_cap,
         calculate_mvrv,
@@ -141,8 +143,8 @@ try:
         get_total_unspent_supply,
         create_snapshot,
     )
-    from scripts.metrics.hodl_waves import calculate_hodl_waves
-    from scripts.models.metrics_models import AgeCohortsConfig
+    from scripts.metrics.hodl_waves import calculate_hodl_waves  # noqa: F401 - availability probe
+    from scripts.models.metrics_models import AgeCohortsConfig  # noqa: F401 - availability probe
 
     UTXO_LIFECYCLE_ENABLED = (
         os.getenv("UTXO_LIFECYCLE_ENABLED", "true").lower() == "true"
@@ -639,7 +641,7 @@ def calculate_utxoracle_price(config: Dict) -> Dict:
         # Calculate price using library
         calc = UTXOracleCalculator()
         result = calc.calculate_price_for_transactions(transactions)
-        
+
         # Add tier to result
         result["fetch_tier"] = tier
 
@@ -805,9 +807,6 @@ def validate_price_data(data: Dict, config: Dict) -> bool:
 # =============================================================================
 # Database Operations (T042, T043)
 # =============================================================================
-
-
-
 
 
 def detect_gaps(conn, max_days_back: int = None) -> List[str]:
@@ -1111,7 +1110,7 @@ def backfill_gap(date_str: str, config: Dict) -> bool:
 
         # Prepare data for database
         data = {
-            "timestamp": target_date,
+            "timestamp": target_date.isoformat(),
             "mempool_price": mempool_price
             or price,  # Fallback to UTXOracle if no exchange price
             "utxoracle_price": price,
@@ -1129,11 +1128,7 @@ def backfill_gap(date_str: str, config: Dict) -> bool:
         }
 
         # Save to database
-        save_to_duckdb(
-            data,
-            config["DUCKDB_PATH"],
-            config.get("DUCKDB_BACKUP_PATH", "/tmp/utxoracle_backup.duckdb"),
-        )
+        save_to_questdb(data)
 
         logging.info(f"[Backfill] ✅ Successfully backfilled {date_str}")
         return True
@@ -1142,8 +1137,6 @@ def backfill_gap(date_str: str, config: Dict) -> bool:
         logging.error(f"[Backfill] Failed to backfill {date_str}: {e}")
         return False
 
-
-from api.questdb_repository import QuestDBRepository
 
 def save_to_questdb(data: Dict) -> None:
     """
@@ -1169,7 +1162,7 @@ def save_to_questdb(data: Dict) -> None:
                 "created_at": datetime.now(),
             },
             at=datetime.fromisoformat(data["timestamp"]),
-            flush=True
+            flush=True,
         )
         logging.info("Data saved to QuestDB")
     except Exception as e:
@@ -1369,12 +1362,12 @@ def main():
     T046: Support CLI flags --init-db, --dry-run, --verbose
     """
     parser = argparse.ArgumentParser(description="UTXOracle Daily Analysis")
-    
+
     parser.add_argument(
         "--dry-run", action="store_true", help="Run without saving to DB"
     )
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
-    
+
     args = parser.parse_args()
 
     # Load and validate configuration
@@ -1390,8 +1383,6 @@ def main():
     except EnvironmentError as e:
         logging.error(f"Configuration error: {e}")
         sys.exit(1)
-
-    
 
     # Initialize Whale Flow Detector (T042 - spec-004)
     whale_detector = None

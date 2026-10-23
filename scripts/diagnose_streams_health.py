@@ -107,18 +107,21 @@ async def _duckdb_freshness() -> dict:
         try:
             try:
                 row = conn.execute(
-                    "SELECT min(timestamp), max(timestamp), count(*) "
-                    "FROM block_heights"
+                    "SELECT min(timestamp), max(timestamp), count(*) FROM block_heights"
                 ).fetchone()
                 if row:
                     result["block_heights"] = {
                         "count": int(row[2]),
                         "min_ts": datetime.fromtimestamp(
                             int(row[0]), tz=timezone.utc
-                        ).isoformat() if row[0] is not None else None,
+                        ).isoformat()
+                        if row[0] is not None
+                        else None,
                         "max_ts": datetime.fromtimestamp(
                             int(row[1]), tz=timezone.utc
-                        ).isoformat() if row[1] is not None else None,
+                        ).isoformat()
+                        if row[1] is not None
+                        else None,
                     }
             except Exception as exc:
                 result["block_heights_error"] = str(exc)
@@ -178,7 +181,9 @@ async def main() -> int:
             # Probe both columns for diagnostic completeness.
             from scripts.bootstrap.tip_spent_backfill_via_rpc import _open_questdb_pg  # noqa
 
-            block_cols = s.get("block_columns") or [s.get("block_column", "spent_block")]
+            block_cols = s.get("block_columns") or [
+                s.get("block_column", "spent_block")
+            ]
             with _open_questdb_pg() as pg:
                 with pg.cursor() as cur:
                     parts = []
@@ -197,11 +202,15 @@ async def main() -> int:
                             row = cur.fetchone()
                             if row and row[0] is not None:
                                 lag = tip - int(row[0])
-                                worst_lag_blocks = lag if worst_lag_blocks is None else max(worst_lag_blocks, lag)
+                                worst_lag_blocks = (
+                                    lag
+                                    if worst_lag_blocks is None
+                                    else max(worst_lag_blocks, lag)
+                                )
                 sla = int(s["sla_seconds"])
                 if worst_lag_blocks is not None and worst_lag_blocks * 600 > sla:
                     rollup_stale.append(
-                        f"{name} (lag={worst_lag_blocks}b={worst_lag_blocks*600}s > sla={sla}s)"
+                        f"{name} (lag={worst_lag_blocks}b={worst_lag_blocks * 600}s > sla={sla}s)"
                     )
             continue
 
@@ -212,7 +221,9 @@ async def main() -> int:
                 dt = datetime.fromisoformat(max_ts)
                 lag = (datetime.now(timezone.utc) - dt).total_seconds()
                 if lag > int(s["sla_seconds"]):
-                    rollup_stale.append(f"{name} (lag={int(lag)}s > sla={s['sla_seconds']}s)")
+                    rollup_stale.append(
+                        f"{name} (lag={int(lag)}s > sla={s['sla_seconds']}s)"
+                    )
             except Exception:
                 pass
 

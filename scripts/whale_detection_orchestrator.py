@@ -286,7 +286,7 @@ async def main():
     # Register signal handlers
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, lambda s=sig: shutdown_handler(s))
-    
+
     loop.add_signal_handler(signal.SIGHUP, reload_handler)
 
     try:

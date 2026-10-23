@@ -35,7 +35,9 @@ APP_COMMIT_SHA = os.getenv("UTXORACLE_COMMIT_SHA", "unknown")
 APP_BUILD_AT = os.getenv("UTXORACLE_BUILD_AT", "unknown")
 STARTUP_TIME = datetime.now(timezone.utc)
 FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
-WHALE_REGISTRY_PATH = Path(__file__).resolve().parents[2] / "data" / "exchange_addresses.csv"
+WHALE_REGISTRY_PATH = (
+    Path(__file__).resolve().parents[2] / "data" / "exchange_addresses.csv"
+)
 LIVE_PRICE_COMPARISON_PAGE = FRONTEND_DIR / "live_price_comparison.html"
 SUPPORTED_CHART_PAGES = {
     "live-price-comparison",
@@ -89,7 +91,9 @@ async def _watch_exchange_registry(
                 last_mtime,
             )
         except Exception as exc:
-            logging.error("Failed to reload whale registry from %s: %s", registry_path, exc)
+            logging.error(
+                "Failed to reload whale registry from %s: %s", registry_path, exc
+            )
 
 
 class LiveServiceCheck(BaseModel):
@@ -132,6 +136,7 @@ async def lifespan(app: FastAPI):
     # Initialize Unified Mempool Whale Monitor
     from scripts.mempool_whale_monitor import MempoolWhaleMonitor
     from api.routes.execution import stream_manager
+
     try:
         monitor = MempoolWhaleMonitor()
         if app.state.questdb_repo is not None:
@@ -175,7 +180,7 @@ async def lifespan(app: FastAPI):
 
     yield
     logging.info("UTXOracle live production API shutting down...")
-    
+
     if hasattr(app.state, "whale_monitor"):
         try:
             if hasattr(app.state, "whale_registry_task"):

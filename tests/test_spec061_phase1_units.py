@@ -20,9 +20,7 @@ def _verify(*units: Path) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True, timeout=15)
 
 
-@pytest.mark.skipif(
-    not _HAS_SYSTEMD_ANALYZE, reason="systemd-analyze not present"
-)
+@pytest.mark.skipif(not _HAS_SYSTEMD_ANALYZE, reason="systemd-analyze not present")
 def test_utxo_creation_catchup_service_valid():
     assert CREATION_CATCHUP_SERVICE.exists()
     result = _verify(CREATION_CATCHUP_SERVICE)
@@ -46,9 +44,7 @@ def test_utxo_creation_catchup_service_contract():
     assert "DISCORD" not in content
 
 
-@pytest.mark.skipif(
-    not _HAS_SYSTEMD_ANALYZE, reason="systemd-analyze not present"
-)
+@pytest.mark.skipif(not _HAS_SYSTEMD_ANALYZE, reason="systemd-analyze not present")
 def test_utxo_spent_backfill_service_valid():
     assert SPENT_BACKFILL_SERVICE.exists()
     result = _verify(SPENT_BACKFILL_SERVICE)

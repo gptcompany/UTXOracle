@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+
 try:
     from enum import StrEnum
 except ImportError:  # pragma: no cover - Python < 3.11 compatibility
@@ -9,6 +10,7 @@ except ImportError:  # pragma: no cover - Python < 3.11 compatibility
 
     class StrEnum(str, Enum):
         pass
+
 
 from pydantic import BaseModel, ConfigDict
 
@@ -95,9 +97,15 @@ class NautilusSafetyGate:
         self._last_seen_timestamp = snapshot.timestamp
         self._last_seen_block_height = snapshot.block_height
 
-        if base_state == GateState.STATUS_OK and self._last_state == GateState.STATUS_LIQUIDATE_ONLY:
+        if (
+            base_state == GateState.STATUS_OK
+            and self._last_state == GateState.STATUS_LIQUIDATE_ONLY
+        ):
             self._healthy_recovery_streak += 1
-            if self._healthy_recovery_streak < self.config.liquidate_only_recovery_streak:
+            if (
+                self._healthy_recovery_streak
+                < self.config.liquidate_only_recovery_streak
+            ):
                 state = GateState.STATUS_LIQUIDATE_ONLY
                 reason = (
                     f"recovery_in_progress:{self._healthy_recovery_streak}"
@@ -121,7 +129,10 @@ class NautilusSafetyGate:
         )
 
     def _check_monotonicity(self, snapshot: TradableSnapshot) -> str | None:
-        if self._last_seen_timestamp is not None and snapshot.timestamp <= self._last_seen_timestamp:
+        if (
+            self._last_seen_timestamp is not None
+            and snapshot.timestamp <= self._last_seen_timestamp
+        ):
             return "timestamp_not_monotonic"
         if (
             self._last_seen_block_height is not None
@@ -131,7 +142,9 @@ class NautilusSafetyGate:
             return "block_height_moved_backward"
         return None
 
-    def _evaluate_base_state(self, snapshot: TradableSnapshot, *, now: datetime) -> tuple[GateState, str]:
+    def _evaluate_base_state(
+        self, snapshot: TradableSnapshot, *, now: datetime
+    ) -> tuple[GateState, str]:
         age_seconds = (now - snapshot.timestamp).total_seconds()
         if age_seconds > self.config.liquidate_only_max_age_seconds:
             return GateState.STATUS_HALT, "snapshot_stale"

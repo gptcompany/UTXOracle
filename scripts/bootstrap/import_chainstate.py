@@ -21,7 +21,6 @@ import argparse
 
 from scripts.config import UTXORACLE_DB_PATH
 import logging
-import os
 from pathlib import Path
 
 import duckdb

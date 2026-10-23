@@ -87,6 +87,7 @@ class RBNFetcher:
         if token_date_str:
             try:
                 from datetime import datetime
+
                 token_date = datetime.strptime(token_date_str, "%Y-%m-%d").date()
             except ValueError:
                 logger.warning(f"Invalid RBN_TOKEN_DATE format: {token_date_str}")

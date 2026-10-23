@@ -8,7 +8,12 @@ from fastapi.testclient import TestClient
 
 from api.routes.live import get_live_snapshot_store
 from api.apps.live import _reload_registry_if_changed
-from scripts.live.models import LiveComparison, LiveFeatureSet, LiveSnapshot, SourceHealth
+from scripts.live.models import (
+    LiveComparison,
+    LiveFeatureSet,
+    LiveSnapshot,
+    SourceHealth,
+)
 
 
 class InMemorySnapshotStore:
@@ -19,14 +24,18 @@ class InMemorySnapshotStore:
     async def get_latest(self, *, now: datetime | None = None) -> LiveSnapshot | None:
         return self.snapshots[-1] if self.snapshots else None
 
-    async def get_history(self, query=None, *, now: datetime | None = None) -> list[LiveSnapshot]:
+    async def get_history(
+        self, query=None, *, now: datetime | None = None
+    ) -> list[LiveSnapshot]:
         return list(self.snapshots)
 
     async def close(self) -> None:
         self.closed = True
 
 
-def _build_snapshot(*, timestamp: datetime, block_height: int, price: float) -> LiveSnapshot:
+def _build_snapshot(
+    *, timestamp: datetime, block_height: int, price: float
+) -> LiveSnapshot:
     return LiveSnapshot(
         timestamp=timestamp,
         block_height=block_height,
@@ -46,12 +55,44 @@ def _build_snapshot(*, timestamp: datetime, block_height: int, price: float) -> 
             brk_reserve_risk=4.100239e-06,
         ),
         source_health={
-            "electrs": SourceHealth(status="healthy", last_success=timestamp, observed_height=block_height),
-            "mempool_api": SourceHealth(status="healthy", last_success=timestamp, observed_height=block_height),
-            "utxoracle": SourceHealth(status="healthy", last_success=timestamp, observed_height=block_height),
+            "electrs": SourceHealth(
+                status="healthy", last_success=timestamp, observed_height=block_height
+            ),
+            "mempool_api": SourceHealth(
+                status="healthy", last_success=timestamp, observed_height=block_height
+            ),
+            "utxoracle": SourceHealth(
+                status="healthy", last_success=timestamp, observed_height=block_height
+            ),
         },
-        source_timestamps={"electrs": timestamp, "mempool_api": timestamp, "utxoracle": timestamp},
+        source_timestamps={
+            "electrs": timestamp,
+            "mempool_api": timestamp,
+            "utxoracle": timestamp,
+        },
     )
+
+
+class _UnavailableQuestDBRepository:
+    """QuestDB repository whose startup fails, as when the database is down."""
+
+    async def initialize(self) -> None:
+        raise ConnectionError("QuestDB unavailable (test)")
+
+    async def close(self) -> None:
+        return None
+
+
+@pytest.fixture(autouse=True)
+def questdb_down(monkeypatch):
+    """Make the derived routes' degraded state independent of the test host.
+
+    QuestDBRepository.initialize() would otherwise try a real QuestDB: the routes then
+    answered 404, 500 or 503 depending on whether one runs on the machine.
+    """
+    from api.apps import live as live_app
+
+    monkeypatch.setattr(live_app, "QuestDBRepository", _UnavailableQuestDBRepository)
 
 
 def _build_client(store: InMemorySnapshotStore) -> TestClient:
@@ -64,13 +105,22 @@ def _build_client(store: InMemorySnapshotStore) -> TestClient:
 
 def test_live_production_app_exposes_live_and_derived_routes_with_fallbacks():
     store = InMemorySnapshotStore(
-        [_build_snapshot(timestamp=datetime.now(timezone.utc), block_height=941456, price=84211.52)]
+        [
+            _build_snapshot(
+                timestamp=datetime.now(timezone.utc),
+                block_height=941456,
+                price=84211.52,
+            )
+        ]
     )
 
     with _build_client(store) as client:
         assert client.get("/health").status_code == 200
         assert client.get("/api/v1/live/snapshot").status_code == 200
-        assert client.get("/api/v1/live/history", params={"minutes": 60}).status_code == 200
+        assert (
+            client.get("/api/v1/live/history", params={"minutes": 60}).status_code
+            == 200
+        )
         assert client.get("/charts/live-price-comparison").status_code == 200
 
         assert client.get("/api/prices/latest").status_code == 503
@@ -80,7 +130,9 @@ def test_live_production_app_exposes_live_and_derived_routes_with_fallbacks():
 
 def test_live_production_health_reports_live_summary():
     timestamp = datetime.now(timezone.utc)
-    store = InMemorySnapshotStore([_build_snapshot(timestamp=timestamp, block_height=941456, price=84211.52)])
+    store = InMemorySnapshotStore(
+        [_build_snapshot(timestamp=timestamp, block_height=941456, price=84211.52)]
+    )
 
     with _build_client(store) as client:
         response = client.get("/health")
@@ -95,7 +147,9 @@ def test_live_production_health_reports_live_summary():
 
 def test_live_production_health_degrades_when_snapshot_is_stale():
     timestamp = datetime.now(timezone.utc) - timedelta(seconds=61)
-    store = InMemorySnapshotStore([_build_snapshot(timestamp=timestamp, block_height=941456, price=84211.52)])
+    store = InMemorySnapshotStore(
+        [_build_snapshot(timestamp=timestamp, block_height=941456, price=84211.52)]
+    )
 
     with _build_client(store) as client:
         response = client.get("/health")
@@ -109,7 +163,13 @@ def test_live_production_health_degrades_when_snapshot_is_stale():
 
 def test_live_production_app_closes_snapshot_store_on_shutdown():
     store = InMemorySnapshotStore(
-        [_build_snapshot(timestamp=datetime.now(timezone.utc), block_height=941456, price=84211.52)]
+        [
+            _build_snapshot(
+                timestamp=datetime.now(timezone.utc),
+                block_height=941456,
+                price=84211.52,
+            )
+        ]
     )
 
     with _build_client(store):
@@ -120,7 +180,13 @@ def test_live_production_app_closes_snapshot_store_on_shutdown():
 
 def test_live_production_chart_page_is_html():
     store = InMemorySnapshotStore(
-        [_build_snapshot(timestamp=datetime.now(timezone.utc), block_height=941456, price=84211.52)]
+        [
+            _build_snapshot(
+                timestamp=datetime.now(timezone.utc),
+                block_height=941456,
+                price=84211.52,
+            )
+        ]
     )
 
     with _build_client(store) as client:
@@ -138,7 +204,13 @@ def test_live_production_chart_page_is_html():
 
 def test_live_production_chart_page_rejects_unknown_chart_id():
     store = InMemorySnapshotStore(
-        [_build_snapshot(timestamp=datetime.now(timezone.utc), block_height=941456, price=84211.52)]
+        [
+            _build_snapshot(
+                timestamp=datetime.now(timezone.utc),
+                block_height=941456,
+                price=84211.52,
+            )
+        ]
     )
 
     with _build_client(store) as client:
@@ -166,9 +238,13 @@ async def test_reload_registry_if_changed_only_reloads_on_mtime_change(tmp_path)
     assert same_mtime == first_mtime
     assert monitor.reloads == 0
 
-    registry_path.write_text("exchange_name,address,type\nBinance,addr,wallet\n", encoding="utf-8")
+    registry_path.write_text(
+        "exchange_name,address,type\nBinance,addr,wallet\n", encoding="utf-8"
+    )
     os.utime(registry_path, (first_mtime + 5, first_mtime + 5))
-    changed_mtime = await _reload_registry_if_changed(monitor, registry_path, first_mtime)
+    changed_mtime = await _reload_registry_if_changed(
+        monitor, registry_path, first_mtime
+    )
 
     assert changed_mtime is not None
     assert changed_mtime != first_mtime
