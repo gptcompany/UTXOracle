@@ -41,7 +41,7 @@ def log_tool_usage():
             try:
                 with open(log_file, 'r') as f:
                     logs = json.load(f)
-            except:
+            except Exception:
                 logs = []
         else:
             logs = []

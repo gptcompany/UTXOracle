@@ -41,11 +41,6 @@ def parse_context_from_transcript(transcript_path):
             lines = f.readlines()
 
         # Track totals for persistence (PRIMARY GOAL)
-        total_input = 0
-        total_output = 0
-        total_cache_creation = 0
-        total_cache_read = 0
-        message_count = 0
 
         # Check last 15 lines for context information
         recent_lines = lines[-15:] if len(lines) > 15 else lines
@@ -130,7 +125,7 @@ def get_git_branch():
         if result.returncode == 0:
             branch = result.stdout.strip()
             return branch if branch else None
-    except:
+    except Exception:
         pass
     return None
 
@@ -158,7 +153,7 @@ def get_session_context():
             content = desc_file.read_text().strip()
             if content:
                 return content
-        except:
+        except Exception:
             pass
 
     # 3. Fallback: last commit message (if in git repo)
@@ -174,7 +169,7 @@ def get_session_context():
         if result.returncode == 0 and result.stdout.strip():
             commit_msg = result.stdout.strip()[:100]
             return f"Recent commit: {commit_msg}"
-    except:
+    except Exception:
         pass
 
     return None
@@ -294,7 +289,7 @@ def persist_metrics(session_id, context_info, cost_data, model_name, workspace_d
             f.write(json.dumps(metrics) + "\n")
 
         return True
-    except Exception as e:
+    except Exception:
         # Fail silently - don't break statusline display
         return False
 

@@ -9,11 +9,8 @@
 import json
 import os
 import sys
-import time
-import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, List
 
 def get_session_id(input_data):
     """Get the current session ID from input data or fallback"""
@@ -57,7 +54,7 @@ def load_or_create_bundle(input_data):
         try:
             with open(bundle_path, 'r', encoding='utf-8') as f:
                 return json.load(f), bundle_path
-        except:
+        except Exception:
             pass
     
     # Create new bundle
