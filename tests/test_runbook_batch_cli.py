@@ -49,9 +49,16 @@ except Captured as done:
 
 
 def _real_options(batch: str, tmp_path: Path) -> set[str]:
+    # The batches import the shared secrets_loader from a path that only exists on the Dell: stub it,
+    # as tests/conftest.py does in-process, so the check also runs on a CI runner.
+    stubs = tmp_path / "stubs"
+    stubs.mkdir(exist_ok=True)
+    (stubs / "secrets_loader.py").write_text(
+        "def load_secrets(*args, **kwargs):\n    return None\n"
+    )
     env = {
         "PATH": os.environ["PATH"],
-        "PYTHONPATH": str(REPO),
+        "PYTHONPATH": os.pathsep.join([str(REPO), str(stubs)]),
         "HOME": str(tmp_path),
     }
     out = subprocess.run(
