@@ -21,7 +21,9 @@ async def test_electrs_client_reads_tip_height():
         assert request.url.path == "/blocks/tip/height"
         return httpx.Response(200, text="941453")
 
-    client = ElectrsClient(base_url="http://electrs.local", transport=httpx.MockTransport(handler))
+    client = ElectrsClient(
+        base_url="http://electrs.local", transport=httpx.MockTransport(handler)
+    )
     result = await client.fetch_tip_height()
     await client.aclose()
 
@@ -36,7 +38,9 @@ async def test_mempool_client_reads_usd_price():
         assert request.url.path == "/api/v1/prices"
         return httpx.Response(200, json={"time": 1774026850, "USD": 69834})
 
-    client = MempoolApiClient(base_url="http://mempool.local", transport=httpx.MockTransport(handler))
+    client = MempoolApiClient(
+        base_url="http://mempool.local", transport=httpx.MockTransport(handler)
+    )
     result = await client.fetch_exchange_price()
     await client.aclose()
 
@@ -49,7 +53,10 @@ async def test_mempool_client_reads_usd_price():
 async def test_brk_client_fetches_curated_features_via_bulk_metrics():
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/api/metrics/bulk"
-        assert request.url.params["metrics"] == "realized_price_usd,liveliness,reserve_risk,nupl_ratio,sopr_24h"
+        assert (
+            request.url.params["metrics"]
+            == "realized_price_usd,liveliness,reserve_risk,nupl_ratio,sopr_24h"
+        )
         return httpx.Response(
             200,
             json=[
@@ -61,7 +68,9 @@ async def test_brk_client_fetches_curated_features_via_bulk_metrics():
             ],
         )
 
-    client = BrkClient(base_url="http://brk.local", transport=httpx.MockTransport(handler))
+    client = BrkClient(
+        base_url="http://brk.local", transport=httpx.MockTransport(handler)
+    )
     result = await client.fetch_curated_features()
     await client.aclose()
 
@@ -72,6 +81,7 @@ async def test_brk_client_fetches_curated_features_via_bulk_metrics():
     assert result.value.brk_reserve_risk == pytest.approx(4.100239e-06)
     assert result.value.brk_nupl == pytest.approx(0.55)
     assert result.value.brk_sopr == pytest.approx(1.02)
+
 
 @pytest.mark.asyncio
 async def test_brk_client_tolerates_partial_bulk_payload_with_metric_names():
@@ -92,7 +102,9 @@ async def test_brk_client_tolerates_partial_bulk_payload_with_metric_names():
             ],
         )
 
-    client = BrkClient(base_url="http://brk.local", transport=httpx.MockTransport(handler))
+    client = BrkClient(
+        base_url="http://brk.local", transport=httpx.MockTransport(handler)
+    )
     result = await client.fetch_curated_features()
     await client.aclose()
 
@@ -101,7 +113,11 @@ async def test_brk_client_tolerates_partial_bulk_payload_with_metric_names():
     assert result.value.brk_realized_price == pytest.approx(54311.39)
     assert result.value.brk_liveliness is None
     assert result.value.brk_reserve_risk == pytest.approx(4.100239e-06)
-    assert result.health.details["missing_metrics"] == ["liveliness", "nupl_ratio", "sopr_24h"]
+    assert result.health.details["missing_metrics"] == [
+        "liveliness",
+        "nupl_ratio",
+        "sopr_24h",
+    ]
 
 
 @pytest.mark.asyncio
@@ -116,7 +132,9 @@ async def test_brk_client_tolerates_partial_unnamed_bulk_payload():
             ],
         )
 
-    client = BrkClient(base_url="http://brk.local", transport=httpx.MockTransport(handler))
+    client = BrkClient(
+        base_url="http://brk.local", transport=httpx.MockTransport(handler)
+    )
     result = await client.fetch_curated_features()
     await client.aclose()
 
@@ -132,7 +150,9 @@ async def test_brk_client_tolerates_partial_unnamed_bulk_payload():
 
 @pytest.mark.asyncio
 async def test_hyperliquid_client_reads_filtered_oracle_updates_from_zst(tmp_path):
-    stream_dir = tmp_path / "filtered" / "hip3_oracle_updates_by_block" / "hourly" / "20260320"
+    stream_dir = (
+        tmp_path / "filtered" / "hip3_oracle_updates_by_block" / "hourly" / "20260320"
+    )
     stream_dir.mkdir(parents=True)
     zst_path = stream_dir / "17.zst"
     now = datetime.now(timezone.utc)
@@ -145,17 +165,41 @@ async def test_hyperliquid_client_reads_filtered_oracle_updates_from_zst(tmp_pat
         "events": [
             {
                 "oracle_pxs": {
-                    "coin_to_mark_px": [["cash:BTC", {"px": "84310.8", "last_update_time": mark_time.isoformat().replace("+00:00", "Z")}]],
-                    "coin_to_oracle_px": [["cash:BTC", {"px": "84295.4", "last_update_time": oracle_time.isoformat().replace("+00:00", "Z")}]],
+                    "coin_to_mark_px": [
+                        [
+                            "cash:BTC",
+                            {
+                                "px": "84310.8",
+                                "last_update_time": mark_time.isoformat().replace(
+                                    "+00:00", "Z"
+                                ),
+                            },
+                        ]
+                    ],
+                    "coin_to_oracle_px": [
+                        [
+                            "cash:BTC",
+                            {
+                                "px": "84295.4",
+                                "last_update_time": oracle_time.isoformat().replace(
+                                    "+00:00", "Z"
+                                ),
+                            },
+                        ]
+                    ],
                 }
             }
         ],
     }
     compressor = zstd.ZstdCompressor()
-    zst_path.write_bytes(compressor.compress((json.dumps(payload) + "\n").encode("utf-8")))
+    zst_path.write_bytes(
+        compressor.compress((json.dumps(payload) + "\n").encode("utf-8"))
+    )
 
     async def handler(_request: httpx.Request) -> httpx.Response:
-        raise AssertionError("HTTP API should not be queried when filtered data is available and fresh")
+        raise AssertionError(
+            "HTTP API should not be queried when filtered data is available and fresh"
+        )
 
     client = HyperliquidSnapshotClient(
         base_url="http://hl.local/info",
@@ -173,8 +217,12 @@ async def test_hyperliquid_client_reads_filtered_oracle_updates_from_zst(tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_hyperliquid_client_prefers_live_btc_namespace_over_cash_placeholder(tmp_path):
-    stream_dir = tmp_path / "filtered" / "hip3_oracle_updates_by_block" / "hourly" / "20260331"
+async def test_hyperliquid_client_prefers_live_btc_namespace_over_cash_placeholder(
+    tmp_path,
+):
+    stream_dir = (
+        tmp_path / "filtered" / "hip3_oracle_updates_by_block" / "hourly" / "20260331"
+    )
     stream_dir.mkdir(parents=True)
     zst_path = stream_dir / "13.zst"
     now = datetime.now(timezone.utc).replace(microsecond=0)
@@ -186,21 +234,57 @@ async def test_hyperliquid_client_prefers_live_btc_namespace_over_cash_placehold
             {
                 "oracle_pxs": {
                     "coin_to_mark_px": [
-                        ["cash:BTC", {"px": "70000.0", "last_update_time": now.isoformat().replace("+00:00", "Z")}],
-                        ["hyna:BTC", {"px": "67271.0", "last_update_time": now.isoformat().replace("+00:00", "Z")}],
+                        [
+                            "cash:BTC",
+                            {
+                                "px": "70000.0",
+                                "last_update_time": now.isoformat().replace(
+                                    "+00:00", "Z"
+                                ),
+                            },
+                        ],
+                        [
+                            "hyna:BTC",
+                            {
+                                "px": "67271.0",
+                                "last_update_time": now.isoformat().replace(
+                                    "+00:00", "Z"
+                                ),
+                            },
+                        ],
                     ],
                     "coin_to_oracle_px": [
-                        ["cash:BTC", {"px": "70000.0", "last_update_time": now.isoformat().replace("+00:00", "Z")}],
-                        ["hyna:BTC", {"px": "67253.0", "last_update_time": now.isoformat().replace("+00:00", "Z")}],
+                        [
+                            "cash:BTC",
+                            {
+                                "px": "70000.0",
+                                "last_update_time": now.isoformat().replace(
+                                    "+00:00", "Z"
+                                ),
+                            },
+                        ],
+                        [
+                            "hyna:BTC",
+                            {
+                                "px": "67253.0",
+                                "last_update_time": now.isoformat().replace(
+                                    "+00:00", "Z"
+                                ),
+                            },
+                        ],
                     ],
                 }
             }
         ],
     }
     compressor = zstd.ZstdCompressor()
-    zst_path.write_bytes(compressor.compress((json.dumps(payload) + "\n").encode("utf-8")))
+    zst_path.write_bytes(
+        compressor.compress((json.dumps(payload) + "\n").encode("utf-8"))
+    )
 
-    client = HyperliquidSnapshotClient(base_url="http://hl.local/info", data_root=tmp_path)
+    client = HyperliquidSnapshotClient(
+        base_url="http://hl.local/info", data_root=tmp_path
+    )
     result = await client.fetch_snapshot()
     await client.aclose()
 
@@ -211,8 +295,12 @@ async def test_hyperliquid_client_prefers_live_btc_namespace_over_cash_placehold
 
 
 @pytest.mark.asyncio
-async def test_hyperliquid_client_reads_filtered_oracle_updates_from_extensionless_json(tmp_path):
-    stream_dir = tmp_path / "filtered" / "hip3_oracle_updates_by_block" / "hourly" / "20260401"
+async def test_hyperliquid_client_reads_filtered_oracle_updates_from_extensionless_json(
+    tmp_path,
+):
+    stream_dir = (
+        tmp_path / "filtered" / "hip3_oracle_updates_by_block" / "hourly" / "20260401"
+    )
     stream_dir.mkdir(parents=True)
     json_path = stream_dir / "11"
     now = datetime.now(timezone.utc).replace(microsecond=0)
@@ -224,10 +312,26 @@ async def test_hyperliquid_client_reads_filtered_oracle_updates_from_extensionle
             {
                 "oracle_pxs": {
                     "coin_to_mark_px": [
-                        ["cash:BTC", {"px": "68643.6", "last_update_time": now.isoformat().replace("+00:00", "Z")}],
+                        [
+                            "cash:BTC",
+                            {
+                                "px": "68643.6",
+                                "last_update_time": now.isoformat().replace(
+                                    "+00:00", "Z"
+                                ),
+                            },
+                        ],
                     ],
                     "coin_to_oracle_px": [
-                        ["cash:BTC", {"px": "68667.0", "last_update_time": now.isoformat().replace("+00:00", "Z")}],
+                        [
+                            "cash:BTC",
+                            {
+                                "px": "68667.0",
+                                "last_update_time": now.isoformat().replace(
+                                    "+00:00", "Z"
+                                ),
+                            },
+                        ],
                     ],
                 }
             }
@@ -236,7 +340,9 @@ async def test_hyperliquid_client_reads_filtered_oracle_updates_from_extensionle
     json_path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
 
     async def handler(_request: httpx.Request) -> httpx.Response:
-        raise AssertionError("HTTP API should not be queried when extensionless filtered data is fresh")
+        raise AssertionError(
+            "HTTP API should not be queried when extensionless filtered data is fresh"
+        )
 
     client = HyperliquidSnapshotClient(
         base_url="http://hl.local/info",
@@ -254,11 +360,15 @@ async def test_hyperliquid_client_reads_filtered_oracle_updates_from_extensionle
 
 
 @pytest.mark.asyncio
-async def test_hyperliquid_client_parses_meta_and_asset_ctxs_when_filesystem_absent(tmp_path):
+async def test_hyperliquid_client_parses_meta_and_asset_ctxs_when_filesystem_absent(
+    tmp_path,
+):
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "POST"
         assert request.url.path == "/info"
-        assert json.loads(request.content.decode("utf-8")) == {"type": "metaAndAssetCtxs"}
+        assert json.loads(request.content.decode("utf-8")) == {
+            "type": "metaAndAssetCtxs"
+        }
         return httpx.Response(
             200,
             json=[

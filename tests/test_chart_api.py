@@ -8,7 +8,12 @@ from fastapi.testclient import TestClient
 
 from api.routes.charts import get_brk_client
 from api.routes.live import get_live_snapshot_store
-from scripts.live.models import LiveComparison, LiveFeatureSet, LiveSnapshot, SourceHealth
+from scripts.live.models import (
+    LiveComparison,
+    LiveFeatureSet,
+    LiveSnapshot,
+    SourceHealth,
+)
 
 
 class InMemorySnapshotStore:
@@ -18,11 +23,15 @@ class InMemorySnapshotStore:
     async def get_latest(self, *, now: datetime | None = None) -> LiveSnapshot | None:
         return self.snapshots[-1] if self.snapshots else None
 
-    async def get_history(self, query=None, *, now: datetime | None = None) -> list[LiveSnapshot]:
+    async def get_history(
+        self, query=None, *, now: datetime | None = None
+    ) -> list[LiveSnapshot]:
         return list(self.snapshots)
 
 
-def _build_snapshot(*, timestamp: datetime, block_height: int, price: float) -> LiveSnapshot:
+def _build_snapshot(
+    *, timestamp: datetime, block_height: int, price: float
+) -> LiveSnapshot:
     return LiveSnapshot(
         timestamp=timestamp,
         block_height=block_height,
@@ -42,11 +51,21 @@ def _build_snapshot(*, timestamp: datetime, block_height: int, price: float) -> 
             brk_reserve_risk=4.100239e-06,
         ),
         source_health={
-            "electrs": SourceHealth(status="healthy", last_success=timestamp, observed_height=block_height),
-            "brk": SourceHealth(status="healthy", last_success=timestamp, observed_height=block_height),
-            "hyperliquid": SourceHealth(status="healthy", last_success=timestamp, observed_height=block_height),
-            "mempool_api": SourceHealth(status="healthy", last_success=timestamp, observed_height=block_height),
-            "utxoracle": SourceHealth(status="healthy", last_success=timestamp, observed_height=block_height),
+            "electrs": SourceHealth(
+                status="healthy", last_success=timestamp, observed_height=block_height
+            ),
+            "brk": SourceHealth(
+                status="healthy", last_success=timestamp, observed_height=block_height
+            ),
+            "hyperliquid": SourceHealth(
+                status="healthy", last_success=timestamp, observed_height=block_height
+            ),
+            "mempool_api": SourceHealth(
+                status="healthy", last_success=timestamp, observed_height=block_height
+            ),
+            "utxoracle": SourceHealth(
+                status="healthy", last_success=timestamp, observed_height=block_height
+            ),
         },
         source_timestamps={
             "electrs": timestamp,
@@ -66,14 +85,20 @@ def _build_client(store: InMemorySnapshotStore, *, brk_client=None) -> TestClien
     app.dependency_overrides[get_live_snapshot_store] = lambda: store
     if brk_client is not None:
         app.dependency_overrides[get_brk_client] = lambda: brk_client
-        
+
     unittest.mock.patch("api.questdb_repository.QuestDBRepository.initialize").start()
     return TestClient(app)
 
 
 def test_chart_catalog_exposes_admitted_chart_families():
     store = InMemorySnapshotStore(
-        [_build_snapshot(timestamp=datetime.now(timezone.utc), block_height=941456, price=84211.52)]
+        [
+            _build_snapshot(
+                timestamp=datetime.now(timezone.utc),
+                block_height=941456,
+                price=84211.52,
+            )
+        ]
     )
 
     with _build_client(store) as client:
@@ -108,7 +133,13 @@ def test_chart_catalog_exposes_admitted_chart_families():
 
 def test_live_price_comparison_latest_returns_normalized_chart_payload():
     store = InMemorySnapshotStore(
-        [_build_snapshot(timestamp=datetime.now(timezone.utc), block_height=941456, price=84211.52)]
+        [
+            _build_snapshot(
+                timestamp=datetime.now(timezone.utc),
+                block_height=941456,
+                price=84211.52,
+            )
+        ]
     )
 
     with _build_client(store) as client:
@@ -137,14 +168,22 @@ def test_live_price_comparison_history_returns_normalized_series_payload():
     now = datetime.now(timezone.utc)
     store = InMemorySnapshotStore(
         [
-            _build_snapshot(timestamp=now - timedelta(minutes=10), block_height=941450, price=84200.0),
-            _build_snapshot(timestamp=now - timedelta(minutes=5), block_height=941453, price=84210.0),
+            _build_snapshot(
+                timestamp=now - timedelta(minutes=10),
+                block_height=941450,
+                price=84200.0,
+            ),
+            _build_snapshot(
+                timestamp=now - timedelta(minutes=5), block_height=941453, price=84210.0
+            ),
             _build_snapshot(timestamp=now, block_height=941456, price=84211.52),
         ]
     )
 
     with _build_client(store) as client:
-        response = client.get("/api/v1/charts/live-price-comparison/history", params={"minutes": 60})
+        response = client.get(
+            "/api/v1/charts/live-price-comparison/history", params={"minutes": 60}
+        )
 
     assert response.status_code == 200
     payload = response.json()
@@ -168,7 +207,9 @@ def test_live_price_comparison_history_downsamples_long_windows_by_default():
     ]
 
     with _build_client(InMemorySnapshotStore(snapshots)) as client:
-        response = client.get("/api/v1/charts/live-price-comparison/history", params={"minutes": 1440})
+        response = client.get(
+            "/api/v1/charts/live-price-comparison/history", params={"minutes": 1440}
+        )
 
     assert response.status_code == 200
     payload = response.json()
@@ -208,7 +249,13 @@ def test_live_price_comparison_history_allows_raw_long_window_reads_when_downsam
 
 def test_live_price_comparison_latest_reports_stale_metadata_but_serves_payload():
     stale_timestamp = datetime.now(timezone.utc) - timedelta(seconds=61)
-    store = InMemorySnapshotStore([_build_snapshot(timestamp=stale_timestamp, block_height=941456, price=84211.52)])
+    store = InMemorySnapshotStore(
+        [
+            _build_snapshot(
+                timestamp=stale_timestamp, block_height=941456, price=84211.52
+            )
+        ]
+    )
 
     with _build_client(store) as client:
         response = client.get("/api/v1/charts/live-price-comparison/latest")
@@ -221,7 +268,13 @@ def test_live_price_comparison_latest_reports_stale_metadata_but_serves_payload(
 
 def test_chart_api_rejects_unknown_chart_ids():
     store = InMemorySnapshotStore(
-        [_build_snapshot(timestamp=datetime.now(timezone.utc), block_height=941456, price=84211.52)]
+        [
+            _build_snapshot(
+                timestamp=datetime.now(timezone.utc),
+                block_height=941456,
+                price=84211.52,
+            )
+        ]
     )
 
     with _build_client(store) as client:
@@ -243,14 +296,22 @@ def test_live_price_comparison_compare_returns_numeric_comparison_payload():
     now = datetime.now(timezone.utc)
     store = InMemorySnapshotStore(
         [
-            _build_snapshot(timestamp=now - timedelta(minutes=10), block_height=941450, price=84200.0),
-            _build_snapshot(timestamp=now - timedelta(minutes=5), block_height=941453, price=84210.0),
+            _build_snapshot(
+                timestamp=now - timedelta(minutes=10),
+                block_height=941450,
+                price=84200.0,
+            ),
+            _build_snapshot(
+                timestamp=now - timedelta(minutes=5), block_height=941453, price=84210.0
+            ),
             _build_snapshot(timestamp=now, block_height=941456, price=84211.52),
         ]
     )
 
     with _build_client(store) as client:
-        response = client.get("/api/v1/charts/live-price-comparison/compare", params={"minutes": 60})
+        response = client.get(
+            "/api/v1/charts/live-price-comparison/compare", params={"minutes": 60}
+        )
 
     assert response.status_code == 200
     payload = response.json()
@@ -276,17 +337,25 @@ def test_live_price_comparison_compare_reports_no_overlap_when_reference_is_miss
     store = InMemorySnapshotStore([snapshot])
 
     with _build_client(store) as client:
-        response = client.get("/api/v1/charts/live-price-comparison/compare", params={"minutes": 60})
+        response = client.get(
+            "/api/v1/charts/live-price-comparison/compare", params={"minutes": 60}
+        )
 
     assert response.status_code == 200
     payload = response.json()
-    mempool = next(item for item in payload["comparisons"] if item["reference_series_id"] == "mempool_exchange_price")
+    mempool = next(
+        item
+        for item in payload["comparisons"]
+        if item["reference_series_id"] == "mempool_exchange_price"
+    )
     assert mempool["status"] == "no_overlap"
     assert mempool["overlap_points"] == 0
 
 
 def test_live_price_comparison_compare_keeps_match_at_point_five_percent_boundary():
-    snapshot = _build_snapshot(timestamp=datetime.now(timezone.utc), block_height=941456, price=100.5)
+    snapshot = _build_snapshot(
+        timestamp=datetime.now(timezone.utc), block_height=941456, price=100.5
+    )
     snapshot = snapshot.model_copy(
         update={
             "mempool_exchange_price": 100.0,
@@ -296,17 +365,25 @@ def test_live_price_comparison_compare_keeps_match_at_point_five_percent_boundar
     )
 
     with _build_client(InMemorySnapshotStore([snapshot])) as client:
-        response = client.get("/api/v1/charts/live-price-comparison/compare", params={"minutes": 60})
+        response = client.get(
+            "/api/v1/charts/live-price-comparison/compare", params={"minutes": 60}
+        )
 
     assert response.status_code == 200
     payload = response.json()
-    mempool = next(item for item in payload["comparisons"] if item["reference_series_id"] == "mempool_exchange_price")
+    mempool = next(
+        item
+        for item in payload["comparisons"]
+        if item["reference_series_id"] == "mempool_exchange_price"
+    )
     assert mempool["mean_relative_diff_pct"] == 0.5
     assert mempool["status"] == "match"
 
 
 def test_live_price_comparison_compare_keeps_minor_diff_at_two_percent_boundary():
-    snapshot = _build_snapshot(timestamp=datetime.now(timezone.utc), block_height=941456, price=102.0)
+    snapshot = _build_snapshot(
+        timestamp=datetime.now(timezone.utc), block_height=941456, price=102.0
+    )
     snapshot = snapshot.model_copy(
         update={
             "mempool_exchange_price": 100.0,
@@ -316,17 +393,25 @@ def test_live_price_comparison_compare_keeps_minor_diff_at_two_percent_boundary(
     )
 
     with _build_client(InMemorySnapshotStore([snapshot])) as client:
-        response = client.get("/api/v1/charts/live-price-comparison/compare", params={"minutes": 60})
+        response = client.get(
+            "/api/v1/charts/live-price-comparison/compare", params={"minutes": 60}
+        )
 
     assert response.status_code == 200
     payload = response.json()
-    mempool = next(item for item in payload["comparisons"] if item["reference_series_id"] == "mempool_exchange_price")
+    mempool = next(
+        item
+        for item in payload["comparisons"]
+        if item["reference_series_id"] == "mempool_exchange_price"
+    )
     assert mempool["mean_relative_diff_pct"] == 2.0
     assert mempool["status"] == "minor_diff"
 
 
 def test_live_price_comparison_compare_transitions_to_major_diff_above_two_percent():
-    snapshot = _build_snapshot(timestamp=datetime.now(timezone.utc), block_height=941456, price=102.01)
+    snapshot = _build_snapshot(
+        timestamp=datetime.now(timezone.utc), block_height=941456, price=102.01
+    )
     snapshot = snapshot.model_copy(
         update={
             "mempool_exchange_price": 100.0,
@@ -336,18 +421,30 @@ def test_live_price_comparison_compare_transitions_to_major_diff_above_two_perce
     )
 
     with _build_client(InMemorySnapshotStore([snapshot])) as client:
-        response = client.get("/api/v1/charts/live-price-comparison/compare", params={"minutes": 60})
+        response = client.get(
+            "/api/v1/charts/live-price-comparison/compare", params={"minutes": 60}
+        )
 
     assert response.status_code == 200
     payload = response.json()
-    mempool = next(item for item in payload["comparisons"] if item["reference_series_id"] == "mempool_exchange_price")
+    mempool = next(
+        item
+        for item in payload["comparisons"]
+        if item["reference_series_id"] == "mempool_exchange_price"
+    )
     assert mempool["mean_relative_diff_pct"] == 2.01
     assert mempool["status"] == "major_diff"
 
 
 def test_realized_price_reference_latest_returns_brk_realized_price_series():
     store = InMemorySnapshotStore(
-        [_build_snapshot(timestamp=datetime.now(timezone.utc), block_height=941456, price=84211.52)]
+        [
+            _build_snapshot(
+                timestamp=datetime.now(timezone.utc),
+                block_height=941456,
+                price=84211.52,
+            )
+        ]
     )
 
     with _build_client(store) as client:
@@ -363,12 +460,16 @@ def test_realized_price_reference_latest_returns_brk_realized_price_series():
 
 
 def test_realized_price_reference_ignores_unrelated_hyperliquid_staleness():
-    snapshot = _build_snapshot(timestamp=datetime.now(timezone.utc), block_height=941456, price=84211.52)
+    snapshot = _build_snapshot(
+        timestamp=datetime.now(timezone.utc), block_height=941456, price=84211.52
+    )
     snapshot = snapshot.model_copy(
         update={
             "source_health": {
                 **snapshot.source_health,
-                "hyperliquid": SourceHealth(status="stale", last_success=snapshot.timestamp),
+                "hyperliquid": SourceHealth(
+                    status="stale", last_success=snapshot.timestamp
+                ),
             }
         }
     )
@@ -384,15 +485,33 @@ def test_realized_price_reference_ignores_unrelated_hyperliquid_staleness():
 
 def test_realized_price_reference_history_returns_single_series_payload():
     now = datetime.now(timezone.utc)
-    first = _build_snapshot(timestamp=now - timedelta(minutes=10), block_height=941450, price=84200.0)
-    second = _build_snapshot(timestamp=now - timedelta(minutes=5), block_height=941453, price=84210.0)
+    first = _build_snapshot(
+        timestamp=now - timedelta(minutes=10), block_height=941450, price=84200.0
+    )
+    second = _build_snapshot(
+        timestamp=now - timedelta(minutes=5), block_height=941453, price=84210.0
+    )
     third = _build_snapshot(timestamp=now, block_height=941456, price=84211.52)
-    second = second.model_copy(update={"features": second.features.model_copy(update={"brk_realized_price": 54312.00})})
-    third = third.model_copy(update={"features": third.features.model_copy(update={"brk_realized_price": 54313.25})})
+    second = second.model_copy(
+        update={
+            "features": second.features.model_copy(
+                update={"brk_realized_price": 54312.00}
+            )
+        }
+    )
+    third = third.model_copy(
+        update={
+            "features": third.features.model_copy(
+                update={"brk_realized_price": 54313.25}
+            )
+        }
+    )
     store = InMemorySnapshotStore([first, second, third])
 
     with _build_client(store) as client:
-        response = client.get("/api/v1/charts/realized-price-reference/history", params={"minutes": 60})
+        response = client.get(
+            "/api/v1/charts/realized-price-reference/history", params={"minutes": 60}
+        )
 
     assert response.status_code == 200
     payload = response.json()
@@ -410,19 +529,29 @@ def test_realized_price_reference_history_returns_single_series_payload():
 
 
 def test_realized_price_reference_compare_uses_live_brk_reference():
-    snapshot = _build_snapshot(timestamp=datetime.now(timezone.utc), block_height=941456, price=84211.52)
+    snapshot = _build_snapshot(
+        timestamp=datetime.now(timezone.utc), block_height=941456, price=84211.52
+    )
     fake_brk_client = SimpleNamespace(
         fetch_curated_features=lambda index="day1": _async_result(
             SimpleNamespace(
-                value=LiveFeatureSet(brk_realized_price=54311.39, brk_liveliness=None, brk_reserve_risk=None),
+                value=LiveFeatureSet(
+                    brk_realized_price=54311.39,
+                    brk_liveliness=None,
+                    brk_reserve_risk=None,
+                ),
                 health=SourceHealth(status="healthy"),
                 source_timestamp=snapshot.timestamp,
             )
         )
     )
 
-    with _build_client(InMemorySnapshotStore([snapshot]), brk_client=fake_brk_client) as client:
-        response = client.get("/api/v1/charts/realized-price-reference/compare", params={"minutes": 60})
+    with _build_client(
+        InMemorySnapshotStore([snapshot]), brk_client=fake_brk_client
+    ) as client:
+        response = client.get(
+            "/api/v1/charts/realized-price-reference/compare", params={"minutes": 60}
+        )
 
     assert response.status_code == 200
     payload = response.json()
@@ -443,7 +572,9 @@ def test_realized_price_reference_compare_uses_live_brk_reference():
 
 
 def test_realized_price_reference_compare_degrades_when_brk_reference_is_unavailable():
-    snapshot = _build_snapshot(timestamp=datetime.now(timezone.utc), block_height=941456, price=84211.52)
+    snapshot = _build_snapshot(
+        timestamp=datetime.now(timezone.utc), block_height=941456, price=84211.52
+    )
     fake_brk_client = SimpleNamespace(
         fetch_curated_features=lambda index="day1": _async_result(
             SimpleNamespace(
@@ -454,8 +585,12 @@ def test_realized_price_reference_compare_degrades_when_brk_reference_is_unavail
         )
     )
 
-    with _build_client(InMemorySnapshotStore([snapshot]), brk_client=fake_brk_client) as client:
-        response = client.get("/api/v1/charts/realized-price-reference/compare", params={"minutes": 60})
+    with _build_client(
+        InMemorySnapshotStore([snapshot]), brk_client=fake_brk_client
+    ) as client:
+        response = client.get(
+            "/api/v1/charts/realized-price-reference/compare", params={"minutes": 60}
+        )
 
     assert response.status_code == 200
     payload = response.json()
@@ -466,15 +601,21 @@ def test_realized_price_reference_compare_degrades_when_brk_reference_is_unavail
 
 
 def test_realized_price_reference_compare_degrades_when_brk_client_raises():
-    snapshot = _build_snapshot(timestamp=datetime.now(timezone.utc), block_height=941456, price=84211.52)
+    snapshot = _build_snapshot(
+        timestamp=datetime.now(timezone.utc), block_height=941456, price=84211.52
+    )
 
     async def _raise_timeout(index="day1"):
         raise asyncio.TimeoutError("brk timeout")
 
     fake_brk_client = SimpleNamespace(fetch_curated_features=_raise_timeout)
 
-    with _build_client(InMemorySnapshotStore([snapshot]), brk_client=fake_brk_client) as client:
-        response = client.get("/api/v1/charts/realized-price-reference/compare", params={"minutes": 60})
+    with _build_client(
+        InMemorySnapshotStore([snapshot]), brk_client=fake_brk_client
+    ) as client:
+        response = client.get(
+            "/api/v1/charts/realized-price-reference/compare", params={"minutes": 60}
+        )
 
     assert response.status_code == 200
     payload = response.json()

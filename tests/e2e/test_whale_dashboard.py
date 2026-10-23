@@ -161,7 +161,7 @@ class TestWebSocketConnection:
 
         # Transaction feed should eventually show transactions
         # (may take time if no whale activity, so timeout is generous)
-        feed = page.locator("#transaction-feed")
+        _feed = page.locator("#transaction-feed")
 
         # Either has transaction items OR shows empty state
         page.wait_for_selector(".transaction-item, .feed-empty-state", timeout=30000)
@@ -170,7 +170,7 @@ class TestWebSocketConnection:
         """Verify last update timestamp updates periodically"""
         last_update = page.locator("#last-update")
 
-        initial_text = last_update.text_content()
+        _initial_text = last_update.text_content()
 
         # Wait for an update (max 30 seconds)
         page.wait_for_timeout(5000)
@@ -511,7 +511,7 @@ class TestResponsiveDesign:
             expect(status_bar).to_be_visible()
 
             # Net flow section should stack vertically
-            net_flow = page.locator(".net-flow-content")
+            _net_flow = page.locator(".net-flow-content")
             # Just verify it's visible, CSS handles layout
 
             # Feed controls should stack
@@ -593,7 +593,7 @@ class TestErrorHandling:
         expect(error_state).to_have_class(re.compile("hidden"))
 
         # Retry button should exist
-        retry_btn = page.locator("#retry-button")
+        _retry_btn = page.locator("#retry-button")
         # Should exist but be hidden initially
 
 

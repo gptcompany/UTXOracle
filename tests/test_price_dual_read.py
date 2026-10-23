@@ -47,15 +47,43 @@ def _create_price_analysis_duckdb(db_path: Path) -> None:
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
-                ("2026-03-29", 66100.0, 66090.0, -10.0, -0.02, 0.82, 125, True, None, None, None, None),
-                ("2026-03-30", 66200.0, 66180.0, -20.0, -0.03, 0.83, 130, True, None, None, None, None),
+                (
+                    "2026-03-29",
+                    66100.0,
+                    66090.0,
+                    -10.0,
+                    -0.02,
+                    0.82,
+                    125,
+                    True,
+                    None,
+                    None,
+                    None,
+                    None,
+                ),
+                (
+                    "2026-03-30",
+                    66200.0,
+                    66180.0,
+                    -20.0,
+                    -0.03,
+                    0.83,
+                    130,
+                    True,
+                    None,
+                    None,
+                    None,
+                    None,
+                ),
             ],
         )
     finally:
         conn.close()
 
 
-def test_log_prices_historical_dual_read_appends_dual_read_event(tmp_path: Path, monkeypatch):
+def test_log_prices_historical_dual_read_appends_dual_read_event(
+    tmp_path: Path, monkeypatch
+):
     db_path = tmp_path / "utxoracle.duckdb"
     log_path = tmp_path / "prices_dual_read.jsonl"
     _create_price_analysis_duckdb(db_path)

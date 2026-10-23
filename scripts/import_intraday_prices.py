@@ -28,6 +28,7 @@ from typing import Optional, Dict, List
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import duckdb
+
 # Use SOPS-encrypted secrets
 sys.path.insert(0, "/media/sam/1TB/claude-hooks-shared/scripts")
 from secrets_loader import load_secrets
@@ -35,9 +36,7 @@ from scripts.config import UTXORACLE_DB_PATH
 
 # Load config
 load_secrets()
-DUCKDB_PATH = os.getenv(
-    "DUCKDB_PATH", str(UTXORACLE_DB_PATH)
-)
+DUCKDB_PATH = os.getenv("DUCKDB_PATH", str(UTXORACLE_DB_PATH))
 HISTORICAL_DIR = Path(__file__).parent.parent / "historical_data" / "html_files"
 LOG_DIR = Path(__file__).parent.parent / "logs"
 
@@ -243,7 +242,7 @@ def import_to_duckdb(
                 try:
                     os.unlink(csv_path)
                     logging.info("✅ Cleaned up temporary CSV")
-                except:
+                except OSError:
                     pass
 
             logging.info(f"✅ Inserted {inserted:,} intraday price points")
@@ -328,7 +327,7 @@ def main():
     logging.info(f"Average {avg_points_per_day:.0f} points per day")
 
     # Import to DuckDB
-    inserted = import_to_duckdb(data_records, DUCKDB_PATH, dry_run=args.dry_run)
+    import_to_duckdb(data_records, DUCKDB_PATH, dry_run=args.dry_run)
 
     if not args.dry_run:
         # Verify

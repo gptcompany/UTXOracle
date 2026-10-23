@@ -24,7 +24,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -122,6 +122,22 @@ from api.config import (
     get_cors_middleware_kwargs,
 )
 
+# Imports that used to sit mid-file next to their endpoints (E402); none of these
+# modules imports api.main, so loading them here changes no import order that matters.
+from api.routes.questdb import router as questdb_router
+from api.routes.streams import router as streams_router
+from api.models.risk_models import (
+    ProRiskResponseAPI,
+    ProRiskHistoryResponseAPI,
+    ZoneDefinitionsResponseAPI,
+    ZoneDefinitionAPI,
+)
+from scripts.metrics.pro_risk import (
+    calculate_pro_risk,
+    ZONE_THRESHOLDS,
+    ProRiskResult,
+)
+
 STARTUP_TIME = datetime.now(timezone.utc)
 
 
@@ -137,6 +153,7 @@ def _raise_http_exception(
 ) -> None:
     logging.exception("%s: %s", log_message, exc)
     raise HTTPException(status_code=status_code, detail=public_detail) from exc
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -154,7 +171,7 @@ async def lifespan(app: FastAPI):
     questdb_repo = QuestDBRepository()
     await questdb_repo.initialize()
     app.state.questdb_repo = questdb_repo
-    
+
     logging.info("QuestDB repository initialized.")
     logging.info(f"Listening on: {FASTAPI_HOST}:{FASTAPI_PORT}")
     logging.info(f"Docs available at: http://{FASTAPI_HOST}:{FASTAPI_PORT}/docs")
@@ -211,13 +228,16 @@ PROMOTED_PATH_PREFIXES = (
     "/api/metrics/absorption-rates",
 )
 
+
 @app.middleware("http")
 async def migration_middleware(request: Request, call_next):
     response = await call_next(request)
     path = request.url.path
     if any(path.startswith(prefix) for prefix in PROMOTED_PATH_PREFIXES):
         # Port 8001 is now secondary for these routes
-        response.headers["X-UTXOracle-Migration-Hint"] = "Canonical production host is :8011"
+        response.headers["X-UTXOracle-Migration-Hint"] = (
+            "Canonical production host is :8011"
+        )
         response.headers["Deprecation"] = "true"
         # We don't return 410 yet to avoid breaking local operators immediately
     return response
@@ -268,20 +288,22 @@ except ImportError as e:
 # spec-050: Promoted QuestDB-backed routes
 # =============================================================================
 
-from api.routes.questdb import router as questdb_router
 app.include_router(questdb_router)
 logging.info("✅ Promoted QuestDB-backed metrics registered (prices, metrics/latest)")
 
 # spec-061: Consumer-facing stream consumption contract — GET /v1/streams/health
-from api.routes.streams import router as streams_router
 app.include_router(streams_router)
-logging.info("✅ Stream consumption contract registered (/v1/streams/health, 13 streams)")
+logging.info(
+    "✅ Stream consumption contract registered (/v1/streams/health, 13 streams)"
+)
 
 # =============================================================================
 # spec-040: Dedicated live API host policy
 # =============================================================================
 
-logging.info("ℹ️ Live service API endpoints are served only by the dedicated live app on :8011")
+logging.info(
+    "ℹ️ Live service API endpoints are served only by the dedicated live app on :8011"
+)
 
 # =============================================================================
 # Pydantic Models
@@ -616,7 +638,6 @@ async def get_advanced_metrics(request: Request):
 
     These metrics provide +40% improvement in signal accuracy over spec-007.
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
     raise HTTPException(status_code=501, detail="Not Implemented")
 
 
@@ -632,7 +653,6 @@ async def get_wasserstein_latest(request: Request):
 
     Returns the most recent Wasserstein distance calculation and regime status.
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
     raise HTTPException(status_code=501, detail="Not Implemented")
 
 
@@ -649,7 +669,6 @@ async def get_wasserstein_history(
 
     Returns rolling Wasserstein distances for the specified period.
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
     raise HTTPException(status_code=501, detail="Not Implemented")
 
 
@@ -660,7 +679,6 @@ async def get_wasserstein_regime(request: Request):
 
     Returns simplified regime status for trading decisions.
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
     raise HTTPException(status_code=501, detail="Not Implemented")
 
 
@@ -676,7 +694,6 @@ async def get_cointime_latest(request: Request):
 
     Returns the most recent coinblocks, liveliness, supply split, and AVIV metrics.
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
     raise HTTPException(status_code=501, detail="Not Implemented")
 
 
@@ -693,7 +710,6 @@ async def get_cointime_history(
 
     Returns liveliness, AVIV, and supply split history for charting.
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
     raise HTTPException(status_code=501, detail="Not Implemented")
 
 
@@ -704,7 +720,6 @@ async def get_cointime_signal(request: Request):
 
     Returns the AVIV-based valuation signal for fusion integration.
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
     raise HTTPException(status_code=501, detail="Not Implemented")
 
 
@@ -755,8 +770,6 @@ class URPDResponse(BaseModel):
     timestamp: str
 
 
-
-
 @app.get("/api/metrics/urpd", response_model=URPDResponse)
 async def get_urpd(
     request: Request,
@@ -794,7 +807,6 @@ async def get_urpd(
 
     Spec: 021-advanced-onchain-metrics
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
     raise HTTPException(status_code=501, detail="Not Implemented")
 
 
@@ -856,7 +868,6 @@ async def get_supply_profit_loss(
 
     Spec: 021-advanced-onchain-metrics
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
     raise HTTPException(status_code=501, detail="Not Implemented")
 
 
@@ -950,7 +961,6 @@ async def get_sell_side_risk(
 
     Spec: 021-advanced-onchain-metrics
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
     raise HTTPException(status_code=501, detail="Not Implemented")
 
 
@@ -1003,7 +1013,6 @@ async def get_cdd_vdd(
 
     Spec: 021-advanced-onchain-metrics
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
     raise HTTPException(status_code=501, detail="Not Implemented")
 
 
@@ -1221,10 +1230,7 @@ async def get_revived_supply(
 
     Spec: 024-revived-supply
     """
-    repo: QuestDBRepository = request.app.state.questdb_repo
     raise HTTPException(status_code=501, detail="Not Implemented")
-
-
 
 
 # =============================================================================
@@ -1468,12 +1474,8 @@ class NetRealizedPnLResponse(BaseModel):
     }
 
 
-PRO_RISK_DEMOTED_DETAIL = (
-    "PRO Risk API is runtime-demoted pending real component metric wiring and history support."
-)
-PUELL_MULTIPLE_DEMOTED_DETAIL = (
-    "Puell Multiple API is runtime-demoted pending real 365-day miner revenue history wiring."
-)
+PRO_RISK_DEMOTED_DETAIL = "PRO Risk API is runtime-demoted pending real component metric wiring and history support."
+PUELL_MULTIPLE_DEMOTED_DETAIL = "Puell Multiple API is runtime-demoted pending real 365-day miner revenue history wiring."
 
 
 class NetRealizedPnLHistoryPointResponse(BaseModel):
@@ -1613,6 +1615,7 @@ async def get_exchange_netflow(
     - Some addresses may be misattributed
     """
     import duckdb
+
     conn = None
     try:
         conn = duckdb.connect(UTXO_DB_PATH, read_only=True)
@@ -2367,12 +2370,6 @@ async def health_check():
         latency_ms = round((time.time() - start) * 1000, 2)
 
         # Detect gaps in last 7 days (QuestDB compatible)
-        gap_query = """
-            SELECT ts::VARCHAR
-            FROM price_analysis
-            WHERE ts > now() - interval '7 days'
-            SAMPLE BY 1d ALIGN TO CALENDAR
-        """
         # This is simplified gap detection for QuestDB
         # In a real scenario we'd check for missing days in the sample
         gaps_count = 0
@@ -2424,7 +2421,9 @@ async def health_check():
                 get_live_snapshot_store,
             )
 
-            live_summary = await build_live_health_summary_async(get_live_snapshot_store())
+            live_summary = await build_live_health_summary_async(
+                get_live_snapshot_store()
+            )
             live_status = str(live_summary.get("status", "unavailable"))
             if live_status == "unavailable":
                 checks["utxoracle_live"] = ServiceCheck(
@@ -2435,7 +2434,9 @@ async def health_check():
                 checks["utxoracle_live"] = ServiceCheck(
                     status="ok",
                     last_success=live_summary.get("timestamp"),
-                    error=None if live_status == "healthy" else f"live status: {live_status}",
+                    error=None
+                    if live_status == "healthy"
+                    else f"live status: {live_status}",
                 )
         except Exception as e:
             logging.warning(f"Failed to build live health summary: {e}")
@@ -2957,7 +2958,6 @@ async def get_sopr(
     Spec: 016-sopr-analysis
     """
     import duckdb
-    from datetime import timedelta
     # spec-013: Independent SOPR calculation from UTXO lifecycle data
     # This removes CheckOnChain dependency and uses our own calculation
 
@@ -3295,18 +3295,6 @@ async def get_puell_multiple(
 # PRO Risk Metric Endpoints (spec-033)
 # =============================================================================
 
-from api.models.risk_models import (
-    ProRiskResponseAPI,
-    ProRiskHistoryResponseAPI,
-    ZoneDefinitionsResponseAPI,
-    ZoneDefinitionAPI,
-)
-from scripts.metrics.pro_risk import (
-    calculate_pro_risk,
-    ZONE_THRESHOLDS,
-    ProRiskResult,
-)
-
 
 def get_pro_risk_for_date(target_date: date) -> Optional[ProRiskResult]:
     """
@@ -3445,13 +3433,13 @@ async def get_pro_risk_history_endpoint(
 # Spec-034: Bitcoin Price Power Law Model Endpoints
 # =============================================================================
 
-from api.models.power_law_models import (
+from api.models.power_law_models import (  # noqa: E402 - rebinds PowerLawResponse defined above
     PowerLawModel,
     PowerLawResponse,
     PowerLawHistoryPoint,
     PowerLawHistoryResponse,
 )
-from scripts.models.price_power_law import (
+from scripts.models.price_power_law import (  # noqa: E402
     DEFAULT_MODEL,
     days_since_genesis,
     predict_price,
