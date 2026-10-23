@@ -11,10 +11,12 @@ from nautilus_trader.live.providers import DataProvider
 
 logger = logging.getLogger(__name__)
 
+
 class WhaleSignalData(Data):
     """
     Custom data object for Nautilus Trader representing a UTXOracle Whale Signal.
     """
+
     def __init__(
         self,
         ts_event: int,
@@ -38,10 +40,12 @@ class WhaleSignalData(Data):
         self.confidence_score = confidence_score
         self.rbf_enabled = rbf_enabled
 
+
 class WhaleDataClient(LiveClient):
     """
     Nautilus Trader LiveClient for UTXOracle Whale WebSocket Stream.
     """
+
     def __init__(
         self,
         loop: asyncio.AbstractEventLoop,
@@ -92,15 +96,15 @@ class WhaleDataClient(LiveClient):
             data = json.loads(message)
             if data.get("type") != "whale_alert":
                 return
-                
+
             payload = data.get("data", {})
-            
+
             # Convert ISO timestamp to nanoseconds for Nautilus
             # e.g. "2026-04-13T19:04:24.422511+00:00"
             # Here we simplify for the example. In production, use fast parsing.
-            ts_event = self.clock.timestamp_ns() 
+            ts_event = self.clock.timestamp_ns()
             ts_init = self.clock.timestamp_ns()
-            
+
             signal = WhaleSignalData(
                 ts_event=ts_event,
                 ts_init=ts_init,
@@ -111,17 +115,21 @@ class WhaleDataClient(LiveClient):
                 btc_value=float(payload["btc_value"]),
                 urgency_score=float(payload["urgency_score"]),
                 confidence_score=float(payload.get("confidence_score", 0.0)),
-                rbf_enabled=bool(payload.get("rbf_enabled", False))
+                rbf_enabled=bool(payload.get("rbf_enabled", False)),
             )
-            
+
             # Send to Nautilus Trader MessageBus
             self.msgbus.publish_data(signal)
-            logger.debug(f"🐋 Routed Whale Signal to NT Bus: {signal.flow_type} | {signal.btc_value} BTC")
-            
+            logger.debug(
+                f"🐋 Routed Whale Signal to NT Bus: {signal.flow_type} | {signal.btc_value} BTC"
+            )
+
         except Exception as e:
             logger.error(f"Failed to parse whale signal: {e}")
 
+
 class WhaleDataProvider(DataProvider):
     """Provider to register the client with Nautilus."""
+
     def __init__(self, client: WhaleDataClient):
         super().__init__(client=client)

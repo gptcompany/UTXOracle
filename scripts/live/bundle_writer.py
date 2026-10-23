@@ -31,7 +31,9 @@ COHORT_BUNDLE_ID = "btc_cohort.v1"
 
 DEFAULT_FLOW_WINDOW_HOURS = int(os.getenv("BTC_FLOW_WINDOW_HOURS", "1"))
 DEFAULT_FLOW_SUMMARY_HOURS = int(os.getenv("BTC_FLOW_SUMMARY_HOURS", "24"))
-DEFAULT_ABSORPTION_WINDOW_DAYS = int(os.getenv("BTC_BUNDLE_ABSORPTION_WINDOW_DAYS", "30"))
+DEFAULT_ABSORPTION_WINDOW_DAYS = int(
+    os.getenv("BTC_BUNDLE_ABSORPTION_WINDOW_DAYS", "30")
+)
 WAVE1_STALE_AFTER = timedelta(hours=48)
 BRK_STALE_AFTER = timedelta(hours=24)
 
@@ -56,7 +58,9 @@ def _as_utc(value: Any) -> datetime | None:
             parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
         except ValueError:
             return None
-        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+        return (
+            parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+        )
     return None
 
 
@@ -132,7 +136,9 @@ class BundleWriter:
     ) -> list[tuple[str, dict[str, Any]]]:
         core_payload = await self._build_core_bundle(snapshot, produced_at=produced_at)
         flow_payload = await self._build_flow_bundle(produced_at=produced_at)
-        macro_payload = await self._build_macro_bundle(snapshot, produced_at=produced_at)
+        macro_payload = await self._build_macro_bundle(
+            snapshot, produced_at=produced_at
+        )
         cohort_payload = await self._build_cohort_bundle(produced_at=produced_at)
 
         return [
@@ -148,7 +154,6 @@ class BundleWriter:
         *,
         produced_at: datetime,
     ) -> dict[str, Any]:
-        now = produced_at
         degraded_reasons: list[str] = []
         stale = False
 
@@ -357,7 +362,10 @@ class BundleWriter:
             ("cost_basis", cost_basis_payload, cost_basis_ts),
         ):
             if not payload:
-                if component_name == "cost_basis" and f"{component_name} unavailable" not in degraded_reasons:
+                if (
+                    component_name == "cost_basis"
+                    and f"{component_name} unavailable" not in degraded_reasons
+                ):
                     degraded_reasons.append(f"{component_name} unavailable")
                 continue
             if _is_stale(component_ts, WAVE1_STALE_AFTER, now=now):
@@ -517,7 +525,9 @@ class BundleWriter:
                 internal_btc += btc_value
 
             exchange_addresses = _parse_exchange_addresses(row["exchange_addresses"])
-            if self._has_unambiguous_cluster(exchange_addresses, cluster_rows_by_address):
+            if self._has_unambiguous_cluster(
+                exchange_addresses, cluster_rows_by_address
+            ):
                 enriched_event_count += 1
             else:
                 non_enriched_event_count += 1
@@ -526,7 +536,9 @@ class BundleWriter:
         return {
             "window_hours": self.flow_window_hours,
             "total_transactions": len(rows),
-            "total_btc_volume": round(sum(float(row["btc_value"] or 0.0) for row in rows), 2),
+            "total_btc_volume": round(
+                sum(float(row["btc_value"] or 0.0) for row in rows), 2
+            ),
             "inflow_btc": round(inflow_btc, 8),
             "outflow_btc": round(outflow_btc, 8),
             "internal_btc": round(internal_btc, 8),
@@ -536,7 +548,9 @@ class BundleWriter:
             "last_event_timestamp": _isoformat(last_event_timestamp),
         }
 
-    async def _fetch_cluster_rows(self, addresses: list[str]) -> dict[str, list[dict[str, Any]]]:
+    async def _fetch_cluster_rows(
+        self, addresses: list[str]
+    ) -> dict[str, list[dict[str, Any]]]:
         if not addresses:
             return {}
 
@@ -584,7 +598,9 @@ class BundleWriter:
             return await builder()
         except Exception as exc:
             error_msg = f"{component_name} failure: {str(exc)}"
-            logger.warning("Failed to build %s bundle component: %s", component_name, exc)
+            logger.warning(
+                "Failed to build %s bundle component: %s", component_name, exc
+            )
             if blocking or error_msg not in degraded_reasons:
                 degraded_reasons.append(error_msg)
             return {}, None

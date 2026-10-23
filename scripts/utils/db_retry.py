@@ -35,7 +35,6 @@ try:
         wait_exponential,
         retry_if_exception,
         before_sleep_log,
-        RetryError,
     )
 
     TENACITY_AVAILABLE = True
@@ -225,8 +224,9 @@ def with_db_retry(
 
     def decorator(func: Callable) -> Callable:
         import asyncio
-        
+
         if asyncio.iscoroutinefunction(func):
+
             @wraps(func)
             @retry(
                 stop=stop_after_attempt(config.max_attempts),
@@ -244,12 +244,18 @@ def with_db_retry(
                     return await func(*args, **kwargs)
                 except Exception as e:
                     if not config.should_retry(e):
-                        logger.error(f"Permanent error in {func.__name__} - not retrying: {e}")
+                        logger.error(
+                            f"Permanent error in {func.__name__} - not retrying: {e}"
+                        )
                         raise
-                    logger.warning(f"Transient error in {func.__name__} - will retry: {e}")
+                    logger.warning(
+                        f"Transient error in {func.__name__} - will retry: {e}"
+                    )
                     raise
+
             return async_wrapper
         else:
+
             @wraps(func)
             @retry(
                 stop=stop_after_attempt(config.max_attempts),
@@ -267,10 +273,15 @@ def with_db_retry(
                     return func(*args, **kwargs)
                 except Exception as e:
                     if not config.should_retry(e):
-                        logger.error(f"Permanent error in {func.__name__} - not retrying: {e}")
+                        logger.error(
+                            f"Permanent error in {func.__name__} - not retrying: {e}"
+                        )
                         raise
-                    logger.warning(f"Transient error in {func.__name__} - will retry: {e}")
+                    logger.warning(
+                        f"Transient error in {func.__name__} - will retry: {e}"
+                    )
                     raise
+
             return wrapper
 
     return decorator
@@ -337,7 +348,6 @@ def connect_with_retry(db_path: str, max_attempts: int = 3, read_only: bool = Tr
 # =============================================================================
 
 if __name__ == "__main__":
-
     # Example 1: Decorator usage
     @with_db_retry(max_attempts=5)
     def query_example(conn):

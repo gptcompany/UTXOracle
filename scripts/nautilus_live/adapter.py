@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
+
 try:
     from enum import StrEnum
 except ImportError:  # pragma: no cover - Python < 3.11 compatibility
@@ -9,6 +10,7 @@ except ImportError:  # pragma: no cover - Python < 3.11 compatibility
 
     class StrEnum(str, Enum):
         pass
+
 
 from scripts.nautilus_live.client import LiveSnapshotPollingClient
 from scripts.nautilus_live.contract import TradableSnapshot, normalize_live_snapshot

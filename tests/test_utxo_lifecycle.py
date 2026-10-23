@@ -364,7 +364,7 @@ class TestUTXOSpendingTracking:
         spent_time = datetime(2024, 3, 15, 12, 0, 0)
         spent_price = 100000.0
 
-        sopr = mark_utxo_spent(
+        _sopr = mark_utxo_spent(
             temp_db,
             sample_utxo.outpoint,
             spent_block,

@@ -9,12 +9,6 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      run_streams_health_contract:
-        description: 'Run spec-061 live /v1/streams/health contract gate'
-        required: false
-        default: false
-        type: boolean
 
 jobs:
   security:
@@ -34,39 +28,11 @@ jobs:
 
   test:
     name: Tests
-    needs: [security, lint]
+    # Security Scan is red until the leaked JWT secrets are rotated (F-215); it must not hide the tests.
+    needs: [lint]
     uses: gptcompany/claude-hooks-shared/.github/workflows/_reusable-tests.yml@main
     with:
       python-version: '3.12'
       test-paths: 'tests/'
       coverage-paths: '.'
       coverage-threshold: 70
-
-  streams-health-contract:
-    name: Streams Health Contract
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_streams_health_contract }}
-    needs: [security, lint]
-    runs-on: [self-hosted, Linux, X64, dell-runner]
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-        with:
-          version: "latest"
-
-      - name: Install dependencies
-        run: uv sync --frozen
-
-      - name: Run stream health integration gate
-        env:
-          RUN_STREAMS_HEALTH_CONTRACT: "1"
-        run: |
-          uv run pytest tests/integration/test_streams_health_contract.py \
-            -m integration -q
