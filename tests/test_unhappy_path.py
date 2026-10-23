@@ -1,7 +1,4 @@
 import asyncio
-import json
-import pytest
-import websockets
 from datetime import datetime, timezone
 from scripts.whale_alert_broadcaster import WhaleAlertBroadcaster
 from scripts.models.whale_signal import MempoolWhaleSignal, FlowType

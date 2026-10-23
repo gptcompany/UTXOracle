@@ -1,6 +1,5 @@
 import asyncio
 import json
-import pytest
 import websockets
 from datetime import datetime, timezone
 from scripts.whale_alert_broadcaster import WhaleAlertBroadcaster
@@ -20,7 +19,7 @@ async def test_whale_alert_broadcast_e2e():
         # Subscribe as a client
         async with websockets.connect(f"ws://{host}:{port}") as ws:
             # Receive welcome
-            welcome = await ws.recv()
+            _welcome = await ws.recv()
             
             # Send a test signal via broadcaster
             signal = MempoolWhaleSignal(

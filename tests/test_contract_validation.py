@@ -1,8 +1,6 @@
 import pytest
 import yaml
-import os
 from pathlib import Path
-import re
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 DOCS_DIR = PROJECT_ROOT / "docs"

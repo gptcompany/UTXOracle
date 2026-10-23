@@ -7,7 +7,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api.apps.live import app as live_app
-from api.main import app as main_app
 
 # These tests establish the RED baseline for the signal snapshot serving routes
 # as defined in spec-052 Phase 7. They will fail until the routes are implemented.

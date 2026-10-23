@@ -283,7 +283,6 @@ class TestAPIEndpointIntegration:
 
     def test_metrics_latest_endpoint_structure(self):
         """Test /api/metrics/latest returns expected structure."""
-        import os
         from fastapi.testclient import TestClient
         from api.main import app
         from unittest.mock import AsyncMock

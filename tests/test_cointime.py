@@ -631,8 +631,8 @@ class TestValidationAndPerformance:
             total_destroyed += calculate_coinblocks_destroyed(spent_btc[i], blocks_held[i])
             
         # Perform downstream calculations
-        liveliness = calculate_liveliness(total_destroyed, 1e12)
-        aviv = calculate_aviv(100000, 50000)
+        _liveliness = calculate_liveliness(total_destroyed, 1e12)
+        _aviv = calculate_aviv(100000, 50000)
         
         end_time = time.perf_counter()
         duration = end_time - start_time
