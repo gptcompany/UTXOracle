@@ -35,7 +35,6 @@ try:
         wait_exponential,
         retry_if_exception,
         before_sleep_log,
-        RetryError,
     )
 
     TENACITY_AVAILABLE = True

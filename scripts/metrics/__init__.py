@@ -29,8 +29,7 @@ Usage:
 """
 
 from datetime import datetime
-from typing import Optional, Any, Dict
-import json
+from typing import Optional
 import logging
 
 from api.questdb_repository import QuestDBRepository
@@ -191,7 +190,7 @@ def load_metrics_from_db(
     try:
         # Check if we are already in an event loop
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()  # raises RuntimeError when no loop is running
             # If in a loop, we can't block. This is a design conflict for sync metrics loading.
             # Fallback to a warning and empty list if called from within async.
             logger.warning("load_metrics_from_db called from async context, use repo.fetch directly.")

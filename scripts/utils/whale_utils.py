@@ -1,7 +1,7 @@
 import csv
 import logging
 from pydantic import BaseModel, Field, field_validator
-from typing import Dict, List
+from typing import Dict
 
 logger = logging.getLogger(__name__)
 

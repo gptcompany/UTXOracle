@@ -37,10 +37,6 @@ import re
 import sys
 import time
 
-# Strict ISO-8601 timestamp shape; what `datetime.isoformat()` emits.
-_ISO_TIMESTAMP_RE = re.compile(
-    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$"
-)
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -48,6 +44,11 @@ from typing import Iterable
 
 import psycopg
 from questdb.ingress import Sender, IngressError
+
+# Strict ISO-8601 timestamp shape; what `datetime.isoformat()` emits.
+_ISO_TIMESTAMP_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$"
+)
 
 logger = logging.getLogger(__name__)
 

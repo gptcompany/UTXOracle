@@ -32,7 +32,7 @@ def test_library_optimization():
         result = calc.calculate_price_for_transactions(mock_transactions)
         price = result.get('price_usd')
         confidence = result.get('confidence')
-        print(f"✓ Calculation run successful")
+        print("✓ Calculation run successful")
         print(f"  Calculated Price: ${price if price else 'None'}")
         print(f"  Confidence: {confidence:.4f}")
     except Exception as e:
