@@ -641,7 +641,7 @@ def calculate_utxoracle_price(config: Dict) -> Dict:
         # Calculate price using library
         calc = UTXOracleCalculator()
         result = calc.calculate_price_for_transactions(transactions)
-        
+
         # Add tier to result
         result["fetch_tier"] = tier
 
@@ -807,9 +807,6 @@ def validate_price_data(data: Dict, config: Dict) -> bool:
 # =============================================================================
 # Database Operations (T042, T043)
 # =============================================================================
-
-
-
 
 
 def detect_gaps(conn, max_days_back: int = None) -> List[str]:
@@ -1165,7 +1162,7 @@ def save_to_questdb(data: Dict) -> None:
                 "created_at": datetime.now(),
             },
             at=datetime.fromisoformat(data["timestamp"]),
-            flush=True
+            flush=True,
         )
         logging.info("Data saved to QuestDB")
     except Exception as e:
@@ -1365,12 +1362,12 @@ def main():
     T046: Support CLI flags --init-db, --dry-run, --verbose
     """
     parser = argparse.ArgumentParser(description="UTXOracle Daily Analysis")
-    
+
     parser.add_argument(
         "--dry-run", action="store_true", help="Run without saving to DB"
     )
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
-    
+
     args = parser.parse_args()
 
     # Load and validate configuration
@@ -1386,8 +1383,6 @@ def main():
     except EnvironmentError as e:
         logging.error(f"Configuration error: {e}")
         sys.exit(1)
-
-    
 
     # Initialize Whale Flow Detector (T042 - spec-004)
     whale_detector = None

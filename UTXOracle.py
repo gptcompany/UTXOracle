@@ -91,6 +91,7 @@
 # set platform dependent data paths
 import platform
 import os
+
 # imports that used to sit further down the script (moved up for E402)
 import sys
 import http.client
@@ -396,7 +397,9 @@ if date_mode:
                 print("\nThe date entered is before 2023-12-15, please try again")
                 sys.exit()
 
-        except BaseException:  # not Exception: also catches the sys.exit() above, as the bare except did
+        except (
+            BaseException
+        ):  # not Exception: also catches the sys.exit() above, as the bare except did
             print(
                 "\nError interpreting date. Please try again. Make sure format is YYYY/MM/DD"
             )

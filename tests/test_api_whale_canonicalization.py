@@ -178,7 +178,9 @@ def test_whale_event_enrichment_preserves_ambiguous_attribution_without_entity(
     assert body["entity"] is None
 
 
-def test_whale_event_enrichment_degrades_gracefully_when_registry_lookup_fails(monkeypatch):
+def test_whale_event_enrichment_degrades_gracefully_when_registry_lookup_fails(
+    monkeypatch,
+):
     from api.main import app
 
     repo = _FakeWhaleRepo(

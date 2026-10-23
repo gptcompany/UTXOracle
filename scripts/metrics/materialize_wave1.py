@@ -28,13 +28,19 @@ from scripts.metrics.wallet_waves import calculate_wallet_waves
 from scripts.metrics.address_cohorts import calculate_address_cohorts
 from scripts.metrics.cost_basis import calculate_cost_basis_signal
 
-DUCKDB_PATH = os.getenv("DUCKDB_PATH") or os.getenv("UTXORACLE_DB_PATH") or "data/utxoracle.duckdb"
+DUCKDB_PATH = (
+    os.getenv("DUCKDB_PATH")
+    or os.getenv("UTXORACLE_DB_PATH")
+    or "data/utxoracle.duckdb"
+)
 
 
 def _setup_script_logging(name: str) -> logging.Logger:
     if not logging.getLogger().handlers:
         logging.basicConfig(
-            level=getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO),
+            level=getattr(
+                logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO
+            ),
             format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         )
     return logging.getLogger(name)
@@ -59,7 +65,9 @@ async def _resolve_current_price(repo: QuestDBRepository) -> tuple[float, str]:
             if price:
                 return float(price), "live_snapshots.snapshot_json"
         except (TypeError, ValueError, json.JSONDecodeError):
-            logger.warning("Failed to parse live snapshot JSON while resolving Wave 1 price")
+            logger.warning(
+                "Failed to parse live snapshot JSON while resolving Wave 1 price"
+            )
 
     return 0.0, "unavailable"
 
@@ -75,9 +83,11 @@ async def materialize_daily_snapshot(
     """
     try:
         # 1. Get current state from database
-        res = conn.execute("SELECT max(creation_block) FROM utxo_lifecycle_full").fetchone()
+        res = conn.execute(
+            "SELECT max(creation_block) FROM utxo_lifecycle_full"
+        ).fetchone()
         latest_height = res[0] if res and res[0] else 0
-        
+
         current_price, price_source = await _resolve_current_price(repo)
 
         logger.info(
@@ -87,46 +97,50 @@ async def materialize_daily_snapshot(
             current_price,
             price_source,
         )
-        
+
         # 2. Calculate Wallet Waves
-        wallet_waves = calculate_wallet_waves(conn, block_height=latest_height, timestamp=target_date)
-        
+        wallet_waves = calculate_wallet_waves(
+            conn, block_height=latest_height, timestamp=target_date
+        )
+
         # 3. Calculate Absorption Rates (30d window)
-        historical_height = latest_height - (144 * 30) # Approx 30 days
+        historical_height = latest_height - (144 * 30)  # Approx 30 days
         historical_snapshot = None
         if historical_height > 0:
             try:
                 # Note: as_of_block reconstructs the state at that height
                 historical_snapshot = calculate_wallet_waves(
-                    conn, as_of_block=historical_height, timestamp=target_date - timedelta(days=30)
+                    conn,
+                    as_of_block=historical_height,
+                    timestamp=target_date - timedelta(days=30),
                 )
             except Exception as e:
-                logger.warning(f"Could not calculate historical snapshot for absorption: {e}")
+                logger.warning(
+                    f"Could not calculate historical snapshot for absorption: {e}"
+                )
 
         absorption = calculate_absorption_rates(
             conn=conn,
             current_snapshot=wallet_waves,
             historical_snapshot=historical_snapshot,
             window_days=30,
-            timestamp=target_date
+            timestamp=target_date,
         )
-        
+
         # 4. Calculate Address Cohorts
         address_cohorts = calculate_address_cohorts(
-            conn=conn,
-            current_block=latest_height,
-            current_price_usd=current_price
+            conn=conn, current_block=latest_height, current_price_usd=current_price
         )
-        address_cohorts.timestamp = target_date # Override with target date
+        address_cohorts.timestamp = target_date  # Override with target date
 
         # 4.5. Calculate Cost Basis
         cost_basis = calculate_cost_basis_signal(
             conn=conn,
             current_block=latest_height,
             current_price_usd=current_price,
-            timestamp=target_date
+            timestamp=target_date,
         )
-        
+
         # 5. Save to QuestDB
         wallet_waves_written = repo.save_wallet_waves(wallet_waves)
         if not wallet_waves_written:
@@ -157,12 +171,15 @@ async def materialize_daily_snapshot(
                 "Wave 1 materialization write failure: wallet_waves=True absorption_rates=True address_cohorts=True cost_basis=False"
             )
             return False
-        
+
         logger.info(f"✅ Successfully materialized Wave 1 for {target_date.date()}")
         return True
-        
+
     except Exception as e:
-        logger.error(f"❌ Failed to materialize Wave 1 for {target_date.date()}: {e}", exc_info=True)
+        logger.error(
+            f"❌ Failed to materialize Wave 1 for {target_date.date()}: {e}",
+            exc_info=True,
+        )
         return False
 
 
@@ -203,11 +220,11 @@ async def main():
         return
 
     conn = duckdb.connect(DUCKDB_PATH, read_only=True)
-    
+
     try:
         # Run for today
         await run_materialization_pass(conn, datetime.now(timezone.utc))
-        
+
         # Optional backfill check
         if "--backfill" in sys.argv:
             # For now, just re-run for current state as a proxy

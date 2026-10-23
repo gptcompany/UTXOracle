@@ -21,6 +21,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
 async def initialize_production_database():
     """
     Initializes all production database tables in QuestDB.
@@ -32,7 +33,7 @@ async def initialize_production_database():
 
     try:
         await create_tables_if_not_exist()
-        
+
         logging.info("")
         logging.info("=" * 60)
         logging.info("✅ QUESTDB DATABASE INITIALIZATION COMPLETE!")
@@ -65,6 +66,7 @@ async def main():
 
     # Exit with appropriate code
     sys.exit(0 if success else 1)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

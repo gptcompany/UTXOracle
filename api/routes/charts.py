@@ -19,14 +19,34 @@ router = APIRouter(prefix="/charts", tags=["charts"])
 SUPPORTED_WINDOWS = ["15m", "1h", "4h", "24h"]
 LONG_WINDOW_DOWNSAMPLE_MINUTES = 240
 MAX_DOWNSAMPLED_POINTS = 240
-PRICE_COMPARISON_SERIES: tuple[tuple[str, str, Callable[[LiveSnapshot], float | None]], ...] = (
+PRICE_COMPARISON_SERIES: tuple[
+    tuple[str, str, Callable[[LiveSnapshot], float | None]], ...
+] = (
     ("utxoracle_price", "UTXOracle", lambda snapshot: snapshot.utxoracle_price),
-    ("mempool_exchange_price", "Mempool", lambda snapshot: snapshot.mempool_exchange_price),
-    ("hyperliquid_oracle_price", "Hyperliquid Oracle", lambda snapshot: snapshot.hyperliquid_oracle_price),
-    ("hyperliquid_mark_price", "Hyperliquid Mark", lambda snapshot: snapshot.hyperliquid_mark_price),
+    (
+        "mempool_exchange_price",
+        "Mempool",
+        lambda snapshot: snapshot.mempool_exchange_price,
+    ),
+    (
+        "hyperliquid_oracle_price",
+        "Hyperliquid Oracle",
+        lambda snapshot: snapshot.hyperliquid_oracle_price,
+    ),
+    (
+        "hyperliquid_mark_price",
+        "Hyperliquid Mark",
+        lambda snapshot: snapshot.hyperliquid_mark_price,
+    ),
 )
-REALIZED_PRICE_SERIES: tuple[tuple[str, str, Callable[[LiveSnapshot], float | None]], ...] = (
-    ("brk_realized_price", "BRK Realized Price", lambda snapshot: snapshot.features.brk_realized_price),
+REALIZED_PRICE_SERIES: tuple[
+    tuple[str, str, Callable[[LiveSnapshot], float | None]], ...
+] = (
+    (
+        "brk_realized_price",
+        "BRK Realized Price",
+        lambda snapshot: snapshot.features.brk_realized_price,
+    ),
 )
 
 
@@ -214,7 +234,9 @@ def _build_chart_payload(
         raise HTTPException(status_code=503, detail="live chart unavailable")
 
     latest_snapshot = snapshots[-1]
-    freshness_seconds = round((utc_now() - latest_snapshot.timestamp).total_seconds(), 1)
+    freshness_seconds = round(
+        (utc_now() - latest_snapshot.timestamp).total_seconds(), 1
+    )
 
     return ChartPayload(
         schema_version="v1",
@@ -252,8 +274,7 @@ def _downsample_snapshots(
     last_index = len(snapshots) - 1
     target_last = max_points - 1
     sampled_indices = [
-        (position * last_index) // target_last
-        for position in range(max_points)
+        (position * last_index) // target_last for position in range(max_points)
     ]
     return [snapshots[index] for index in sampled_indices]
 
@@ -273,7 +294,9 @@ def _maybe_downsample_snapshots(
     return _downsample_snapshots(snapshots), "uniform_stride"
 
 
-def _comparison_status(mean_relative_diff_pct: float | None, overlap_points: int) -> str:
+def _comparison_status(
+    mean_relative_diff_pct: float | None, overlap_points: int
+) -> str:
     if overlap_points == 0:
         return "no_overlap"
     assert mean_relative_diff_pct is not None
@@ -332,8 +355,14 @@ def _build_single_comparison(
 def _build_compare_payload(*, chart_payload: ChartPayload) -> ChartComparePayload:
     definition = CHARTS_BY_ID[chart_payload.chart_id]
     if definition.compare_base_series_id is None:
-        raise HTTPException(status_code=404, detail="compare mode not supported for chart_id")
-    base_series = next(series for series in chart_payload.series if series.id == definition.compare_base_series_id)
+        raise HTTPException(
+            status_code=404, detail="compare mode not supported for chart_id"
+        )
+    base_series = next(
+        series
+        for series in chart_payload.series
+        if series.id == definition.compare_base_series_id
+    )
     comparisons: list[ChartComparison] = []
 
     for reference_series in chart_payload.series:
@@ -342,7 +371,9 @@ def _build_compare_payload(*, chart_payload: ChartPayload) -> ChartComparePayloa
 
         diffs: list[float] = []
         relative_diffs: list[float] = []
-        for base_value, reference_value in zip(base_series.data, reference_series.data, strict=False):
+        for base_value, reference_value in zip(
+            base_series.data, reference_series.data, strict=False
+        ):
             if base_value is None or reference_value is None:
                 continue
             abs_diff = abs(base_value - reference_value)
@@ -351,7 +382,9 @@ def _build_compare_payload(*, chart_payload: ChartPayload) -> ChartComparePayloa
                 relative_diffs.append((abs_diff / abs(reference_value)) * 100.0)
 
         overlap_points = len(diffs)
-        mean_abs_diff = round(sum(diffs) / overlap_points, 6) if overlap_points else None
+        mean_abs_diff = (
+            round(sum(diffs) / overlap_points, 6) if overlap_points else None
+        )
         max_abs_diff = round(max(diffs), 6) if overlap_points else None
         mean_relative_diff_pct = (
             round(sum(relative_diffs) / len(relative_diffs), 6)
@@ -387,13 +420,21 @@ async def _build_realized_price_reference_compare_payload(
     chart_payload: ChartPayload,
     brk_client: BrkClient,
 ) -> ChartComparePayload:
-    base_series = next(series for series in chart_payload.series if series.id == "brk_realized_price")
-    base_value = next((value for value in reversed(base_series.data) if value is not None), None)
+    base_series = next(
+        series for series in chart_payload.series if series.id == "brk_realized_price"
+    )
+    base_value = next(
+        (value for value in reversed(base_series.data) if value is not None), None
+    )
     try:
         brk_read = await brk_client.fetch_curated_features()
     except Exception:
         brk_read = None
-    reference_value = None if brk_read is None or brk_read.value is None else brk_read.value.brk_realized_price
+    reference_value = (
+        None
+        if brk_read is None or brk_read.value is None
+        else brk_read.value.brk_realized_price
+    )
 
     comparison = _build_single_comparison(
         reference_series_id="brk_api_realized_price",
@@ -426,7 +467,9 @@ async def get_chart_latest(
     snapshot = await _call_store(store, "get_latest")
     if snapshot is None:
         raise HTTPException(status_code=503, detail="live chart unavailable")
-    return _build_chart_payload(definition=definition, snapshots=[snapshot], window="latest")
+    return _build_chart_payload(
+        definition=definition, snapshots=[snapshot], window="latest"
+    )
 
 
 @router.get("/{chart_id}/history", response_model=ChartPayload)
@@ -437,7 +480,9 @@ async def get_chart_history(
     downsample: bool = True,
 ) -> ChartPayload:
     definition = _require_supported_chart(chart_id)
-    snapshots = list(await _call_store(store, "get_history", LiveHistoryQuery(minutes=minutes)))
+    snapshots = list(
+        await _call_store(store, "get_history", LiveHistoryQuery(minutes=minutes))
+    )
     snapshots, downsampling_strategy = _maybe_downsample_snapshots(
         snapshots,
         minutes=minutes,
@@ -459,8 +504,12 @@ async def get_chart_compare(
     minutes: Annotated[int, Query(ge=1, le=24 * 60)] = 60,
 ) -> ChartComparePayload:
     definition = _require_supported_chart(chart_id)
-    snapshots = await _call_store(store, "get_history", LiveHistoryQuery(minutes=minutes))
-    chart_payload = _build_chart_payload(definition=definition, snapshots=list(snapshots), window=f"{minutes}m")
+    snapshots = await _call_store(
+        store, "get_history", LiveHistoryQuery(minutes=minutes)
+    )
+    chart_payload = _build_chart_payload(
+        definition=definition, snapshots=list(snapshots), window=f"{minutes}m"
+    )
     if chart_id == "realized-price-reference":
         return await _build_realized_price_reference_compare_payload(
             chart_payload=chart_payload,

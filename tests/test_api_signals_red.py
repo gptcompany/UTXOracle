@@ -11,6 +11,7 @@ from api.apps.live import app as live_app
 # These tests establish the RED baseline for the signal snapshot serving routes
 # as defined in spec-052 Phase 7. They will fail until the routes are implemented.
 
+
 @pytest.fixture
 def api_client():
     client = TestClient(live_app, raise_server_exceptions=False)
@@ -36,7 +37,9 @@ def _signal_payload(
     return {
         "schema_version": "v1",
         "sequence_id": sequence_id,
-        "produced_at": datetime(2026, 4, 7, 12, sequence_id, tzinfo=timezone.utc).isoformat(),
+        "produced_at": datetime(
+            2026, 4, 7, 12, sequence_id, tzinfo=timezone.utc
+        ).isoformat(),
         "block_height": 840_000 + sequence_id,
         "service_status": service_status,
         "bias": "neutral",
@@ -71,7 +74,9 @@ def _signal_row(payload: dict) -> dict:
 
 
 class FakeSignalRepo:
-    def __init__(self, *, latest: dict | None = None, history: list[dict] | None = None):
+    def __init__(
+        self, *, latest: dict | None = None, history: list[dict] | None = None
+    ):
         self.latest = latest
         self.history = history or []
         self.latest_calls = 0
@@ -103,9 +108,11 @@ def _override_repo(app, repo):
 def test_signal_latest_route_exists_and_returns_correct_shape(api_client):
     """T045: Expected response shape for latest signal route."""
     response = api_client.get("/api/signals/btc/latest")
-    
-    assert response.status_code == 200, "Route /api/signals/btc/latest is missing or failing"
-    
+
+    assert response.status_code == 200, (
+        "Route /api/signals/btc/latest is missing or failing"
+    )
+
     payload = response.json()
     assert "schema_version" in payload
     assert payload["schema_version"] == "v1"
@@ -113,36 +120,42 @@ def test_signal_latest_route_exists_and_returns_correct_shape(api_client):
     assert "produced_at" in payload
     assert "block_height" in payload
     assert "service_status" in payload
-    assert payload["service_status"] in ["healthy", "degraded", "stale", "empty", "misconfigured"]
-    
+    assert payload["service_status"] in [
+        "healthy",
+        "degraded",
+        "stale",
+        "empty",
+        "misconfigured",
+    ]
+
     # Core signal fields
     assert "bias" in payload
     assert payload["bias"] in ["bearish", "neutral", "bullish"]
     assert "conviction" in payload
     assert 0.0 <= payload["conviction"] <= 1.0
-    
+
     assert "regime_score" in payload
     assert -1.0 <= payload["regime_score"] <= 1.0
-    
+
     assert "flow_score" in payload
     assert -1.0 <= payload["flow_score"] <= 1.0
-    
+
     assert "valuation_score" in payload
     assert -1.0 <= payload["valuation_score"] <= 1.0
-    
+
     assert "quality_score" in payload
     assert 0.0 <= payload["quality_score"] <= 1.0
-    
+
     assert "degraded_reasons" in payload
     assert isinstance(payload["degraded_reasons"], list)
-    
+
     assert "input_refs" in payload
     refs = payload["input_refs"]
     assert "core_sequence_id" in refs
     assert "flow_sequence_id" in refs
     assert "macro_sequence_id" in refs
     assert "cohort_sequence_id" in refs
-    
+
     assert "component_details" in payload
     assert isinstance(payload["component_details"], dict)
 
@@ -162,18 +175,20 @@ def test_signal_latest_route_is_exposed_on_8011(questdb_repo_mock):
 def test_signal_history_route_exists_and_orders_by_sequence_id(api_client):
     """T045: Ordering by sequence_id and pagination for history signal routes."""
     response = api_client.get("/api/signals/btc/history?limit=5")
-    
-    assert response.status_code == 200, "Route /api/signals/btc/history is missing or failing"
-    
+
+    assert response.status_code == 200, (
+        "Route /api/signals/btc/history is missing or failing"
+    )
+
     payload = response.json()
     assert "items" in payload
     assert "pagination" in payload
-    
+
     items = payload["items"]
     if len(items) > 1:
         # History should be oldest-to-newest by default per spec.md#10
         for i in range(len(items) - 1):
-            assert items[i]["sequence_id"] <= items[i+1]["sequence_id"]
+            assert items[i]["sequence_id"] <= items[i + 1]["sequence_id"]
 
 
 def test_signal_history_paginates_from_oldest_rows(api_client):
@@ -200,7 +215,7 @@ def test_signal_routes_handle_empty_state_gracefully(api_client):
     repo = FakeSignalRepo(latest=None)
     with _override_repo(api_client.app, repo):
         response = api_client.get("/api/signals/btc/latest")
-    
+
     assert response.status_code == 200
     payload = response.json()
     assert payload["service_status"] == "empty"

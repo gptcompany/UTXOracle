@@ -58,23 +58,22 @@ async def get_feature_provenance():
         logging.error(f"Feature provenance manifest not found at {MANIFEST_PATH}")
         raise HTTPException(
             status_code=503,
-            detail="Feature provenance manifest is currently unavailable."
+            detail="Feature provenance manifest is currently unavailable.",
         )
 
     try:
         with open(MANIFEST_PATH, "r", encoding="utf-8") as f:
             manifest_data = yaml.safe_load(f)
-            
+
         return FeatureProvenanceManifest(**manifest_data)
     except yaml.YAMLError as e:
         logging.error(f"Failed to parse feature provenance manifest: {e}")
         raise HTTPException(
-            status_code=500,
-            detail="Failed to parse feature provenance manifest."
+            status_code=500, detail="Failed to parse feature provenance manifest."
         )
     except Exception as e:
         logging.exception(f"Unexpected error reading feature provenance manifest: {e}")
         raise HTTPException(
             status_code=500,
-            detail="Internal server error reading feature provenance manifest."
+            detail="Internal server error reading feature provenance manifest.",
         )

@@ -14,7 +14,9 @@ def _bundle_row(bundle_id: str, sequence_id: int, payload: dict) -> dict:
             "schema_version": "v1",
             "bundle_id": bundle_id,
             "sequence_id": sequence_id,
-            "produced_at": datetime(2026, 4, 7, 12, sequence_id, tzinfo=timezone.utc).isoformat(),
+            "produced_at": datetime(
+                2026, 4, 7, 12, sequence_id, tzinfo=timezone.utc
+            ).isoformat(),
             "bundle_status": "healthy",
             "degraded_reasons": [],
         },
@@ -94,7 +96,10 @@ def test_valuation_score_uses_admitted_sth_lth_mvrv_fields():
         flow_payload={
             "whale_summary": {"total_transactions": 0},
             "recent_whale_window": {"net_flow_btc": 0.0},
-            "absorption_rates": {"institutional_absorption": 0.5, "retail_absorption": 0.5},
+            "absorption_rates": {
+                "institutional_absorption": 0.5,
+                "retail_absorption": 0.5,
+            },
         },
         cohort_payload={
             "cost_basis": {

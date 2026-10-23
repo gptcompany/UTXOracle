@@ -8,6 +8,7 @@ from api.routes.meta import MANIFEST_PATH
 
 client = TestClient(app)
 
+
 @pytest.fixture
 def valid_manifest_yaml():
     return """
@@ -42,14 +43,15 @@ entries:
       - "Note 1"
 """
 
+
 def test_get_feature_provenance_success(tmp_path, valid_manifest_yaml):
     manifest_file = tmp_path / "feature_provenance_manifest.yaml"
     manifest_file.write_text(valid_manifest_yaml)
-    
+
     with patch("api.routes.meta.MANIFEST_PATH", manifest_file):
         response = client.get("/api/meta/features")
         assert response.status_code == 200
-        
+
         data = response.json()
         assert data["schema_version"] == "1"
         assert len(data["entries"]) == 1
@@ -67,6 +69,7 @@ def test_get_feature_provenance_uses_repository_manifest_by_default():
     assert data["schema_version"] == "1"
     assert len(data["entries"]) > 0
 
+
 def test_get_feature_provenance_missing_file(tmp_path):
     missing_file = tmp_path / "missing.yaml"
     with patch("api.routes.meta.MANIFEST_PATH", missing_file):
@@ -74,10 +77,11 @@ def test_get_feature_provenance_missing_file(tmp_path):
         assert response.status_code == 503
         assert "unavailable" in response.json()["detail"]
 
+
 def test_get_feature_provenance_invalid_yaml(tmp_path):
     invalid_file = tmp_path / "invalid.yaml"
     invalid_file.write_text("invalid: yaml: :")
-    
+
     with patch("api.routes.meta.MANIFEST_PATH", invalid_file):
         response = client.get("/api/meta/features")
         assert response.status_code == 500

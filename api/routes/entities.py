@@ -57,7 +57,9 @@ def _parse_timestamp(value) -> datetime | None:
             parsed = datetime.fromisoformat(value)
         except ValueError:
             return None
-        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+        return (
+            parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+        )
     return None
 
 
@@ -86,9 +88,13 @@ def _normalize_flow_window(
     parsed_start = parsed_start or (parsed_end - timedelta(days=30))
 
     if parsed_end <= parsed_start:
-        raise HTTPException(status_code=422, detail="window_end must be after window_start")
+        raise HTTPException(
+            status_code=422, detail="window_end must be after window_start"
+        )
     if parsed_end - parsed_start > timedelta(days=366):
-        raise HTTPException(status_code=422, detail="Flow window exceeds maximum span of 366 days")
+        raise HTTPException(
+            status_code=422, detail="Flow window exceeds maximum span of 366 days"
+        )
     return parsed_start, parsed_end
 
 
@@ -100,7 +106,9 @@ def _format_ts(value) -> str | None:
     return str(value)
 
 
-def _pagination_response(items: list[dict], *, limit: int, token_field: str) -> tuple[list[dict], dict]:
+def _pagination_response(
+    items: list[dict], *, limit: int, token_field: str
+) -> tuple[list[dict], dict]:
     has_more = len(items) > limit
     visible = items[:limit]
     next_page_token = str(visible[-1][token_field]) if has_more and visible else None
@@ -166,7 +174,9 @@ def _derive_metadata_source_status(row: dict, provenance_summary: list[dict]) ->
         "label_confidence",
         "confidence_overall",
     )
-    missing_confidence = any(row.get(field) is None for field in required_confidence_fields)
+    missing_confidence = any(
+        row.get(field) is None for field in required_confidence_fields
+    )
     incomplete_metadata = not row.get("display_label") or not provenance_summary
     if explicit_status == "degraded" or missing_confidence or incomplete_metadata:
         return "degraded"
@@ -218,7 +228,9 @@ def _derive_flow_service_status(items: list[dict]) -> str:
     if not items:
         return "empty"
 
-    materialization_statuses = {_coerce_service_status(item["materialization_status"]) for item in items}
+    materialization_statuses = {
+        _coerce_service_status(item["materialization_status"]) for item in items
+    }
     if "partial_materialization" in materialization_statuses:
         return "partial_materialization"
     if "degraded" in materialization_statuses:
@@ -233,7 +245,7 @@ def _derive_flow_service_status(items: list[dict]) -> str:
 def _derive_cluster_ids(entity_id: str) -> list[str]:
     cluster_prefix = "btc:entity:cluster:"
     if entity_id.startswith(cluster_prefix):
-        return [entity_id[len(cluster_prefix):]]
+        return [entity_id[len(cluster_prefix) :]]
     return []
 
 
@@ -269,12 +281,18 @@ async def get_entity_flows(
         raise HTTPException(status_code=503, detail="QuestDB unavailable")
 
     canonical_entity_id = _canonicalize_entity_id(entity_id) if entity_id else None
-    normalized_window_start, normalized_window_end = _normalize_flow_window(window_start, window_end)
+    normalized_window_start, normalized_window_end = _normalize_flow_window(
+        window_start, window_end
+    )
     after_window_start = _parse_page_token(page_token)
     if after_window_start and (
-        after_window_start < normalized_window_start or after_window_start >= normalized_window_end
+        after_window_start < normalized_window_start
+        or after_window_start >= normalized_window_end
     ):
-        raise HTTPException(status_code=422, detail="page_token must fall within the requested flow window")
+        raise HTTPException(
+            status_code=422,
+            detail="page_token must fall within the requested flow window",
+        )
     rows = await repo.get_entity_flows(
         min_value=min_value,
         classification=classification,
@@ -286,7 +304,9 @@ async def get_entity_flows(
     )
 
     items = [_normalize_flow_row(row) for row in rows]
-    visible, pagination = _pagination_response(items, limit=limit, token_field="window_start")
+    visible, pagination = _pagination_response(
+        items, limit=limit, token_field="window_start"
+    )
     service_status = _derive_flow_service_status(visible)
     return {
         "items": visible,

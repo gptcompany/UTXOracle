@@ -6,11 +6,19 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes.live import build_live_health_summary, get_live_snapshot_store, router
-from scripts.live.models import LiveComparison, LiveFeatureSet, LiveSnapshot, SourceHealth, utc_now
+from scripts.live.models import (
+    LiveComparison,
+    LiveFeatureSet,
+    LiveSnapshot,
+    SourceHealth,
+    utc_now,
+)
 from scripts.live.storage import LiveSnapshotStore
 
 
-def _build_snapshot(*, timestamp: datetime, block_height: int, price: float) -> LiveSnapshot:
+def _build_snapshot(
+    *, timestamp: datetime, block_height: int, price: float
+) -> LiveSnapshot:
     return LiveSnapshot(
         timestamp=timestamp,
         block_height=block_height,
@@ -41,7 +49,9 @@ def _build_snapshot(*, timestamp: datetime, block_height: int, price: float) -> 
 
 
 class FakeSnapshotStore:
-    def __init__(self, snapshots: list[LiveSnapshot] | None = None, *, retention_hours: int = 24) -> None:
+    def __init__(
+        self, snapshots: list[LiveSnapshot] | None = None, *, retention_hours: int = 24
+    ) -> None:
         self.snapshots = list(snapshots or [])
         self.retention_hours = retention_hours
 
@@ -80,7 +90,13 @@ def _build_test_client(store) -> TestClient:
 
 def test_live_snapshot_endpoint_returns_latest_snapshot():
     store = FakeSnapshotStore(
-        [_build_snapshot(timestamp=datetime(2026, 3, 20, 18, 0, tzinfo=timezone.utc), block_height=941456, price=84211.52)]
+        [
+            _build_snapshot(
+                timestamp=datetime(2026, 3, 20, 18, 0, tzinfo=timezone.utc),
+                block_height=941456,
+                price=84211.52,
+            )
+        ]
     )
     client = _build_test_client(store)
 
@@ -96,9 +112,17 @@ def test_live_history_endpoint_returns_recent_snapshots():
     now = datetime.now(timezone.utc)
     store = FakeSnapshotStore(
         [
-            _build_snapshot(timestamp=now - timedelta(minutes=10), block_height=941450, price=84100.0),
-            _build_snapshot(timestamp=now - timedelta(minutes=4), block_height=941451, price=84200.0),
-            _build_snapshot(timestamp=now - timedelta(minutes=1), block_height=941452, price=84300.0),
+            _build_snapshot(
+                timestamp=now - timedelta(minutes=10),
+                block_height=941450,
+                price=84100.0,
+            ),
+            _build_snapshot(
+                timestamp=now - timedelta(minutes=4), block_height=941451, price=84200.0
+            ),
+            _build_snapshot(
+                timestamp=now - timedelta(minutes=1), block_height=941452, price=84300.0
+            ),
         ]
     )
     client = _build_test_client(store)
@@ -112,7 +136,13 @@ def test_live_history_endpoint_returns_recent_snapshots():
 
 def test_live_comparison_latest_endpoint_returns_compact_payload():
     store = FakeSnapshotStore(
-        [_build_snapshot(timestamp=datetime(2026, 3, 20, 18, 0, tzinfo=timezone.utc), block_height=941456, price=84211.52)]
+        [
+            _build_snapshot(
+                timestamp=datetime(2026, 3, 20, 18, 0, tzinfo=timezone.utc),
+                block_height=941456,
+                price=84211.52,
+            )
+        ]
     )
     client = _build_test_client(store)
 
@@ -136,7 +166,13 @@ def test_live_ready_returns_503_when_snapshot_missing():
 def test_live_ready_returns_503_when_snapshot_is_stale():
     stale_timestamp = utc_now() - timedelta(seconds=61)
     client = _build_test_client(
-        FakeSnapshotStore([_build_snapshot(timestamp=stale_timestamp, block_height=941456, price=84211.52)])
+        FakeSnapshotStore(
+            [
+                _build_snapshot(
+                    timestamp=stale_timestamp, block_height=941456, price=84211.52
+                )
+            ]
+        )
     )
 
     response = client.get("/api/v1/live/ready")
@@ -155,7 +191,9 @@ def test_build_live_health_summary_reports_unavailable_when_store_empty():
 def test_build_live_health_summary_reports_degraded_sources():
     timestamp = utc_now()
     snapshot = _build_snapshot(timestamp=timestamp, block_height=941456, price=84211.52)
-    snapshot.source_health["hyperliquid"] = SourceHealth(status="stale", last_success=timestamp)
+    snapshot.source_health["hyperliquid"] = SourceHealth(
+        status="stale", last_success=timestamp
+    )
 
     summary = build_live_health_summary(FakeSnapshotStore([snapshot]))
 
@@ -167,7 +205,13 @@ def test_build_live_health_summary_reports_degraded_sources():
 def test_build_live_health_summary_reports_stale_snapshot_age():
     stale_timestamp = utc_now() - timedelta(seconds=61)
     summary = build_live_health_summary(
-        FakeSnapshotStore([_build_snapshot(timestamp=stale_timestamp, block_height=941456, price=84211.52)])
+        FakeSnapshotStore(
+            [
+                _build_snapshot(
+                    timestamp=stale_timestamp, block_height=941456, price=84211.52
+                )
+            ]
+        )
     )
 
     assert summary["status"] == "stale"

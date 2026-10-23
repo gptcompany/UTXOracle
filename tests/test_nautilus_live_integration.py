@@ -5,7 +5,12 @@ from datetime import datetime, timedelta, timezone
 import httpx
 import pytest
 
-from scripts.live.models import LiveComparison, LiveFeatureSet, LiveSnapshot, SourceHealth
+from scripts.live.models import (
+    LiveComparison,
+    LiveFeatureSet,
+    LiveSnapshot,
+    SourceHealth,
+)
 from scripts.nautilus_live.adapter import AdapterMode, NautilusLiveAdapter
 from scripts.nautilus_live.client import LiveSnapshotPollingClient
 from scripts.nautilus_live.contract import TradableSnapshot, normalize_live_snapshot
@@ -48,11 +53,27 @@ def _build_snapshot(
             brk_reserve_risk=4.100239e-06,
         ),
         source_health={
-            "electrs": SourceHealth(status=electrs_status, last_success=timestamp, observed_height=block_height),
-            "utxoracle": SourceHealth(status=utxoracle_status, last_success=timestamp, observed_height=block_height),
-            "mempool_api": SourceHealth(status=mempool_status, last_success=timestamp, observed_height=block_height),
-            "hyperliquid": SourceHealth(status="stale", last_success=timestamp, observed_height=block_height),
-            "brk": SourceHealth(status="healthy", last_success=timestamp, observed_height=block_height),
+            "electrs": SourceHealth(
+                status=electrs_status,
+                last_success=timestamp,
+                observed_height=block_height,
+            ),
+            "utxoracle": SourceHealth(
+                status=utxoracle_status,
+                last_success=timestamp,
+                observed_height=block_height,
+            ),
+            "mempool_api": SourceHealth(
+                status=mempool_status,
+                last_success=timestamp,
+                observed_height=block_height,
+            ),
+            "hyperliquid": SourceHealth(
+                status="stale", last_success=timestamp, observed_height=block_height
+            ),
+            "brk": SourceHealth(
+                status="healthy", last_success=timestamp, observed_height=block_height
+            ),
         },
         source_timestamps={
             "electrs": timestamp,
@@ -131,7 +152,9 @@ def test_gate_accepts_healthy_fresh_snapshot_as_status_ok():
 def test_gate_downgrades_to_liquidate_only_when_snapshot_is_borderline_stale():
     now = datetime.now(timezone.utc)
     gate = NautilusSafetyGate(config=_default_config())
-    normalized = normalize_live_snapshot(_build_snapshot(timestamp=now - timedelta(seconds=20)))
+    normalized = normalize_live_snapshot(
+        _build_snapshot(timestamp=now - timedelta(seconds=20))
+    )
 
     decision = gate.evaluate(normalized, now=now)
 
@@ -170,7 +193,9 @@ def test_gate_halts_when_timestamp_moves_backward():
     now = datetime.now(timezone.utc)
     gate = NautilusSafetyGate(config=_default_config())
     first = normalize_live_snapshot(_build_snapshot(timestamp=now, block_height=941456))
-    second = normalize_live_snapshot(_build_snapshot(timestamp=now - timedelta(seconds=1), block_height=941457))
+    second = normalize_live_snapshot(
+        _build_snapshot(timestamp=now - timedelta(seconds=1), block_height=941457)
+    )
 
     first_decision = gate.evaluate(first, now=now)
     second_decision = gate.evaluate(second, now=now)
@@ -237,13 +262,19 @@ def test_gate_recovers_from_liquidate_only_after_three_consecutive_healthy_snaps
         _build_snapshot(timestamp=now, confidence=0.70)
     )
     healthy_1 = normalize_live_snapshot(
-        _build_snapshot(timestamp=now + timedelta(seconds=1), block_height=941457, confidence=0.82)
+        _build_snapshot(
+            timestamp=now + timedelta(seconds=1), block_height=941457, confidence=0.82
+        )
     )
     healthy_2 = normalize_live_snapshot(
-        _build_snapshot(timestamp=now + timedelta(seconds=2), block_height=941458, confidence=0.83)
+        _build_snapshot(
+            timestamp=now + timedelta(seconds=2), block_height=941458, confidence=0.83
+        )
     )
     healthy_3 = normalize_live_snapshot(
-        _build_snapshot(timestamp=now + timedelta(seconds=3), block_height=941459, confidence=0.84)
+        _build_snapshot(
+            timestamp=now + timedelta(seconds=3), block_height=941459, confidence=0.84
+        )
     )
 
     first = gate.evaluate(borderline, now=now)
@@ -291,7 +322,9 @@ async def test_polling_client_reads_recent_live_history():
         assert request.method == "GET"
         assert request.url.path == "/api/v1/live/history"
         assert request.url.params["minutes"] == "15"
-        return httpx.Response(200, json=[first.model_dump(mode="json"), second.model_dump(mode="json")])
+        return httpx.Response(
+            200, json=[first.model_dump(mode="json"), second.model_dump(mode="json")]
+        )
 
     client = LiveSnapshotPollingClient(
         base_url="http://live.local",
@@ -382,9 +415,15 @@ async def test_adapter_poll_once_returns_none_and_logs_error_when_snapshot_canno
 @pytest.mark.asyncio
 async def test_adapter_replay_recent_history_normalizes_and_evaluates_snapshots_in_order():
     now = datetime.now(timezone.utc)
-    first = _build_snapshot(timestamp=now - timedelta(seconds=10), block_height=941456, confidence=0.70)
-    second = _build_snapshot(timestamp=now - timedelta(seconds=5), block_height=941457, confidence=0.82)
-    third = _build_snapshot(timestamp=now - timedelta(seconds=1), block_height=941458, confidence=0.83)
+    first = _build_snapshot(
+        timestamp=now - timedelta(seconds=10), block_height=941456, confidence=0.70
+    )
+    second = _build_snapshot(
+        timestamp=now - timedelta(seconds=5), block_height=941457, confidence=0.82
+    )
+    third = _build_snapshot(
+        timestamp=now - timedelta(seconds=1), block_height=941458, confidence=0.83
+    )
     events: list[dict[str, object]] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -483,7 +522,10 @@ async def test_adapter_end_to_end_modes_cover_shadow_poll_paper_poll_and_replay_
                 return httpx.Response(200, json=shadow_snapshot.model_dump(mode="json"))
             if request.url.host == "paper.local":
                 return httpx.Response(200, json=paper_snapshot.model_dump(mode="json"))
-        if request.url.path == "/api/v1/live/history" and request.url.host == "paper.local":
+        if (
+            request.url.path == "/api/v1/live/history"
+            and request.url.host == "paper.local"
+        ):
             return httpx.Response(
                 200,
                 json=[
@@ -498,13 +540,17 @@ async def test_adapter_end_to_end_modes_cover_shadow_poll_paper_poll_and_replay_
     paper_events: list[dict[str, object]] = []
 
     shadow_adapter = NautilusLiveAdapter(
-        client=LiveSnapshotPollingClient(base_url="http://shadow.local", transport=transport),
+        client=LiveSnapshotPollingClient(
+            base_url="http://shadow.local", transport=transport
+        ),
         gate=NautilusSafetyGate(config=_default_config()),
         mode=AdapterMode.SHADOW_READ,
         decision_logger=shadow_events.append,
     )
     paper_adapter = NautilusLiveAdapter(
-        client=LiveSnapshotPollingClient(base_url="http://paper.local", transport=transport),
+        client=LiveSnapshotPollingClient(
+            base_url="http://paper.local", transport=transport
+        ),
         gate=NautilusSafetyGate(config=_default_config()),
         mode=AdapterMode.PAPER_TRADE,
         decision_logger=paper_events.append,
