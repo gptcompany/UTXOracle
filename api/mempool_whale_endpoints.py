@@ -177,12 +177,12 @@ async def _derive_entity_attribution(
         return None, "ambiguous"
 
     cluster_id = cluster_ids[0]
-    
+
     # Try to find a richer entity ID from the new registry
     entity_id = f"cluster:{cluster_id}"
     confidence = WHALE_ENTITY_CLUSTER_CONFIDENCE
     label_source = "questdb.address_clusters.cluster_id"
-    
+
     entity_row = None
     try:
         entity_row = await repo.get_entity_metadata(f"btc:entity:cluster:{cluster_id}")

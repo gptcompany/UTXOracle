@@ -284,9 +284,8 @@ class UTXOracleCalculator:
         min_slide = -141
         max_slide = 201
 
-        # Weights for smooth vs spike (from line 1076-1077)
-        smooth_weight = 0.65
-        spike_weight = 1.0
+        # Weights for smooth vs spike (from line 1076-1077): smooth 0.65 is applied
+        # inline below, spike is 1.0
 
         # Slide stencils and find best position
         best_slide = 0

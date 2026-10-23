@@ -328,7 +328,7 @@ def bulk_update_spent(db_path: str, spent_utxos: list) -> int:
 
     # Single bulk UPDATE
     logger.info("Executing bulk UPDATE...")
-    result = conn.execute("""
+    conn.execute("""
         UPDATE utxo_lifecycle
         SET is_spent = TRUE,
             spent_block = s.spent_block,

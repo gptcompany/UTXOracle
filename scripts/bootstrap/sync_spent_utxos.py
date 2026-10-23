@@ -26,7 +26,6 @@ import argparse
 from scripts.config import UTXORACLE_DB_PATH
 import asyncio
 import logging
-import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable

@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -38,7 +37,9 @@ class ElectrsBlockOracleResolver:
         client: httpx.AsyncClient | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
-        self.base_url = (base_url or os.getenv("ELECTRS_HTTP_URL", "http://127.0.0.1:3002")).rstrip("/")
+        self.base_url = (
+            base_url or os.getenv("ELECTRS_HTTP_URL", "http://127.0.0.1:3002")
+        ).rstrip("/")
         self.timeout_seconds = timeout_seconds
         self.tx_fetch_concurrency = max(tx_fetch_concurrency, 1)
         self.min_tx_count = max(min_tx_count, 1)
@@ -54,7 +55,10 @@ class ElectrsBlockOracleResolver:
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
             # Use higher limits for high-concurrency fetching
-            limits = httpx.Limits(max_keepalive_connections=20, max_connections=self.tx_fetch_concurrency + 10)
+            limits = httpx.Limits(
+                max_keepalive_connections=20,
+                max_connections=self.tx_fetch_concurrency + 10,
+            )
             self._client = httpx.AsyncClient(
                 timeout=self.timeout_seconds,
                 transport=self._transport or httpx.AsyncHTTPTransport(limits=limits),
@@ -66,7 +70,9 @@ class ElectrsBlockOracleResolver:
             await self._client.aclose()
             self._client = None
 
-    async def __call__(self, block_height: int, block_changed: bool) -> OracleObservation:
+    async def __call__(
+        self, block_height: int, block_changed: bool
+    ) -> OracleObservation:
         # Check cache first
         if block_height in self._block_cache:
             return self._block_cache[block_height]
@@ -125,7 +131,9 @@ class ElectrsBlockOracleResolver:
 
         return await asyncio.gather(*(_fetch_transaction(txid) for txid in txids))
 
-    async def _fetch_block_hash(self, client: httpx.AsyncClient, block_height: int) -> str:
+    async def _fetch_block_hash(
+        self, client: httpx.AsyncClient, block_height: int
+    ) -> str:
         response = await client.get(
             f"{self.base_url}/block-height/{block_height}",
             headers={"Accept": "text/plain"},
@@ -133,7 +141,9 @@ class ElectrsBlockOracleResolver:
         response.raise_for_status()
         block_hash = response.text.strip().strip('"')
         if not block_hash:
-            raise ValueError(f"electrs block-height lookup returned empty hash for {block_height}")
+            raise ValueError(
+                f"electrs block-height lookup returned empty hash for {block_height}"
+            )
         return block_hash
 
     async def _fetch_block_txids(
@@ -167,8 +177,12 @@ class LiveWorkerRuntime:
                 self.worker.snapshot_store.initialize(for_write=True)
 
         return await self.worker.run(
-            market_interval_seconds=float(os.getenv("LIVE_MARKET_INTERVAL_SECONDS", "5.0")),
-            block_poll_interval_seconds=float(os.getenv("LIVE_BLOCK_POLL_INTERVAL_SECONDS", "2.0")),
+            market_interval_seconds=float(
+                os.getenv("LIVE_MARKET_INTERVAL_SECONDS", "5.0")
+            ),
+            block_poll_interval_seconds=float(
+                os.getenv("LIVE_BLOCK_POLL_INTERVAL_SECONDS", "2.0")
+            ),
         )
 
     async def aclose(self) -> None:
@@ -187,9 +201,13 @@ class LiveWorkerRuntime:
 
 
 def build_live_runtime() -> LiveWorkerRuntime:
-    timeout_seconds = float(os.getenv("LIVE_SOURCE_TIMEOUT_SECONDS", str(DEFAULT_SOURCE_TIMEOUT_SECONDS)))
+    timeout_seconds = float(
+        os.getenv("LIVE_SOURCE_TIMEOUT_SECONDS", str(DEFAULT_SOURCE_TIMEOUT_SECONDS))
+    )
     retention_hours = int(os.getenv("LIVE_RETENTION_HOURS", "24"))
-    process_lock_path = os.getenv("LIVE_WORKER_LOCK_PATH") or DEFAULT_LIVE_WORKER_LOCK_PATH
+    process_lock_path = (
+        os.getenv("LIVE_WORKER_LOCK_PATH") or DEFAULT_LIVE_WORKER_LOCK_PATH
+    )
 
     electrs_client = ElectrsClient(timeout_seconds=timeout_seconds)
     mempool_client = MempoolApiClient(timeout_seconds=timeout_seconds)
@@ -197,8 +215,14 @@ def build_live_runtime() -> LiveWorkerRuntime:
     hyperliquid_client = HyperliquidSnapshotClient(timeout_seconds=timeout_seconds)
     oracle_resolver = ElectrsBlockOracleResolver(
         timeout_seconds=timeout_seconds,
-        tx_fetch_concurrency=int(os.getenv("LIVE_ORACLE_TX_CONCURRENCY", str(DEFAULT_LIVE_ORACLE_TX_CONCURRENCY))),
-        min_tx_count=int(os.getenv("LIVE_ORACLE_MIN_TX_COUNT", str(DEFAULT_LIVE_ORACLE_MIN_TX_COUNT))),
+        tx_fetch_concurrency=int(
+            os.getenv(
+                "LIVE_ORACLE_TX_CONCURRENCY", str(DEFAULT_LIVE_ORACLE_TX_CONCURRENCY)
+            )
+        ),
+        min_tx_count=int(
+            os.getenv("LIVE_ORACLE_MIN_TX_COUNT", str(DEFAULT_LIVE_ORACLE_MIN_TX_COUNT))
+        ),
     )
     snapshot_store = LiveSnapshotStore(
         retention_hours=retention_hours,

@@ -276,9 +276,8 @@ class BaselineCalculator:
         best_slide_score = 0.0
         total_score = 0.0
 
-        # Stencil weighting
+        # Stencil weighting (spike weight is 1.0)
         smooth_weight = 0.65
-        spike_weight = 1.0
 
         # Center slide: if zero slide, 0.001 BTC = $100 (price $100k)
         center_p001 = 601

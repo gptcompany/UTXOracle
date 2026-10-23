@@ -221,7 +221,7 @@ class TestOrchestratorStartup:
         """Start should abort if database initialization fails"""
         with patch.object(
             orchestrator, "initialize_database", return_value=False
-        ) as mock_db:
+        ) as _mock_db:
             await orchestrator.start()
 
             # Verify early return (no components created)

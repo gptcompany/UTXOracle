@@ -173,6 +173,7 @@ def save_mvrv_daily(
     realized_cap: Optional[float] = None,
 ) -> bool:
     """Persist one row to QuestDB mvrv_daily. Idempotent per FR-010 + DEDUP."""
+
     def insert_row(cur):
         cur.execute(
             """
@@ -217,8 +218,13 @@ def save_nupl_daily(
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
-                    ts, nupl, market_cap, realized_cap,
-                    unrealized_profit, unrealized_loss, ts,
+                    ts,
+                    nupl,
+                    market_cap,
+                    realized_cap,
+                    unrealized_profit,
+                    unrealized_loss,
+                    ts,
                 ),
             )
     return True
@@ -266,8 +272,14 @@ def save_backtest_whale_signal_row(
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
-                    ts, net_flow_btc, confidence, btc_price,
-                    inflow_btc, outflow_btc, tx_count_relevant, ts,
+                    ts,
+                    net_flow_btc,
+                    confidence,
+                    btc_price,
+                    inflow_btc,
+                    outflow_btc,
+                    tx_count_relevant,
+                    ts,
                 ),
             )
     return True
@@ -980,6 +992,7 @@ class QuestDBRepository:
         Initializes the QuestDB repository.
         """
         import time
+
         self.ilp_host = QUESTDB_ILP_HOST
         self.ilp_port = QUESTDB_ILP_PORT
         self.sender: Sender | None = None
@@ -1088,12 +1101,20 @@ class QuestDBRepository:
 
     # --- Write Path (ILP Ingestion) ---
 
-    def _send_row(self, table: str, symbols: Dict[str, Any], columns: Dict[str, Any], at: Optional[Union[datetime, int]] = None, flush: bool = False):
+    def _send_row(
+        self,
+        table: str,
+        symbols: Dict[str, Any],
+        columns: Dict[str, Any],
+        at: Optional[Union[datetime, int]] = None,
+        flush: bool = False,
+    ):
         """
         Helper to send a row via ILP.
         Performance optimization: flush is False by default to allow buffering, but an automatic flush is triggered if batch size or time interval is exceeded.
         """
         import time
+
         if self._ingestion_aborted:
             logger.error(
                 "ILP ingestion is aborted; refusing to queue new row for table %s",
@@ -1107,7 +1128,9 @@ class QuestDBRepository:
             except Exception as exc:
                 if "Sender is closed" not in str(exc):
                     raise
-                logger.warning("QuestDB sender was closed; recreating sender and retrying once")
+                logger.warning(
+                    "QuestDB sender was closed; recreating sender and retrying once"
+                )
                 self.sender = None
                 sender = self._ensure_sender()
                 sender.row(table, symbols=symbols, columns=columns, at=at)
@@ -1131,8 +1154,11 @@ class QuestDBRepository:
     def flush_ingestion(self):
         """Explicitly flush buffered ILP data."""
         import time
+
         if self._ingestion_aborted:
-            logger.warning("Skipping QuestDB sender flush because ingestion was aborted")
+            logger.warning(
+                "Skipping QuestDB sender flush because ingestion was aborted"
+            )
             return False
         try:
             if self._unflushed_rows > 0:
@@ -1145,7 +1171,14 @@ class QuestDBRepository:
             logger.error(f"Failed to flush QuestDB sender: {e}")
             return False
 
-    async def async_send_row(self, table: str, symbols: Dict[str, Any], columns: Dict[str, Any], at: Optional[Union[datetime, int]] = None, flush: bool = False):
+    async def async_send_row(
+        self,
+        table: str,
+        symbols: Dict[str, Any],
+        columns: Dict[str, Any],
+        at: Optional[Union[datetime, int]] = None,
+        flush: bool = False,
+    ):
         """Async wrapper for _send_row.
 
         QuestDB's ILP sender is stateful and connection-oriented; keep row writes on the
@@ -1203,9 +1236,13 @@ class QuestDBRepository:
                 "urgency_score": float(data.get("urgency_score", 0.0)),
                 "rbf_enabled": bool(data.get("rbf_enabled", False)),
                 "ts": data.get("detection_timestamp") or data.get("ts"),
-                "predicted_confirmation_block": data.get("predicted_confirmation_block"),
+                "predicted_confirmation_block": data.get(
+                    "predicted_confirmation_block"
+                ),
                 "exchange_addresses": str(data.get("exchange_addresses", "")),
-                "confidence_score": float(data.get("confidence_score", 0.0)) if data.get("confidence_score") is not None else None,
+                "confidence_score": float(data.get("confidence_score", 0.0))
+                if data.get("confidence_score") is not None
+                else None,
                 "was_modified": bool(data.get("was_modified", False)),
                 "created_at": data.get("created_at") or datetime.utcnow(),
             },
@@ -1229,7 +1266,9 @@ class QuestDBRepository:
                 "total_sell_btc": float(metrics.total_sell_btc),
                 "transaction_count": metrics.transaction_count,
                 "strength": metrics.strength,
-                "largest_tx_btc": float(metrics.largest_tx_btc) if metrics.largest_tx_btc else None,
+                "largest_tx_btc": float(metrics.largest_tx_btc)
+                if metrics.largest_tx_btc
+                else None,
             },
             at=metrics.created_at,
         )
@@ -1278,7 +1317,7 @@ class QuestDBRepository:
                 "is_coinbase": utxo_data.get("is_coinbase", False),
                 "is_spent": utxo_data.get("is_spent", False),
             },
-            at=ts
+            at=ts,
         )
 
     def save_wallet_waves(self, result: WalletWavesResult) -> bool:
@@ -1335,7 +1374,9 @@ class QuestDBRepository:
                     "retail_absorption": float(result.retail_absorption),
                     "institutional_absorption": float(result.institutional_absorption),
                     "confidence": float(result.confidence),
-                    "absorption_rate": float(band_metrics.absorption_rate) if band_metrics.absorption_rate is not None else None,
+                    "absorption_rate": float(band_metrics.absorption_rate)
+                    if band_metrics.absorption_rate is not None
+                    else None,
                     "supply_delta_btc": float(band_metrics.supply_delta_btc),
                     "supply_start_btc": float(band_metrics.supply_start_btc),
                     "supply_end_btc": float(band_metrics.supply_end_btc),
@@ -1386,13 +1427,17 @@ class QuestDBRepository:
             logger.error(f"Failed to prepare address_clusters staging table: {e}")
             return False
 
-    async def _truncate_address_clusters_table(self, table: str, *, reason: str) -> None:
+    async def _truncate_address_clusters_table(
+        self, table: str, *, reason: str
+    ) -> None:
         try:
             await self.execute(f"TRUNCATE TABLE {table}")
         except Exception as e:
             logger.error("Failed to truncate %s during %s: %s", table, reason, e)
 
-    async def abort_address_clusters_refresh(self, *, clear_target: bool = False) -> None:
+    async def abort_address_clusters_refresh(
+        self, *, clear_target: bool = False
+    ) -> None:
         """
         Abort a staged refresh and clean up any staged rows.
 
@@ -1552,12 +1597,8 @@ class QuestDBRepository:
                 "current_price_usd": optional_float(result.current_price_usd),
                 "bucket_size_usd": float(result.bucket_size_usd),
                 "total_supply_btc": optional_float(result.total_supply_btc),
-                "supply_below_price_pct": optional_float(
-                    result.supply_below_price_pct
-                ),
-                "supply_above_price_pct": optional_float(
-                    result.supply_above_price_pct
-                ),
+                "supply_below_price_pct": optional_float(result.supply_below_price_pct),
+                "supply_above_price_pct": optional_float(result.supply_above_price_pct),
                 "top_bucket_concentration": optional_float(
                     result.top_bucket_concentration
                 ),
@@ -1599,11 +1640,15 @@ class QuestDBRepository:
 
     async def get_latest_price_analysis(self) -> Optional[AsyncpgRecord]:
         """Get latest price analysis entry."""
-        return await self.fetchrow("SELECT * FROM price_analysis ORDER BY ts DESC LIMIT 1")
+        return await self.fetchrow(
+            "SELECT * FROM price_analysis ORDER BY ts DESC LIMIT 1"
+        )
 
     async def get_latest_live_snapshot_row(self) -> Optional[AsyncpgRecord]:
         """Get latest live snapshot entry."""
-        return await self.fetchrow("SELECT * FROM live_snapshots ORDER BY ts DESC LIMIT 1")
+        return await self.fetchrow(
+            "SELECT * FROM live_snapshots ORDER BY ts DESC LIMIT 1"
+        )
 
     async def get_latest_metrics(self) -> Optional[AsyncpgRecord]:
         """Get the most recent metrics entry."""
@@ -1613,11 +1658,12 @@ class QuestDBRepository:
         """Get historical price analysis entries."""
         cutoff = datetime.utcnow() - timedelta(days=days)
         return await self.fetch(
-            "SELECT * FROM price_analysis WHERE ts > $1 ORDER BY ts ASC",
-            cutoff
+            "SELECT * FROM price_analysis WHERE ts > $1 ORDER BY ts ASC", cutoff
         )
 
-    async def update_utxo_spent(self, outpoint: str, spend_data: Dict[str, Any]) -> bool:
+    async def update_utxo_spent(
+        self, outpoint: str, spend_data: Dict[str, Any]
+    ) -> bool:
         """
         Update UTXO record as spent.
         Note: QuestDB supports UPDATE via PG wire protocol.
@@ -1647,7 +1693,7 @@ class QuestDBRepository:
                 spend_data["cohort"],
                 spend_data["sub_cohort"],
                 spend_data["sopr"],
-                outpoint
+                outpoint,
             )
             return True
         except Exception as e:
@@ -1656,11 +1702,15 @@ class QuestDBRepository:
 
     async def get_utxo(self, outpoint: str) -> Optional[AsyncpgRecord]:
         """Get UTXO by outpoint."""
-        return await self.fetchrow("SELECT * FROM utxo_lifecycle WHERE outpoint = $1", outpoint)
+        return await self.fetchrow(
+            "SELECT * FROM utxo_lifecycle WHERE outpoint = $1", outpoint
+        )
 
     async def get_supply_metrics_latest(self) -> Optional[AsyncpgRecord]:
         """Get latest supply metrics from snapshots."""
-        return await self.fetchrow("SELECT * FROM utxo_snapshots ORDER BY ts DESC LIMIT 1")
+        return await self.fetchrow(
+            "SELECT * FROM utxo_snapshots ORDER BY ts DESC LIMIT 1"
+        )
 
     async def get_metrics_latest(self) -> Optional[AsyncpgRecord]:
         """Get latest general metrics."""
@@ -1668,9 +1718,13 @@ class QuestDBRepository:
 
     async def get_cointime_latest(self) -> Optional[AsyncpgRecord]:
         """Get latest cointime metrics."""
-        return await self.fetchrow("SELECT * FROM cointime_metrics ORDER BY ts DESC LIMIT 1")
+        return await self.fetchrow(
+            "SELECT * FROM cointime_metrics ORDER BY ts DESC LIMIT 1"
+        )
 
-    async def get_exchange_netflow(self, window_hours: int = 24) -> Optional[Dict[str, Any]]:
+    async def get_exchange_netflow(
+        self, window_hours: int = 24
+    ) -> Optional[Dict[str, Any]]:
         """
         Calculate exchange netflow using QuestDB's SQL.
         Performance tuning: Use QuestDB's time-series functions.
@@ -1696,7 +1750,9 @@ class QuestDBRepository:
         """
         return await self.fetch(query, cutoff)
 
-    async def get_absorption_rates_latest(self, window_days: int = 30) -> List[AsyncpgRecord]:
+    async def get_absorption_rates_latest(
+        self, window_days: int = 30
+    ) -> List[AsyncpgRecord]:
         """Fetch latest absorption rates for a specific window."""
         query = """
         SELECT * FROM absorption_rates_daily 
@@ -1745,7 +1801,6 @@ class QuestDBRepository:
         LIMIT 1;
         """
         return await self.fetchrow(query, timestamp)
-
 
     async def get_latest_feature_bundle(self, bundle_id: str) -> dict | None:
         query = f"""
@@ -1950,7 +2005,7 @@ class QuestDBRepository:
         FROM entity_balance_snapshots_daily AS b
         LEFT JOIN latest_registry AS r ON TRUE
         LEFT JOIN latest_provenance AS p ON TRUE
-        WHERE {" AND ".join(f"b.{f}" if f.startswith('date') else f for f in filters)}
+        WHERE {" AND ".join(f"b.{f}" if f.startswith("date") else f for f in filters)}
         ORDER BY b.date ASC, b.entity_id ASC
         LIMIT ${len(args)};
         """

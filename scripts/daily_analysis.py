@@ -18,6 +18,7 @@ import sys
 import json
 import argparse
 import logging
+
 from datetime import datetime
 from typing import Dict, Optional, List
 from pathlib import Path
@@ -37,6 +38,7 @@ from secrets_loader import load_secrets
 from UTXOracle_library import UTXOracleCalculator
 from scripts.config import UTXORACLE_DB_PATH
 from scripts.utils.rpc_cookie import RpcClient, clean_env_value, resolve_target
+from api.questdb_repository import QuestDBRepository  # noqa: E402
 
 # Whale Flow Detector (spec-004) - import after scripts/ is in path
 try:
@@ -50,7 +52,7 @@ try:
     from scripts.metrics.monte_carlo_fusion import monte_carlo_fusion
     from scripts.metrics.active_addresses import count_active_addresses
     from scripts.metrics.tx_volume import calculate_tx_volume
-    from scripts.metrics import save_metrics_to_db
+    from scripts.metrics import save_metrics_to_db  # noqa: F401 - availability probe
 
     METRICS_ENABLED = True
 except ImportError:
@@ -59,7 +61,7 @@ except ImportError:
 
 # Advanced On-Chain Analytics (spec-009 + spec-019) - Power Law, Symbolic Dynamics, Fractal Dimension
 try:
-    from scripts.metrics.monte_carlo_fusion import (
+    from scripts.metrics.monte_carlo_fusion import (  # noqa: F401 - availability probe
         enhanced_fusion,
         sopr_to_vote,
         ENHANCED_WEIGHTS,
@@ -104,7 +106,7 @@ except ImportError:
 
 # Webhook Alert System (spec-011) - Signal, Price, and Whale alerts
 try:
-    from scripts.alerts import (
+    from scripts.alerts import (  # noqa: F401 - availability probe
         emit_alert_sync,
         create_signal_event,
         create_price_event,
@@ -128,13 +130,13 @@ except ImportError:
 
 # UTXO Lifecycle Engine (spec-017) - Realized Cap, MVRV, NUPL, HODL Waves
 try:
-    from scripts.metrics.utxo_lifecycle import (
+    from scripts.metrics.utxo_lifecycle import (  # noqa: F401 - availability probe
         init_schema as init_utxo_schema,
         init_indexes as init_utxo_indexes,
         get_sync_state as get_utxo_sync_state,
         get_sth_lth_supply,
     )
-    from scripts.metrics.realized_metrics import (
+    from scripts.metrics.realized_metrics import (  # noqa: F401 - availability probe
         calculate_realized_cap,
         calculate_market_cap,
         calculate_mvrv,
@@ -142,8 +144,8 @@ try:
         get_total_unspent_supply,
         create_snapshot,
     )
-    from scripts.metrics.hodl_waves import calculate_hodl_waves
-    from scripts.models.metrics_models import AgeCohortsConfig
+    from scripts.metrics.hodl_waves import calculate_hodl_waves  # noqa: F401 - availability probe
+    from scripts.models.metrics_models import AgeCohortsConfig  # noqa: F401 - availability probe
 
     UTXO_LIFECYCLE_ENABLED = (
         os.getenv("UTXO_LIFECYCLE_ENABLED", "true").lower() == "true"
@@ -1037,9 +1039,6 @@ def backfill_gap(date_str: str, config: Dict) -> bool:
     except Exception as e:
         logging.error(f"[Backfill] Failed to backfill {date_str}: {e}")
         return False
-
-
-from api.questdb_repository import QuestDBRepository
 
 
 def save_to_questdb(data: Dict) -> None:

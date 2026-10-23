@@ -74,7 +74,10 @@ def _resolve_tip() -> int:
     try:
         result = subprocess.run(
             ["bitcoin-cli", "getblockcount"],
-            capture_output=True, text=True, timeout=10, check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
         )
         return int(result.stdout.strip())
     except Exception as exc:
@@ -232,7 +235,8 @@ def backfill(start_block: int, end_block: int, workers: int = 8) -> int:
                         "Spent backfill progress: block %d/%d (%.1f%%); updates=%d",
                         height,
                         end_block,
-                        100 * (height - start_block + 1)
+                        100
+                        * (height - start_block + 1)
                         / max(1, end_block - start_block + 1),
                         issued + len(batch),
                     )
@@ -267,14 +271,19 @@ def main() -> int:
 
     logger.info(
         "Spent backfill range: blocks %d..%d (%d blocks, %d workers)",
-        start, end, end - start + 1, args.workers,
+        start,
+        end,
+        end - start + 1,
+        args.workers,
     )
     t0 = time.monotonic()
     rows = backfill(start, end, workers=args.workers)
     elapsed = time.monotonic() - t0
     logger.info(
         "Spent backfill complete: %d UPDATEs in %.1fs (%.0f upd/s)",
-        rows, elapsed, rows / max(0.001, elapsed),
+        rows,
+        elapsed,
+        rows / max(0.001, elapsed),
     )
     return 0
 
