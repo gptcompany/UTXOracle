@@ -1044,6 +1044,29 @@ class NUPLResponse(BaseModel):
     timestamp: str = Field(..., description="ISO timestamp of calculation")
 
 
+def _connect_utxo_lifecycle_db():
+    """Open the local UTXO lifecycle DuckDB in read-only mode."""
+    import duckdb
+
+    db_path = Path(UTXO_DB_PATH)
+    if not db_path.exists():
+        raise HTTPException(
+            status_code=503,
+            detail=f"UTXO lifecycle database not found at {UTXO_DB_PATH}. "
+            "Run utxo_lifecycle sync first.",
+        )
+
+    return duckdb.connect(str(db_path), read_only=True)
+
+
+def _get_latest_utxo_block_height(conn) -> int:
+    """Return the latest creation block visible in utxo_lifecycle_full."""
+    result = conn.execute(
+        "SELECT COALESCE(MAX(creation_block), 0) FROM utxo_lifecycle_full"
+    ).fetchone()
+    return int(result[0] or 0)
+
+
 @app.get("/api/metrics/nupl", response_model=NUPLResponse)
 async def get_nupl(
     current_price: float = Query(

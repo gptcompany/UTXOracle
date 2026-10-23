@@ -359,7 +359,7 @@ def test_address_cohorts_api_endpoint_success(wave1_client):
     Expected response structure matches spec.md API definition.
     """
     # Test with explicit current_price parameter
-    response = wave1_client.get("/api/metrics/address-cohorts?current_price=98500")
+    response = wave1_client.get("/api/metrics/address-cohorts")
 
     assert response.status_code == 200
     data = response.json()
@@ -372,9 +372,11 @@ def test_address_cohorts_api_endpoint_success(wave1_client):
     assert "retail" in data["cohorts"]
     assert "mid_tier" in data["cohorts"]
     assert "whale" in data["cohorts"]
-    assert "analysis" in data
-    assert "whale_retail_spread" in data["analysis"]
-    assert "whale_retail_mvrv_ratio" in data["analysis"]
+    # The spread and the MVRV ratio are top-level fields of the materialized response
+    # (the DuckDB-era "analysis" object no longer exists, see AddressCohortsResponse).
+    assert "analysis" not in data
+    assert "whale_retail_spread" in data
+    assert "whale_retail_mvrv_ratio" in data
     assert "total_supply_btc" in data
     assert "total_addresses" in data
 
@@ -384,22 +386,28 @@ def test_address_cohorts_api_endpoint_success(wave1_client):
 # =============================================================================
 
 
-def test_address_cohorts_api_endpoint_error_handling(wave1_client):
+def test_address_cohorts_api_endpoint_error_handling(wave1_client, questdb_repo_mock):
     """Test API endpoint handles errors gracefully.
 
-    Test cases:
-    - Default current_price works (has default value)
-    - Invalid current_price (negative) → 422 Validation Error
-    - Invalid current_price (zero) → 422 Validation Error
+    The endpoint serves the latest materialized snapshot from QuestDB and takes no
+    parameters, so the error cases are the states of that snapshot:
+    - snapshot present → 200
+    - no rows → 404
+    - fewer than the 3 cohorts (partial materialization) → 503
+    - repository failure → 500 with a generic detail
     """
-    # Test default current_price works (endpoint has default=100000.0)
     response = wave1_client.get("/api/metrics/address-cohorts")
-    assert response.status_code == 200  # Default value is valid
+    assert response.status_code == 200
 
-    # Test invalid current_price (negative) - FastAPI validation rejects ge=1.0
-    response = wave1_client.get("/api/metrics/address-cohorts?current_price=-100")
-    assert response.status_code == 422  # FastAPI validation error
+    rows = questdb_repo_mock.get_address_cohorts_latest.return_value
 
-    # Test invalid current_price (zero) - FastAPI validation rejects ge=1.0
-    response = wave1_client.get("/api/metrics/address-cohorts?current_price=0")
-    assert response.status_code == 422  # FastAPI validation error
+    questdb_repo_mock.get_address_cohorts_latest.return_value = []
+    assert wave1_client.get("/api/metrics/address-cohorts").status_code == 404
+
+    questdb_repo_mock.get_address_cohorts_latest.return_value = rows[:2]
+    assert wave1_client.get("/api/metrics/address-cohorts").status_code == 503
+
+    questdb_repo_mock.get_address_cohorts_latest.side_effect = RuntimeError("boom")
+    response = wave1_client.get("/api/metrics/address-cohorts")
+    assert response.status_code == 500
+    assert "boom" not in response.text
