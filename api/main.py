@@ -58,36 +58,17 @@ except ImportError as e:
 # T036a: Security - JWT Authentication Middleware
 # =============================================================================
 
-try:
-    from auth_middleware import (
-        require_auth,
-        optional_auth,
-        AuthToken,
-        get_auth_instance,
-        require_permission,
-    )
-
-    AUTH_AVAILABLE = True
-    logging.info("✅ JWT authentication middleware loaded successfully")
-except ImportError as e:
-    AUTH_AVAILABLE = False
-    logging.warning(f"⚠️ Auth middleware not available: {e}")
-    logging.warning("   All endpoints will be unprotected (development mode)")
-
-    # Fallback no-op dependency for development
-    class AuthToken:
-        def __init__(self):
-            self.client_id = "dev-client"
-            self.permissions = {"read", "write"}
-
-    async def require_auth() -> AuthToken:
-        return AuthToken()
-
-    async def optional_auth() -> Optional[AuthToken]:
-        return AuthToken()
-
-    # No require_permission fallback on purpose: without the middleware the write routes
-    # must not be served unprotected, so importing the app fails (F-266).
+# F-240: no fallback. The REST authentication is imported from the package (the same module the
+# /v1/streams router uses); if it cannot be imported the application must not start, instead of
+# running with a silent no-op "dev" dependency. That also keeps the write routes from being served
+# unprotected (F-266).
+from api.auth_middleware import (  # noqa: E402,F401
+    require_auth,
+    optional_auth,
+    AuthToken,
+    get_auth_instance,
+    require_permission,
+)
 
 
 # =============================================================================
@@ -170,9 +151,8 @@ async def lifespan(app: FastAPI):
     # Startup
     logging.info("=" * 60)
     logging.info("UTXOracle API starting...")
-    if AUTH_AVAILABLE:
-        # Fail closed at startup: a missing or still-encrypted signing key must stop the service.
-        get_auth_instance()
+    # Fail closed at startup: a missing or still-encrypted signing key must stop the service.
+    get_auth_instance()
 
     # Initialize QuestDB
     questdb_repo = QuestDBRepository()
