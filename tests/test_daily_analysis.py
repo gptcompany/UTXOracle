@@ -180,7 +180,6 @@ class TestPriceValidation:
     def test_validate_price_data_divergence_warning(self):
         """T103: Large divergence should trigger warning but return True (valid)"""
         from scripts.daily_analysis import validate_price_data
-        import logging
 
         config = {
             "UTXORACLE_CONFIDENCE_THRESHOLD": 0.3,
