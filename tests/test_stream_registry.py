@@ -153,9 +153,7 @@ def test_block_column_and_block_columns_are_mutually_exclusive(schema):
             {"version": "1.0.0", "streams": [bad_entry] * 13}
         )
     )
-    assert errors, (
-        "schema must reject entries with BOTH block_column and block_columns"
-    )
+    assert errors, "schema must reject entries with BOTH block_column and block_columns"
 
 
 def test_utxo_lifecycle_freshness_checks_creations_and_spends(registry):

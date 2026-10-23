@@ -406,7 +406,9 @@ class TestClassificationByType:
 
             conn = connect()  # succeeds once the holder exits
             conn.close()
-            assert len(attempts) >= 2, "the lock must have been retried, not failed at once"
+            assert len(attempts) >= 2, (
+                "the lock must have been retried, not failed at once"
+            )
         finally:
             holder.wait(timeout=10)
 
@@ -438,7 +440,9 @@ class TestClassificationByType:
 
     def test_os_and_connection_errors_are_transient_even_with_permanent_words(self):
         config = DatabaseRetryConfig()
-        assert config.should_retry(OSError("cannot open /data/invalid_unique.db")) is True
+        assert (
+            config.should_retry(OSError("cannot open /data/invalid_unique.db")) is True
+        )
         assert config.should_retry(ConnectionError("connection invalid")) is True
 
     def test_permission_error_is_permanent(self):

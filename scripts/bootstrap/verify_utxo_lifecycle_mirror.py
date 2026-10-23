@@ -146,9 +146,7 @@ def _duckdb_source_count() -> int | None:
     try:
         conn = duckdb.connect(str(UTXORACLE_DB_PATH), read_only=True)
         try:
-            row = conn.execute(
-                "SELECT count(*) FROM utxo_lifecycle_full"
-            ).fetchone()
+            row = conn.execute("SELECT count(*) FROM utxo_lifecycle_full").fetchone()
             return int(row[0]) if row else 0
         finally:
             conn.close()

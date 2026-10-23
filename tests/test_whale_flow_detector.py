@@ -28,7 +28,7 @@ except ImportError:
     WhaleFlowDetector = None
 
 # Import contract from specs directory (add to path if needed)
-import sys
+import sys  # noqa: E402
 
 specs_contracts_path = REPO_ROOT / "specs" / "004-whale-flow-detection" / "contracts"
 if str(specs_contracts_path) not in sys.path:

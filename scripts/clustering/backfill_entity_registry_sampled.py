@@ -11,7 +11,9 @@ from api.config import DUCKDB_PATH
 from scripts.clustering.init_entity_registry import create_entity_registry_tables
 
 
-def backfill(sample_limit: int | None = None, db_path: str | None = None) -> dict[str, int]:
+def backfill(
+    sample_limit: int | None = None, db_path: str | None = None
+) -> dict[str, int]:
     target_path = db_path or DUCKDB_PATH
     mode = "full" if sample_limit is None else f"sampled({sample_limit})"
     print(f"Backfilling Entity Registry from {target_path} [{mode}]...")
@@ -120,10 +122,16 @@ def backfill(sample_limit: int | None = None, db_path: str | None = None) -> dic
             """
         )
 
-        entity_count = int(conn.execute("SELECT COUNT(*) FROM entity_registry").fetchone()[0])
-        mapping_count = int(conn.execute("SELECT COUNT(*) FROM cluster_entity_map").fetchone()[0])
+        entity_count = int(
+            conn.execute("SELECT COUNT(*) FROM entity_registry").fetchone()[0]
+        )
+        mapping_count = int(
+            conn.execute("SELECT COUNT(*) FROM cluster_entity_map").fetchone()[0]
+        )
 
-    print(f"✅ Sampled Entity Registry backfill complete in {time.time() - start_time:.2f}s.")
+    print(
+        f"✅ Sampled Entity Registry backfill complete in {time.time() - start_time:.2f}s."
+    )
     return {"entity_registry": entity_count, "cluster_entity_map": mapping_count}
 
 

@@ -23,7 +23,6 @@ the daily processing pipeline.
 
 import argparse
 import logging
-import os
 from datetime import datetime
 
 import duckdb

@@ -155,7 +155,9 @@ async def build_price_table(
         return 0
 
     all_dates = _iter_dates(start_date, end_date)
-    logger.info("Fetching %d daily prices (%s to %s)", len(all_dates), start_date, end_date)
+    logger.info(
+        "Fetching %d daily prices (%s to %s)", len(all_dates), start_date, end_date
+    )
 
     sender = _open_sender()
     rows = 0
@@ -166,7 +168,9 @@ async def build_price_table(
 
     try:
         sender.establish()
-        async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+        async with aiohttp.ClientSession(
+            connector=connector, timeout=timeout
+        ) as session:
             for i in range(0, len(all_dates), batch_size):
                 batch = all_dates[i : i + batch_size]
                 prices = await fetch_prices_batch(
@@ -216,7 +220,9 @@ def main() -> int:
     args = parser.parse_args()
 
     logging.basicConfig(
-        level=logging.DEBUG if args.verbose else _resolve_log_level(os.getenv("LOG_LEVEL")),
+        level=logging.DEBUG
+        if args.verbose
+        else _resolve_log_level(os.getenv("LOG_LEVEL")),
         format="%(asctime)s - %(levelname)s - %(message)s",
     )
 
@@ -230,15 +236,18 @@ def main() -> int:
         if args.end_date
         else date.today() - timedelta(days=1)
     )
-    return asyncio.run(
-        build_price_table(
-            start_date,
-            end_date,
-            mempool_url=args.mempool_url,
-            batch_size=args.batch_size,
-            rate_limit=args.rate_limit,
+    return (
+        asyncio.run(
+            build_price_table(
+                start_date,
+                end_date,
+                mempool_url=args.mempool_url,
+                batch_size=args.batch_size,
+                rate_limit=args.rate_limit,
+            )
         )
-    ) and 0
+        and 0
+    )
 
 
 if __name__ == "__main__":

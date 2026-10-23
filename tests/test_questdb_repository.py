@@ -291,7 +291,9 @@ def test_get_recent_feature_bundle_sequence_pages_newest_first():
     repo = QuestDBRepository()
     repo.fetch = AsyncMock(return_value=[{"sequence_id": 102}, {"sequence_id": 101}])  # type: ignore[method-assign]
 
-    rows = asyncio.run(repo.get_recent_feature_bundle_sequence("btc_core_live.v1", limit=2))
+    rows = asyncio.run(
+        repo.get_recent_feature_bundle_sequence("btc_core_live.v1", limit=2)
+    )
 
     assert rows == [{"sequence_id": 102}, {"sequence_id": 101}]
     repo.fetch.assert_awaited_once()

@@ -55,9 +55,7 @@ class QuestDBPersistenceError(RuntimeError):
         self.target_date = target_date
         self.failures = failures
         detail = ", ".join(f"{name}: {type(exc).__name__}" for name, exc in failures)
-        super().__init__(
-            f"QuestDB persistence failed for {target_date}: {detail}"
-        )
+        super().__init__(f"QuestDB persistence failed for {target_date}: {detail}")
 
 
 def get_blocks_for_date(
@@ -106,7 +104,6 @@ def get_blocks_for_date(
             """,
             [start_ts, end_ts],
         ).fetchone()
-
 
     if result is None or result[0] is None or result[1] is None:
         raise ValueError(f"No blocks found for date {target_date}")
@@ -254,11 +251,7 @@ def calculate_daily_sopr(
                     (start_block, end_block),
                 )
                 result = cur.fetchone()
-        if (
-            result
-            and result[1] is not None
-            and float(result[1]) > 0
-        ):
+        if result and result[1] is not None and float(result[1]) > 0:
             return float(result[0]) / float(result[1])
         return None
 
@@ -419,10 +412,14 @@ def calculate_cointime_daily(
         ).fetchone()
 
     coinblocks_destroyed = (
-        float(destroyed_result[0]) if destroyed_result and destroyed_result[0] is not None else 0.0
+        float(destroyed_result[0])
+        if destroyed_result and destroyed_result[0] is not None
+        else 0.0
     )
     coinblocks_created = (
-        float(created_result[0]) if created_result and created_result[0] is not None else 0.0
+        float(created_result[0])
+        if created_result and created_result[0] is not None
+        else 0.0
     )
 
     if coinblocks_created > 0:
@@ -534,9 +531,7 @@ def calculate_daily_metrics(
     nupl = calculate_daily_nupl(market_cap, realized_cap)
 
     # Calculate Cointime
-    cointime = calculate_cointime_daily(
-        conn, end_block, questdb_reads=questdb_reads
-    )
+    cointime = calculate_cointime_daily(conn, end_block, questdb_reads=questdb_reads)
 
     metrics = {
         "date": target_date,

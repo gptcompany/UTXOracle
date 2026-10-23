@@ -94,7 +94,10 @@ def test_8001_migration_headers_wave1(questdb_repo_mock):
         ]:
             response = client.get(route)
             assert response.status_code != 404
-            assert response.headers["X-UTXOracle-Migration-Hint"] == "Canonical production host is :8011"
+            assert (
+                response.headers["X-UTXOracle-Migration-Hint"]
+                == "Canonical production host is :8011"
+            )
             assert response.headers["Deprecation"] == "true"
 
 

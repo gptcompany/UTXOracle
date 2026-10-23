@@ -85,6 +85,7 @@ class MetricsLatestResponse(BaseModel):
 # Wave 1 (spec-046) Promoted Models
 # =============================================================================
 
+
 class CohortMetricsResponse(BaseModel):
     cohort: str
     cost_basis: float
@@ -178,8 +179,10 @@ class AbsorptionRatesResponse(BaseModel):
 # Research & Operations (spec-003 Hardening)
 # =============================================================================
 
+
 class TierStats(BaseModel):
     """Observability for fetch tiers."""
+
     tier: int
     count: int
     percentage: float
@@ -187,6 +190,7 @@ class TierStats(BaseModel):
 
 class TierObservabilityResponse(BaseModel):
     """Response for /api/research/tier-stats."""
+
     timeframe_days: int
     total_samples: int
     stats: List[TierStats]

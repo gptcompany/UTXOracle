@@ -69,7 +69,6 @@ class _WorkerProcessLock:
             self._handle = None
 
 
-
 class SnapshotStore(Protocol):
     def write_snapshot(self, snapshot: LiveSnapshot) -> None: ...
     async def awrite_snapshot(self, snapshot: LiveSnapshot) -> None: ...
@@ -169,14 +168,17 @@ class LiveWorker:
             "electrs": electrs_read.health,
             "utxoracle": _mark_stale_if_carried(
                 utxo_read.health,
-                is_current=utxo_read.value is not None and utxo_read.value.price is not None,
-                had_previous=previous is not None and previous.utxoracle_price is not None,
+                is_current=utxo_read.value is not None
+                and utxo_read.value.price is not None,
+                had_previous=previous is not None
+                and previous.utxoracle_price is not None,
                 stale_message="using previous UTXOracle value",
             ),
             "mempool_api": _mark_stale_if_carried(
                 mempool_read.health,
                 is_current=mempool_read.value is not None,
-                had_previous=previous is not None and previous.mempool_exchange_price is not None,
+                had_previous=previous is not None
+                and previous.mempool_exchange_price is not None,
                 stale_message="using previous mempool price",
             ),
             "brk": _mark_stale_if_carried(
@@ -199,15 +201,19 @@ class LiveWorker:
 
         comparison = build_live_comparison(
             utxoracle_price if source_health["utxoracle"].status == "healthy" else None,
-            mempool_exchange_price if source_health["mempool_api"].status == "healthy" else None,
+            mempool_exchange_price
+            if source_health["mempool_api"].status == "healthy"
+            else None,
             (
                 hyperliquid_snapshot.oracle_price
-                if hyperliquid_snapshot and source_health["hyperliquid"].status == "healthy"
+                if hyperliquid_snapshot
+                and source_health["hyperliquid"].status == "healthy"
                 else None
             ),
             (
                 hyperliquid_snapshot.mark_price
-                if hyperliquid_snapshot and source_health["hyperliquid"].status == "healthy"
+                if hyperliquid_snapshot
+                and source_health["hyperliquid"].status == "healthy"
                 else None
             ),
         )
@@ -218,8 +224,12 @@ class LiveWorker:
             utxoracle_price=utxoracle_price,
             utxoracle_confidence=utxoracle_confidence,
             mempool_exchange_price=mempool_exchange_price,
-            hyperliquid_oracle_price=hyperliquid_snapshot.oracle_price if hyperliquid_snapshot else None,
-            hyperliquid_mark_price=hyperliquid_snapshot.mark_price if hyperliquid_snapshot else None,
+            hyperliquid_oracle_price=hyperliquid_snapshot.oracle_price
+            if hyperliquid_snapshot
+            else None,
+            hyperliquid_mark_price=hyperliquid_snapshot.mark_price
+            if hyperliquid_snapshot
+            else None,
             comparison=comparison,
             features=features,
             source_health=source_health,
@@ -368,7 +378,9 @@ def _resolve_process_lock_path(
     return db_path.parent / f"{db_path.name}.worker.lock"
 
 
-def _carry_forward_scalar(current: float | None, previous: float | None) -> float | None:
+def _carry_forward_scalar(
+    current: float | None, previous: float | None
+) -> float | None:
     return current if current is not None else previous
 
 
@@ -398,7 +410,10 @@ def _carry_forward_hyperliquid(
         return current
     if previous is None:
         return None
-    if previous.hyperliquid_oracle_price is None and previous.hyperliquid_mark_price is None:
+    if (
+        previous.hyperliquid_oracle_price is None
+        and previous.hyperliquid_mark_price is None
+    ):
         return None
     timestamp = previous.source_timestamps.get("hyperliquid") or previous.timestamp
     return HyperliquidPriceSnapshot(
