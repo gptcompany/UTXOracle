@@ -204,9 +204,7 @@ async def test_overall_consistency_with_per_stream(streams_app):
     assert body["overall"] in _VALID_OVERALL
     all_ok = all(s["status"] == "OK" for s in body["streams"])
     if all_ok:
-        assert body["overall"] == "OK", (
-            "rollup must be OK when every stream is OK"
-        )
+        assert body["overall"] == "OK", "rollup must be OK when every stream is OK"
     else:
         assert body["overall"] == "DEGRADED", (
             "rollup must be DEGRADED when at least one stream is non-OK; "

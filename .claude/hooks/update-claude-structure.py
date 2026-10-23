@@ -14,13 +14,11 @@ Usage:
     python update-claude-structure.py --debug   # Show debug info
 """
 
-import os
 import re
 import sys
 import argparse
 from pathlib import Path
-from typing import Dict, List, Set, Optional
-from collections import defaultdict
+from typing import Dict, List
 
 
 # ============================================================================
@@ -28,70 +26,80 @@ from collections import defaultdict
 # ============================================================================
 
 EXCLUDE_PATTERNS = {
-    '.git', '.venv', 'venv', '__pycache__', '.pytest_cache',
-    '.ruff_cache', '.mypy_cache', '.coverage', '*.pyc', '*.pyo',
-    '*.egg-info', '.DS_Store', '*.swp', '*.tmp', '*.bak', '*.log',
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".mypy_cache",
+    ".coverage",
+    "*.pyc",
+    "*.pyo",
+    "*.egg-info",
+    ".DS_Store",
+    "*.swp",
+    "*.tmp",
+    "*.bak",
+    "*.log",
 }
 
 # Status markers to remove
 STATUS_MARKERS = [
-    r'\s*\(TODO\)', r'\s*\(IMPLEMENTED\)', r'\s*\(IN PROGRESS\)',
-    r'\s*\(✅[^)]*\)', r'\s*\(❌[^)]*\)', r'\s*\(⚠️[^)]*\)',
-    r'\s*\(CURRENT[^)]*\)', r'\s*\(FUTURE[^)]*\)',
-    r'\s*\(ready[^)]*\)', r'\s*\(Created[^)]*\)',
+    r"\s*\(TODO\)",
+    r"\s*\(IMPLEMENTED\)",
+    r"\s*\(IN PROGRESS\)",
+    r"\s*\(✅[^)]*\)",
+    r"\s*\(❌[^)]*\)",
+    r"\s*\(⚠️[^)]*\)",
+    r"\s*\(CURRENT[^)]*\)",
+    r"\s*\(FUTURE[^)]*\)",
+    r"\s*\(ready[^)]*\)",
+    r"\s*\(Created[^)]*\)",
 ]
 
 # Structure template - defines what to show
 STRUCTURE = {
-    'UTXOracle.py': 'Reference implementation v9.1 (IMMUTABLE)',
-    'main.py': 'Live system entry point',
-    'orchestrator.py': 'Pipeline orchestration',
-    'pyproject.toml': 'UV workspace root',
-    'uv.lock': 'Dependency lockfile (commit this!)',
-    '.python-version': 'Python version specification',
-    '.env': 'Environment variables (DO NOT COMMIT)',
-
-    'live/': 'Modular live system implementation',
-    'live/backend/': 'Python modules (ZMQ, processing, API)',
-    'live/frontend/': 'HTML/JS/CSS visualization',
-    'live/shared/': 'Shared data models',
-
-    'core/': 'Extracted algorithm modules (future: Rust/Cython candidates)',
-
-    'tests/': 'Test suite (pytest)',
-    'tests/integration/': 'End-to-end tests',
-    'tests/benchmark/': 'Performance benchmarks',
-    'tests/fixtures/': 'Test data',
-
-    'docs/': 'Documentation',
-    'docs/tasks/': 'Agent task specifications (01-05)',
-
-    'scripts/': 'Utilities (batch processing, etc.)',
-    'specs/': 'Feature specifications (SpecKit)',
-    'examples/': 'Example outputs and screenshots',
-    'historical_data/': '672 days of historical outputs',
-    'historical_data/html_files/': 'HTML price analysis files',
-    'archive/': 'Previous versions (v7, v8, v9)',
-
-    '.claude/': 'Claude Code configuration',
-    '.claude/agents/': '6 specialized subagents',
-    '.claude/skills/': '4 template-driven automation skills',
-    '.claude/hooks/': 'Pre/post tool execution hooks',
-    '.claude/prompts/': 'Orchestration rules',
-    '.claude/tdd-guard/': 'TDD enforcement data',
-    '.claude/commands/': 'Custom slash commands (SpecKit)',
-    '.claude/docs/': 'Meta-documentation',
-    '.claude/research/': 'Research notes',
-    '.claude/logs/': 'Session logs',
-
-    '.serena/': 'Serena MCP (code navigation memory)',
-    '.specify/': 'SpecKit (task management)',
-
-    '.github/': 'Cleanup automation tools',
-
-    'CLAUDE.md': 'THIS FILE - Claude Code instructions',
-    'README.md': 'Project overview',
-    'LICENSE': 'Blue Oak Model License 1.0.0',
+    "UTXOracle.py": "Reference implementation v9.1 (IMMUTABLE)",
+    "main.py": "Live system entry point",
+    "orchestrator.py": "Pipeline orchestration",
+    "pyproject.toml": "UV workspace root",
+    "uv.lock": "Dependency lockfile (commit this!)",
+    ".python-version": "Python version specification",
+    ".env": "Environment variables (DO NOT COMMIT)",
+    "live/": "Modular live system implementation",
+    "live/backend/": "Python modules (ZMQ, processing, API)",
+    "live/frontend/": "HTML/JS/CSS visualization",
+    "live/shared/": "Shared data models",
+    "core/": "Extracted algorithm modules (future: Rust/Cython candidates)",
+    "tests/": "Test suite (pytest)",
+    "tests/integration/": "End-to-end tests",
+    "tests/benchmark/": "Performance benchmarks",
+    "tests/fixtures/": "Test data",
+    "docs/": "Documentation",
+    "docs/tasks/": "Agent task specifications (01-05)",
+    "scripts/": "Utilities (batch processing, etc.)",
+    "specs/": "Feature specifications (SpecKit)",
+    "examples/": "Example outputs and screenshots",
+    "historical_data/": "672 days of historical outputs",
+    "historical_data/html_files/": "HTML price analysis files",
+    "archive/": "Previous versions (v7, v8, v9)",
+    ".claude/": "Claude Code configuration",
+    ".claude/agents/": "6 specialized subagents",
+    ".claude/skills/": "4 template-driven automation skills",
+    ".claude/hooks/": "Pre/post tool execution hooks",
+    ".claude/prompts/": "Orchestration rules",
+    ".claude/tdd-guard/": "TDD enforcement data",
+    ".claude/commands/": "Custom slash commands (SpecKit)",
+    ".claude/docs/": "Meta-documentation",
+    ".claude/research/": "Research notes",
+    ".claude/logs/": "Session logs",
+    ".serena/": "Serena MCP (code navigation memory)",
+    ".specify/": "SpecKit (task management)",
+    ".github/": "Cleanup automation tools",
+    "CLAUDE.md": "THIS FILE - Claude Code instructions",
+    "README.md": "Project overview",
+    "LICENSE": "Blue Oak Model License 1.0.0",
 }
 
 
@@ -99,13 +107,15 @@ STRUCTURE = {
 # Core Functions
 # ============================================================================
 
+
 def should_exclude(name: str) -> bool:
     """Check if file/directory should be excluded."""
     if name in EXCLUDE_PATTERNS:
         return True
     for pattern in EXCLUDE_PATTERNS:
-        if '*' in pattern:
+        if "*" in pattern:
             import fnmatch
+
             if fnmatch.fnmatch(name, pattern):
                 return True
     return False
@@ -121,23 +131,25 @@ def extract_existing_comments(claude_md_path: Path) -> Dict[str, str]:
     content = claude_md_path.read_text()
 
     # Find Core Structure section
-    match = re.search(r'### Core Structure\s*```\s*UTXOracle/\s*(.*?)\s*```', content, re.DOTALL)
+    match = re.search(
+        r"### Core Structure\s*```\s*UTXOracle/\s*(.*?)\s*```", content, re.DOTALL
+    )
     if not match:
         return comments
 
     tree_section = match.group(1)
 
     # Parse tree lines
-    for line in tree_section.split('\n'):
+    for line in tree_section.split("\n"):
         # Match: "├── path/    # Comment"
-        match = re.match(r'[├└│ ]*(?:├──|└──)?\s*([^\s#]+(?:/)?)\s*#\s*(.+)', line)
+        match = re.match(r"[├└│ ]*(?:├──|└──)?\s*([^\s#]+(?:/)?)\s*#\s*(.+)", line)
         if match:
             path_part = match.group(1).strip()
             comment = match.group(2).strip()
 
             # Remove status markers
             for marker in STATUS_MARKERS:
-                comment = re.sub(marker, '', comment)
+                comment = re.sub(marker, "", comment)
             comment = comment.strip()
 
             if comment and path_part not in comments:
@@ -150,12 +162,13 @@ def count_files_in_dir(dir_path: Path, pattern: str = "*") -> int:
     """Count files matching pattern in directory."""
     try:
         import fnmatch
+
         count = 0
         for item in dir_path.iterdir():
             if item.is_file() and fnmatch.fnmatch(item.name, pattern):
                 count += 1
         return count
-    except:
+    except Exception:
         return 0
 
 
@@ -168,14 +181,14 @@ def scan_repository(repo_root: Path, comments: Dict[str, str]) -> List[tuple]:
 
     # Process root files first
     for key in sorted(STRUCTURE.keys()):
-        if '/' not in key:  # Root files
+        if "/" not in key:  # Root files
             path = repo_root / key
             if path.exists():
-                comment = comments.get(key, STRUCTURE.get(key, ''))
+                comment = comments.get(key, STRUCTURE.get(key, ""))
                 items.append((key, 0, path.is_dir(), comment, 0))
 
     # Add blank line separator
-    items.append(('', 0, False, '', 0))
+    items.append(("", 0, False, "", 0))
 
     # Process directories depth-first
     processed_dirs = set()
@@ -185,27 +198,29 @@ def scan_repository(repo_root: Path, comments: Dict[str, str]) -> List[tuple]:
             return
         processed_dirs.add(dir_key)
 
-        dir_path = repo_root / dir_key.rstrip('/')
+        dir_path = repo_root / dir_key.rstrip("/")
         if not dir_path.exists() or not dir_path.is_dir():
             return
 
         # Add directory itself
-        comment = comments.get(dir_key, STRUCTURE.get(dir_key, ''))
+        comment = comments.get(dir_key, STRUCTURE.get(dir_key, ""))
         items.append((dir_key, depth, True, comment, 0))
 
         # Check for special aggregation cases
-        if dir_key == 'historical_data/html_files/':
+        if dir_key == "historical_data/html_files/":
             count = count_files_in_dir(dir_path, "*.html")
             if count > 0:
-                items.append((f'[{count} HTML files]', depth + 1, False, '', count))
+                items.append((f"[{count} HTML files]", depth + 1, False, "", count))
             return
 
-        if dir_key.endswith('html_files/'):
+        if dir_key.endswith("html_files/"):
             return  # Skip showing individual HTML files
 
         # Get subdirectories and files
         try:
-            contents = sorted(dir_path.iterdir(), key=lambda x: (not x.is_dir(), x.name))
+            contents = sorted(
+                dir_path.iterdir(), key=lambda x: (not x.is_dir(), x.name)
+            )
         except PermissionError:
             return
 
@@ -214,14 +229,26 @@ def scan_repository(repo_root: Path, comments: Dict[str, str]) -> List[tuple]:
         for item in contents:
             if item.is_file() and not should_exclude(item.name):
                 rel_key = f"{dir_key}{item.name}"
-                if rel_key in STRUCTURE or depth == 0:  # Show if explicitly listed or root level
-                    comment = comments.get(rel_key, STRUCTURE.get(rel_key, ''))
+                if (
+                    rel_key in STRUCTURE or depth == 0
+                ):  # Show if explicitly listed or root level
+                    comment = comments.get(rel_key, STRUCTURE.get(rel_key, ""))
                     items.append((rel_key, depth + 1, False, comment, 0))
                     files_shown += 1
                 if files_shown >= 15 and depth > 0:  # Limit files shown per directory
-                    remaining = sum(1 for x in contents[contents.index(item):] if x.is_file())
+                    remaining = sum(
+                        1 for x in contents[contents.index(item) :] if x.is_file()
+                    )
                     if remaining > 1:
-                        items.append((f'[...and {remaining} more files]', depth + 1, False, '', remaining))
+                        items.append(
+                            (
+                                f"[...and {remaining} more files]",
+                                depth + 1,
+                                False,
+                                "",
+                                remaining,
+                            )
+                        )
                     break
 
         # Process subdirectories (limited depth)
@@ -234,7 +261,7 @@ def scan_repository(repo_root: Path, comments: Dict[str, str]) -> List[tuple]:
 
     # Process main directories
     for key in sorted(STRUCTURE.keys()):
-        if '/' in key and key.count('/') == 1:  # Top-level directories
+        if "/" in key and key.count("/") == 1:  # Top-level directories
             add_directory(key, 0)
 
     return items
@@ -245,13 +272,13 @@ def format_tree(items: List[tuple]) -> str:
     lines = ["UTXOracle/"]
 
     for i, (path, depth, is_dir, comment, file_count) in enumerate(items):
-        if path == '':
-            lines.append('│')
+        if path == "":
+            lines.append("│")
             continue
 
         # Special formatting for aggregations
-        if path.startswith('['):
-            prefix = '│   ' * depth
+        if path.startswith("["):
+            prefix = "│   " * depth
             lines.append(f"{prefix}└── {path}")
             continue
 
@@ -261,20 +288,22 @@ def format_tree(items: List[tuple]) -> str:
             next_path, next_depth, _, _, _ = items[j]
             if next_depth < depth:
                 break
-            if next_depth == depth and next_path != '':
+            if next_depth == depth and next_path != "":
                 is_last = False
                 break
 
         # Build prefix
-        prefix = ''
+        prefix = ""
         for d in range(depth):
             if d < depth - 1:
-                prefix += '│   '
+                prefix += "│   "
             else:
-                prefix += ('└── ' if is_last else '├── ')
+                prefix += "└── " if is_last else "├── "
 
         # Format name
-        name = path.split('/')[-2] + '/' if is_dir and '/' in path else path.split('/')[-1]
+        name = (
+            path.split("/")[-2] + "/" if is_dir and "/" in path else path.split("/")[-1]
+        )
 
         # Format line with comment
         if comment:
@@ -284,10 +313,12 @@ def format_tree(items: List[tuple]) -> str:
 
         lines.append(line)
 
-    return '\n'.join(lines)
+    return "\n".join(lines)
 
 
-def update_claude_md(claude_md_path: Path, new_tree: str, dry_run: bool = False) -> bool:
+def update_claude_md(
+    claude_md_path: Path, new_tree: str, dry_run: bool = False
+) -> bool:
     """Update CLAUDE.md with new tree structure."""
     if not claude_md_path.exists():
         print(f"ERROR: {claude_md_path} not found")
@@ -296,7 +327,7 @@ def update_claude_md(claude_md_path: Path, new_tree: str, dry_run: bool = False)
     content = claude_md_path.read_text()
 
     # Find Core Structure section
-    pattern = r'(### Core Structure\s*```\s*)UTXOracle/.*?(```)'
+    pattern = r"(### Core Structure\s*```\s*)UTXOracle/.*?(```)"
 
     if not re.search(pattern, content, re.DOTALL):
         print("ERROR: Could not find '### Core Structure' section in CLAUDE.md")
@@ -304,10 +335,7 @@ def update_claude_md(claude_md_path: Path, new_tree: str, dry_run: bool = False)
 
     # Replace with new tree
     new_content = re.sub(
-        pattern,
-        r'\g<1>' + new_tree + r'\n\g<2>',
-        content,
-        flags=re.DOTALL
+        pattern, r"\g<1>" + new_tree + r"\n\g<2>", content, flags=re.DOTALL
     )
 
     # Check if anything changed
@@ -332,20 +360,15 @@ def update_claude_md(claude_md_path: Path, new_tree: str, dry_run: bool = False)
 # Main
 # ============================================================================
 
+
 def main():
     parser = argparse.ArgumentParser(
         description="Auto-update CLAUDE.md repository structure"
     )
     parser.add_argument(
-        '--dry-run',
-        action='store_true',
-        help='Preview changes without modifying files'
+        "--dry-run", action="store_true", help="Preview changes without modifying files"
     )
-    parser.add_argument(
-        '--debug',
-        action='store_true',
-        help='Show debug information'
-    )
+    parser.add_argument("--debug", action="store_true", help="Show debug information")
 
     args = parser.parse_args()
 

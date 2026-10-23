@@ -19,6 +19,7 @@ from typing import List
 
 import requests
 import duckdb
+
 # Use SOPS-encrypted secrets
 sys.path.insert(0, "/media/sam/1TB/claude-hooks-shared/scripts")
 from secrets_loader import load_secrets

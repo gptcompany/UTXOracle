@@ -24,6 +24,7 @@ except ImportError:
 
         _secrets_mode = "dotenv"
     except ImportError:
+
         def load_secrets(_path: str | None = None):
             return False
 
@@ -41,13 +42,17 @@ def load_project_environment(loader, path: Optional[Path]) -> list[str]:
     preset = dict(os.environ)
     loader(str(path) if path else None)
     # Preset ciphertext is not restored: the loader may have decrypted that key from the env file.
-    os.environ.update({key: value for key, value in preset.items() if not is_encrypted(value)})
+    os.environ.update(
+        {key: value for key, value in preset.items() if not is_encrypted(value)}
+    )
     dropped = sorted(key for key, value in os.environ.items() if is_encrypted(value))
     for key in dropped:
         del os.environ[key]
     if dropped:
         # Names only: a value must never reach the log.
-        _logger.error("Dropped still-encrypted environment values: %s", ", ".join(dropped))
+        _logger.error(
+            "Dropped still-encrypted environment values: %s", ", ".join(dropped)
+        )
     return dropped
 
 
@@ -62,6 +67,7 @@ else:
     _env_file = None
 DROPPED_ENCRYPTED_KEYS = load_project_environment(load_secrets, _env_file)
 
+
 # Environment configuration
 def get_clean_env(key: str, default: str = "") -> str:
     val = os.getenv(key, default)
@@ -74,12 +80,17 @@ def get_clean_env_list(key: str) -> list[str]:
     raw = get_clean_env(key)
     return [item.strip() for item in raw.split(",") if item.strip()]
 
+
 # SECURITY: JWT_SECRET must be set in environment - no insecure defaults
 _jwt_secret = get_clean_env("JWT_SECRET")
 if not _jwt_secret:
     raise ValueError(
         "SECURITY ERROR: JWT_SECRET environment variable is required"
-        + (" (its value is still encrypted)" if "JWT_SECRET" in DROPPED_ENCRYPTED_KEYS else "")
+        + (
+            " (its value is still encrypted)"
+            if "JWT_SECRET" in DROPPED_ENCRYPTED_KEYS
+            else ""
+        )
         + ". Generate with: openssl rand -base64 64"
     )
 JWT_SECRET = _jwt_secret
@@ -118,21 +129,44 @@ FASTAPI_PORT = int(get_clean_env("FASTAPI_PORT", "8001"))
 DUCKDB_PATH = get_clean_env("DUCKDB_PATH", "data/utxoracle.duckdb")
 UTXO_DB_PATH = get_clean_env("UTXO_DB_PATH", DUCKDB_PATH)
 ELECTRS_HTTP_URL = get_clean_env("ELECTRS_HTTP_URL", "http://127.0.0.1:3002")
-MEMPOOL_API_V1_URL = get_clean_env("MEMPOOL_API_V1_URL", f"{MEMPOOL_API_URL.rstrip('/')}/api/v1")
+MEMPOOL_API_V1_URL = get_clean_env(
+    "MEMPOOL_API_V1_URL", f"{MEMPOOL_API_URL.rstrip('/')}/api/v1"
+)
 BRK_BASE_URL = get_clean_env("BRK_BASE_URL", "http://127.0.0.1:7070")
-HYPERLIQUID_NODE_API_URL = get_clean_env("HYPERLIQUID_NODE_API_URL", "http://127.0.0.1:3001/info")
-HYPERLIQUID_NODE_INFO_REQUEST_TYPE = get_clean_env("HYPERLIQUID_NODE_INFO_REQUEST_TYPE", "")
+HYPERLIQUID_NODE_API_URL = get_clean_env(
+    "HYPERLIQUID_NODE_API_URL", "http://127.0.0.1:3001/info"
+)
+HYPERLIQUID_NODE_INFO_REQUEST_TYPE = get_clean_env(
+    "HYPERLIQUID_NODE_INFO_REQUEST_TYPE", ""
+)
 HYPERLIQUID_NODE_SNAPSHOT_PATH = get_clean_env("HYPERLIQUID_NODE_SNAPSHOT_PATH", "")
-HYPERLIQUID_METRICS_URL = get_clean_env("HYPERLIQUID_METRICS_URL", "http://127.0.0.1:9101/metrics")
-HYPERLIQUID_DATA_ROOT = get_clean_env("HYPERLIQUID_DATA_ROOT", "/media/sam/4TB-NVMe/hyperliquid/filtered")
-HYPERLIQUID_FILTERED_STREAM = get_clean_env("HYPERLIQUID_FILTERED_STREAM", "hip3_oracle_updates_by_block")
+HYPERLIQUID_METRICS_URL = get_clean_env(
+    "HYPERLIQUID_METRICS_URL", "http://127.0.0.1:9101/metrics"
+)
+HYPERLIQUID_DATA_ROOT = get_clean_env(
+    "HYPERLIQUID_DATA_ROOT", "/media/sam/4TB-NVMe/hyperliquid/filtered"
+)
+HYPERLIQUID_FILTERED_STREAM = get_clean_env(
+    "HYPERLIQUID_FILTERED_STREAM", "hip3_oracle_updates_by_block"
+)
 HYPERLIQUID_MAX_AGE_SECONDS = float(get_clean_env("HYPERLIQUID_MAX_AGE_SECONDS", "900"))
-WASSERSTEIN_SHIFT_THRESHOLD = float(get_clean_env("WASSERSTEIN_SHIFT_THRESHOLD", "0.10"))
-LIVE_ENABLED = get_clean_env("LIVE_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
+WASSERSTEIN_SHIFT_THRESHOLD = float(
+    get_clean_env("WASSERSTEIN_SHIFT_THRESHOLD", "0.10")
+)
+LIVE_ENABLED = get_clean_env("LIVE_ENABLED", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 LIVE_API_PORT = int(get_clean_env("LIVE_API_PORT", "8011"))
 LIVE_SOURCE_TIMEOUT_SECONDS = float(get_clean_env("LIVE_SOURCE_TIMEOUT_SECONDS", "5.0"))
-LIVE_MARKET_INTERVAL_SECONDS = float(get_clean_env("LIVE_MARKET_INTERVAL_SECONDS", "5.0"))
-LIVE_BLOCK_POLL_INTERVAL_SECONDS = float(get_clean_env("LIVE_BLOCK_POLL_INTERVAL_SECONDS", "2.0"))
+LIVE_MARKET_INTERVAL_SECONDS = float(
+    get_clean_env("LIVE_MARKET_INTERVAL_SECONDS", "5.0")
+)
+LIVE_BLOCK_POLL_INTERVAL_SECONDS = float(
+    get_clean_env("LIVE_BLOCK_POLL_INTERVAL_SECONDS", "2.0")
+)
 LIVE_RETENTION_HOURS = int(get_clean_env("LIVE_RETENTION_HOURS", "24"))
 LIVE_WORKER_LOCK_PATH = get_clean_env(
     "LIVE_WORKER_LOCK_PATH", "/tmp/utxoracle_live.worker.lock"
@@ -232,7 +266,9 @@ def setup_logging(name: str, log_file: Optional[Path] = None) -> logging.Logger:
 # Create default logger for this module
 logger = setup_logging(__name__)
 logger.info("Whale Dashboard configuration loaded")
-logger.info(f"QuestDB PG URL: postgresql://{QUESTDB_PG_USER}:***@{QUESTDB_PG_HOST}:{QUESTDB_PG_PORT}/{QUESTDB_PG_DATABASE}")
+logger.info(
+    f"QuestDB PG URL: postgresql://{QUESTDB_PG_USER}:***@{QUESTDB_PG_HOST}:{QUESTDB_PG_PORT}/{QUESTDB_PG_DATABASE}"
+)
 logger.info(f"Mempool API: {MEMPOOL_API_URL}")
 logger.info(f"WebSocket port: {WHALE_WS_PORT}")
 logger.info(f"Whale threshold: {WHALE_MIN_BTC} BTC")

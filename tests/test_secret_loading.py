@@ -36,7 +36,9 @@ def test_environment_wins_over_env_file(monkeypatch):
 def test_decrypted_loader_value_wins_over_preset_ciphertext(monkeypatch):
     # systemd EnvironmentFile=.env carries JWT_SECRET as ciphertext; the loader decrypts it from .env.enc.
     monkeypatch.setenv("UTX_TEST_JWT", SOPS_VALUE)
-    dropped = load_project_environment(_loader({"UTX_TEST_JWT": "decrypted-plain"}), None)
+    dropped = load_project_environment(
+        _loader({"UTX_TEST_JWT": "decrypted-plain"}), None
+    )
     assert dropped == []
     assert os.environ["UTX_TEST_JWT"] == "decrypted-plain"
 
@@ -153,10 +155,28 @@ def test_app_startup_fails_closed_without_signing_key():
 
 def test_token_cli_needs_only_the_rest_signing_key(tmp_path):
     # The documented REST token CLI signs with WEBSOCKET_SECRET_KEY; it must not need JWT_SECRET.
-    env = {k: v for k, v in os.environ.items() if k not in ("JWT_SECRET", "WEBSOCKET_SECRET_KEY")}
-    env.update({"AUTH_ENABLED": "true", "WEBSOCKET_SECRET_KEY": "synthetic-rest-key", "HOME": str(tmp_path)})
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in ("JWT_SECRET", "WEBSOCKET_SECRET_KEY")
+    }
+    env.update(
+        {
+            "AUTH_ENABLED": "true",
+            "WEBSOCKET_SECRET_KEY": "synthetic-rest-key",
+            "HOME": str(tmp_path),
+        }
+    )
     result = subprocess.run(
-        [sys.executable, "api/auth_middleware.py", "cli-test", "--permissions", "read", "--hours", "1"],
+        [
+            sys.executable,
+            "api/auth_middleware.py",
+            "cli-test",
+            "--permissions",
+            "read",
+            "--hours",
+            "1",
+        ],
         cwd=ROOT,
         env=env,
         capture_output=True,

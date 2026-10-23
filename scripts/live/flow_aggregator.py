@@ -41,7 +41,9 @@ def _unspent_filter(conn: duckdb.DuckDBPyConnection) -> str:
     return ""
 
 
-def aggregate_flows(db_path: str | None = None, sample_limit: int | None = None) -> dict[str, int]:
+def aggregate_flows(
+    db_path: str | None = None, sample_limit: int | None = None
+) -> dict[str, int]:
     target_path = db_path or DUCKDB_PATH
     print(f"Aggregating flows in {target_path}...")
 
@@ -196,11 +198,27 @@ def aggregate_flows(db_path: str | None = None, sample_limit: int | None = None)
         )
 
         return {
-            "entity_movement_events": int(conn.execute("SELECT COUNT(*) FROM entity_movement_events").fetchone()[0]),
-            "entity_transfer_edges": int(conn.execute("SELECT COUNT(*) FROM entity_transfer_edges").fetchone()[0]),
-            "entity_flows_daily": int(conn.execute("SELECT COUNT(*) FROM entity_flows_daily").fetchone()[0]),
-            "entity_balance_snapshots_daily": int(conn.execute("SELECT COUNT(*) FROM entity_balance_snapshots_daily").fetchone()[0]),
-            "entity_counterparty_edges_daily": int(conn.execute("SELECT COUNT(*) FROM entity_counterparty_edges_daily").fetchone()[0]),
+            "entity_movement_events": int(
+                conn.execute("SELECT COUNT(*) FROM entity_movement_events").fetchone()[
+                    0
+                ]
+            ),
+            "entity_transfer_edges": int(
+                conn.execute("SELECT COUNT(*) FROM entity_transfer_edges").fetchone()[0]
+            ),
+            "entity_flows_daily": int(
+                conn.execute("SELECT COUNT(*) FROM entity_flows_daily").fetchone()[0]
+            ),
+            "entity_balance_snapshots_daily": int(
+                conn.execute(
+                    "SELECT COUNT(*) FROM entity_balance_snapshots_daily"
+                ).fetchone()[0]
+            ),
+            "entity_counterparty_edges_daily": int(
+                conn.execute(
+                    "SELECT COUNT(*) FROM entity_counterparty_edges_daily"
+                ).fetchone()[0]
+            ),
         }
 
 

@@ -26,6 +26,7 @@ from scripts.live.storage import LiveSnapshotStore
 router = APIRouter(prefix="/api/execution/btc", tags=["execution-btc"])
 logger = logging.getLogger(__name__)
 
+
 class ConnectionManager:
     def __init__(self):
         self.active_connections: list[WebSocket] = []
@@ -56,7 +57,9 @@ class ConnectionManager:
         for connection in disconnected:
             self.disconnect(connection)
 
+
 stream_manager = ConnectionManager()
+
 
 @router.websocket("/stream")
 async def execution_stream_endpoint(websocket: WebSocket):
@@ -74,6 +77,7 @@ async def execution_stream_endpoint(websocket: WebSocket):
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
         stream_manager.disconnect(websocket)
+
 
 DOCS_DIR = Path(__file__).resolve().parents[2] / "docs"
 EXECUTION_SAFETY_PATH = DOCS_DIR / "contracts" / "execution_safety.yaml"
@@ -250,12 +254,18 @@ async def get_execution_status(
                     stale_inputs.append(f"{key}_status_not_ok")
                     is_fresh = False
 
-                recent_rows = await repo.get_recent_feature_bundle_sequence(bundle_id, 2)
-                if not _check_recent_sequence_rows(key, recent_rows or [row], gaps_detected):
+                recent_rows = await repo.get_recent_feature_bundle_sequence(
+                    bundle_id, 2
+                )
+                if not _check_recent_sequence_rows(
+                    key, recent_rows or [row], gaps_detected
+                ):
                     is_monotonic = False
                 else:
                     input_refs[f"{key}_sequence_id"] = str(
-                        recent_rows[0]["sequence_id"] if recent_rows else row["sequence_id"]
+                        recent_rows[0]["sequence_id"]
+                        if recent_rows
+                        else row["sequence_id"]
                     )
 
             # Check signals
@@ -278,11 +288,15 @@ async def get_execution_status(
                     is_fresh = False
 
                 recent_signal_rows = await repo.get_recent_signal_sequence(2)
-                if not _check_recent_sequence_rows("signal", recent_signal_rows or [sig_row], gaps_detected):
+                if not _check_recent_sequence_rows(
+                    "signal", recent_signal_rows or [sig_row], gaps_detected
+                ):
                     is_monotonic = False
                 else:
                     input_refs["signal_sequence_id"] = str(
-                        recent_signal_rows[0]["sequence_id"] if recent_signal_rows else sig_row["sequence_id"]
+                        recent_signal_rows[0]["sequence_id"]
+                        if recent_signal_rows
+                        else sig_row["sequence_id"]
                     )
 
         # Compute Mode

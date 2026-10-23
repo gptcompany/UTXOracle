@@ -13,7 +13,9 @@ from scripts.metrics.materialize_wave1 import run_materialization_pass
 def _setup_script_logging(name: str) -> logging.Logger:
     if not logging.getLogger().handlers:
         logging.basicConfig(
-            level=getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO),
+            level=getattr(
+                logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO
+            ),
             format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         )
     return logging.getLogger(name)

@@ -10,7 +10,12 @@ from scripts.live.bundle_writer import (
     MACRO_BUNDLE_ID,
     BundleWriter,
 )
-from scripts.live.models import LiveComparison, LiveFeatureSet, LiveSnapshot, SourceHealth
+from scripts.live.models import (
+    LiveComparison,
+    LiveFeatureSet,
+    LiveSnapshot,
+    SourceHealth,
+)
 
 
 def _build_snapshot() -> LiveSnapshot:
@@ -183,19 +188,25 @@ class FakeBundleRepo:
         if "FROM mempool_predictions" in query:
             return [
                 {
-                    "detection_timestamp": datetime(2026, 4, 7, 11, 59, tzinfo=timezone.utc),
+                    "detection_timestamp": datetime(
+                        2026, 4, 7, 11, 59, tzinfo=timezone.utc
+                    ),
                     "btc_value": 10.0,
                     "flow_type": "inflow",
                     "exchange_addresses": "addr_in",
                 },
                 {
-                    "detection_timestamp": datetime(2026, 4, 7, 11, 58, tzinfo=timezone.utc),
+                    "detection_timestamp": datetime(
+                        2026, 4, 7, 11, 58, tzinfo=timezone.utc
+                    ),
                     "btc_value": 22.5,
                     "flow_type": "outflow",
                     "exchange_addresses": "addr_out",
                 },
                 {
-                    "detection_timestamp": datetime(2026, 4, 7, 11, 57, tzinfo=timezone.utc),
+                    "detection_timestamp": datetime(
+                        2026, 4, 7, 11, 57, tzinfo=timezone.utc
+                    ),
                     "btc_value": 5.0,
                     "flow_type": "internal",
                     "exchange_addresses": None,
@@ -204,7 +215,11 @@ class FakeBundleRepo:
         if "FROM address_clusters" in query:
             return [
                 {"address": "addr_in", "cluster_id": "cluster_001", "label": "Binance"},
-                {"address": "addr_out", "cluster_id": "cluster_002", "label": "Coinbase"},
+                {
+                    "address": "addr_out",
+                    "cluster_id": "cluster_002",
+                    "label": "Coinbase",
+                },
             ]
         raise AssertionError(f"unexpected fetch query: {query}")
 
@@ -252,7 +267,9 @@ class CostBasisOnlyRepo(FakeBundleRepo):
 class LegacyAbsorptionRepo(FakeBundleRepo):
     async def get_absorption_rates_latest(self, window_days: int = 30):
         rows = await super().get_absorption_rates_latest(window_days)
-        return [{k: v for k, v in row.items() if k != "has_historical_data"} for row in rows]
+        return [
+            {k: v for k, v in row.items() if k != "has_historical_data"} for row in rows
+        ]
 
 
 @pytest.mark.asyncio
@@ -270,10 +287,18 @@ async def test_bundle_writer_materializes_all_four_bundle_families():
     ]
     assert repo.flush_calls == 1
 
-    core_payload = json.loads(repo.latest_feature_bundles[CORE_BUNDLE_ID]["payload_json"])
-    flow_payload = json.loads(repo.latest_feature_bundles[FLOW_BUNDLE_ID]["payload_json"])
-    macro_payload = json.loads(repo.latest_feature_bundles[MACRO_BUNDLE_ID]["payload_json"])
-    cohort_payload = json.loads(repo.latest_feature_bundles[COHORT_BUNDLE_ID]["payload_json"])
+    core_payload = json.loads(
+        repo.latest_feature_bundles[CORE_BUNDLE_ID]["payload_json"]
+    )
+    flow_payload = json.loads(
+        repo.latest_feature_bundles[FLOW_BUNDLE_ID]["payload_json"]
+    )
+    macro_payload = json.loads(
+        repo.latest_feature_bundles[MACRO_BUNDLE_ID]["payload_json"]
+    )
+    cohort_payload = json.loads(
+        repo.latest_feature_bundles[COHORT_BUNDLE_ID]["payload_json"]
+    )
 
     assert core_payload["metadata"]["sequence_id"] == 1
     assert core_payload["metrics_latest"]["monte_carlo"]["action"] == "BUY"
@@ -293,8 +318,12 @@ async def test_bundle_writer_increments_sequence_ids_per_bundle_family():
     await writer.write_bundles(snapshot)
     await writer.write_bundles(snapshot)
 
-    core_payload = json.loads(repo.latest_feature_bundles[CORE_BUNDLE_ID]["payload_json"])
-    flow_payload = json.loads(repo.latest_feature_bundles[FLOW_BUNDLE_ID]["payload_json"])
+    core_payload = json.loads(
+        repo.latest_feature_bundles[CORE_BUNDLE_ID]["payload_json"]
+    )
+    flow_payload = json.loads(
+        repo.latest_feature_bundles[FLOW_BUNDLE_ID]["payload_json"]
+    )
 
     assert core_payload["metadata"]["sequence_id"] == 2
     assert flow_payload["metadata"]["sequence_id"] == 2
@@ -307,7 +336,9 @@ async def test_bundle_writer_keeps_core_healthy_when_metrics_latest_is_missing()
 
     await writer.write_bundles(_build_snapshot())
 
-    core_payload = json.loads(repo.latest_feature_bundles[CORE_BUNDLE_ID]["payload_json"])
+    core_payload = json.loads(
+        repo.latest_feature_bundles[CORE_BUNDLE_ID]["payload_json"]
+    )
 
     assert core_payload["metadata"]["bundle_status"] == "healthy"
     assert core_payload["metadata"]["degraded_reasons"] == []
@@ -321,8 +352,12 @@ async def test_bundle_writer_keeps_flow_and_cohort_healthy_with_only_required_in
 
     await writer.write_bundles(_build_snapshot())
 
-    flow_payload = json.loads(repo.latest_feature_bundles[FLOW_BUNDLE_ID]["payload_json"])
-    cohort_payload = json.loads(repo.latest_feature_bundles[COHORT_BUNDLE_ID]["payload_json"])
+    flow_payload = json.loads(
+        repo.latest_feature_bundles[FLOW_BUNDLE_ID]["payload_json"]
+    )
+    cohort_payload = json.loads(
+        repo.latest_feature_bundles[COHORT_BUNDLE_ID]["payload_json"]
+    )
 
     assert flow_payload["metadata"]["bundle_status"] == "healthy"
     assert flow_payload["metadata"]["degraded_reasons"] == []
@@ -347,7 +382,9 @@ async def test_bundle_writer_degrades_cohort_when_cost_basis_is_missing():
 
     await writer.write_bundles(_build_snapshot())
 
-    cohort_payload = json.loads(repo.latest_feature_bundles[COHORT_BUNDLE_ID]["payload_json"])
+    cohort_payload = json.loads(
+        repo.latest_feature_bundles[COHORT_BUNDLE_ID]["payload_json"]
+    )
 
     assert cohort_payload["metadata"]["bundle_status"] == "degraded"
     assert "cost_basis unavailable" in cohort_payload["metadata"]["degraded_reasons"]
@@ -360,8 +397,12 @@ async def test_bundle_writer_accepts_legacy_absorption_rows_without_has_historic
 
     await writer.write_bundles(_build_snapshot())
 
-    flow_payload = json.loads(repo.latest_feature_bundles[FLOW_BUNDLE_ID]["payload_json"])
-    cohort_payload = json.loads(repo.latest_feature_bundles[COHORT_BUNDLE_ID]["payload_json"])
+    flow_payload = json.loads(
+        repo.latest_feature_bundles[FLOW_BUNDLE_ID]["payload_json"]
+    )
+    cohort_payload = json.loads(
+        repo.latest_feature_bundles[COHORT_BUNDLE_ID]["payload_json"]
+    )
 
     assert flow_payload["metadata"]["bundle_status"] == "healthy"
     assert flow_payload["absorption_rates"]["has_historical_data"] is True

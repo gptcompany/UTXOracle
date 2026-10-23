@@ -173,17 +173,22 @@ class TestMetricsDatabaseIntegration:
     def test_save_and_load_metrics(self, temp_db_path, sample_metrics):
         """Test metrics can be saved and loaded from database."""
         from scripts.metrics import _repo
-        
-        with patch.object(_repo, "_send_row", return_value=True) as mock_send, \
-             patch("scripts.metrics.load_metrics_from_db") as mock_load, \
-             patch("tests.integration.test_metrics_integration.load_metrics_from_db") as mock_load_local:
-            
-            mock_data = [{
-                "ts": sample_metrics["timestamp"],
-                "signal_mean": 0.8,
-                "active_addresses_block": 100,
-                "tx_count": 50,
-            }]
+
+        with (
+            patch.object(_repo, "_send_row", return_value=True) as mock_send,
+            patch("scripts.metrics.load_metrics_from_db") as mock_load,
+            patch(
+                "tests.integration.test_metrics_integration.load_metrics_from_db"
+            ) as mock_load_local,
+        ):
+            mock_data = [
+                {
+                    "ts": sample_metrics["timestamp"],
+                    "signal_mean": 0.8,
+                    "active_addresses_block": 100,
+                    "tx_count": 50,
+                }
+            ]
             mock_load.return_value = mock_data
             mock_load_local.return_value = mock_data
 
@@ -211,16 +216,21 @@ class TestMetricsDatabaseIntegration:
     def test_get_latest_metrics(self, temp_db_path, sample_metrics):
         """Test retrieving latest metrics."""
         from scripts.metrics import _repo
-        
-        with patch.object(_repo, "_send_row", return_value=True), \
-             patch("scripts.metrics.load_metrics_from_db") as mock_load, \
-             patch("tests.integration.test_metrics_integration.load_metrics_from_db") as mock_load_local:
-            
-            mock_data = [{
-                "signal_mean": 0.8,
-                "active_addresses_block": 100,
-                "tx_volume_usd": 1000000.0,
-            }]
+
+        with (
+            patch.object(_repo, "_send_row", return_value=True),
+            patch("scripts.metrics.load_metrics_from_db") as mock_load,
+            patch(
+                "tests.integration.test_metrics_integration.load_metrics_from_db"
+            ) as mock_load_local,
+        ):
+            mock_data = [
+                {
+                    "signal_mean": 0.8,
+                    "active_addresses_block": 100,
+                    "tx_volume_usd": 1000000.0,
+                }
+            ]
             mock_load.return_value = mock_data
             mock_load_local.return_value = mock_data
 
@@ -283,11 +293,10 @@ class TestAPIEndpointIntegration:
 
     def test_metrics_latest_endpoint_structure(self):
         """Test /api/metrics/latest returns expected structure."""
-        import os
         from fastapi.testclient import TestClient
         from api.main import app
         from unittest.mock import AsyncMock
-        
+
         # Mock repo in app state
         mock_repo = AsyncMock()
         mock_repo.get_latest_metrics.return_value = {
