@@ -14,15 +14,17 @@ SOPS_VALUE = "ENC[AES256_GCM,data:AAAAAAAA,iv:BBBBBBBB,tag:CCCCCCCC==,type:str]"
 DOTENVX_VALUE = "encrypted:QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFB"
 
 
-def _mint(tmp_path, key: str) -> subprocess.CompletedProcess:
+def _mint(
+    tmp_path, key: str, auth_enabled: str | None = "true"
+) -> subprocess.CompletedProcess:
     env = {
         k: v
         for k, v in os.environ.items()
-        if k not in ("JWT_SECRET", "WEBSOCKET_SECRET_KEY")
+        if k not in ("JWT_SECRET", "WEBSOCKET_SECRET_KEY", "AUTH_ENABLED")
     }
-    env.update(
-        {"AUTH_ENABLED": "true", "WEBSOCKET_SECRET_KEY": key, "HOME": str(tmp_path)}
-    )
+    env.update({"WEBSOCKET_SECRET_KEY": key, "HOME": str(tmp_path)})
+    if auth_enabled is not None:
+        env["AUTH_ENABLED"] = auth_enabled
     return subprocess.run(
         [
             sys.executable,
@@ -54,3 +56,24 @@ def test_mint_prints_a_jwt_with_a_plaintext_key(tmp_path):
     result = _mint(tmp_path, "synthetic-rest-key")
     assert result.returncode == 0, result.stderr[-500:]
     assert len(result.stdout.strip().split(".")) == 3
+
+
+@pytest.mark.parametrize(
+    ("key", "auth_enabled"),
+    [
+        ("", "false"),
+        (SOPS_VALUE, "false"),
+        (DOTENVX_VALUE, "false"),
+        ("synthetic-rest-key", "false"),
+        # Absent: the config default is true, so an unusable key must still stop the mint.
+        ("", None),
+        (SOPS_VALUE, None),
+    ],
+)
+def test_mint_never_prints_a_token_unless_auth_is_enabled(tmp_path, key, auth_enabled):
+    # AUTH_ENABLED=false makes the authenticator return a NO_AUTH placeholder with rc 0 (F-215).
+    result = _mint(tmp_path, key, auth_enabled)
+    assert result.returncode == 2, result.stderr[-500:]
+    assert result.stdout == ""
+    assert "NO_AUTH" not in result.stderr
+    assert key not in result.stderr or key == ""

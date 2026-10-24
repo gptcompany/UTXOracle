@@ -42,6 +42,9 @@ def mint(client_id: str, permissions: list[str], ttl_hours: int) -> str:
     from api.auth_middleware import RestApiAuth
 
     auth = RestApiAuth()
+    if not auth.authenticator.config.enabled:
+        # With auth disabled the authenticator hands out a placeholder instead of a JWT.
+        raise RuntimeError("AUTH_ENABLED must be true to mint a token")
     # The authenticator carries its own AuthConfig; override expiry for this mint only.
     auth.authenticator.config.token_expiry_hours = ttl_hours
     token = auth.authenticator.generate_token(
