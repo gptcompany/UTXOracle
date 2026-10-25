@@ -1,65 +1,54 @@
 #!/usr/bin/env python3
 """Mint a consumer JWT for /v1/streams/health and other /v1/* surfaces.
 
-Uses the same JWT_SECRET load path as api/config.py so tokens emitted here
+Signs with WEBSOCKET_SECRET_KEY, the REST signing key api/auth_middleware.py uses, after loading
+the project environment exactly as the API does (api/project_env.py), so tokens emitted here
 validate against the running utxoracle-api.service.
 
-Usage:
+Usage (from the repository root):
     uv run python -m scripts.auth.mint_consumer_token \\
-        --client-id nautilus-dev-prod \\
-        --permissions read \\
-        --ttl-hours 8760    # 1 year
+        --client-id nautilus-dev-prod --permissions read --ttl-hours 720
 
-    uv run python -m scripts.auth.mint_consumer_token --client-id smoke --ttl-hours 1
+--ttl-hours must be between 1 and 8760 (default 720 = 30 days): tokens cannot be revoked
+persistently, so the default stays short.
 
 Exit code 0 on success; the token is printed to stdout (single line, no prefix).
-JWT_SECRET decryption errors fail with exit code 2 and a descriptive message
-on stderr — no token is ever printed in an error path.
+Any failure (missing or still-encrypted signing key, AUTH_ENABLED not true, invalid arguments)
+exits 2 with a message on stderr and nothing on stdout; no token is ever printed in an error path.
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
-from pathlib import Path
 
-# Ensure project root is importable.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+MAX_TTL_HOURS = 8760
+DEFAULT_TTL_HOURS = 720
+# The permissions the REST routes check (require_permission) and api/auth_middleware.py's CLI accepts.
+PERMISSIONS = ("read", "write")
 
 
 def mint(client_id: str, permissions: list[str], ttl_hours: int) -> str:
-    """Mint via the same WebSocketAuthenticator the running API uses.
-
-    The authenticator resolves the secret via this chain:
-      1. $WEBSOCKET_SECRET_KEY env (preferred — production)
-      2. WEBSOCKET_SECRET_KEY= line in <project>/.env
-      3. no fallback: a missing or still-encrypted key raises and the CLI exits 2
-
-    Whatever the running API resolved at startup is what we resolve here.
-    The token's `expiry_hours` is read from MempoolConfig (env-driven), so we
-    monkeypatch it to honour the operator-provided --ttl-hours.
-    """
+    """Mint through api.auth_middleware.generate_token, which fails closed on the signing key."""
     from api.project_env import load_environment
 
     # Same environment as the API (.env included), before the config is read: otherwise
     # AUTH_ENABLED=false set only in .env would leave the API open while the CLI mints.
     load_environment()
 
-    from api.auth_middleware import RestApiAuth
+    from api.auth_middleware import generate_token, get_config
 
-    auth = RestApiAuth()
-    if not auth.authenticator.config.enabled:
-        # With auth disabled the authenticator hands out a placeholder instead of a JWT.
+    if not get_config().auth_enabled:
+        # With auth disabled the authenticator returns a placeholder instead of a JWT.
         raise RuntimeError("AUTH_ENABLED must be true to mint a token")
-    # The authenticator carries its own AuthConfig; override expiry for this mint only.
-    auth.authenticator.config.token_expiry_hours = ttl_hours
-    token = auth.authenticator.generate_token(
-        client_id=client_id,
-        permissions=set(permissions),
-    )
-    # generate_token returns AuthToken (with .token attr) on newer paths,
-    # or raw JWT string on older paths. Normalise.
-    return getattr(token, "token", token)
+    return generate_token(client_id, set(permissions), expires_in_hours=ttl_hours)
+
+
+def _ttl_hours(value: str) -> int:
+    hours = int(value)
+    if not 1 <= hours <= MAX_TTL_HOURS:
+        raise argparse.ArgumentTypeError(f"must be between 1 and {MAX_TTL_HOURS}")
+    return hours
 
 
 def main() -> int:
@@ -74,19 +63,20 @@ def main() -> int:
     parser.add_argument(
         "--permissions",
         nargs="+",
+        choices=PERMISSIONS,
         default=["read"],
         help="Permission scopes (default: read).",
     )
     parser.add_argument(
         "--ttl-hours",
-        type=int,
-        default=24 * 365,
-        help="Token validity window in hours (default: 8760 = 1 year).",
+        type=_ttl_hours,
+        default=DEFAULT_TTL_HOURS,
+        help=f"Token validity in hours, 1..{MAX_TTL_HOURS} (default: {DEFAULT_TTL_HOURS}).",
     )
     args = parser.parse_args()
 
     try:
-        token = mint(args.client_id, list(args.permissions), args.ttl_hours)
+        token = mint(args.client_id, args.permissions, args.ttl_hours)
     except Exception as exc:  # noqa: BLE001 - CLI boundary: any failure is rc 2, never a token
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2

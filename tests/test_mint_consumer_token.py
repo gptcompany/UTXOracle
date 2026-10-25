@@ -7,6 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import jwt
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -15,7 +16,11 @@ DOTENVX_VALUE = "encrypted:QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFB"
 
 
 def _mint(
-    tmp_path, key: str, auth_enabled: str | None = "true"
+    tmp_path,
+    key: str,
+    auth_enabled: str | None = "true",
+    ttl: str | None = "1",
+    extra: tuple[str, ...] = (),
 ) -> subprocess.CompletedProcess:
     env = {
         k: v
@@ -32,8 +37,8 @@ def _mint(
             "scripts.auth.mint_consumer_token",
             "--client-id",
             "cli-test",
-            "--ttl-hours",
-            "1",
+            *(("--ttl-hours", ttl) if ttl is not None else ()),
+            *extra,
         ],
         cwd=ROOT,
         env=env,
@@ -159,3 +164,25 @@ def test_api_and_cli_resolve_the_same_auth_flag(tmp_path, dotenv, auth_enabled):
     # The CLI mints (rc 0, a JWT) exactly when the API has auth on, and refuses otherwise.
     assert cli.returncode == (0 if api_enabled else 2), cli.stderr[-500:]
     assert (cli.stdout.strip() != "") == api_enabled
+
+
+@pytest.mark.parametrize("ttl", ["0", "-1", "8761", "abc"])
+def test_mint_rejects_ttl_outside_1_to_8760(tmp_path, ttl):
+    result = _mint(tmp_path, PLAIN_KEY, ttl=ttl)
+    assert result.returncode == 2, result.stderr[-500:]
+    assert result.stdout == ""
+    assert PLAIN_KEY not in result.stderr
+
+
+@pytest.mark.parametrize(("ttl", "hours"), [(None, 720), ("1", 1), ("8760", 8760)])
+def test_mint_ttl_default_and_bounds(tmp_path, ttl, hours):
+    result = _mint(tmp_path, PLAIN_KEY, ttl=ttl)
+    assert result.returncode == 0, result.stderr[-500:]
+    claims = jwt.decode(result.stdout.strip(), options={"verify_signature": False})
+    assert claims["exp"] - claims["iat"] == pytest.approx(hours * 3600, abs=1)
+
+
+def test_mint_rejects_unknown_permission(tmp_path):
+    result = _mint(tmp_path, PLAIN_KEY, extra=("--permissions", "admin"))
+    assert result.returncode == 2, result.stderr[-500:]
+    assert result.stdout == ""
