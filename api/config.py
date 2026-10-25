@@ -3,69 +3,17 @@ Configuration module for Whale Detection Dashboard.
 Task T006: Create logging configuration with rotation.
 """
 
-import os
-import sys
 import logging
 import logging.handlers
+import os
 from pathlib import Path
 from typing import Optional
 
+from api.project_env import load_environment, load_project_environment  # noqa: F401
 from api.secret_values import is_encrypted
 
-# Use SOPS-encrypted secrets when available, otherwise fall back to dotenv/plain env
-try:
-    sys.path.insert(0, "/media/sam/1TB/claude-hooks-shared/scripts")
-    from secrets_loader import load_secrets
-
-    _secrets_mode = "sops"
-except ImportError:
-    try:
-        from dotenv import load_dotenv as load_secrets
-
-        _secrets_mode = "dotenv"
-    except ImportError:
-
-        def load_secrets(_path: str | None = None):
-            return False
-
-        _secrets_mode = "env"
-
-# Load environment variables (from .env.enc when SOPS is available, otherwise .env or current env).
-# The process environment (systemd EnvironmentFile) wins for every key; the env file only fills keys
-# that are still missing. A value that is still ciphertext is never left in os.environ: used verbatim
-# it would turn committed ciphertext into a signing key.
-_logger = logging.getLogger(__name__)
-
-
-def load_project_environment(loader, path: Optional[Path]) -> list[str]:
-    """Run ``loader`` without letting it override the environment; return the names of dropped ciphertext keys."""
-    preset = dict(os.environ)
-    loader(str(path) if path else None)
-    # Preset ciphertext is not restored: the loader may have decrypted that key from the env file.
-    os.environ.update(
-        {key: value for key, value in preset.items() if not is_encrypted(value)}
-    )
-    dropped = sorted(key for key, value in os.environ.items() if is_encrypted(value))
-    for key in dropped:
-        del os.environ[key]
-    if dropped:
-        # Names only: a value must never reach the log.
-        _logger.error(
-            "Dropped still-encrypted environment values: %s", ", ".join(dropped)
-        )
-    return dropped
-
-
-_project_root = Path(__file__).resolve().parent.parent
-_env_enc_path = _project_root / ".env.enc"
-_env_path = _project_root / ".env"
-if _secrets_mode == "sops" and _env_enc_path.exists():
-    _env_file = _env_enc_path
-elif _env_path.exists():
-    _env_file = _env_path
-else:
-    _env_file = None
-DROPPED_ENCRYPTED_KEYS = load_project_environment(load_secrets, _env_file)
+# The loading itself lives in api.project_env, shared with the token CLI.
+DROPPED_ENCRYPTED_KEYS = load_environment()
 
 
 # Environment configuration

@@ -39,6 +39,12 @@ def mint(client_id: str, permissions: list[str], ttl_hours: int) -> str:
     The token's `expiry_hours` is read from MempoolConfig (env-driven), so we
     monkeypatch it to honour the operator-provided --ttl-hours.
     """
+    from api.project_env import load_environment
+
+    # Same environment as the API (.env included), before the config is read: otherwise
+    # AUTH_ENABLED=false set only in .env would leave the API open while the CLI mints.
+    load_environment()
+
     from api.auth_middleware import RestApiAuth
 
     auth = RestApiAuth()
