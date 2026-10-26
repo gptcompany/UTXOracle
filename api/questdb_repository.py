@@ -1580,6 +1580,15 @@ class QuestDBRepository:
         """
         Save scalar features derived from the URPD / cost-basis distribution.
         """
+        if result.availability_timestamp is None:
+            # Fail closed: a row without the time it became available cannot be used
+            # point-in-time, and defaulting it to now would leak look-ahead into backfills.
+            logger.error(
+                "Refusing to save urpd_features_daily row for block %s: "
+                "availability_timestamp is not set by the producer",
+                result.block_height,
+            )
+            raise ValueError("availability_timestamp is required to save urpd features")
         created_at = datetime.utcnow()
         source_health = dict(result.source_health or {})
         source_freshness_seconds = source_health.get("source_freshness_seconds")

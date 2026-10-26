@@ -4,6 +4,8 @@ import asyncio
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
+import pytest
+
 from api.questdb_repository import QuestDBRepository
 from scripts.models.metrics_models import CostBasisResult, URPDFeaturesResult
 
@@ -236,6 +238,34 @@ def test_save_urpd_features_persists_schema_version_and_health():
     assert columns["source_freshness_seconds"] == 42.0
     assert '"status": "healthy"' in columns["source_health_json"]
     assert at is timestamp
+
+
+def test_save_urpd_features_refuses_a_row_without_availability_timestamp(caplog):
+    repo = QuestDBRepository()
+    calls: list[tuple] = []
+    repo._send_row = lambda *args, **kwargs: calls.append((args, kwargs)) or True  # type: ignore[attr-defined]
+    result = URPDFeaturesResult(
+        supply_below_price_pct=72.0,
+        supply_above_price_pct=28.0,
+        top_bucket_concentration=14.5,
+        dominant_bucket_distance_pct=-8.2,
+        distribution_entropy=0.84,
+        current_price_usd=78000.0,
+        bucket_size_usd=5000.0,
+        total_supply_btc=18.5,
+        block_height=900000,
+        timestamp=datetime(2026, 1, 2, tzinfo=timezone.utc),
+    )
+
+    assert result.availability_timestamp is None
+    with (
+        caplog.at_level("ERROR"),
+        pytest.raises(ValueError, match="availability_timestamp"),
+    ):
+        repo.save_urpd_features(result)
+
+    assert calls == []
+    assert "availability_timestamp" in caplog.text
 
 
 def test_get_urpd_features_latest_uses_fetchrow():
