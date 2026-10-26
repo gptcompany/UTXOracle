@@ -65,15 +65,17 @@ def test_send_row_recreates_closed_sender_and_retries(monkeypatch):
 
 
 def test_build_sender_establishes_transport(monkeypatch):
+    """F-434: the production sender is ILP over HTTP, whose flush is confirmed."""
     sender = _FakeSender()
+    seen = {}
 
-    def fake_sender_ctor(protocol, host, port):
-        assert protocol == "tcp"
-        assert host == "localhost"
-        assert port == 9009
+    def fake_sender_ctor(protocol, host, port, **kwargs):
+        seen.update(protocol=protocol, host=host, port=port, kwargs=kwargs)
         return sender
 
     monkeypatch.setattr("api.questdb_repository.Sender", fake_sender_ctor)
+    monkeypatch.setattr("api.questdb_repository.QUESTDB_HTTP_HOST", "db.invalid")
+    monkeypatch.setattr("api.questdb_repository.QUESTDB_HTTP_PORT", 9900)
 
     repo = QuestDBRepository()
 
@@ -81,6 +83,37 @@ def test_build_sender_establishes_transport(monkeypatch):
     repo._ensure_sender()
     assert repo.sender is sender
     assert sender.established == 1
+    assert seen == {
+        "protocol": "http",
+        "host": "db.invalid",
+        "port": 9900,
+        "kwargs": {"auto_flush": False},
+    }
+
+
+def test_production_and_refresh_senders_share_one_constructor(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "api.questdb_repository.build_http_sender", lambda: calls.append("x") or "s"
+    )
+    repo = QuestDBRepository()
+    assert repo._build_sender() == "s"
+    assert repo._build_refresh_sender() == "s"
+    assert calls == ["x", "x"]
+
+
+def test_a_rejected_flush_is_reported_to_the_writer(monkeypatch):
+    """The confirmed flush raises on a rejected batch; _send_row must say False."""
+    sender = _FakeSender()
+
+    def refuse():
+        raise RuntimeError("rejected by the server")
+
+    sender.flush = refuse
+    monkeypatch.setattr(QuestDBRepository, "_build_sender", lambda self: sender)
+    repo = QuestDBRepository()
+
+    assert repo._send_row("t", symbols={}, columns={"v": "x"}, flush=True) is False
 
 
 def test_async_send_row_uses_sync_sender_without_executor(monkeypatch):

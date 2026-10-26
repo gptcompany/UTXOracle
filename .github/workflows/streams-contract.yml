@@ -128,6 +128,7 @@ jobs:
             tests/test_mirror_utxo_lifecycle_to_questdb.py \
             tests/test_catchup_utxo_lifecycle_to_tip.py \
             tests/test_daily_analysis_questdb_e2e.py \
+            tests/test_questdb_wrong_type_e2e.py \
             -v --tb=short
 
       - name: DDL coverage against live QuestDB
