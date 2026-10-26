@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import fcntl
+import os
+import re
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 import pytest
 
-from api.questdb_repository import QuestDBRepository
+from api.questdb_repository import (
+    ADDRESS_CLUSTERS_SCHEMA,
+    ConcurrentRefreshError,
+    OldCopyCleanupError,
+    QuestDBRepository,
+)
 from scripts.models.metrics_models import CostBasisResult, URPDFeaturesResult
 
 
@@ -117,34 +126,953 @@ def test_abort_ingestion_drops_buffer_and_prevents_flush_on_close():
     assert sender.flushed == 0
 
 
-def test_commit_address_clusters_refresh_runs_cutover_after_flush():
+_TOKENS: list = []
+
+
+def _release_tokens():
+    while _TOKENS:
+        _TOKENS.pop().release()
+
+
+@pytest.fixture(autouse=True)
+def _lock_dir(monkeypatch, tmp_path):
+    monkeypatch.setenv("ADDRESS_CLUSTERS_LOCK_DIR", str(tmp_path / "locks"))
+    yield
+    _release_tokens()
+
+
+def _tok(repo=None):
+    """A live RefreshLock (one at a time in these tests); the fixture releases it."""
+    import api.questdb_repository as qr
+
+    _release_tokens()
+    token = qr.RefreshLock.acquire()
+    _TOKENS.append(token)
+    return token
+
+
+class _FakeClock:
+    def __init__(self):
+        self.now = 0.0
+
+    def monotonic(self):
+        return self.now
+
+    async def sleep(self, seconds):
+        self.now += seconds
+
+
+def _wal(writer, seq, suspended=False, tag="", message=""):
+    return {
+        "suspended": suspended,
+        "writerTxn": writer,
+        "sequencerTxn": seq,
+        "errorTag": tag,
+        "errorMessage": message,
+    }
+
+
+class _FakeHttpSender:
+    def __init__(self, flush_error=None):
+        self.rows = []
+        self.flushes = 0
+        self.closed_with = None
+        self.flush_error = flush_error
+
+    def row(self, table, symbols=None, columns=None, at=None):
+        self.rows.append((table, symbols, columns))
+
+    def flush(self):
+        if self.flush_error:
+            raise self.flush_error
+        self.flushes += 1
+
+    def close(self, flush=True):
+        self.closed_with = flush
+
+
+class _DedicatedConn:
+    """DDL connection: execute/close only, so any fetch is an AttributeError."""
+
+    def __init__(self, fail_on=()):
+        self.executed = []
+        self.closed = 0
+        self.fail_on = fail_on
+
+    async def execute(self, query, *args):
+        query = " ".join(query.split())
+        self.executed.append(query)
+        if any(query.startswith(prefix) for prefix in self.fail_on):
+            raise RuntimeError(f"boom: {query[:30]}")
+
+    async def close(self):
+        self.closed += 1
+
+
+class _StatefulConn(_DedicatedConn):
+    """DDL connection over a fake catalog {table: data label}; the RENAME of staging can be
+    held at `gate` to model a cancellation between the two RENAMEs."""
+
+    def __init__(self, catalog, gate=None, fail_on=(), ack_lost_on=()):
+        super().__init__(fail_on)
+        self.catalog = catalog
+        self.gate = gate
+        self.ack_lost_on = ack_lost_on
+        self.started = asyncio.Event()
+
+    async def execute(self, query, *args):
+        await super().execute(query)
+        q = " ".join(query.split())
+        m = re.fullmatch(r"RENAME TABLE (\S+) TO (\S+)", q)
+        if m:
+            src, dst = m.groups()
+            if src == "address_clusters_staging" and self.gate is not None:
+                self.started.set()
+                await self.gate.wait()
+            if src not in self.catalog:
+                raise RuntimeError(f"table does not exist [table={src}]")
+            if dst in self.catalog:
+                raise RuntimeError(f"table already exists [table={dst}]")
+            self.catalog[dst] = self.catalog.pop(src)
+        elif q.startswith("CREATE TABLE IF NOT EXISTS address_clusters_staging"):
+            self.catalog.setdefault("address_clusters_staging", "empty")
+        elif q.startswith("DROP TABLE"):
+            self.catalog.pop(q.split()[-1], None)
+        if any(q.startswith(prefix) for prefix in self.ack_lost_on):
+            # the server applied the statement, the answer never arrived
+            self.ack_lost_on = tuple(x for x in self.ack_lost_on if not q.startswith(x))
+            raise ConnectionError("connection lost before the acknowledgement")
+
+
+def _repo(
+    monkeypatch,
+    wal=None,
+    count=5,
+    columns=None,
+    old_copies=(),
+    sender=None,
+    fail_on=(),
+    live_exists=True,
+    catalog=None,
+    gate=None,
+    ack_lost_on=(),
+):
+    """Repo with fake clock, ILP/HTTP sender, wal_tables(), staging schema and count;
+    wal and count may be callables of the fake time (wal "absent" = not a WAL table)."""
+    import api.questdb_repository as qr
+
+    clock = _FakeClock()
+    monkeypatch.setattr(qr, "_monotonic", clock.monotonic)
+    monkeypatch.setattr(qr, "_sleep", clock.sleep)
+    wal = _wal(9, 9) if wal is None else wal
+    columns = qr.ADDRESS_CLUSTERS_SCHEMA if columns is None else columns
+
+    def at(value):
+        return value(clock.now) if callable(value) else value
+
+    async def fetch(query, *args):
+        if "wal_tables" in query:
+            current = at(wal)
+            return [] if current == "absent" else [current]
+        if "table_columns" in query:
+            return list(columns)
+        if "FROM tables()" in query:
+            prefix = re.search(r"LIKE '(\w+)%'", query).group(1)
+            if catalog is not None:
+                names = sorted(catalog)
+            else:
+                names = (
+                    (["address_clusters"] if live_exists else [])
+                    + list(old_copies)
+                    + ["address_clusters_staging"]
+                )
+            return [(n,) for n in names if n.startswith(prefix)]
+        raise AssertionError(query)
+
     repo = QuestDBRepository()
-    repo.async_flush_ingestion = AsyncMock(return_value=True)
-    repo.execute = AsyncMock(return_value="OK")
+    repo.clock = clock
+    repo.fetch = fetch
+    repo._refresh_sender = sender
+    repo._refresh_buffered = 1 if sender else 0
+    repo.fetchrow = AsyncMock(side_effect=lambda q, *a: (at(count),))
+    repo.execute = AsyncMock(side_effect=AssertionError("write on the pool"))
+    repo.dedicated = (
+        _StatefulConn(catalog, gate, fail_on, ack_lost_on)
+        if catalog is not None
+        else _DedicatedConn(fail_on)
+    )
+    repo._open_dedicated_connection = AsyncMock(return_value=repo.dedicated)
+    return repo
 
-    assert asyncio.run(repo.commit_address_clusters_refresh()) is True
 
-    calls = repo.execute.await_args_list
-    assert calls[0].args == ("TRUNCATE TABLE address_clusters",)
-    assert "INSERT INTO address_clusters" in calls[1].args[0]
-    assert "FROM address_clusters_staging" in calls[1].args[0]
-    assert calls[2].args == ("TRUNCATE TABLE address_clusters_staging",)
+def _errors(caplog):
+    return [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
 
 
-def test_commit_address_clusters_refresh_clears_tables_on_cutover_failure():
+def _ddl(repo):
+    return repo.dedicated.executed
+
+
+TRUNCATE_STAGING = "TRUNCATE TABLE address_clusters_staging"
+
+
+def test_stage_address_cluster_uses_http_sender_and_flushes_in_batches(monkeypatch):
+    import api.questdb_repository as qr
+
+    monkeypatch.setattr(qr, "ADDRESS_CLUSTERS_FLUSH_ROWS", 2)
+    sender = _FakeHttpSender()
     repo = QuestDBRepository()
-    repo.async_flush_ingestion = AsyncMock(return_value=True)
-    repo.execute = AsyncMock(
-        side_effect=["TRUNCATE", RuntimeError("boom"), "TRUNCATE", "TRUNCATE"]
+    repo._build_refresh_sender = lambda: sender
+    repo._build_sender = lambda: pytest.fail("TCP sender must not be used")
+
+    results = [
+        repo.stage_address_cluster({"address": f"a{i}", "cluster_id": "c"})
+        for i in range(3)
+    ]
+
+    assert results == [True, True, True]
+    assert len(sender.rows) == 3 and sender.flushes == 1
+    assert all(t == "address_clusters_staging" for t, _, _ in sender.rows)
+
+
+def test_stage_address_cluster_reports_a_server_rejection(monkeypatch, caplog):
+    import api.questdb_repository as qr
+
+    monkeypatch.setattr(qr, "ADDRESS_CLUSTERS_FLUSH_ROWS", 1)
+    repo = QuestDBRepository()
+    repo._refresh_sender = _FakeHttpSender(flush_error=RuntimeError("rejected"))
+
+    with caplog.at_level("ERROR"):
+        assert repo.stage_address_cluster({"address": "a", "cluster_id": "c"}) is False
+    assert any("rejected" in m for m in _errors(caplog))
+
+
+def test_cutover_swaps_with_rename_and_keeps_one_old_copy(monkeypatch, caplog):
+    sender = _FakeHttpSender()
+    repo = _repo(
+        monkeypatch,
+        wal=lambda t: _wal(8, 9) if t < 10 else _wal(9, 9),
+        sender=sender,
     )
 
-    assert asyncio.run(repo.commit_address_clusters_refresh()) is False
+    with caplog.at_level("INFO"):
+        assert asyncio.run(repo.commit_address_clusters_refresh(_tok(repo), 5)) is True
 
-    calls = [call.args[0] for call in repo.execute.await_args_list]
-    assert calls[0] == "TRUNCATE TABLE address_clusters"
-    assert "INSERT INTO address_clusters" in calls[1]
-    assert calls[2] == "TRUNCATE TABLE address_clusters_staging"
-    assert calls[3] == "TRUNCATE TABLE address_clusters"
+    assert sender.flushes == 1 and repo._refresh_sender is None
+    ddl = _ddl(repo)
+    assert re.fullmatch(
+        r"RENAME TABLE address_clusters TO address_clusters_old_\d{8}T\d{6}Z", ddl[0]
+    )
+    assert ddl[1] == "RENAME TABLE address_clusters_staging TO address_clusters"
+    assert ddl[2].startswith("CREATE TABLE IF NOT EXISTS address_clusters_staging")
+    assert not any("INSERT" in q or "TRUNCATE" in q or "DROP" in q for q in ddl)
+    assert any(
+        "absent for" in r.getMessage() and " ms" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+def test_cutover_drops_only_the_older_old_copies(monkeypatch):
+    repo = _repo(
+        monkeypatch,
+        old_copies=(
+            "address_clusters_old_20260101T000000Z",
+            "address_clusters_old_20260102T000000Z",
+            "address_clusters_old_evil; DROP TABLE x",
+        ),
+    )
+
+    assert asyncio.run(repo.commit_address_clusters_refresh(_tok(repo), 5)) is True
+
+    drops = [q for q in _ddl(repo) if q.startswith("DROP")]
+    assert drops == [
+        "DROP TABLE address_clusters_old_20260101T000000Z",
+        "DROP TABLE address_clusters_old_20260102T000000Z",
+    ]
+    new_old = _ddl(repo)[0].split(" TO ")[1]
+    assert not any(new_old in q for q in drops)  # the copy just made is never dropped
+
+
+def test_a_failing_cleanup_after_the_swap_keeps_the_new_live_and_is_retried_next_time(
+    monkeypatch, caplog
+):
+    stale = "address_clusters_old_20260101T000000Z"
+    first = _repo(monkeypatch, old_copies=(stale,), fail_on=("DROP",))
+
+    with caplog.at_level("ERROR"), pytest.raises(OldCopyCleanupError) as exc:
+        asyncio.run(first.commit_address_clusters_refresh(_tok(first), 5))
+
+    assert exc.value.names == [stale] and stale in str(exc.value)
+    ddl = _ddl(first)
+    assert (
+        ddl[1] == "RENAME TABLE address_clusters_staging TO address_clusters"
+    )  # swapped
+    assert any(stale in m for m in _errors(caplog)) or any(
+        stale in r.getMessage() for r in caplog.records
+    )
+
+    # next refresh: the leftover and the previous run's copy are dropped, the new one kept
+    previous = "address_clusters_old_20260102T000000Z"
+    second = _repo(monkeypatch, old_copies=(stale, previous))
+    assert asyncio.run(second.commit_address_clusters_refresh(_tok(second), 5)) is True
+    drops = [q for q in _ddl(second) if q.startswith("DROP")]
+    assert drops == [f"DROP TABLE {stale}", f"DROP TABLE {previous}"]
+
+
+def test_without_a_live_table_the_staging_table_is_renamed_once(monkeypatch):
+    repo = _repo(monkeypatch, live_exists=False)
+
+    assert asyncio.run(repo.commit_address_clusters_refresh(_tok(repo), 5)) is True
+
+    ddl = _ddl(repo)
+    assert ddl[0] == "RENAME TABLE address_clusters_staging TO address_clusters"
+    assert not any("_old_" in q and q.startswith("RENAME") for q in ddl)
+
+
+def test_without_a_live_table_a_failed_rename_is_exit_6_with_the_staging_hint(
+    monkeypatch,
+):
+    import api.questdb_repository as qr
+
+    repo = _repo(monkeypatch, live_exists=False, fail_on=("RENAME",))
+
+    with pytest.raises(qr.AddressClustersLostError) as exc:
+        asyncio.run(repo.commit_address_clusters_refresh(_tok(repo), 5))
+
+    assert "staging" in str(exc.value) and "sync_clusters_to_questdb" in str(exc.value)
+    assert len(_ddl(repo)) == 1  # only the failed RENAME
+
+
+def test_second_rename_failure_restores_the_live_table_from_the_observed_state(
+    monkeypatch, caplog
+):
+    catalog = {"address_clusters": "old data", "address_clusters_staging": "new data"}
+    repo = _repo(
+        monkeypatch,
+        catalog=catalog,
+        fail_on=("RENAME TABLE address_clusters_staging",),
+    )
+
+    with caplog.at_level("ERROR"):
+        ok = asyncio.run(repo.commit_address_clusters_refresh(_tok(repo), 5))
+
+    assert ok is False
+    assert catalog["address_clusters"] == "old data"  # the previous snapshot is back
+    assert catalog["address_clusters_staging"] == "new data"  # kept: prepare empties it
+    assert any("restored" in m for m in _errors(caplog))
+
+
+def test_a_lost_ack_of_the_first_rename_is_recovered_from_the_observed_state(
+    monkeypatch,
+):
+    catalog = {"address_clusters": "old data", "address_clusters_staging": "new data"}
+    repo = _repo(
+        monkeypatch,
+        catalog=catalog,
+        ack_lost_on=("RENAME TABLE address_clusters TO",),  # applied, then raised
+    )
+
+    ok = asyncio.run(repo.commit_address_clusters_refresh(_tok(repo), 5))
+
+    assert ok is False
+    assert catalog["address_clusters"] == "old data"  # live present, not absent
+
+
+def test_a_lost_ack_of_the_second_rename_leaves_a_valid_published_state(monkeypatch):
+    catalog = {"address_clusters": "old data", "address_clusters_staging": "new data"}
+    repo = _repo(
+        monkeypatch,
+        catalog=catalog,
+        ack_lost_on=("RENAME TABLE address_clusters_staging TO",),
+    )
+
+    asyncio.run(repo.commit_address_clusters_refresh(_tok(repo), 5))
+
+    assert catalog["address_clusters"] == "new data"  # live and _old: a valid state
+
+
+def test_a_lost_ack_of_the_second_rename_logs_an_explicit_published_warning(
+    monkeypatch, caplog
+):
+    catalog = {"address_clusters": "old data", "address_clusters_staging": "new data"}
+    repo = _repo(
+        monkeypatch,
+        catalog=catalog,
+        ack_lost_on=("RENAME TABLE address_clusters_staging TO",),
+    )
+
+    with caplog.at_level("WARNING"):
+        asyncio.run(repo.commit_address_clusters_refresh(_tok(repo), 5))
+
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert any(
+        "snapshot pubblicato, ack perso, pulizia al prossimo giro" in r.getMessage()
+        for r in warnings
+    )
+
+
+def test_a_failed_first_rename_does_not_claim_a_published_snapshot(monkeypatch, caplog):
+    catalog = {"address_clusters": "old data", "address_clusters_staging": "new data"}
+    repo = _repo(
+        monkeypatch, catalog=catalog, fail_on=("RENAME TABLE address_clusters TO",)
+    )
+
+    with caplog.at_level("WARNING"):
+        asyncio.run(repo.commit_address_clusters_refresh(_tok(repo), 5))
+
+    assert not any("snapshot pubblicato" in r.getMessage() for r in caplog.records)
+
+
+def test_a_failed_restore_is_exit_6_with_the_manual_command(monkeypatch, caplog):
+    import api.questdb_repository as qr
+
+    catalog = {"address_clusters": "old data", "address_clusters_staging": "new data"}
+    repo = _repo(
+        monkeypatch,
+        catalog=catalog,
+        fail_on=(
+            "RENAME TABLE address_clusters_staging",
+            "RENAME TABLE address_clusters_old",
+        ),
+    )
+
+    with caplog.at_level("ERROR"), pytest.raises(qr.AddressClustersLostError) as exc:
+        asyncio.run(repo.commit_address_clusters_refresh(_tok(repo), 5))
+
+    old = _ddl(repo)[0].split(" TO ")[1]
+    assert f"RENAME TABLE {old} TO address_clusters" in str(exc.value)  # manual command
+    assert "sync_clusters_to_questdb" in str(exc.value)
+
+
+def test_restart_with_only_an_old_copy_restores_it_before_the_first_refresh(
+    monkeypatch,
+):
+    """R4: initialize (create_tables_if_not_exist) must not recreate an empty live."""
+    import api.questdb_repository as qr
+
+    catalog = {"address_clusters_old_20260101T000000Z": "A"}
+    _patch_create_tables(monkeypatch, catalog)
+    asyncio.run(qr.create_tables_if_not_exist())  # what initialize() runs at restart
+    repo = _repo(monkeypatch, catalog=catalog)
+
+    async def producer():
+        catalog["address_clusters_staging"] = "B"
+        return 5
+
+    assert asyncio.run(repo.refresh_address_clusters(producer)) is True
+
+    assert catalog["address_clusters"] == "B"
+    olds = [catalog[n] for n in catalog if n.startswith("address_clusters_old_")]
+    assert olds == ["A"]  # the populated rollback copy survives, not an empty one
+
+
+def test_initialize_during_the_cutover_does_not_create_the_live_table(monkeypatch):
+    """R4 race: another initializer runs while the live name is absent between RENAMEs."""
+    import api.questdb_repository as qr
+
+    catalog = {"address_clusters": "old data", "address_clusters_staging": "new data"}
+    gate = asyncio.Event()
+    repo = _repo(monkeypatch, catalog=catalog, gate=gate)
+    _patch_create_tables(monkeypatch, catalog)
+
+    async def scenario():
+        task = asyncio.create_task(repo.commit_address_clusters_refresh(_tok(repo), 5))
+        while not repo.dedicated.started.is_set():
+            await asyncio.sleep(0)
+        await qr.create_tables_if_not_exist()  # live name absent right now
+        gate.set()
+        return await task
+
+    assert asyncio.run(scenario()) is True
+    assert catalog["address_clusters"] == "new data"
+
+
+def test_first_rename_failure_changes_nothing(monkeypatch):
+    repo = _repo(monkeypatch, fail_on=("RENAME TABLE address_clusters TO",))
+
+    assert asyncio.run(repo.commit_address_clusters_refresh(_tok(repo), 5)) is False
+    assert (
+        _ddl(repo)
+        == [s for s in _ddl(repo) if s.startswith("RENAME TABLE address_clusters TO ")]
+        and len(_ddl(repo)) == 1
+    )  # only the failed RENAME: live and staging untouched
+
+
+def test_commit_raises_and_aborts_when_the_server_rejects_the_flush(
+    monkeypatch, caplog
+):
+    repo = _repo(
+        monkeypatch, sender=_FakeHttpSender(flush_error=RuntimeError("bad row"))
+    )
+
+    with caplog.at_level("ERROR"), pytest.raises(RuntimeError, match="bad row"):
+        asyncio.run(repo.commit_address_clusters_refresh(_tok(repo), 5))
+
+    assert _ddl(repo) == [TRUNCATE_STAGING]
+    assert any(r.exc_info for r in caplog.records)
+
+
+def test_commit_aborts_at_once_when_wal_is_suspended(monkeypatch, caplog):
+    repo = _repo(
+        monkeypatch,
+        wal=lambda t: _wal(3, 8)
+        if t < 10
+        else _wal(3, 8, True, "DISK_FULL", "no space"),
+        count=2,
+    )
+
+    with caplog.at_level("ERROR"):
+        ok = asyncio.run(repo.commit_address_clusters_refresh(_tok(repo), 5))
+
+    assert ok is False and _ddl(repo) == [TRUNCATE_STAGING]
+    msg = _errors(caplog)[0]
+    assert "suspended" in msg and "DISK_FULL" in msg and "no space" in msg
+    assert repo.clock.now < 20
+
+
+def test_commit_aborts_when_staging_is_not_a_wal_table(monkeypatch, caplog):
+    repo = _repo(monkeypatch, wal="absent")
+
+    with caplog.at_level("ERROR"):
+        ok = asyncio.run(repo.commit_address_clusters_refresh(_tok(repo), 5))
+
+    assert ok is False and _ddl(repo) == [TRUNCATE_STAGING]
+    msg = _errors(caplog)[0]
+    assert "not_wal" in msg and "address_clusters_staging" in msg
+    assert "DROP TABLE address_clusters_staging" in msg
+    assert "ALTER TABLE address_clusters_staging SET TYPE WAL" in msg
+
+
+def test_commit_survives_one_big_transaction_without_progress(monkeypatch):
+    repo = _repo(
+        monkeypatch, wal=lambda t: _wal(8, 9) if t < 300 else _wal(9, 9), count=5
+    )
+
+    assert (
+        asyncio.run(repo.commit_address_clusters_refresh(_tok(repo), 5, max_wait_s=900))
+        is True
+    )
+    assert repo.clock.now >= 300
+
+
+def test_commit_aborts_at_ceiling(monkeypatch, caplog):
+    repo = _repo(monkeypatch, wal=_wal(8, 9))
+
+    with caplog.at_level("ERROR"):
+        ok = asyncio.run(
+            repo.commit_address_clusters_refresh(_tok(repo), 5, max_wait_s=120)
+        )
+
+    assert ok is False and _ddl(repo) == [TRUNCATE_STAGING]
+    assert "ceiling" in _errors(caplog)[0]
+    assert 120 <= repo.clock.now < 130
+
+
+def test_commit_aborts_at_once_on_count_mismatch(monkeypatch, caplog):
+    repo = _repo(monkeypatch, wal=_wal(9, 9), count=3)
+
+    with caplog.at_level("ERROR"):
+        ok = asyncio.run(repo.commit_address_clusters_refresh(_tok(repo), 5))
+
+    assert ok is False and _ddl(repo) == [TRUNCATE_STAGING]
+    msg = _errors(caplog)[0]
+    assert "count_mismatch" in msg and "expected 5" in msg and "observed 3" in msg
+    assert repo.clock.now == 0
+
+
+def test_commit_raises_and_aborts_when_the_count_query_fails(monkeypatch):
+    repo = _repo(monkeypatch)
+    repo.fetchrow = AsyncMock(side_effect=ConnectionError("pg down"))
+
+    with pytest.raises(ConnectionError):
+        asyncio.run(repo.commit_address_clusters_refresh(_tok(repo), 5))
+
+    assert _ddl(repo) == [TRUNCATE_STAGING]
+
+
+@pytest.mark.parametrize(
+    "columns",
+    [
+        ADDRESS_CLUSTERS_SCHEMA[:-1],  # confidence missing
+        [*ADDRESS_CLUSTERS_SCHEMA[:-1], ("confidence", "FLOAT")],  # wrong type
+        [*ADDRESS_CLUSTERS_SCHEMA, ("extra", "LONG")],
+    ],
+)
+def test_staging_schema_mismatch_aborts_without_touching_the_live_table(
+    monkeypatch, caplog, columns
+):
+    repo = _repo(monkeypatch, columns=columns)
+
+    with caplog.at_level("ERROR"):
+        ok = asyncio.run(repo.commit_address_clusters_refresh(_tok(repo), 5))
+
+    assert ok is False and _ddl(repo) == [TRUNCATE_STAGING]
+    assert "schema_mismatch" in _errors(caplog)[0]
+
+
+def test_a_failing_truncate_raises_on_abort_and_on_prepare(monkeypatch, caplog):
+    repo = _repo(monkeypatch, fail_on=("TRUNCATE",))
+
+    with caplog.at_level("ERROR"):
+        with pytest.raises(RuntimeError, match="boom"):
+            asyncio.run(repo.abort_address_clusters_refresh(_tok(repo)))
+        with pytest.raises(RuntimeError, match="boom"):
+            asyncio.run(repo.prepare_address_clusters_refresh(_tok(repo)))
+    assert any("DDL failed" in m for m in _errors(caplog))
+
+
+def test_prepare_recreates_and_empties_staging_on_the_dedicated_connection(monkeypatch):
+    repo = _repo(monkeypatch)
+
+    assert asyncio.run(repo.prepare_address_clusters_refresh(_tok(repo))) is True
+
+    ddl = _ddl(repo)
+    assert ddl[0].startswith("CREATE TABLE IF NOT EXISTS address_clusters_staging")
+    assert ddl[1] == TRUNCATE_STAGING
+
+
+@contextlib.contextmanager
+def _foreign_holder(lock_dir):
+    """Hold the lock file the way another process would (own descriptor)."""
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    fd = os.open(lock_dir / "address_clusters.lock", os.O_CREAT | os.O_RDWR, 0o644)
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    try:
+        yield
+    finally:
+        os.close(fd)
+
+
+def test_refresh_lock_is_not_reentrant_and_refuses_another_holder(tmp_path, caplog):
+    import api.questdb_repository as qr
+
+    first = qr.RefreshLock.acquire()
+    try:
+        with caplog.at_level("ERROR"), pytest.raises(ConcurrentRefreshError):
+            qr.RefreshLock.acquire()  # no reentrancy: not even for the same task
+        assert any("concurrent_refresh" in m for m in _errors(caplog))
+    finally:
+        first.release()
+    with _foreign_holder(tmp_path / "locks"):
+        with pytest.raises(ConcurrentRefreshError):
+            qr.RefreshLock.acquire()
+    qr.RefreshLock.acquire().release()  # free again
+
+
+@pytest.mark.parametrize("which", ["prepare", "commit", "abort"])
+@pytest.mark.parametrize("bad", ["missing", "released"])
+def test_mutations_require_the_live_lock_token(monkeypatch, which, bad):
+    import api.questdb_repository as qr
+
+    repo = _repo(monkeypatch)
+    token = None
+    if bad == "released":
+        token = qr.RefreshLock.acquire()
+        token.release()
+    calls = {
+        "prepare": lambda: repo.prepare_address_clusters_refresh(token),
+        "commit": lambda: repo.commit_address_clusters_refresh(token, 5),
+        "abort": lambda: repo.abort_address_clusters_refresh(token),
+    }
+
+    with pytest.raises(qr.RefreshLockError):
+        asyncio.run(calls[which]())
+
+    assert _ddl(repo) == []  # nothing was run
+
+
+def test_prepare_without_the_token_argument_is_a_type_error(monkeypatch):
+    repo = _repo(monkeypatch)
+
+    with pytest.raises(TypeError):
+        asyncio.run(repo.prepare_address_clusters_refresh())
+
+
+def test_refresh_runs_reconcile_prepare_producer_commit_under_one_lock(monkeypatch):
+    repo = _repo(
+        monkeypatch,
+        catalog={"address_clusters": "old", "address_clusters_staging": "new"},
+    )
+    seen = {}
+
+    async def producer():
+        import api.questdb_repository as qr
+
+        with pytest.raises(ConcurrentRefreshError):
+            qr.RefreshLock.acquire()  # held while the producer stages
+        seen["held"] = True
+        return 5
+
+    assert asyncio.run(repo.refresh_address_clusters(producer)) is True
+
+    assert seen == {"held": True}
+    ddl = _ddl(repo)
+    assert ddl[0].startswith("CREATE TABLE IF NOT EXISTS address_clusters_staging")
+    assert ddl[1] == TRUNCATE_STAGING  # prepare
+    assert any(q.startswith("RENAME TABLE address_clusters TO") for q in ddl)  # commit
+    _tok().release()  # the lock is free afterwards
+
+
+def test_a_producer_failure_aborts_and_releases_the_lock(monkeypatch):
+    repo = _repo(monkeypatch)
+
+    async def producer():
+        return None
+
+    assert asyncio.run(repo.refresh_address_clusters(producer)) is False
+
+    assert _ddl(repo)[-1] == TRUNCATE_STAGING
+    assert not any("RENAME" in q for q in _ddl(repo))
+    _tok()  # acquirable again
+
+
+def test_a_second_refresh_on_the_same_repository_is_refused(monkeypatch, caplog):
+    repo = _repo(monkeypatch)
+    entered, release = asyncio.Event(), asyncio.Event()
+    outcomes = {}
+
+    async def slow_producer():
+        entered.set()
+        await release.wait()
+        return 5
+
+    async def quick_producer():
+        return 5
+
+    async def first():
+        outcomes["first"] = await repo.refresh_address_clusters(slow_producer)
+
+    async def second():
+        await entered.wait()
+        try:
+            await repo.refresh_address_clusters(quick_producer)
+        except ConcurrentRefreshError:
+            outcomes["second"] = "refused"
+        release.set()
+
+    async def run():
+        await asyncio.gather(first(), second())
+
+    with caplog.at_level("ERROR"):
+        asyncio.run(run())
+
+    assert outcomes == {"first": True, "second": "refused"}
+    assert any("concurrent_refresh" in m for m in _errors(caplog))
+
+
+def test_refresh_is_refused_while_another_process_holds_the_lock(monkeypatch, tmp_path):
+    repo = _repo(monkeypatch)
+
+    async def producer():
+        pytest.fail("the producer must not run")
+
+    with _foreign_holder(tmp_path / "locks"):
+        with pytest.raises(ConcurrentRefreshError):
+            asyncio.run(repo.refresh_address_clusters(producer))
+        with pytest.raises(ConcurrentRefreshError):
+            asyncio.run(repo.save_address_clusters_bulk([]))
+
+    assert _ddl(repo) == []  # staging and live untouched
+
+
+def test_save_address_clusters_bulk_goes_through_the_single_refresh_entry(monkeypatch):
+    sender = _FakeHttpSender()
+    repo = _repo(monkeypatch, sender=sender)
+    repo._refresh_buffered = 0
+    repo._build_refresh_sender = lambda: sender
+    rows = [{"address": f"a{i}", "cluster_id": "c"} for i in range(5)]
+
+    assert asyncio.run(repo.save_address_clusters_bulk(rows)) is True
+
+    assert len(sender.rows) == 5
+    assert any(q.startswith("RENAME TABLE address_clusters TO") for q in _ddl(repo))
+
+
+def test_cancel_between_the_renames_still_ends_with_a_live_table(monkeypatch):
+    catalog = {"address_clusters": "old data", "address_clusters_staging": "new data"}
+    gate = asyncio.Event()
+    repo = _repo(monkeypatch, catalog=catalog, gate=gate)
+
+    async def scenario():
+        task = asyncio.create_task(repo.commit_address_clusters_refresh(_tok(repo), 5))
+        while not repo.dedicated.started.is_set():
+            await asyncio.sleep(0)
+        task.cancel()  # the second RENAME is still in flight
+        await asyncio.sleep(0)
+        gate.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(scenario())
+
+    assert catalog["address_clusters"] == "new data"
+    olds = [n for n in catalog if n.startswith("address_clusters_old_")]
+    assert [catalog[n] for n in olds] == ["old data"]  # rollback copy kept
+
+
+def test_reconcile_restores_the_newest_old_copy_when_live_is_missing(
+    monkeypatch, caplog
+):
+    catalog = {
+        "address_clusters_old_20260101T000000Z": "older",
+        "address_clusters_old_20260102T000000Z": "newer",
+    }
+    repo = _repo(monkeypatch, catalog=catalog)
+
+    with caplog.at_level("ERROR"):
+        asyncio.run(repo.reconcile_address_clusters(_tok(repo)))
+
+    assert catalog["address_clusters"] == "newer"
+    assert "address_clusters_old_20260102T000000Z" not in catalog
+    assert any("restored" in m for m in _errors(caplog))
+
+
+def test_reconcile_leaves_a_published_state_alone(monkeypatch):
+    catalog = {
+        "address_clusters": "live",
+        "address_clusters_old_20260101T000000Z": "old",
+    }
+    repo = _repo(monkeypatch, catalog=catalog)
+
+    asyncio.run(repo.reconcile_address_clusters(_tok(repo)))
+
+    assert _ddl(repo) == []
+    assert set(catalog) == {"address_clusters", "address_clusters_old_20260101T000000Z"}
+
+
+def test_reconcile_with_neither_table_is_a_first_install_only_before_any_swap(
+    monkeypatch,
+):
+    import api.questdb_repository as qr
+
+    repo = _repo(monkeypatch, catalog={})
+
+    asyncio.run(repo.reconcile_address_clusters(_tok(repo)))  # first install: fine
+    repo._swap_attempted = True  # a swap was tried in this process: no longer fine
+    with pytest.raises(qr.AddressClustersLostError) as exc:
+        asyncio.run(repo.reconcile_address_clusters(_tok(repo)))
+    assert "sync_clusters_to_questdb" in str(exc.value)  # the manual command
+
+
+def test_a_failed_restore_at_the_start_of_a_refresh_is_exit_6_with_the_command(
+    monkeypatch,
+):
+    import api.questdb_repository as qr
+
+    old = "address_clusters_old_20260101T000000Z"
+    repo = _repo(
+        monkeypatch, catalog={old: "A"}, fail_on=("RENAME TABLE address_clusters_old",)
+    )
+
+    async def producer():
+        pytest.fail("the refresh must not start")
+
+    with pytest.raises(qr.AddressClustersLostError) as exc:
+        asyncio.run(repo.refresh_address_clusters(producer))
+
+    assert f"RENAME TABLE {old} TO address_clusters" in str(exc.value)
+    assert "sync_clusters_to_questdb" in str(exc.value)
+
+
+def test_a_failed_observation_at_the_start_of_a_refresh_is_exit_6(monkeypatch):
+    import api.questdb_repository as qr
+
+    repo = _repo(monkeypatch, catalog={})
+    repo.fetch = AsyncMock(side_effect=ConnectionError("pool down"))
+
+    async def producer():
+        pytest.fail("the refresh must not start")
+
+    with pytest.raises(qr.AddressClustersLostError) as exc:
+        asyncio.run(repo.refresh_address_clusters(producer))
+
+    assert "sync_clusters_to_questdb" in str(exc.value)
+    assert _ddl(repo) == []  # nothing was touched
+
+
+def test_a_lost_ack_at_the_first_install_is_observed_and_published(monkeypatch, caplog):
+    catalog = {"address_clusters_staging": "new data"}  # no live table yet
+    repo = _repo(
+        monkeypatch,
+        catalog=catalog,
+        ack_lost_on=("RENAME TABLE address_clusters_staging TO",),
+    )
+
+    with caplog.at_level("WARNING"):
+        asyncio.run(repo.commit_address_clusters_refresh(_tok(repo), 5))
+
+    assert catalog["address_clusters"] == "new data"
+    assert any(
+        "snapshot pubblicato, ack perso, pulizia al prossimo giro" in r.getMessage()
+        for r in caplog.records
+        if r.levelname == "WARNING"
+    )
+    assert not any(
+        "does not exist and RENAME" in r.getMessage() for r in caplog.records
+    )
+
+
+def test_refresh_reconciles_before_touching_anything(monkeypatch):
+    catalog = {"address_clusters_old_20260101T000000Z": "kept"}
+    repo = _repo(monkeypatch, catalog=catalog)
+
+    async def producer():
+        assert catalog.get("address_clusters") == "kept"  # restored before staging
+        return None
+
+    asyncio.run(repo.refresh_address_clusters(producer))
+
+
+def _patch_create_tables(monkeypatch, catalog):
+    """Fake asyncpg for create_tables_if_not_exist: records the DDL and applies the CREATEs
+    of the address_clusters tables to `catalog`."""
+    import api.questdb_repository as qr
+
+    class _Conn:
+        async def execute(self, query, *args):
+            q = " ".join(query.split())
+            catalog.setdefault("_ddl", []).append(q)
+            if q.startswith("CREATE TABLE IF NOT EXISTS address_clusters_staging"):
+                catalog.setdefault("address_clusters_staging", "empty")
+            elif q.startswith("CREATE TABLE IF NOT EXISTS address_clusters ("):
+                catalog.setdefault("address_clusters", "empty")
+
+        async def fetchrow(self, query, *args):
+            return (
+                None  # tables() state read by the daily-dedup step: nothing to migrate
+            )
+
+        async def close(self):
+            return None
+
+    async def connect(**kwargs):
+        return _Conn()
+
+    monkeypatch.setattr(qr.asyncpg, "connect", connect)
+
+
+def test_create_tables_declares_staging_as_wal_and_never_creates_the_live_table(
+    monkeypatch,
+):
+    import api.questdb_repository as qr
+
+    catalog = {}
+    _patch_create_tables(monkeypatch, catalog)
+    asyncio.run(qr.create_tables_if_not_exist())
+
+    statements = catalog["_ddl"]
+    staging = [
+        q
+        for q in statements
+        if q.startswith("CREATE TABLE IF NOT EXISTS address_clusters_staging")
+    ]
+    assert len(staging) == 1 and staging[0].endswith("PARTITION BY YEAR WAL")
+    # the live table is born only from a refresh (RENAME of the staging table)
+    assert "address_clusters" not in catalog
+    assert not any(
+        q.startswith("CREATE TABLE IF NOT EXISTS address_clusters (")
+        for q in statements
+    )
 
 
 def test_save_cost_basis_passes_empty_symbols():
@@ -498,3 +1426,337 @@ def test_same_loop_stays_excluded_while_another_loop_takes_its_own_lock(monkeypa
 
     assert seen_while_blocked == 1  # the second main-loop caller was still excluded
     assert main_calls == 1
+
+
+def _refresh_methods():
+    """The refresh path, computed: the transitive closure of the self.* calls starting from
+    refresh_address_clusters and save_address_clusters_bulk. The pool access layer is the
+    boundary (it is shared infrastructure, not refresh logic)."""
+    import ast
+    import inspect
+
+    import api.questdb_repository as qr
+
+    tree = ast.parse(inspect.getsource(qr))
+    methods = {
+        node.name: node
+        for cls in tree.body
+        if isinstance(cls, ast.ClassDef) and cls.name == "QuestDBRepository"
+        for node in cls.body
+        if isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef))
+    }
+    boundary = {"fetch", "fetchrow", "execute", "initialize"}
+    todo = ["refresh_address_clusters", "save_address_clusters_bulk"]
+    seen: dict = {}
+    while todo:
+        name = todo.pop()
+        if name in seen or name in boundary or name not in methods:
+            continue
+        seen[name] = methods[name]
+        for sub in ast.walk(methods[name]):
+            if (
+                isinstance(sub, ast.Call)
+                and isinstance(sub.func, ast.Attribute)
+                and isinstance(sub.func.value, ast.Name)
+                and sub.func.value.id == "self"
+            ):
+                todo.append(sub.func.attr)
+    return seen
+
+
+def test_the_refresh_path_is_computed_and_reads_tables_only_in_observe_catalog():
+    import ast
+
+    refresh = _refresh_methods()
+    assert {"_observe_catalog", "_cutover", "_reconcile_tables", "_run_ddl"} <= set(
+        refresh
+    )
+
+    def reads_tables(node):
+        return [
+            sub.value
+            for sub in ast.walk(node)
+            if isinstance(sub, ast.Constant)
+            and isinstance(sub.value, str)
+            and "FROM tables()" in sub.value
+        ]
+
+    assert {n for n, node in refresh.items() if reads_tables(node)} == {
+        "_observe_catalog"
+    }
+
+
+def test_no_cleanup_call_in_a_finally_of_the_refresh_path():
+    """A close()/release() in a finally can replace the primary error (r6): every cleanup
+    goes through the safe helpers."""
+    import ast
+
+    bad = []
+    for name, node in _refresh_methods().items():
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Try):
+                for stmt in sub.finalbody:
+                    for call in ast.walk(stmt):
+                        if (
+                            isinstance(call, ast.Call)
+                            and isinstance(call.func, ast.Attribute)
+                            and call.func.attr in {"close", "release"}
+                        ):
+                            bad.append(name)
+    assert bad == []
+
+
+def _chain(*errors):
+    """Link `errors` as __cause__ (even index) or __context__ (odd index) in order."""
+    for outer, inner, via in zip(errors, errors[1:], range(len(errors))):
+        if via % 2 == 0:
+            outer.__cause__ = inner
+        else:
+            outer.__context__ = inner
+    return errors[0]
+
+
+def test_refresh_exit_status_finds_the_lost_error_anywhere_in_the_chain():
+    import api.questdb_repository as qr
+
+    lost = qr.AddressClustersLostError("run `RENAME TABLE x TO y`")
+    direct = qr.refresh_exit_status(lost)
+    via_cause = qr.refresh_exit_status(_chain(RuntimeError("close boom"), lost))
+    via_context = qr.refresh_exit_status(
+        _chain(RuntimeError("a"), RuntimeError("b"), lost)
+    )
+
+    assert direct == via_cause == via_context == (6, str(lost))
+
+
+def test_refresh_exit_status_other_errors_and_cycles():
+    import api.questdb_repository as qr
+
+    assert qr.refresh_exit_status(RuntimeError("plain")) is None
+    assert qr.refresh_exit_status(_chain(RuntimeError("a"), ValueError("b"))) is None
+    assert qr.refresh_exit_status(qr.OldCopyCleanupError(["x"]))[0] == 5
+    assert qr.refresh_exit_status(qr.ConcurrentRefreshError("lock"))[0] == 1
+    # a cycle in the chain must not loop forever, with or without the error inside it
+    a, b = RuntimeError("a"), RuntimeError("b")
+    a.__cause__, b.__context__ = b, a
+    assert qr.refresh_exit_status(a) is None
+    lost = qr.AddressClustersLostError("lost")
+    lost.__context__ = a
+    a.__cause__ = lost
+    assert qr.refresh_exit_status(b)[0] == 6
+
+
+def test_a_failing_close_is_logged_and_never_replaces_the_primary_error(
+    monkeypatch, caplog
+):
+    import api.questdb_repository as qr
+
+    repo = _repo(monkeypatch)
+    repo.dedicated.close = AsyncMock(side_effect=RuntimeError("close boom"))
+
+    async def boom():
+        conn = await repo._open_dedicated_connection()
+        try:
+            raise ValueError("primary")
+        finally:
+            await qr.close_safely(conn.close, "dedicated connection")
+
+    with caplog.at_level("ERROR"), pytest.raises(ValueError, match="primary"):
+        asyncio.run(boom())
+    assert any("close boom" in r.getMessage() for r in caplog.records)
+
+
+def test_a_failing_close_without_a_primary_error_is_raised(monkeypatch):
+    import api.questdb_repository as qr
+
+    repo = _repo(monkeypatch)
+    repo.dedicated.close = AsyncMock(side_effect=RuntimeError("close boom"))
+
+    async def only_close():
+        conn = await repo._open_dedicated_connection()
+        await qr.close_safely(conn.close, "dedicated connection")
+
+    with pytest.raises(RuntimeError, match="close boom"):
+        asyncio.run(only_close())
+
+
+def test_close_safely_is_only_used_in_the_finally_of_a_try_without_handlers():
+    """R10: close_safely reads sys.exc_info(), which is only meaningful in a finally that
+    is not preceded by an except that already handled the error."""
+    import ast
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    offenders = []
+    for path in [
+        root / "api/questdb_repository.py",
+        *sorted((root / "scripts").rglob("*.py")),
+    ]:
+        tree = ast.parse(path.read_text())
+        parents = {}
+        for node in ast.walk(tree):
+            for child in ast.iter_child_nodes(node):
+                parents[child] = node
+        for call in ast.walk(tree):
+            if not (
+                isinstance(call, ast.Call)
+                and getattr(call.func, "id", getattr(call.func, "attr", None))
+                == "close_safely"
+            ):
+                continue
+            node, ok = call, False
+            while node in parents:
+                parent = parents[node]
+                if isinstance(parent, ast.Try) and node in parent.finalbody:
+                    ok = not parent.handlers
+                    break
+                if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    break
+                node = parent
+            if not ok:
+                offenders.append(f"{path.name}:{call.lineno}")
+    assert offenders == []
+
+
+def test_run_sync_closes_outside_any_try():
+    """The final closes of the CLI/bootstraps run after the classification, not in a
+    finally: close_all is called outside every try in run_sync."""
+    import ast
+    from pathlib import Path
+
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "scripts/bootstrap/sync_clusters_to_questdb.py"
+    )
+    run_sync = next(
+        n
+        for n in ast.parse(path.read_text()).body
+        if isinstance(n, ast.AsyncFunctionDef) and n.name == "run_sync"
+    )
+    calls = [
+        c
+        for c in ast.walk(run_sync)
+        if isinstance(c, ast.Call) and getattr(c.func, "id", None) == "close_all"
+    ]
+    assert len(calls) == 1
+    inside_try = [
+        t
+        for t in ast.walk(run_sync)
+        if isinstance(t, ast.Try)
+        for n in ast.walk(t)
+        if n is calls[0]
+    ]
+    assert inside_try == []
+
+
+def test_close_all_tries_every_closer_and_never_raises():
+    import api.questdb_repository as qr
+
+    calls = []
+
+    def sync_fail():
+        calls.append("a")
+        raise ConnectionError("a boom")
+
+    async def async_fail():
+        calls.append("b")
+        raise RuntimeError("b boom")
+
+    def fine():
+        calls.append("c")
+
+    errors = asyncio.run(
+        qr.close_all([(sync_fail, "A"), (async_fail, "B"), (fine, "C")])
+    )
+
+    assert calls == ["a", "b", "c"]
+    assert [str(e) for e in errors] == ["a boom", "b boom"]
+
+
+# --- R12: a CancelledError from a cleanup never replaces the primary error
+
+
+def _lost_after_the_swap_with_a_failing_close(monkeypatch, close_error):
+    """A refresh whose old-copies listing fails once after the swap (Lost) while closing the
+    dedicated connection raises `close_error`; returns (repo, catalog, producer)."""
+    catalog = {"address_clusters": "A", "address_clusters_staging": "B"}
+    repo = _repo(monkeypatch, catalog=catalog)
+    real_fetch = repo.fetch
+    state = {"failed": False}
+
+    async def fetch(query, *args):
+        swapped = catalog.get("address_clusters") == "B"
+        if swapped and "FROM tables()" in query and not state["failed"]:
+            state["failed"] = True
+            raise ConnectionError("catalog read failed after the swap")
+        return await real_fetch(query, *args)
+
+    async def close():
+        if catalog.get("address_clusters") == "B":
+            raise close_error
+
+    repo.fetch = fetch
+    repo.dedicated.close = close
+
+    async def producer():
+        catalog["address_clusters_staging"] = "B"
+        return 5
+
+    return repo, catalog, producer
+
+
+def test_a_cancelled_error_from_the_dedicated_close_never_replaces_lost(monkeypatch):
+    import api.questdb_repository as qr
+
+    repo, catalog, producer = _lost_after_the_swap_with_a_failing_close(
+        monkeypatch, asyncio.CancelledError("close cancelled")
+    )
+
+    with pytest.raises(qr.AddressClustersLostError):
+        asyncio.run(repo.refresh_address_clusters(producer))
+
+    assert catalog["address_clusters"] == "B"  # B is live
+    olds = [catalog[n] for n in catalog if n.startswith("address_clusters_old_")]
+    assert olds == ["A"]  # A kept as the rollback
+    _tok()  # the lock was released
+
+
+def test_a_cancelled_error_without_lost_still_propagates(monkeypatch):
+    catalog = {"address_clusters": "A", "address_clusters_staging": "B"}
+    repo = _repo(monkeypatch, catalog=catalog)
+
+    async def close():
+        raise asyncio.CancelledError("close cancelled")
+
+    repo.dedicated.close = close
+
+    async def producer():
+        return 5
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(repo.refresh_address_clusters(producer))
+
+
+def test_close_safely_and_close_all_treat_cancelled_error_like_any_cleanup_error(
+    caplog,
+):
+    import api.questdb_repository as qr
+
+    def cancelled():
+        raise asyncio.CancelledError("cancelled")
+
+    async def primary_then_cancelled_close():
+        try:
+            raise ValueError("primary")
+        finally:
+            await qr.close_safely(cancelled, "a closer")
+
+    with caplog.at_level("ERROR"), pytest.raises(ValueError, match="primary"):
+        asyncio.run(primary_then_cancelled_close())
+    assert any("cancelled" in r.getMessage() for r in caplog.records)
+
+    with pytest.raises(asyncio.CancelledError):  # no primary error: re-raised as is
+        asyncio.run(qr.close_safely(cancelled, "a closer"))
+
+    errors = asyncio.run(qr.close_all([(cancelled, "A"), (lambda: None, "B")]))
+    assert len(errors) == 1 and isinstance(errors[0], asyncio.CancelledError)

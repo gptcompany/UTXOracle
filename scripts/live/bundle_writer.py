@@ -19,7 +19,7 @@ from api.models.questdb import (
     WalletBandMetricsResponse,
     WalletWavesResponse,
 )
-from api.questdb_repository import QuestDBRepository
+from api.questdb_repository import QuestDBRepository, fetch_address_clusters
 from scripts.live.models import LiveSnapshot
 
 logger = logging.getLogger(__name__)
@@ -555,17 +555,15 @@ class BundleWriter:
             return {}
 
         placeholders = ", ".join(f"${idx}" for idx in range(1, len(addresses) + 1))
-        rows = await self.repo.fetch(
-            f"""
+        query = f"""
             SELECT
                 address,
                 cluster_id,
                 label
             FROM address_clusters
             WHERE address IN ({placeholders})
-            """,
-            *addresses,
-        )
+            """
+        rows = await fetch_address_clusters(self.repo, query, *addresses)
         grouped: dict[str, list[dict[str, Any]]] = {}
         for row in rows:
             grouped.setdefault(row["address"], []).append(dict(row))

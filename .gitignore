@@ -295,3 +295,6 @@ UTXOracle_*.html
 cache/rbn/
 !.env.enc
 !.env.example
+
+# address_clusters refresh lock (runtime state)
+data/locks/
