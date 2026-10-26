@@ -592,7 +592,7 @@ async def get_tier_stats(
             WHERE ts > $1 AND fetch_tier IS NOT NULL
             GROUP BY fetch_tier
         """
-        rows = await repo.fetchall(query_counts, cutoff_time)
+        rows = await repo.fetch(query_counts, cutoff_time)
 
         total_samples = sum(row["cnt"] for row in rows)
         stats = []
