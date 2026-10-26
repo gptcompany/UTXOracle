@@ -253,9 +253,19 @@ class _RecordingConnection:
 class _StateConnection:
     """A short-lived read connection answering SELECT ... FROM tables()."""
 
-    def __init__(self, states: dict[str, tuple[bool, bool]]) -> None:
+    def __init__(
+        self,
+        states: dict[str, tuple[bool, bool]],
+        columns: dict[str, set[str]] | None = None,
+    ) -> None:
         self.states = states
+        self.columns = columns or {}
         self.closed = False
+
+    async def fetch(self, query: str, *args):
+        assert "table_columns" in query
+        table = query.split("table_columns('")[1].split("'")[0]
+        return [{"column": name} for name in self.columns.get(table, set())]
 
     async def fetchrow(self, query: str, table: str):
         assert "tables()" in query
@@ -268,7 +278,9 @@ class _StateConnection:
         self.closed = True
 
 
-def _fake_questdb(monkeypatch, states=None, ddl=None, *, ddl_via_connect=True):
+def _fake_questdb(
+    monkeypatch, states=None, ddl=None, *, ddl_via_connect=True, columns=None
+):
     """asyncpg stand-in. With ddl_via_connect the first connection is the DDL one; every other
     connection (or all, when the caller holds the DDL connection itself) is a state read."""
     import types as _types
@@ -283,7 +295,7 @@ def _fake_questdb(monkeypatch, states=None, ddl=None, *, ddl_via_connect=True):
         if pending_ddl[0]:
             pending_ddl[0] = False
             return ddl
-        conn = _StateConnection(states or {})
+        conn = _StateConnection(states or {}, columns)
         reads.append(conn)
         return conn
 
@@ -1539,11 +1551,15 @@ def test_a_streamed_day_cannot_feed_the_metrics_yet_so_nothing_is_written(
     assert "no transactions available" in caplog.text
 
 
-def test_price_analysis_has_the_window_end_column_added_without_a_rewrite(monkeypatch):
+_DONE = {"price_analysis": (True, True), "metrics": (True, True)}
+
+
+def test_window_end_column_already_present_runs_no_alter(monkeypatch):
+    """On a WAL table ADD COLUMN IF NOT EXISTS of an existing column is a rejected no-op."""
     import api.questdb_repository as repository
 
-    conn, _ = _fake_questdb(
-        monkeypatch, {"price_analysis": (True, True), "metrics": (True, True)}
+    conn, reads = _fake_questdb(
+        monkeypatch, _DONE, columns={"price_analysis": {"ts", "window_end_ts"}}
     )
     asyncio.run(repository.create_tables_if_not_exist())
 
@@ -1551,7 +1567,36 @@ def test_price_analysis_has_the_window_end_column_added_without_a_rewrite(monkey
         s for s in conn.statements if "CREATE TABLE IF NOT EXISTS price_analysis (" in s
     )
     assert "window_end_ts TIMESTAMP" in create
-    assert (
-        "ALTER TABLE price_analysis ADD COLUMN IF NOT EXISTS window_end_ts TIMESTAMP"
-        in conn.statements
+    assert not any("ADD COLUMN" in s and "window_end_ts" in s for s in conn.statements)
+    assert reads and all(
+        c.closed for c in reads
+    )  # columns read on connections of their own
+
+
+def test_window_end_column_missing_is_added_by_one_plain_alter(monkeypatch):
+    import api.questdb_repository as repository
+
+    conn, _ = _fake_questdb(
+        monkeypatch, _DONE, columns={"price_analysis": {"ts", "exchange_price"}}
     )
+    asyncio.run(repository.create_tables_if_not_exist())
+
+    alters = [s for s in conn.statements if "ADD COLUMN" in s and "window_end_ts" in s]
+    assert alters == ["ALTER TABLE price_analysis ADD COLUMN window_end_ts TIMESTAMP"]
+
+
+def test_a_failed_window_end_alter_is_an_error_not_a_swallowed_exception(monkeypatch):
+    import api.questdb_repository as repository
+
+    class _AlterRefused(_RecordingConnection):
+        async def execute(self, statement: str, *args) -> None:
+            if "ADD COLUMN" in statement and "window_end_ts" in statement:
+                raise RuntimeError("alter refused (test)")
+            await super().execute(statement, *args)
+
+    _fake_questdb(
+        monkeypatch, _DONE, _AlterRefused(), columns={"price_analysis": {"ts"}}
+    )
+
+    with pytest.raises(RuntimeError, match="alter refused"):
+        asyncio.run(repository.create_tables_if_not_exist())

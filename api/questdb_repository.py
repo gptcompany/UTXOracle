@@ -315,6 +315,31 @@ async def read_table_states(tables) -> dict:
         await conn.close()
 
 
+async def read_table_columns(table: str) -> set[str]:
+    """Column names of `table`, read on a connection of its own (see read_table_states).
+
+    `table` is spliced into table_columns('...'): it must be a plain identifier.
+    """
+    if asyncpg is None:
+        raise ModuleNotFoundError(
+            "asyncpg package is required to read table_columns(); install project dependencies"
+        )
+    if not table.isidentifier():
+        raise ValueError(f"not a table identifier: {table!r}")
+    conn = await asyncpg.connect(
+        host=QUESTDB_PG_HOST,
+        port=QUESTDB_PG_PORT,
+        user=QUESTDB_PG_USER,
+        password=QUESTDB_PG_PASSWORD,
+        database=QUESTDB_PG_DATABASE,
+    )
+    try:
+        rows = await conn.fetch(f"SELECT \"column\" FROM table_columns('{table}')")
+        return {row["column"] for row in rows}
+    finally:
+        await conn.close()
+
+
 async def _enable_daily_dedup(conn, table: str) -> None:
     """Enable DEDUP UPSERT KEYS(ts) on `table` when the state reported by tables() allows it.
 
@@ -477,9 +502,13 @@ async def create_tables_if_not_exist():
         )
 
         # F-438: explicit end of the analysed window [ts, window_end_ts); additive, no rewrite.
-        await conn.execute(
-            "ALTER TABLE price_analysis ADD COLUMN IF NOT EXISTS window_end_ts TIMESTAMP"
-        )
+        # ADD COLUMN IF NOT EXISTS of an existing column is a no-op that QuestDB (WAL tables)
+        # rejects, so the columns are read first and the ALTER runs only when it is missing.
+        # A failing ALTER is not caught here: create_tables_if_not_exist logs it and raises.
+        if "window_end_ts" not in await read_table_columns("price_analysis"):
+            await conn.execute(
+                "ALTER TABLE price_analysis ADD COLUMN window_end_ts TIMESTAMP"
+            )
 
         # Migration for T140: Add fetch_tier column if it doesn't exist
         try:
