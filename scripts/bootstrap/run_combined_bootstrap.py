@@ -58,6 +58,7 @@ from secrets_loader import load_secrets
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from scripts.clustering.union_find import UnionFind
+from scripts.utils.rpc_cookie import resolve_target
 from scripts.clustering.address_clustering import cluster_addresses
 
 # Load environment
@@ -89,24 +90,16 @@ class BitcoinRPC:
         self._base64 = base64
         self._json = json_module
 
-        rpc_url = os.getenv("BITCOIN_RPC_URL", "http://127.0.0.1:8332")
-        self.rpc_user = os.getenv("BITCOIN_RPC_USER", "")
-        self.rpc_pass = os.getenv("BITCOIN_RPC_PASSWORD", "")
-
-        # Parse host/port
-        url_parts = rpc_url.replace("http://", "").replace("https://", "")
-        if ":" in url_parts:
-            self.host, port_str = url_parts.split(":")
-            self.port = int(port_str)
-        else:
-            self.host = url_parts
-            self.port = 8332
+        # Connection settings come from scripts.utils.rpc_cookie.resolve_target.
+        # Auth policy unchanged (see the runbook): user/password before the cookie.
+        target = resolve_target()
+        self.host, self.port = target.host, target.port
+        self.rpc_user, self.rpc_pass = target.fallback or ("", "")
 
         # Fallback to cookie auth
         if not self.rpc_user or not self.rpc_pass:
-            datadir = os.getenv("BITCOIN_DATADIR", os.path.expanduser("~/.bitcoin"))
-            cookie_path = Path(datadir) / ".cookie"
-            if cookie_path.exists():
+            cookie_path = target.cookie_path
+            if cookie_path is not None and cookie_path.exists():
                 cookie = cookie_path.read_text().strip()
                 self.rpc_user, self.rpc_pass = cookie.split(":", 1)
             else:
@@ -650,31 +643,11 @@ def main():
         checkpoint_interval=args.checkpoint_interval,
     )
 
+    sync_exit = 0
     if args.sync_questdb:
-        print("\n" + "=" * 70)
-        print("SYNCING CLUSTERS TO QUESTDB SERVING PLANE")
-        print("=" * 70)
-        try:
-            import asyncio
-            from scripts.bootstrap.sync_clusters_to_questdb import sync_clusters
-            from api.questdb_repository import QuestDBRepository
+        from scripts.bootstrap.optional_sync import run_optional_sync
 
-            async def run_sync():
-                repo = QuestDBRepository()
-                await repo.initialize()
-                conn = duckdb.connect(args.utxo_db_path, read_only=True)
-                try:
-                    await sync_clusters(repo, conn, batch_size=100000)
-                finally:
-                    conn.close()
-                    await repo.close()
-
-            asyncio.run(run_sync())
-            print("  ✅ QuestDB sync completed successfully.")
-        except Exception as e:
-            logger.error(f"Failed to sync clusters to QuestDB: {e}")
-            print(f"  ❌ QuestDB sync failed: {e}")
-            print("  ⚠️  DuckDB analytical plane remains the source of truth.")
+        sync_exit = run_optional_sync(args.utxo_db_path)
 
     print("\n" + "=" * 70)
     print("COMBINED BOOTSTRAP COMPLETE")
@@ -690,7 +663,7 @@ def main():
     )
     print("=" * 70)
 
-    return 0
+    return sync_exit
 
 
 if __name__ == "__main__":

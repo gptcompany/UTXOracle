@@ -1,0 +1,13 @@
+[Unit]
+Description=Run UTXOracle daily analysis daily, after daily-prices-refresh (F-419)
+
+[Timer]
+# 03:00 UTC (F-442): the last block of the previous day must have 6 confirmations and the
+# tip's median-time-past must be past D+1 00:00Z, which lags the block time by about an hour.
+# Also after utxoracle-daily-prices-refresh (01:00 UTC), which feeds the price inputs.
+OnCalendar=*-*-* 03:00:00 UTC
+Persistent=true
+Unit=utxoracle-daily-analysis.service
+
+[Install]
+WantedBy=timers.target

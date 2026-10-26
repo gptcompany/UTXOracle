@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import unittest.mock
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 
 from api.routes.charts import get_brk_client
@@ -75,6 +77,17 @@ def _build_snapshot(
             "utxoracle": timestamp,
         },
     )
+
+
+@pytest.fixture(autouse=True)
+def _stop_started_patches():
+    """_build_client starts a patch of QuestDBRepository.initialize and never stops it.
+
+    Left running it replaced initialize with a mock for the rest of the session, which hid the
+    real method from every later test that exercises it (F-399).
+    """
+    yield
+    unittest.mock.patch.stopall()
 
 
 def _build_client(store: InMemorySnapshotStore, *, brk_client=None) -> TestClient:

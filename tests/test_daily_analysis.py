@@ -146,6 +146,9 @@ class TestQuestDBSave:
 
         with patch("scripts.daily_analysis.QuestDBRepository") as mock_repo_cls:
             mock_repo = Mock()
+            mock_repo._send_row.return_value = (
+                True  # the real contract: True on success
+            )
             mock_repo_cls.return_value = mock_repo
 
             save_to_questdb(data)

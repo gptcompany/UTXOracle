@@ -19,24 +19,125 @@ import json
 import argparse
 import logging
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional, List
 from pathlib import Path
+
+# --- Startup guards -----------------------------------------------------------------------
+# They run BEFORE the imports below: api.questdb_repository converts QUESTDB_* with int() at
+# import time, so a bad value there ended in a traceback that printed the value. Here every
+# problem is reported by variable NAME only and the process exits with a dedicated code.
+# Exit codes of the script: 0 done (or both rows of the day already present); 1 invalid
+# configuration; 2 any failure (exception, incomplete row, failed metrics block, failed
+# write); 3 QuestDB destination mismatch or a .env defining it; 4 table without dedup on ts;
+# 5 run outside its window; 6 non-numeric value in an integer variable read at import
+# (QUESTDB_*) or for the day selection (MIN_CONFIRMATIONS, which must also be >= 1);
+# 7 the day to analyse is not complete yet (IncompleteWindowError, nothing written).
+FORBIDDEN_ENV_PREFIXES = ("UTXORACLE_EXPECTED_", "QUESTDB_")
+NUMERIC_QUESTDB_ENV = (  # int() at import in api/questdb_repository.py (test-checked), + below
+    "QUESTDB_ILP_PORT",
+    "QUESTDB_PG_PORT",
+    "QUESTDB_HTTP_PORT",
+    "QUESTDB_POOL_MIN_SIZE",
+    "QUESTDB_POOL_MAX_SIZE",
+    "QUESTDB_COMMAND_TIMEOUT",
+    "QUESTDB_MAX_INACTIVE_LIFETIME",
+    "MIN_CONFIRMATIONS",  # read by select_day_blocks (_min_confirmations adds the >= 1 rule)
+)
+EXIT_BAD_ENV_VALUE = 6
+
+
+def env_file_path() -> Path:
+    """The .env that load_config()/load_secrets() read (the unit's EnvironmentFile= is the
+    same file when WorkingDirectory is the repository). UTXORACLE_ENV_FILE overrides the
+    path (tests); the unit does not set it."""
+    override = os.environ.get("UTXORACLE_ENV_FILE")
+    return Path(override) if override else Path(__file__).parent.parent / ".env"
+
+
+def check_env_file_guard(log=logging) -> None:
+    """Exit 3 if the .env defines the QuestDB destination or its expectation.
+
+    The destination belongs to the systemd unit (Environment=); a .env that redefines it
+    would override the unit (EnvironmentFile= wins over Environment=) or load_secrets()
+    would. The file is read with a real parser (dotenv_values) and only the NAMES of the
+    offending keys are logged, never a value. A missing file is not an error. `log` is the
+    logging module or a logger; at startup it is a private one, so the root logger is left
+    unconfigured for setup_logging().
+    """
+    from dotenv import dotenv_values
+
+    path = env_file_path()
+    if not path.exists():
+        log.info(".env not found at %s: nothing to check", path)
+        return
+    offending = sorted(
+        key for key in dotenv_values(path) if key.startswith(FORBIDDEN_ENV_PREFIXES)
+    )
+    if offending:
+        log.error(
+            "%s defines keys reserved to the systemd unit: %s (exit 3)",
+            path,
+            ", ".join(offending),
+        )
+        sys.exit(3)
+    log.info(".env checked: no %s keys", " / ".join(FORBIDDEN_ENV_PREFIXES))
+
+
+def check_numeric_env(log=logging) -> None:
+    """Exit 6 if a QUESTDB_* variable that is converted with int() at import is not an int.
+
+    Only the variable NAMES are logged, never the value.
+    """
+    bad = []
+    for name in NUMERIC_QUESTDB_ENV:
+        value = os.environ.get(name)
+        if value is None:
+            continue
+        try:
+            int(value)
+        except ValueError:
+            bad.append(name)
+    if bad:
+        log.error(
+            "non-numeric value in: %s (values are never logged; exit %d)",
+            ", ".join(bad),
+            EXIT_BAD_ENV_VALUE,
+        )
+        sys.exit(EXIT_BAD_ENV_VALUE)
+
+
+def _startup_logger() -> logging.Logger:
+    logger = logging.getLogger("daily_analysis.startup")
+    logger.propagate = False
+    logger.setLevel(logging.INFO)
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+    logger.addHandler(handler)
+    return logger
+
+
+if __name__ == "__main__":
+    _startup = _startup_logger()
+    check_env_file_guard(_startup)
+    check_numeric_env(_startup)
+
 
 # Add parent directory and scripts directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 
 # Third-party imports
-import requests
+import requests  # noqa: E402 - after the startup guards
 
 # Use SOPS-encrypted secrets
 sys.path.insert(0, "/media/sam/1TB/claude-hooks-shared/scripts")
-from secrets_loader import load_secrets
+from secrets_loader import load_secrets  # noqa: E402 - after the startup guards
 
 # Local imports
-from UTXOracle_library import UTXOracleCalculator
-from scripts.config import UTXORACLE_DB_PATH
+from UTXOracle_library import UTXOracleCalculator  # noqa: E402 - after the startup guards
+from scripts.config import UTXORACLE_DB_PATH  # noqa: E402 - after the startup guards
+from scripts.utils.rpc_cookie import RpcClient, clean_env_value, resolve_target  # noqa: E402 - after the startup guards
 from api.questdb_repository import QuestDBRepository  # noqa: E402
 
 # Whale Flow Detector (spec-004) - import after scripts/ is in path
@@ -51,7 +152,7 @@ try:
     from scripts.metrics.monte_carlo_fusion import monte_carlo_fusion
     from scripts.metrics.active_addresses import count_active_addresses
     from scripts.metrics.tx_volume import calculate_tx_volume
-    from scripts.metrics import save_metrics_to_db  # noqa: F401 - availability probe
+    from scripts.metrics import save_metrics_to_db
 
     METRICS_ENABLED = True
 except ImportError:
@@ -196,7 +297,7 @@ def load_config() -> Dict[str, str]:
         dict: Configuration dictionary
     """
     # Load .env file if exists (override=True to prioritize .env over existing env vars)
-    env_path = Path(__file__).parent.parent / ".env"
+    env_path = env_file_path()
     if env_path.exists():
         load_secrets()
         logging.info(f"Config loaded from .env file at {env_path} (override=True)")
@@ -206,9 +307,8 @@ def load_config() -> Dict[str, str]:
     config = {
         # Required settings (fail fast if missing - T064a)
         "DUCKDB_PATH": _get_env_str("DUCKDB_PATH", str(UTXORACLE_DB_PATH)),
-        "BITCOIN_DATADIR": _get_env_str(
-            "BITCOIN_DATADIR", os.path.expanduser("~/.bitcoin")
-        ),
+        # None: scripts.utils.rpc_cookie.resolve_target picks the datadir.
+        "BITCOIN_DATADIR": clean_env_value(os.getenv("BITCOIN_DATADIR")),
         "MEMPOOL_API_URL": _get_env_str("MEMPOOL_API_URL", "http://localhost:8999"),
         # Optional settings with defaults
         "LOG_LEVEL": _get_env_str("LOG_LEVEL", "INFO"),
@@ -260,7 +360,7 @@ def validate_config(config: Dict[str, str]) -> None:
         )
 
     # Check Bitcoin data directory exists
-    bitcoin_dir = Path(config["BITCOIN_DATADIR"])
+    bitcoin_dir = resolve_target(config["BITCOIN_DATADIR"]).datadir
     if not bitcoin_dir.exists():
         raise EnvironmentError(
             f"BITCOIN_DATADIR does not exist: {bitcoin_dir}\n"
@@ -316,7 +416,20 @@ def fetch_mempool_price(api_url: str = "http://localhost:8999") -> float:
         raise
 
 
-def _fetch_from_bitcoin_core(bitcoin_datadir: str) -> List[dict]:
+def rpc_client(config: Optional[Dict] = None, timeout: float = 60) -> RpcClient:
+    """The daily job's Bitcoin Core client, built only here.
+
+    Cookie auth (re-read on HTTP 401); rpcuser/rpcpassword only as fallback. Without
+    a config it loads the job configuration as ``main`` does. Connection settings
+    come from scripts.utils.rpc_cookie.resolve_target.
+    """
+    config = load_config() if config is None else config
+    return RpcClient(
+        config.get("BITCOIN_DATADIR"), timeout=timeout, request_id="utxoracle-daily"
+    )
+
+
+def _fetch_from_bitcoin_core(bitcoin_datadir: str | None) -> List[dict]:
     """
     Tier 1: Fetch transactions from Bitcoin Core RPC (primary source).
 
@@ -329,75 +442,12 @@ def _fetch_from_bitcoin_core(bitcoin_datadir: str) -> List[dict]:
     Raises:
         ValueError: If cannot connect or fetch transactions
     """
-    import subprocess
-
-    # Read RPC credentials from bitcoin.conf
-    conf_path = f"{bitcoin_datadir}/bitcoin.conf"
-    rpc_user = rpc_pass = None
-
-    try:
-        with open(conf_path, "r") as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("rpcuser="):
-                    rpc_user = line.split("=", 1)[1]
-                elif line.startswith("rpcpassword="):
-                    rpc_pass = line.split("=", 1)[1]
-    except FileNotFoundError:
-        raise ValueError(f"bitcoin.conf not found at {conf_path}")
-
-    if not (rpc_user and rpc_pass):
-        raise ValueError("rpcuser/rpcpassword not found in bitcoin.conf")
-
-    rpc_url = "http://127.0.0.1:8332/"
-    auth = f"{rpc_user}:{rpc_pass}"
-
-    # Get best block hash
-    result = subprocess.run(
-        [
-            "curl",
-            "-s",
-            "--user",
-            auth,
-            "--data-binary",
-            '{"jsonrpc":"1.0","method":"getbestblockhash","params":[]}',
-            "-H",
-            "content-type: text/plain;",
-            rpc_url,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-
-    if result.returncode != 0:
-        raise ValueError(f"Bitcoin Core RPC failed: {result.stderr}")
-
-    best_hash = json.loads(result.stdout)["result"]
+    rpc = rpc_client({"BITCOIN_DATADIR": bitcoin_datadir}, timeout=120)
+    best_hash = rpc.call("getbestblockhash")
     logging.info(f"[Bitcoin Core] Fetching block {best_hash[:16]}...")
 
     # Get block with full tx details (verbosity=2)
-    result = subprocess.run(
-        [
-            "curl",
-            "-s",
-            "--user",
-            auth,
-            "--data-binary",
-            f'{{"jsonrpc":"1.0","method":"getblock","params":["{best_hash}",2]}}',
-            "-H",
-            "content-type: text/plain;",
-            rpc_url,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-
-    if result.returncode != 0:
-        raise ValueError(f"Bitcoin Core getblock failed: {result.stderr}")
-
-    block_data = json.loads(result.stdout)["result"]
+    block_data = rpc.call("getblock", [best_hash, 2])
     transactions = block_data["tx"]
 
     if len(transactions) < 1000:
@@ -597,9 +647,7 @@ def fetch_bitcoin_transactions(config: Dict[str, any]) -> tuple[List[dict], int]
         # Tier 3: Bitcoin Core RPC (ultimate fallback - always enabled)
         logging.warning("Attempting Tier 3: Bitcoin Core RPC direct")
         try:
-            bitcoin_datadir = config.get(
-                "BITCOIN_DATADIR", os.path.expanduser("~/.bitcoin")
-            )
+            bitcoin_datadir = config.get("BITCOIN_DATADIR")
             return _fetch_from_bitcoin_core(bitcoin_datadir), 3
         except Exception as e_rpc:
             logging.error(f"Tier 3 failed (Bitcoin Core RPC): {e_rpc}")
@@ -644,6 +692,8 @@ def calculate_utxoracle_price(config: Dict) -> Dict:
 
         # Add tier to result
         result["fetch_tier"] = tier
+        # The spec-007 metrics (active addresses, tx volume) are computed from these.
+        result["transactions"] = transactions
 
         # Validate result quality
         price = result.get("price_usd")
@@ -683,6 +733,8 @@ def calculate_utxoracle_price(config: Dict) -> Dict:
 
         return result
 
+    except IncompleteWindowError:
+        raise  # the window of the day is open: main() ends with exit 7, nothing is written
     except Exception as e:
         logging.error(f"Failed to calculate UTXOracle price: {e}")
         return {
@@ -864,193 +916,168 @@ def detect_gaps(conn, max_days_back: int = None) -> List[str]:
     return gaps
 
 
-def fetch_historical_transactions(date_str: str, config: Dict) -> List[dict]:
+# Tier recorded in price_analysis.fetch_tier for blocks of a past day read through Bitcoin Core
+# RPC (tiers 1-3 are the live fetchers of the latest block).
+FETCH_TIER_RPC_HISTORICAL = 4
+# Plausibility only: a day has ~144 blocks on average. More than this is an error, not a cap.
+MAX_BLOCKS_PER_DAY = 400
+# Exit code of main() when the window of the requested day is not complete yet.
+EXIT_INCOMPLETE_WINDOW = 7
+# The last block of the day needs this many confirmations (env MIN_CONFIRMATIONS overrides).
+DEFAULT_MIN_CONFIRMATIONS = 6
+
+
+class IncompleteWindowError(Exception):
+    """The chain tip is not past the end of the requested day (mediantime < D+1 00:00Z)."""
+
+
+class BadEnvValueError(ValueError):
+    """An environment variable has an invalid value; the message names the variable only."""
+
+
+class StaleBlockError(RuntimeError):
+    """A block selected for the day is no longer in the best chain (confirmations == -1)."""
+
+
+class ImplausibleDayError(Exception):
+    """The blocks found for the day are zero or more than MAX_BLOCKS_PER_DAY."""
+
+
+def _median_time(rpc, height: int) -> int:
+    """BIP113 median-time-past of the block at `height`: non-decreasing with the height."""
+    return rpc.call("getblockheader", [rpc.call("getblockhash", [height])])[
+        "mediantime"
+    ]
+
+
+def _first_height_with_mediantime_at_least(rpc, tip: int, timestamp: int) -> int:
+    """Exact binary search on [0, tip + 1): the lowest height whose mediantime >= timestamp."""
+    low, high = 0, tip + 1
+    while low < high:
+        mid = (low + high) // 2
+        if _median_time(rpc, mid) >= timestamp:
+            high = mid
+        else:
+            low = mid + 1
+    return low
+
+
+def _min_confirmations() -> int:
+    """MIN_CONFIRMATIONS from the environment: an integer >= 1, default 6.
+
+    Anything else (not an integer, 0, negative) raises BadEnvValueError (main: exit 6) naming
+    only the variable, never the value.
     """
-    Fetch Bitcoin transactions for a specific historical date.
+    raw = os.environ.get("MIN_CONFIRMATIONS")
+    if not raw:
+        return DEFAULT_MIN_CONFIRMATIONS
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    if value < 1:
+        raise BadEnvValueError(
+            "MIN_CONFIRMATIONS must be an integer >= 1 (value not logged)"
+        ) from None
+    return value
 
-    This function finds all blocks mined on the target date (00:00-23:59 UTC)
-    and fetches all transactions from those blocks.
 
-    Architecture:
-    - Tier 1: Bitcoin Core RPC (primary - has full historical blockchain)
-    - Tier 2: electrs (fallback - if available and faster)
-    - Tier 3: Fail (no mempool.space for old historical data)
+def select_day_blocks(rpc, date_str: str) -> tuple[int, list[str]]:
+    """(first height, block hashes) of the UTC day `date_str`, fixed once, by mediantime.
 
-    Args:
-        date_str: Target date (YYYY-MM-DD format)
-        config: Configuration dict with BITCOIN_DATADIR
-
-    Returns:
-        list: Transaction dictionaries with vout/vin data
+    Convention: day D = the blocks whose MEDIAN-TIME-PAST is in [D 00:00:00Z, D+1 00:00:00Z),
+    which lags the header `time` by about an hour; the gap from the reference price is
+    measured by F-438 over several days. The mediantime never decreases with the height
+    (BIP113), so the boundaries come from an exact binary search over [0, tip], with no
+    estimate of the height and no margin.
 
     Raises:
-        ValueError: If date is invalid or no blocks found
-        subprocess.CalledProcessError: If Bitcoin Core RPC fails
+        ValueError: invalid date. BadEnvValueError: MIN_CONFIRMATIONS is not an integer >= 1.
+        IncompleteWindowError: the tip's mediantime is before D+1 00:00Z (day still open),
+            or the last block of D has fewer than MIN_CONFIRMATIONS confirmations.
+        ImplausibleDayError: zero blocks, or more than MAX_BLOCKS_PER_DAY.
+        Any RPC error is propagated unchanged: nothing is swallowed.
     """
-    import subprocess
-    from datetime import datetime, timezone
-
-    # Parse target date
     try:
-        target_date = datetime.strptime(date_str, "%Y-%m-%d").replace(
-            tzinfo=timezone.utc
+        start = int(
+            datetime.strptime(date_str, "%Y-%m-%d")
+            .replace(tzinfo=timezone.utc)
+            .timestamp()
         )
     except ValueError as e:
         raise ValueError(f"Invalid date format '{date_str}' (expected YYYY-MM-DD): {e}")
+    end = start + 86400
+    min_confirmations = _min_confirmations()
 
-    # Calculate Unix timestamp range for target date
-    start_timestamp = int(target_date.timestamp())  # 00:00:00 UTC
-    end_timestamp = start_timestamp + 86400  # +24 hours
-
-    logging.info(
-        f"[Historical] Fetching transactions for {date_str} "
-        f"(timestamps: {start_timestamp}-{end_timestamp})"
-    )
-
-    # Get Bitcoin Core RPC credentials
-    bitcoin_datadir = config.get("BITCOIN_DATADIR", os.path.expanduser("~/.bitcoin"))
-    conf_path = f"{bitcoin_datadir}/bitcoin.conf"
-    rpc_user = rpc_pass = None
-
-    try:
-        with open(conf_path, "r") as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("rpcuser="):
-                    rpc_user = line.split("=", 1)[1]
-                elif line.startswith("rpcpassword="):
-                    rpc_pass = line.split("=", 1)[1]
-    except FileNotFoundError:
-        raise ValueError(f"bitcoin.conf not found at {conf_path}")
-
-    if not (rpc_user and rpc_pass):
-        raise ValueError("rpcuser/rpcpassword not found in bitcoin.conf")
-
-    rpc_url = "http://127.0.0.1:8332/"
-    auth = f"{rpc_user}:{rpc_pass}"
-
-    def rpc_call(method: str, params: list) -> any:
-        """Helper to make Bitcoin Core RPC calls."""
-        result = subprocess.run(
-            [
-                "curl",
-                "-s",
-                "--user",
-                auth,
-                "--data-binary",
-                json.dumps({"jsonrpc": "1.0", "method": method, "params": params}),
-                "-H",
-                "content-type: text/plain;",
-                rpc_url,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=60,
+    tip = rpc.call("getblockcount", [])
+    tip_mediantime = _median_time(rpc, tip)
+    if tip_mediantime < end:
+        raise IncompleteWindowError(
+            f"{date_str} is not complete: tip {tip} has mediantime {tip_mediantime} < {end}"
         )
 
-        if result.returncode != 0:
-            raise ValueError(f"RPC call '{method}' failed: {result.stderr}")
-
-        response = json.loads(result.stdout)
-        if response.get("error"):
-            raise ValueError(f"RPC error for '{method}': {response['error']}")
-
-        return response["result"]
-
-    # Step 1: Get current block height to estimate target height
-    current_height = rpc_call("getblockcount", [])
-    logging.info(f"[Historical] Current block height: {current_height}")
-
-    # Step 2: Estimate target block height (144 blocks per day)
-    # Calculate days between target date and now
-    now = datetime.now(timezone.utc)
-    days_ago = (now - target_date).days
-    estimated_height = current_height - (days_ago * 144)
-
-    logging.info(
-        f"[Historical] Estimated height for {date_str}: ~{estimated_height} "
-        f"({days_ago} days ago)"
-    )
-
-    # Step 3: Binary search to find first block of target date
-    def get_block_timestamp(height: int) -> int:
-        """Get block timestamp for given height."""
-        block_hash = rpc_call("getblockhash", [height])
-        block_header = rpc_call("getblockheader", [block_hash])
-        return block_header["time"]
-
-    # Binary search for first block >= start_timestamp
-    search_range = 300  # Search ±300 blocks (~2 days) around estimate
-    left = max(0, estimated_height - search_range)
-    right = min(current_height, estimated_height + search_range)
-
-    first_block_height = None
-    while left <= right:
-        mid = (left + right) // 2
-        mid_timestamp = get_block_timestamp(mid)
-
-        if mid_timestamp < start_timestamp:
-            left = mid + 1
-        elif mid_timestamp >= end_timestamp:
-            right = mid - 1
-        else:
-            # Found a block within target date
-            # Search backward to find first block of the day
-            first_block_height = mid
-            right = mid - 1
-
-    if first_block_height is None:
-        raise ValueError(
-            f"No blocks found for {date_str} "
-            f"(searched heights {estimated_height - search_range} to {estimated_height + search_range})"
+    first = _first_height_with_mediantime_at_least(rpc, tip, start)
+    stop = _first_height_with_mediantime_at_least(rpc, tip, end)
+    count = stop - first
+    if count < 1 or count > MAX_BLOCKS_PER_DAY:
+        raise ImplausibleDayError(
+            f"{count} blocks with mediantime in {date_str} (expected 1..{MAX_BLOCKS_PER_DAY})"
         )
+    hashes = [rpc.call("getblockhash", [height]) for height in range(first, stop)]
+    confirmations = rpc.call("getblockheader", [hashes[-1]])["confirmations"]
+    if confirmations < 0:  # first: a block that left the best chain is not "too recent"
+        raise StaleBlockError(
+            f"last block {hashes[-1]} of {date_str} has confirmations {confirmations}: "
+            "it left the best chain after the selection"
+        )
+    if confirmations < min_confirmations:
+        raise IncompleteWindowError(
+            f"last block of {date_str} has {confirmations} confirmations "
+            f"(< {min_confirmations}): too close to the tip to be final"
+        )
+    logging.info(f"[Historical] {date_str}: {count} blocks, heights {first}-{stop - 1}")
+    return first, hashes
 
-    # Step 4: Find last block of target date
-    last_block_height = first_block_height
-    for h in range(
-        first_block_height + 1, first_block_height + 200
-    ):  # Max 200 blocks per day
-        try:
-            ts = get_block_timestamp(h)
-            if ts < end_timestamp:
-                last_block_height = h
-            else:
-                break
-        except Exception:
-            break  # Reached current tip or error
 
-    block_count = last_block_height - first_block_height + 1
-    logging.info(
-        f"[Historical] Found {block_count} blocks for {date_str} "
-        f"(heights {first_block_height}-{last_block_height})"
-    )
+def _stream_transactions(rpc, hashes: list[str]):
+    """Yield the transactions of the blocks `hashes`, one block in memory at a time.
 
-    # Step 5: Fetch all transactions from blocks in range
-    all_transactions = []
-    for height in range(first_block_height, last_block_height + 1):
-        if (height - first_block_height) % 50 == 0:
-            logging.info(
-                f"[Historical] Fetching block {height - first_block_height + 1}/{block_count}..."
+    Blocks are read BY HASH, the ones fixed at selection: a block that left the best chain
+    meanwhile (confirmations == -1) is an explicit error, never silently replaced by the
+    block now at that height.
+    """
+    total = 0
+    for index, block_hash in enumerate(hashes):
+        if index % 50 == 0:
+            logging.info(f"[Historical] Fetching block {index + 1}/{len(hashes)}...")
+        block = rpc.call("getblock", [block_hash, 2])
+        if block.get("confirmations", 0) < 0:
+            raise StaleBlockError(
+                f"block {block_hash} has confirmations {block['confirmations']}: "
+                "it left the best chain while the day was being read"
             )
-
-        block_hash = rpc_call("getblockhash", [height])
-        block_data = rpc_call(
-            "getblock", [block_hash, 2]
-        )  # verbosity=2 for full tx data
-        transactions = block_data["tx"]
-        all_transactions.extend(transactions)
-
+        total += len(block["tx"])
+        yield from block["tx"]
     logging.info(
-        f"[Historical] ✅ Fetched {len(all_transactions)} transactions from {block_count} blocks"
+        f"[Historical] Streamed {total} transactions from {len(hashes)} blocks"
     )
 
-    if len(all_transactions) < 1000:
-        logging.warning(
-            f"[Historical] Only {len(all_transactions)} transactions found "
-            f"(expected >=1000 for normal day)"
-        )
 
-    return all_transactions
+def fetch_historical_transactions(date_str: str, config: Dict):
+    """
+    Transactions of the blocks that belong to the UTC day `date_str`, as a stream.
+
+    The selection (select_day_blocks, mediantime, exact) runs at call time, so its errors
+    are raised here, not during iteration; the returned generator then fetches one block at
+    a time by hash (getblock verbosity 2, values in BTC) and keeps none of them: the day is
+    never held in memory. Callers that need the transactions twice (price library AND
+    metrics) must compute both in the same pass.
+
+    Raises: what select_day_blocks raises; StaleBlockError during iteration.
+    """
+    rpc = rpc_client(config)
+    _, hashes = select_day_blocks(rpc, date_str)
+    return _stream_transactions(rpc, hashes)
 
 
 def backfill_gap(date_str: str, config: Dict) -> bool:
@@ -1085,11 +1112,7 @@ def backfill_gap(date_str: str, config: Dict) -> bool:
 
         # Fetch Bitcoin transactions for this date (HISTORICAL!)
         logging.info(f"[Backfill] Fetching historical transactions for {date_str}...")
-        transactions = fetch_historical_transactions(date_str, config)
-
-        if not transactions:
-            logging.error(f"[Backfill] No transactions found for {date_str}")
-            return False
+        transactions = fetch_historical_transactions(date_str, config)  # a stream
 
         # Calculate UTXOracle price using library (NO subprocess!)
         calc = UTXOracleCalculator()
@@ -1099,6 +1122,9 @@ def backfill_gap(date_str: str, config: Dict) -> bool:
         confidence = result.get("confidence", 0)
         tx_count = result.get("tx_count", 0)
 
+        if not tx_count:
+            logging.error(f"[Backfill] No transactions found for {date_str}")
+            return False
         if price is None:
             logging.error(f"[Backfill] UTXOracle returned None price for {date_str}")
             return False
@@ -1120,6 +1146,7 @@ def backfill_gap(date_str: str, config: Dict) -> bool:
             ),
             "confidence": confidence,
             "tx_count": tx_count,
+            "fetch_tier": FETCH_TIER_RPC_HISTORICAL,
             "is_valid": confidence >= 0.3 and tx_count >= 1000,
             "whale_net_flow": 0.0,  # No whale data for historical backfill
             "whale_direction": "NEUTRAL",
@@ -1133,6 +1160,8 @@ def backfill_gap(date_str: str, config: Dict) -> bool:
         logging.info(f"[Backfill] ✅ Successfully backfilled {date_str}")
         return True
 
+    except IncompleteWindowError:
+        raise  # the day is not over: not a backfill failure, the caller must know (exit 7)
     except Exception as e:
         logging.error(f"[Backfill] Failed to backfill {date_str}: {e}")
         return False
@@ -1142,12 +1171,19 @@ def save_to_questdb(data: Dict) -> None:
     """
     Save price comparison data to QuestDB.
 
+    The row key is data["timestamp"]: for the daily run it is the analysed day, the UTC day
+    before the run, at 00:00Z (see analysis_day_for); a write with the same key replaces the
+    row (DEDUP UPSERT KEYS(ts)).
+
     Args:
         data: Price data dictionary
+
+    Raises:
+        RuntimeError: if the ILP write or its flush failed (_send_row answers False).
     """
     try:
         repo = QuestDBRepository()
-        repo._send_row(
+        sent = repo._send_row(
             "price_analysis",
             symbols={},
             columns={
@@ -1164,6 +1200,10 @@ def save_to_questdb(data: Dict) -> None:
             at=datetime.fromisoformat(data["timestamp"]),
             flush=True,
         )
+        if sent is not True:
+            raise RuntimeError(
+                "QuestDB refused the price_analysis row (see ILP error above)"
+            )
         logging.info("Data saved to QuestDB")
     except Exception as e:
         logging.error(f"Failed to save data to QuestDB: {e}")
@@ -1355,11 +1395,189 @@ def _determine_action(combined_signal: float) -> str:
         return "HOLD"
 
 
+def check_questdb_destination() -> None:
+    """Fail before any write when the QuestDB in use is not the one the unit expects (F-419).
+
+    The effective target is what the repository module holds, which is what every writer
+    uses; it is read here, after load_config()/load_secrets() (override=True), so an
+    override from .env cannot silently move the writes. The expectation comes from
+    UTXORACLE_EXPECTED_QUESTDB_{ILP,PG}_{HOST,PORT}, declared in the systemd unit. Without
+    any of them (manual run, tests) the target is only logged.
+    """
+    import api.questdb_repository as questdb
+
+    effective = {
+        "ILP_HOST": str(questdb.QUESTDB_ILP_HOST),
+        "ILP_PORT": str(questdb.QUESTDB_ILP_PORT),
+        "PG_HOST": str(questdb.QUESTDB_PG_HOST),
+        "PG_PORT": str(questdb.QUESTDB_PG_PORT),
+    }
+    logging.info(
+        "QuestDB destination: ILP %s:%s, PG %s:%s",
+        effective["ILP_HOST"],
+        effective["ILP_PORT"],
+        effective["PG_HOST"],
+        effective["PG_PORT"],
+    )
+    expected = {
+        key: os.environ[f"UTXORACLE_EXPECTED_QUESTDB_{key}"]
+        for key in effective
+        if os.environ.get(f"UTXORACLE_EXPECTED_QUESTDB_{key}")
+    }
+    if not expected:
+        logging.info("QuestDB destination: no expected destination set, not checked")
+        return
+    wrong = {k: (effective[k], v) for k, v in expected.items() if effective[k] != v}
+    if wrong:
+        detail = ", ".join(
+            f"{k} is {got} (expected {want})" for k, (got, want) in wrong.items()
+        )
+        logging.error("QuestDB destination mismatch: %s", detail)
+        sys.exit(3)
+
+
+def check_daily_tables_dedup() -> None:
+    """Refuse to write into a table that does not deduplicate on ts (exit code 4).
+
+    The daily row is keyed by the UTC day; without DEDUP UPSERT KEYS(ts) a rerun would add a
+    duplicate row. Checked once per run, before the first write, from tables().
+    """
+    import asyncio
+
+    import api.questdb_repository as questdb
+
+    missing = asyncio.run(questdb.tables_without_dedup(("price_analysis", "metrics")))
+    if missing:
+        logging.error(
+            "QuestDB tables without dedup on ts: %s; refusing to write "
+            "(enable DEDUP UPSERT KEYS(ts) on a WAL table first)",
+            ", ".join(missing),
+        )
+        sys.exit(4)
+
+
+def utc_now() -> datetime:
+    """The clock of the run (a function, so tests can inject a time)."""
+    return datetime.now(timezone.utc)
+
+
+def analysis_day_for(now: datetime) -> datetime:
+    """Row key of both tables: the analysed day, the UTC day before `now`, at 00:00Z.
+
+    The timer runs at 03:00Z and UTXOracle produces the price of "yesterday": the price is
+    computed from the recent transactions at run time, i.e. mostly the day D-1. Any run on
+    the same UTC date gets the same key, so the first successful run of the day wins and a
+    rerun replaces nothing unless --overwrite is given (DEDUP UPSERT KEYS(ts) is the net).
+    """
+    return (now.astimezone(timezone.utc) - timedelta(days=1)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+
+
+SCHEDULE_ENV = "UTXORACLE_DAILY_SCHEDULE_UTC"
+EXIT_OUTSIDE_WINDOW = 5
+
+
+def check_run_window(now: datetime) -> None:
+    """Exit 5, writing nothing, when the run started outside its window.
+
+    The scheduled time ("HH:MM", UTC) comes from the systemd unit through
+    UTXORACLE_DAILY_SCHEDULE_UTC, the single place it is written (a test keeps it equal to the
+    timer's OnCalendar). The window of the run on UTC day D is [scheduled time on D,
+    23:59:59Z on D]. A Persistent=true catch-up that fires after midnight is outside it:
+    its key (the day before the run) would label the wrong day. Without the variable
+    (manual use, tests) the window is not checked and that is logged; an unparsable value
+    is an error (exit 2 through the usual path).
+    """
+    schedule = os.environ.get(SCHEDULE_ENV)
+    if not schedule:
+        logging.info("%s not set: run window not checked", SCHEDULE_ENV)
+        return
+    try:
+        scheduled = datetime.strptime(schedule, "%H:%M")
+    except ValueError as exc:
+        raise ValueError(f"{SCHEDULE_ENV}={schedule!r} is not HH:MM") from exc
+    now = now.astimezone(timezone.utc)
+    start = now.replace(
+        hour=scheduled.hour, minute=scheduled.minute, second=0, microsecond=0
+    )
+    if now < start:
+        logging.error(
+            "run fuori finestra: started at %s, the window of %s is [%s, 23:59:59Z]; "
+            "writing nothing (exit %d)",
+            now.isoformat(timespec="seconds"),
+            now.date(),
+            start.strftime("%H:%M:%SZ"),
+            EXIT_OUTSIDE_WINDOW,
+        )
+        sys.exit(EXIT_OUTSIDE_WINDOW)
+
+
+def preflight(args) -> tuple[datetime, set[str], bool]:
+    """Destination, dedup and already-written-day checks, before any computation or write.
+
+    Returns (analysis_day, tables to skip, nothing_to_do). Runs inside main()'s try so every
+    non-zero exit is logged the same way. Exit codes of the script: 0 done or both rows of
+    the day already present; 1 invalid configuration; 2 any failure (exception, incomplete
+    row, failed metrics block, failed write); 3 QuestDB destination mismatch or the .env defining the destination; 4 a table
+    without dedup on ts; 5 run outside its window (check_run_window); 6 invalid integer
+    variable (startup guard or MIN_CONFIRMATIONS); 7 day not complete yet
+    (IncompleteWindowError). The full list is at the top of the module.
+
+    The skip needs BOTH rows of the day: with only one present the run was incomplete and
+    both are rewritten, as with --overwrite, after a WARNING.
+    """
+    check_env_file_guard()
+    check_questdb_destination()
+    now = utc_now()
+    analysis_day = analysis_day_for(now)
+    skip_tables: set[str] = set()
+    if args.dry_run:
+        return analysis_day, skip_tables, False
+    check_run_window(now)
+
+    import asyncio
+
+    import api.questdb_repository as questdb
+
+    check_daily_tables_dedup()
+    existing = asyncio.run(
+        questdb.tables_with_day_row(("price_analysis", "metrics"), analysis_day)
+    )
+    if existing and args.overwrite:
+        logging.warning(
+            "--overwrite: replacing the %s row of %s already written (DEDUP upsert)",
+            ", ".join(existing),
+            analysis_day.date(),
+        )
+    elif len(existing) == 2:
+        logging.info(
+            "Both rows of %s already written: the first successful run wins, nothing to "
+            "do (--overwrite replaces them)",
+            analysis_day.date(),
+        )
+        return analysis_day, skip_tables, True
+    elif existing:
+        logging.warning(
+            "only one row of %s exists (%s): the previous run was incomplete, rewriting "
+            "BOTH rows as with --overwrite",
+            analysis_day.date(),
+            existing[0],
+        )
+    return analysis_day, skip_tables, False
+
+
 def main():
     """
     Main execution flow for daily analysis.
 
     T046: Support CLI flags --init-db, --dry-run, --verbose
+
+    Exit codes (full list at the top of the module): 0 done or both rows of the day already
+    present; 1 invalid configuration; 2 any failure (no row is written); 3 destination
+    mismatch or a .env defining it; 4 table without dedup on ts; 5 run outside its window;
+    6 invalid integer variable (BadEnvValueError, name only); 7 the day to analyse is not
+    complete yet (IncompleteWindowError, nothing written).
     """
     parser = argparse.ArgumentParser(description="UTXOracle Daily Analysis")
 
@@ -1367,6 +1585,11 @@ def main():
         "--dry-run", action="store_true", help="Run without saving to DB"
     )
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace the rows of today (UTC) already written; default: first run wins",
+    )
 
     args = parser.parse_args()
 
@@ -1411,6 +1634,10 @@ def main():
     try:
         logging.info("=" * 60)
         logging.info("Starting daily analysis")
+
+        analysis_day, skip_tables, nothing_to_do = preflight(args)
+        if nothing_to_do:
+            return
 
         # Step 1: Fetch mempool.space price (T039)
         mempool_price = retry_with_backoff(
@@ -1476,79 +1703,97 @@ def main():
         mc_result = None
         active_addr_result = None
         tx_vol_result = None
+        current_time = datetime.now()
+
+        metrics_failed: list[str] = []
+
+        def run_metrics_block(name: str, block) -> None:
+            """A failing block is recorded, never skipped: no half-filled metrics row."""
+            try:
+                block()
+            except Exception as e:
+                metrics_failed.append(name)
+                logging.error(f"Metrics block {name} failed: {e}", exc_info=True)
 
         if METRICS_ENABLED:
-            try:
-                # Get transactions for metrics calculation
-                transactions = utx_result.get("transactions", [])
-                current_time = datetime.now()
+            transactions = utx_result.get("transactions") or []
 
-                # Monte Carlo Signal Fusion (replaces linear fusion when whale data available)
-                if whale_signal:
-                    whale_vote = _calculate_whale_vote(
-                        net_flow_btc=whale_signal.net_flow_btc,
-                        direction=whale_signal.direction,
-                    )
-                    utxo_vote = _calculate_utxo_vote(
-                        confidence=utx_result["confidence"]
-                    )
+            def monte_carlo_block() -> None:
+                nonlocal mc_result, action, combined_signal
+                whale_vote = _calculate_whale_vote(
+                    net_flow_btc=whale_signal.net_flow_btc,
+                    direction=whale_signal.direction,
+                )
+                utxo_vote = _calculate_utxo_vote(confidence=utx_result["confidence"])
 
-                    mc_result = monte_carlo_fusion(
-                        whale_vote=whale_vote,
-                        whale_confidence=whale_signal.confidence,
-                        utxo_vote=utxo_vote,
-                        utxo_confidence=utx_result["confidence"],
-                        n_samples=1000,
-                    )
+                mc_result = monte_carlo_fusion(
+                    whale_vote=whale_vote,
+                    whale_confidence=whale_signal.confidence,
+                    utxo_vote=utxo_vote,
+                    utxo_confidence=utx_result["confidence"],
+                    n_samples=1000,
+                )
 
-                    # Override action with Monte Carlo result
-                    action = mc_result.action
-                    combined_signal = mc_result.signal_mean
+                # Override action with Monte Carlo result
+                action = mc_result.action
+                combined_signal = mc_result.signal_mean
 
-                    logging.info(
-                        f"📈 Monte Carlo Fusion: "
-                        f"signal={mc_result.signal_mean:+.3f} "
-                        f"(95% CI: [{mc_result.ci_lower:+.3f}, {mc_result.ci_upper:+.3f}]), "
-                        f"action={mc_result.action} "
-                        f"(conf: {mc_result.action_confidence:.1%}), "
-                        f"distribution: {mc_result.distribution_type}"
-                    )
+                logging.info(
+                    f"📈 Monte Carlo Fusion: "
+                    f"signal={mc_result.signal_mean:+.3f} "
+                    f"(95% CI: [{mc_result.ci_lower:+.3f}, {mc_result.ci_upper:+.3f}]), "
+                    f"action={mc_result.action} "
+                    f"(conf: {mc_result.action_confidence:.1%}), "
+                    f"distribution: {mc_result.distribution_type}"
+                )
 
-                # Active Addresses
-                if transactions:
-                    active_addr_result = count_active_addresses(
-                        transactions=transactions,
-                        block_height=utx_result.get("block_height", 0),
-                        timestamp=current_time,
-                    )
-                    logging.info(
-                        f"👥 Active Addresses: {active_addr_result.active_addresses_block} "
-                        f"(senders: {active_addr_result.unique_senders}, "
-                        f"receivers: {active_addr_result.unique_receivers})"
-                    )
+            def active_addresses_block() -> None:
+                nonlocal active_addr_result
+                if not transactions:
+                    raise ValueError("no transactions available")
+                active_addr_result = count_active_addresses(
+                    transactions=transactions,
+                    block_height=utx_result.get("block_height", 0),
+                    timestamp=current_time,
+                )
+                logging.info(
+                    f"👥 Active Addresses: {active_addr_result.active_addresses_block} "
+                    f"(senders: {active_addr_result.unique_senders}, "
+                    f"receivers: {active_addr_result.unique_receivers})"
+                )
 
-                # TX Volume USD
-                if transactions and utx_result["price_usd"]:
-                    tx_vol_result = calculate_tx_volume(
-                        transactions=transactions,
-                        utxoracle_price=utx_result["price_usd"],
-                        confidence=utx_result["confidence"],
-                        timestamp=current_time,
-                    )
-                    logging.info(
-                        f"💰 TX Volume: {tx_vol_result.tx_volume_btc:.2f} BTC "
-                        f"(${tx_vol_result.tx_volume_usd:,.0f} USD), "
-                        f"{tx_vol_result.tx_count} transactions"
-                    )
+            def tx_volume_block() -> None:
+                nonlocal tx_vol_result
+                if not transactions or not utx_result["price_usd"]:
+                    raise ValueError("no transactions or no price available")
+                tx_vol_result = calculate_tx_volume(
+                    transactions=transactions,
+                    utxoracle_price=utx_result["price_usd"],
+                    confidence=utx_result["confidence"],
+                    timestamp=current_time,
+                    # The fetchers already turned satoshi into BTC (_convert_satoshi_to_btc):
+                    # the conversion happens once, there. Dividing again here gave 1e-8 of it.
+                    value_unit="btc",
+                )
+                logging.info(
+                    f"💰 TX Volume: {tx_vol_result.tx_volume_btc:.2f} BTC "
+                    f"(${tx_vol_result.tx_volume_usd:,.0f} USD), "
+                    f"{tx_vol_result.tx_count} transactions"
+                )
 
-            except Exception as e:
-                logging.warning(f"Spec-007 metrics calculation failed: {e}")
+            # Monte Carlo needs a whale signal: without one it does not apply.
+            if whale_signal:
+                run_metrics_block("monte_carlo", monte_carlo_block)
+            run_metrics_block("active_addresses", active_addresses_block)
+            run_metrics_block("tx_volume", tx_volume_block)
 
         # Step 2.8: Spec-009 Advanced On-Chain Analytics
         power_law_result = None
         symbolic_result = None
         fractal_result = None
         enhanced_fusion_result = None
+        wasserstein_result = None
+        wasserstein_attempted = False
 
         if ADVANCED_METRICS_ENABLED:
             try:
@@ -1559,6 +1804,31 @@ def main():
                         value = vout.get("value", 0)
                         if value > 0:
                             utxo_values.append(value)
+
+                # Spec-010: Wasserstein Distribution Shift Detection. Persisted in metrics, so a
+                # failure is a metrics-block failure (no write, exit 2), not a warning.
+                wasserstein_attempted = True
+                w_vote = None
+
+                def wasserstein_block() -> None:
+                    nonlocal wasserstein_result, w_vote
+                    wasserstein_result = rolling_wasserstein(
+                        values=utxo_values,  # B1 fix: series → values
+                        window_size=144,  # 24h of blocks (144 blocks/day)
+                        step_size=6,  # 1h steps (6 blocks/hour)
+                    )
+                    if wasserstein_result.is_valid:
+                        w_vote = (
+                            wasserstein_result.wasserstein_vote
+                        )  # B2 fix: use precomputed vote
+                        logging.info(
+                            f"📊 Wasserstein: W={wasserstein_result.mean_distance:.4f} "
+                            f"(regime: {wasserstein_result.regime_status}, "
+                            f"vote: {w_vote:+.3f})"
+                        )
+
+                if WASSERSTEIN_ENABLED and len(utxo_values) >= 288:  # 2 windows of 144
+                    run_metrics_block("wasserstein", wasserstein_block)
 
                 if len(utxo_values) >= 100:
                     # US1: Power Law Regime Detection
@@ -1591,28 +1861,6 @@ def main():
                         f"(pattern: {symbolic_result.pattern_type}, "
                         f"vote: {symbolic_result.symbolic_vote:+.3f})"
                     )
-
-                # Spec-010: Wasserstein Distribution Shift Detection
-                wasserstein_result = None
-                w_vote = None
-                if WASSERSTEIN_ENABLED and len(utxo_values) >= 288:  # 2 windows of 144
-                    try:
-                        wasserstein_result = rolling_wasserstein(
-                            values=utxo_values,  # B1 fix: series → values
-                            window_size=144,  # 24h of blocks (144 blocks/day)
-                            step_size=6,  # 1h steps (6 blocks/hour)
-                        )
-                        if wasserstein_result.is_valid:
-                            w_vote = (
-                                wasserstein_result.wasserstein_vote
-                            )  # B2 fix: use precomputed vote
-                            logging.info(
-                                f"📊 Wasserstein: W={wasserstein_result.mean_distance:.4f} "
-                                f"(regime: {wasserstein_result.regime_status}, "
-                                f"vote: {w_vote:+.3f})"
-                            )
-                    except Exception as e:
-                        logging.warning(f"Wasserstein calculation failed: {e}")
 
                 # US4: Enhanced 8-Component Fusion (spec-009 + spec-010) + Derivatives (spec-008)
                 if whale_signal and mc_result:
@@ -1734,13 +1982,20 @@ def main():
 
             except Exception as e:
                 logging.warning(f"Spec-009 advanced metrics calculation failed: {e}")
+                if WASSERSTEIN_ENABLED and not wasserstein_attempted:
+                    # The failure came before the Wasserstein block could run: its columns
+                    # would be NULL for a reason nobody sees.
+                    metrics_failed.append("wasserstein")
+                    logging.error(f"Metrics block wasserstein failed: {e}")
 
         # Step 3: Compare prices (T041)
         comparison = compare_prices(utx_result["price_usd"], mempool_price)
 
         # Step 4: Validate data quality (T042a)
         data = {
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            # The row key is the analysed UTC day at 00:00Z (not the run time): with DEDUP
+            # UPSERT KEYS(ts) a rerun on the same day replaces the row instead of adding one.
+            "timestamp": analysis_day.isoformat(),
             "utxoracle_price": utx_result["price_usd"],
             "mempool_price": mempool_price,
             "confidence": utx_result["confidence"],
@@ -1758,9 +2013,49 @@ def main():
             "combined_signal": combined_signal,
         }
 
+        # Step 4b: only complete rows are written (F-419): a missing value or a failed metrics
+        # block ends the run with an error and writes nothing, never a row with NULL columns.
+        price_columns = (
+            "mempool_price",
+            "utxoracle_price",
+            "diff_amount",
+            "diff_percent",
+            "confidence",
+            "tx_count",
+            "is_valid",
+        )
+        missing_values = [k for k in price_columns if data.get(k) is None]
+        if missing_values:
+            logging.error(
+                "price_analysis row incomplete, missing: %s", ", ".join(missing_values)
+            )
+            raise RuntimeError(
+                f"price_analysis row incomplete: {', '.join(missing_values)}"
+            )
+        if not METRICS_ENABLED and not args.dry_run:
+            raise RuntimeError("spec-007 metrics modules are not available")
+        if metrics_failed:
+            raise RuntimeError(f"metrics blocks failed: {', '.join(metrics_failed)}")
+
         # Step 5: Save to database
         if not args.dry_run:
-            save_to_questdb(data)
+            if "price_analysis" not in skip_tables:
+                save_to_questdb(data)
+            # F-419: the metrics were computed and then dropped; persist them with the price row.
+            if "metrics" not in skip_tables:
+                saved = save_metrics_to_db(
+                    timestamp=analysis_day,
+                    monte_carlo=mc_result.to_dict() if mc_result else None,
+                    active_addresses=active_addr_result.to_dict()
+                    if active_addr_result
+                    else None,
+                    tx_volume=tx_vol_result.to_dict() if tx_vol_result else None,
+                    wasserstein=wasserstein_result.to_dict()
+                    if wasserstein_result and wasserstein_result.is_valid
+                    else None,
+                )
+                if not saved:
+                    raise RuntimeError("Failed to save metrics to QuestDB")
         else:
             logging.info("[DRY-RUN] Would save data:")
             logging.info(json.dumps(data, indent=2))
@@ -1770,7 +2065,13 @@ def main():
     except Exception as e:
         logging.error(f"Daily analysis failed: {e}", exc_info=True)
         send_alert_webhook("ERROR", f"Daily analysis failed: {e}")
-        sys.exit(2)
+        sys.exit(
+            EXIT_INCOMPLETE_WINDOW
+            if isinstance(e, IncompleteWindowError)
+            else EXIT_BAD_ENV_VALUE
+            if isinstance(e, BadEnvValueError)
+            else 2
+        )
 
 
 if __name__ == "__main__":

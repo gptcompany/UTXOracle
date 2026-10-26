@@ -494,6 +494,38 @@ entries:
   provenance_notes:
   - Canonical and served host is :8011.
   - Materialized daily from DuckDB to ensure high-performance production serving.
+- surface_id: urpd_features_surface
+  route_family: /api/metrics/urpd-features
+  backend_class: questdb
+  primary_tables:
+  - urpd_features_daily
+  upstreams:
+  - scripts.metrics.urpd_features
+  - DuckDB utxo_lifecycle_full (URPD source)
+  required_env:
+  - QUESTDB_PG_HOST
+  - QUESTDB_PG_PORT
+  - QUESTDB_PG_USER
+  - QUESTDB_PG_PASSWORD
+  - QUESTDB_PG_DATABASE
+  writer_owner: scripts.metrics.urpd_features + scripts.metrics.materialize_wave1 via
+    QuestDBRepository
+  read_path_owner: api.routes.questdb
+  freshness_source: Daily materialization via materialize_wave1
+  failure_mode:
+    empty: HTTP 404 when no materialized snapshot exists in urpd_features_daily.
+    stale: No explicit stale marker; output depends on last materialization pass.
+    degraded: Confidence is 0.85 with supply and buckets, 0.5 with buckets only and
+      0.0 without buckets.
+    misconfigured: HTTP 503 when the QuestDB repository is not initialized; HTTP 500
+      when the query fails.
+    placeholder: none
+  provenance_notes:
+  - Scalar features are derived locally from unspent utxo_lifecycle_full rows grouped
+    by creation price bucket; no claim of equivalence with the BRK cost-basis distribution.
+  - QuestDBRepository.save_urpd_features is the repository writer and the table is
+    mirrored by scripts.bootstrap.mirror_live_questdb_to_host; the materialize_wave1
+    call is declared by the registry owner field and has no call site in the tree yet.
 - surface_id: puell_multiple_surface
   route_family: /api/metrics/puell-multiple
   backend_class: computed_inline

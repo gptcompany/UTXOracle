@@ -3,52 +3,23 @@ Configuration module for Whale Detection Dashboard.
 Task T006: Create logging configuration with rotation.
 """
 
-import os
-import sys
 import logging
 import logging.handlers
+import os
 from pathlib import Path
 from typing import Optional
 
-# Use SOPS-encrypted secrets when available, otherwise fall back to dotenv/plain env
-try:
-    sys.path.insert(0, "/media/sam/1TB/claude-hooks-shared/scripts")
-    from secrets_loader import load_secrets
+from api.project_env import load_environment, load_project_environment  # noqa: F401
+from api.secret_values import is_encrypted
 
-    _secrets_mode = "sops"
-except ImportError:
-    try:
-        from dotenv import load_dotenv as load_secrets
-
-        _secrets_mode = "dotenv"
-    except ImportError:
-
-        def load_secrets(_path: str | None = None):
-            return False
-
-        _secrets_mode = "env"
-
-# Load environment variables (from .env.enc when SOPS is available, otherwise .env or current env)
-_project_root = Path(__file__).resolve().parent.parent
-_env_enc_path = _project_root / ".env.enc"
-_env_path = _project_root / ".env"
-_preloaded_jwt_secret = os.getenv("JWT_SECRET")
-if _secrets_mode == "sops" and _env_enc_path.exists():
-    load_secrets(str(_env_enc_path))
-elif _env_path.exists():
-    load_secrets(str(_env_path))
-else:
-    load_secrets(None)
-if _preloaded_jwt_secret and (
-    not os.getenv("JWT_SECRET") or str(os.getenv("JWT_SECRET")).startswith("ENC[")
-):
-    os.environ["JWT_SECRET"] = _preloaded_jwt_secret
+# The loading itself lives in api.project_env, shared with the token CLI.
+DROPPED_ENCRYPTED_KEYS = load_environment()
 
 
 # Environment configuration
 def get_clean_env(key: str, default: str = "") -> str:
     val = os.getenv(key, default)
-    if val is not None and str(val).startswith("ENC["):
+    if is_encrypted(val):
         return default
     return val
 
@@ -62,8 +33,13 @@ def get_clean_env_list(key: str) -> list[str]:
 _jwt_secret = get_clean_env("JWT_SECRET")
 if not _jwt_secret:
     raise ValueError(
-        "SECURITY ERROR: JWT_SECRET environment variable is required. "
-        "Generate with: openssl rand -base64 64"
+        "SECURITY ERROR: JWT_SECRET environment variable is required"
+        + (
+            " (its value is still encrypted)"
+            if "JWT_SECRET" in DROPPED_ENCRYPTED_KEYS
+            else ""
+        )
+        + ". Generate with: openssl rand -base64 64"
     )
 JWT_SECRET = _jwt_secret
 

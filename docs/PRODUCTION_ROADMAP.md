@@ -15,7 +15,7 @@ SSOT) is referenced but not detailed here — it deserves its own spec.
 | 2 | Alerting channel | ✅ RESOLVED: ntfy topic dati via `NTFY_TOPIC_DATI` for Phase 1 (was a Discord webhook, retired in gbg-agents#709) |
 | 3 | Backup destination | ⏸️ DEFERRED: tracked under spec-063, not blocking Phase 1/1.5/2/3a/3b/3d/3e |
 | 4 | WS p95 connections | ✅ RESOLVED as "unknown, instrument first" — no Rust decision before §4a |
-| 5 | BRK :7071 | ✅ RESOLVED: keep local, restart/harden, unless owner provides a remote BRK endpoint |
+| 5 | BRK :7070 | ✅ RESOLVED: keep local on :7070 (aligned from legacy 7071), restart/harden, unless owner provides a remote BRK endpoint |
 | 6 | block_heights + daily_prices upstream | ✅ RESOLVED: `build_block_heights.py --use-rpc` + `build_price_table.py` |
 | 7 | Phase ordering | ✅ RESOLVED: Phase 1 → Phase 1.5 → Phase 2 → Phase 3 (observability allowed in parallel once producers are underway) |
 
@@ -114,7 +114,7 @@ SSOT) is referenced but not detailed here — it deserves its own spec.
 | `mempool_predictions` | producer exists but is not running as a service | `scripts/mempool_whale_monitor.py` writes via `repo.async_send_row("mempool_predictions", ...)` at line 400 — already QuestDB-ready | **Systemd unit only** (the existing `utxoracle-whale-detection.service` may already cover this — verify in Phase 1 audit) |
 | `net_flow_metrics` | producer writes the wrong table to the wrong store | `scripts/live/flow_aggregator.py:121` writes `entity_flows_daily` to **DuckDB**, not `net_flow_metrics` to QuestDB | **NEW writer** + systemd unit |
 | `entity_flows_daily` | producer writes DuckDB; QuestDB target is empty | `scripts/live/flow_aggregator.py:121` writes DuckDB `entity_flows_daily` | **Mirror DuckDB→QuestDB** (analogous to `mirror_backtest_whale_signals.py`) + systemd timer; OR teach `flow_aggregator.py` to dual-write |
-| `price_analysis` | no producer writes QuestDB | `scripts/metrics/exchange_netflow.py` has no QuestDB calls; no other script writes `price_analysis` | **NEW writer** + systemd unit |
+| `price_analysis` | no producer writes QuestDB | `scripts/metrics/exchange_netflow.py` has no QuestDB calls; no other script writes `price_analysis` | **NEW writer** + systemd unit (superseded, F-419: `daily_analysis.py` + `utxoracle-daily-analysis.timer`) |
 | `utxo_snapshots` | no producer wired | derive from `utxo_lifecycle` at EOD | **NEW writer** + systemd timer |
 | `backtest_whale_signals` | source DuckDB table doesn't exist | `scripts/whale_flow_backtest.py` (manual run); mirror timer exists | Manual one-shot of the backtest, then the existing `utxoracle-backtest-mirror.timer` keeps QuestDB synced |
 
@@ -132,8 +132,8 @@ Upstream issues:
   (2011 → present). It is idempotent: creates `daily_prices` if absent,
   skips existing dates, defaults `--end-date` to yesterday. Phase 1.5
   schedules it.
-- BRK on host:7071 intermittently disconnects (observed in live worker
-  logs). Not blocking but noisy. Likely a BRK config / restart loop.
+- BRK on host:7070 (historically 7071) intermittently disconnects (observed in live worker
+  logs). Not blocking but noisy. Likely a BRK config / restart loop; default port aligned to :7070.
 - Two QuestDB instances coexist (:8812 host + :9912 docker). The mirror
   bridges them. A future unification is preferred but not blocking.
 
@@ -149,8 +149,8 @@ Upstream issues:
    Must be settled before Phase 3 backup tests.
 4. **Expected WS p95 concurrent connections**: gates the Rust/Python
    decision in §4. If unknown, the answer is "measure first".
-5. **BRK on :7071**: keep local, restart, or repoint to remote? The
-   7071 connection issues block daily metrics indefinitely.
+5. **BRK on :7070** (historically 7071): keep local, restart, or repoint to remote? The
+   connection issues block daily metrics indefinitely (default port aligned to :7070).
 6. **`block_heights` + `daily_prices` upstream**: RESOLVED 2026-06-04.
    - `block_heights`: `scripts/bootstrap/build_block_heights.py --use-rpc`.
    - `daily_prices`: `scripts/bootstrap/build_price_table.py` (idempotent,
@@ -390,7 +390,7 @@ a smoke test against an empty target table, and a docstring trail.
 | 2 | `mempool_predictions` | **Systemd unit only.** `scripts/mempool_whale_monitor.py` already calls `repo.async_send_row("mempool_predictions", ...)` at line 400. Verify it isn't already running under the existing `utxoracle-whale-detection.service` first. | continuous | `utxoracle-mempool-predictions.service` (or reuse `utxoracle-whale-detection.service`) | 0.5 d |
 | 3 | `net_flow_metrics` | **NEW writer** (`scripts/metrics/net_flow_writer.py`): aggregate from `whale_transactions` into rolling 1h/6h/24h windows; emit one row per closed window to QuestDB `net_flow_metrics`. Depends on #1 being live. | continuous | `utxoracle-net-flow-metrics.service` | 2 d |
 | 4 | `entity_flows_daily` | **Mirror DuckDB → QuestDB.** Existing `scripts/live/flow_aggregator.py:121` writes DuckDB `entity_flows_daily`. Write a mirror analogous to `mirror_backtest_whale_signals.py`. Alternatively dual-write inside `flow_aggregator.py` itself — leaves it to the implementer's preference. | daily 02:00 UTC | `utxoracle-entity-flows-mirror.timer` | 1 d |
-| 5 | `price_analysis` | **NEW writer** (`scripts/metrics/price_analysis_writer.py`): compares exchange API price vs `live_snapshots.utxoracle_price` daily, writes one row to QuestDB `price_analysis`. No existing producer touches this table. | daily 02:15 UTC | `utxoracle-price-analysis.timer` | 1.5 d |
+| 5 | `price_analysis` | **Superseded by F-419** (`daily_analysis.py` + `utxoracle-daily-analysis.timer`, 03:00 UTC; was: NEW writer `scripts/metrics/price_analysis_writer.py`): compares exchange API price vs `live_snapshots.utxoracle_price` daily, writes one row to QuestDB `price_analysis`. No existing producer touches this table. | daily 03:00 UTC | `utxoracle-daily-analysis.timer` (was `utxoracle-price-analysis.timer`) | 1.5 d |
 | 6 | `utxo_snapshots` | **NEW writer** (`scripts/metrics/utxo_snapshots_writer.py`): EOD aggregate of `utxo_lifecycle` into one row per day. Must follow utxo_lifecycle backfill in Phase 1. | daily 02:30 UTC | `utxoracle-utxo-snapshots.timer` | 1.5 d |
 | 7 | `backtest_whale_signals` | Manual one-shot of `scripts/whale_flow_backtest.py` populates DuckDB; the existing `utxoracle-backtest-mirror.timer` already mirrors to QuestDB and was hardened to be non-fatal on missing source (commit 256eac9). | manual + daily mirror | (mirror timer exists) | 0.5 d |
 
@@ -697,8 +697,8 @@ Before any code work starts, the owner should confirm:
 - [ ] **4.** Expected p95 WS concurrent connections. (If unknown:
       "instrument first, don't choose Rust yet" — Codex's stance, which
       I endorse.)
-- [ ] **5.** BRK on :7071: keep local, restart, or repoint to a remote
-      healthy BRK.
+- [x] **5. RESOLVED.** BRK on :7070 (aligned from legacy 7071): keep local
+      on port :7070, restart/harden with cookie authentication.
 - [x] **6. RESOLVED 2026-06-04.** Both refreshers identified:
       `scripts/bootstrap/build_block_heights.py --use-rpc` and
       `scripts/bootstrap/build_price_table.py`. Phase 1.5 schedules both.

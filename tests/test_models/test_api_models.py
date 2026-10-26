@@ -87,10 +87,11 @@ class TestGetModelPrediction:
 class TestCreateEnsemble:
     """Tests for POST /api/v1/models/ensemble endpoint."""
 
-    def test_create_ensemble_prediction(self, client):
+    def test_create_ensemble_prediction(self, client, write_headers):
         """POST /models/ensemble returns ensemble prediction."""
         response = client.post(
             "/api/v1/models/ensemble",
+            headers=write_headers,
             json={
                 "models": ["Power Law", "Stock-to-Flow"],
                 "weights": [0.5, 0.5],
@@ -103,10 +104,11 @@ class TestCreateEnsemble:
         assert data["model_name"] == "Ensemble"
         assert data["predicted_price"] > 0
 
-    def test_create_ensemble_with_date(self, client):
+    def test_create_ensemble_with_date(self, client, write_headers):
         """POST /models/ensemble with date parameter."""
         response = client.post(
             "/api/v1/models/ensemble",
+            headers=write_headers,
             json={
                 "models": ["Power Law", "Thermocap"],
                 "weights": [0.6, 0.4],
@@ -119,10 +121,11 @@ class TestCreateEnsemble:
         data = response.json()
         assert data["date"] == "2025-12-27"
 
-    def test_create_ensemble_invalid_weights(self, client):
+    def test_create_ensemble_invalid_weights(self, client, write_headers):
         """POST /models/ensemble with invalid weights returns 400."""
         response = client.post(
             "/api/v1/models/ensemble",
+            headers=write_headers,
             json={
                 "models": ["Power Law", "Stock-to-Flow"],
                 "weights": [0.3, 0.3],  # Sum != 1.0

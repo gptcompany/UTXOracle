@@ -12,7 +12,7 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 from pydantic import BaseModel, Field
 import logging
-from api.questdb_repository import QuestDBRepository
+from api.questdb_repository import QuestDBRepository, fetch_address_clusters
 
 router = APIRouter(prefix="/api/whale", tags=["whale-detection"])
 
@@ -61,6 +61,8 @@ class WhaleTransactionResponse(BaseModel):
     source: str
     status: str
     entity_enrichment_status: str
+    # Why the attribution is "unavailable" when the cluster read failed (else null).
+    entity_enrichment_reason: Optional[str] = None
     entity: Optional[WhaleEntityAttributionResponse]
 
 
@@ -125,9 +127,10 @@ def _parse_exchange_addresses(raw_addresses: Optional[str]) -> list[str]:
 
 async def _fetch_cluster_rows(
     repo: QuestDBRepository, addresses: list[str]
-) -> dict[str, list[dict]]:
+) -> tuple[dict[str, list[dict]], Optional[str]]:
+    """Cluster rows by address, and the reason when the read failed (never a bare {})."""
     if not addresses:
-        return {}
+        return {}, None
 
     placeholders = ", ".join(f"${idx}" for idx in range(1, len(addresses) + 1))
     query = f"""
@@ -140,10 +143,13 @@ async def _fetch_cluster_rows(
     """
 
     try:
-        rows = await repo.fetch(query, *addresses)
+        rows = await fetch_address_clusters(repo, query, *addresses)
     except Exception as exc:
         logging.warning("Whale entity enrichment unavailable: %s", exc)
-        return {}
+        return (
+            {},
+            f"address_clusters read failed: {type(exc).__name__}: {str(exc)[:120]}",
+        )
 
     grouped: dict[str, list[dict]] = {}
     for row in rows:
@@ -154,7 +160,7 @@ async def _fetch_cluster_rows(
                 "label": row["label"],
             }
         )
-    return grouped
+    return grouped, None
 
 
 async def _derive_entity_attribution(
@@ -221,6 +227,7 @@ def _build_whale_event(
     row,
     entity: Optional[WhaleEntityAttributionResponse],
     entity_status: str,
+    entity_reason: Optional[str] = None,
 ) -> WhaleTransactionResponse:
     return WhaleTransactionResponse(
         event_id=row["prediction_id"],
@@ -237,6 +244,7 @@ def _build_whale_event(
         source=WHALE_EVENT_SOURCE,
         status=WHALE_EVENT_STATUS,
         entity_enrichment_status=entity_status,
+        entity_enrichment_reason=entity_reason,
         entity=entity,
     )
 
@@ -310,15 +318,22 @@ async def get_whale_transactions(
                 for address in _parse_exchange_addresses(row["exchange_addresses"])
             }
         )
-        cluster_rows_by_address = await _fetch_cluster_rows(repo, all_addresses)
+        cluster_rows_by_address, unavailable_reason = await _fetch_cluster_rows(
+            repo, all_addresses
+        )
 
         events: list[WhaleTransactionResponse] = []
         for row in result:
             exchange_addresses = _parse_exchange_addresses(row["exchange_addresses"])
-            entity, entity_status = await _derive_entity_attribution(
-                repo, exchange_addresses, cluster_rows_by_address
+            if unavailable_reason:
+                entity, entity_status = None, "unavailable"
+            else:
+                entity, entity_status = await _derive_entity_attribution(
+                    repo, exchange_addresses, cluster_rows_by_address
+                )
+            events.append(
+                _build_whale_event(row, entity, entity_status, unavailable_reason)
             )
-            events.append(_build_whale_event(row, entity, entity_status))
         return events
 
     except Exception as e:
@@ -400,13 +415,18 @@ async def get_whale_transaction(request: Request, txid: str):
             raise HTTPException(status_code=404, detail=f"Transaction {txid} not found")
 
         exchange_addresses = _parse_exchange_addresses(result["exchange_addresses"])
-        cluster_rows_by_address = await _fetch_cluster_rows(repo, exchange_addresses)
-        entity, entity_status = await _derive_entity_attribution(
-            repo,
-            exchange_addresses,
-            cluster_rows_by_address,
+        cluster_rows_by_address, unavailable_reason = await _fetch_cluster_rows(
+            repo, exchange_addresses
         )
-        return _build_whale_event(result, entity, entity_status)
+        if unavailable_reason:
+            entity, entity_status = None, "unavailable"
+        else:
+            entity, entity_status = await _derive_entity_attribution(
+                repo,
+                exchange_addresses,
+                cluster_rows_by_address,
+            )
+        return _build_whale_event(result, entity, entity_status, unavailable_reason)
 
     except HTTPException:
         raise

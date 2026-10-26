@@ -5,6 +5,7 @@ Add global fixtures here that are used across multiple test modules.
 """
 
 import os
+import sys
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
@@ -19,6 +20,9 @@ pytest_plugins = ["tests.fixtures.sopr_fixtures"]
 
 if not os.getenv("JWT_SECRET"):
     os.environ["JWT_SECRET"] = "test-secret"
+# The app fails closed at startup without a REST signing key.
+if not os.getenv("WEBSOCKET_SECRET_KEY"):
+    os.environ["WEBSOCKET_SECRET_KEY"] = "test-rest-secret"
 
 
 @pytest.fixture
@@ -374,3 +378,45 @@ def wave2_empty_snapshot_client(monkeypatch, wave2_empty_snapshot_duckdb_path):
     test_client = TestClient(app)
     yield test_client
     test_client.close()
+
+
+@pytest.fixture
+def hermetic_rpc(monkeypatch, tmp_path_factory):
+    """RPC tests never read real secrets, ~/.bitcoin or BITCOIN_* variables.
+
+    `import scripts.sync_utxo_lifecycle` runs the shared secrets_loader, and the
+    connection resolver reads $HOME/.bitcoin and BITCOIN_*: stub the loader before
+    any consumer import, drop the variables and point HOME at an empty directory.
+    Returns that HOME.
+    """
+    import sys
+    import types
+
+    stub = types.ModuleType("secrets_loader")
+    stub.load_secrets = lambda *args, **kwargs: None
+    monkeypatch.setitem(sys.modules, "secrets_loader", stub)
+    for var in [name for name in os.environ if name.startswith("BITCOIN_")]:
+        monkeypatch.delenv(var)
+    home = tmp_path_factory.mktemp("home")
+    monkeypatch.setenv("HOME", str(home))
+    return home
+
+
+@pytest.fixture
+def write_headers(monkeypatch):
+    """Authorization header with the write permission, for the protected write routes (F-266)."""
+    from api import auth_middleware
+    from scripts.config import mempool_config
+
+    monkeypatch.setenv("AUTH_ENABLED", "true")
+    monkeypatch.setenv("WEBSOCKET_SECRET_KEY", "test-write-secret")
+    monkeypatch.setattr(mempool_config, "_config", None)
+    # api.main imports the middleware as the top-level module; routers use api.auth_middleware.
+    for name in ("auth_middleware", "api.auth_middleware"):
+        module = sys.modules.get(name)
+        if module is not None:
+            monkeypatch.setattr(module, "_auth_instance", None)
+    token = auth_middleware.generate_token(
+        "tests", {"read", "write"}, expires_in_hours=1
+    )
+    return {"Authorization": f"Bearer {token}"}

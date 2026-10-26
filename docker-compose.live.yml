@@ -9,6 +9,18 @@ services:
     - 127.0.0.1:9909:9009
     volumes:
     - ./data/questdb-live:/var/lib/questdb
+    # The image has no HEALTHCHECK and no wget/curl guarantee, but its entrypoint is a bash
+    # script, so bash is there: ready means the PG wire port (8812) accepts connections (F-399).
+    healthcheck:
+      test:
+      - CMD
+      - bash
+      - -c
+      - exec 3<>/dev/tcp/127.0.0.1/8812
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
   utxoracle-live-worker:
     image: utxoracle-live:local
     user: 1000:1000
@@ -24,7 +36,8 @@ services:
     restart: unless-stopped
     init: true
     depends_on:
-    - utxoracle-live-questdb
+      utxoracle-live-questdb:
+        condition: service_healthy
     extra_hosts:
     - host.docker.internal:host-gateway
     environment:
@@ -42,7 +55,7 @@ services:
       ELECTRS_HTTP_URL: ${ELECTRS_HTTP_URL:-http://host.docker.internal:3002}
       MEMPOOL_API_URL: ${MEMPOOL_API_URL:-http://host.docker.internal:8999}
       MEMPOOL_API_V1_URL: ${MEMPOOL_API_V1_URL:-http://host.docker.internal:8999/api/v1}
-      BRK_BASE_URL: ${BRK_BASE_URL:-http://host.docker.internal:7071}
+      BRK_BASE_URL: ${BRK_BASE_URL:-http://host.docker.internal:7070}
       HYPERLIQUID_NODE_API_URL: ${HYPERLIQUID_NODE_API_URL:-http://host.docker.internal:3001/info}
       HYPERLIQUID_NODE_INFO_REQUEST_TYPE: ${HYPERLIQUID_NODE_INFO_REQUEST_TYPE:-l4Book}
       HYPERLIQUID_NODE_SNAPSHOT_PATH: ${HYPERLIQUID_NODE_SNAPSHOT_PATH:-}
@@ -67,7 +80,8 @@ services:
       \ &&\n  /app/.venv/bin/python3 scripts/bootstrap/ingest_to_db.py &&\n  echo\
       \ 'Registry updated, signaling monitor...';\n  sleep 604800;\ndone\"\n"
     depends_on:
-    - utxoracle-live-questdb
+      utxoracle-live-questdb:
+        condition: service_healthy
     environment:
       DUCKDB_PATH: /app/data/utxoracle.duckdb
       UTXORACLE_DB_PATH: /app/data/utxoracle.duckdb
@@ -114,8 +128,10 @@ services:
     restart: unless-stopped
     init: true
     depends_on:
-    - utxoracle-live-questdb
-    - utxoracle-live-worker
+      utxoracle-live-questdb:
+        condition: service_healthy
+      utxoracle-live-worker:
+        condition: service_started
     extra_hosts:
     - host.docker.internal:host-gateway
     ports:
@@ -133,7 +149,9 @@ services:
       ELECTRS_HTTP_URL: ${ELECTRS_HTTP_URL:-http://host.docker.internal:3002}
       MEMPOOL_API_URL: ${MEMPOOL_API_URL:-http://host.docker.internal:8999}
       MEMPOOL_API_V1_URL: ${MEMPOOL_API_V1_URL:-http://host.docker.internal:8999/api/v1}
-      BRK_BASE_URL: ${BRK_BASE_URL:-http://host.docker.internal:7071}
+      MEMPOOL_HTTP_URL: ${MEMPOOL_HTTP_URL:-http://host.docker.internal:8999}
+      MEMPOOL_WS_URL: ${MEMPOOL_WS_URL:-ws://host.docker.internal:8999/ws/track-mempool-tx}
+      BRK_BASE_URL: ${BRK_BASE_URL:-http://host.docker.internal:7070}
       HYPERLIQUID_NODE_API_URL: ${HYPERLIQUID_NODE_API_URL:-http://host.docker.internal:3001/info}
       HYPERLIQUID_NODE_INFO_REQUEST_TYPE: ${HYPERLIQUID_NODE_INFO_REQUEST_TYPE:-l4Book}
       HYPERLIQUID_NODE_SNAPSHOT_PATH: ${HYPERLIQUID_NODE_SNAPSHOT_PATH:-}

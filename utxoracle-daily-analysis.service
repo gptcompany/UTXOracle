@@ -1,0 +1,36 @@
+[Unit]
+Description=UTXOracle daily analysis -> live QuestDB price_analysis + metrics (F-419)
+After=network-online.target docker.service utxoracle-daily-prices-refresh.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=sam
+Group=sam
+WorkingDirectory=/media/sam/1TB/UTXOracle
+Environment=PYTHONUNBUFFERED=1
+Environment="PATH=/home/sam/.local/bin:/usr/local/bin:/usr/bin:/bin"
+EnvironmentFile=-/media/sam/1TB/UTXOracle/.env
+# Destination: utxoracle-live-questdb (the API's QuestDB), set here and not in .env.
+# EnvironmentFile= overrides Environment=, so .env must not define QUESTDB_*.
+Environment=QUESTDB_ILP_HOST=127.0.0.1
+Environment=QUESTDB_ILP_PORT=9909
+Environment=QUESTDB_PG_HOST=127.0.0.1
+Environment=QUESTDB_PG_PORT=9912
+Environment=QUESTDB_HTTP_HOST=127.0.0.1
+Environment=QUESTDB_HTTP_PORT=9900
+# Scheduled time of utxoracle-daily-analysis.timer (HH:MM UTC), the single place it is read
+# from: a run outside [this time, 23:59:59Z of the same day] exits with code 5, writing nothing.
+Environment=UTXORACLE_DAILY_SCHEDULE_UTC=03:00
+# daily_analysis exits with code 3, before any write, if the QuestDB it ends up using differs.
+Environment=UTXORACLE_EXPECTED_QUESTDB_ILP_HOST=127.0.0.1
+Environment=UTXORACLE_EXPECTED_QUESTDB_ILP_PORT=9909
+Environment=UTXORACLE_EXPECTED_QUESTDB_PG_HOST=127.0.0.1
+Environment=UTXORACLE_EXPECTED_QUESTDB_PG_PORT=9912
+ExecStart=/usr/bin/env uv run python -m scripts.daily_analysis
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=utxoracle-daily-analysis
+
+[Install]
+WantedBy=multi-user.target

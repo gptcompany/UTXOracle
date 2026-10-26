@@ -27,11 +27,22 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from scripts.auth.websocket_auth import WebSocketAuthenticator, AuthToken, AuthConfig
 from scripts.config.mempool_config import get_config
+from api.secret_values import is_encrypted
 
 logger = logging.getLogger(__name__)
 
 # Initialize security scheme
 security = HTTPBearer(auto_error=False)
+
+
+def _signing_key(mempool_config) -> str:
+    """REST token signing key. Fails closed: a public default or a ciphertext would make tokens forgeable."""
+    key = mempool_config.websocket_secret_key
+    if mempool_config.auth_enabled and (not key or is_encrypted(key)):
+        raise ValueError(
+            "SECURITY ERROR: WEBSOCKET_SECRET_KEY is required (plaintext) when AUTH_ENABLED is true"
+        )
+    return key or ""
 
 
 class RestApiAuth:
@@ -58,8 +69,7 @@ class RestApiAuth:
 
         # Create AuthConfig from MempoolConfig
         auth_config = AuthConfig(
-            secret_key=mempool_config.websocket_secret_key
-            or "dev-secret-key-change-me",
+            secret_key=_signing_key(mempool_config),
             enabled=mempool_config.auth_enabled,
         )
 
@@ -294,7 +304,7 @@ def generate_token(
     # Create custom auth config with desired expiry
     mempool_config = get_config()
     auth_config = AuthConfig(
-        secret_key=mempool_config.websocket_secret_key or "dev-secret-key-change-me",
+        secret_key=_signing_key(mempool_config),
         token_expiry_hours=expires_in_hours,
         enabled=mempool_config.auth_enabled,
     )
