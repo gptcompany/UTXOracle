@@ -55,7 +55,7 @@ jobs:
 
     services:
       questdb:
-        image: questdb/questdb:7.4.0
+        image: questdb/questdb:9.4.3@sha256:3fd139f9f16015afc1b064fe4591b271be26cdec10315415e5511e9d80a5919e
         ports:
           - 8812:8812
           - 9000:9000
@@ -145,7 +145,7 @@ jobs:
 
     services:
       questdb:
-        image: questdb/questdb:7.4.0
+        image: questdb/questdb:9.4.3@sha256:3fd139f9f16015afc1b064fe4591b271be26cdec10315415e5511e9d80a5919e
         ports:
           - 8812:8812
           - 9000:9000
