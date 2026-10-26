@@ -49,6 +49,15 @@ QUESTDB_PG_DATABASE = os.getenv("QUESTDB_PG_DATABASE", "main")
 
 ADDRESS_CLUSTERS_TABLE = "address_clusters"
 ADDRESS_CLUSTERS_STAGING_TABLE = "address_clusters_staging"
+ADDRESS_CLUSTERS_COLUMNS = (
+    "address",
+    "cluster_id",
+    "ts",
+    "last_seen",
+    "is_exchange_likely",
+    "label",
+    "confidence",
+)
 
 
 QUESTDB_POOL_MIN_SIZE = int(os.getenv("QUESTDB_POOL_MIN_SIZE", "5"))
@@ -1551,6 +1560,29 @@ class QuestDBRepository:
         if not await self._wait_for_staged_rows(
             expected_rows, timeout_s=timeout_s, poll_s=poll_s
         ):
+            await self.abort_address_clusters_refresh()
+            return False
+
+        # Read-only schema check BEFORE the live TRUNCATE: an INSERT naming a missing
+        # column would fail after the live table was already emptied.
+        try:
+            present = {
+                r[0]
+                for r in await self.fetch(
+                    f"SELECT \"column\" FROM table_columns('{ADDRESS_CLUSTERS_TABLE}')"
+                )
+            }
+        except Exception as e:
+            logger.error("Cannot read %s columns: %s", ADDRESS_CLUSTERS_TABLE, e)
+            await self.abort_address_clusters_refresh()
+            return False
+        missing = [c for c in ADDRESS_CLUSTERS_COLUMNS if c not in present]
+        if missing:
+            logger.error(
+                "%s is missing columns %s; live table left untouched",
+                ADDRESS_CLUSTERS_TABLE,
+                missing,
+            )
             await self.abort_address_clusters_refresh()
             return False
 
