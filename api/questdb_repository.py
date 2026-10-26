@@ -4,6 +4,8 @@ Repository for interacting with QuestDB.
 
 import asyncio
 import logging
+import weakref
+import threading
 import json
 import os
 import re
@@ -1013,21 +1015,26 @@ class QuestDBRepository:
         sender.establish()
         return sender
 
-    # Guards the creation of the shared class-level pool among coroutines of ONE event loop.
-    # An asyncio.Lock belongs to one loop, so it is created lazily for the running loop and
-    # replaced when another loop calls (the synchronous LiveSnapshotStore API runs its
-    # coroutines on a loop of its own). It does not serialize callers on different loops or
-    # threads at the same time: that case is not covered here.
-    _pool_lock: "asyncio.Lock | None" = None
-    _pool_lock_loop: "asyncio.AbstractEventLoop | None" = None
+    # Guards the creation of the shared class-level pool, one asyncio.Lock per event loop:
+    # an asyncio.Lock belongs to the loop that uses it, and the synchronous LiveSnapshotStore
+    # API runs its coroutines on loops of its own. A loop's lock is never replaced, so callers
+    # of the same loop stay mutually excluded whatever other loops do meanwhile. The dict is
+    # touched under a threading.Lock (loops can live in different threads) and holds loops
+    # weakly. Callers on DIFFERENT loops are not excluded from each other: an asyncpg pool is
+    # bound to the loop that created it, so sharing one across loops is a separate
+    # pre-existing defect (F-410).
+    _pool_locks: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock]" = weakref.WeakKeyDictionary()
+    _pool_locks_guard = threading.Lock()
 
     @classmethod
     def _get_pool_lock(cls) -> "asyncio.Lock":
         loop = asyncio.get_running_loop()
-        if cls._pool_lock is None or cls._pool_lock_loop is not loop:
-            cls._pool_lock = asyncio.Lock()
-            cls._pool_lock_loop = loop
-        return cls._pool_lock
+        with cls._pool_locks_guard:  # lookup and insertion, no await inside
+            lock = cls._pool_locks.get(loop)
+            if lock is None:
+                lock = asyncio.Lock()
+                cls._pool_locks[loop] = lock
+            return lock
 
     def _ensure_sender(self) -> Sender:
         if self.sender is None:

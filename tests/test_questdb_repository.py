@@ -401,8 +401,6 @@ def _stub_pool_creation(monkeypatch, pools: list[_FakePool]) -> None:
     )
     monkeypatch.setattr(QuestDBRepository, "_ensure_sender", lambda self: None)
     monkeypatch.setattr(QuestDBRepository, "_pool", None, raising=False)
-    monkeypatch.setattr(QuestDBRepository, "_pool_lock", None, raising=False)
-    monkeypatch.setattr(QuestDBRepository, "_pool_lock_loop", None, raising=False)
 
 
 def test_concurrent_initialize_creates_a_single_pool(monkeypatch):
@@ -432,3 +430,71 @@ def test_initialize_from_two_event_loops_in_sequence_does_not_raise(monkeypatch)
     asyncio.run(QuestDBRepository().initialize())
 
     assert len(pools) == 2
+
+
+def test_same_loop_stays_excluded_while_another_loop_takes_its_own_lock(monkeypatch):
+    """A second loop (a thread running asyncio.run) must not replace the main loop's lock (F-399)."""
+    import threading
+
+    import types
+
+    import api.questdb_repository as repository
+
+    main_calls = 0
+    thread_in_pool = threading.Event()
+    release_thread = threading.Event()
+
+    async def no_tables() -> None:
+        return None
+
+    async def scenario() -> int:
+        nonlocal main_calls
+        main_loop = asyncio.get_running_loop()
+        a_in_pool = asyncio.Event()
+        main_gate = asyncio.Event()
+
+        async def create_pool(**_kwargs) -> _FakePool:
+            nonlocal main_calls
+            loop = asyncio.get_running_loop()
+            if loop is main_loop:
+                main_calls += 1
+                a_in_pool.set()
+                await main_gate.wait()
+            else:
+                thread_in_pool.set()
+                await loop.run_in_executor(None, release_thread.wait)
+            return _FakePool()
+
+        monkeypatch.setattr(repository, "create_tables_if_not_exist", no_tables)
+        monkeypatch.setattr(
+            repository, "asyncpg", types.SimpleNamespace(create_pool=create_pool)
+        )
+        monkeypatch.setattr(QuestDBRepository, "_ensure_sender", lambda self: None)
+        monkeypatch.setattr(QuestDBRepository, "_pool", None, raising=False)
+
+        first = asyncio.create_task(QuestDBRepository().initialize())
+        await a_in_pool.wait()  # the main loop's lock is held, inside create_pool
+
+        other = threading.Thread(
+            target=lambda: asyncio.run(QuestDBRepository().initialize())
+        )
+        other.start()
+        await main_loop.run_in_executor(
+            None, thread_in_pool.wait
+        )  # other loop has its lock
+
+        second = asyncio.create_task(QuestDBRepository().initialize())
+        for _ in range(10):  # let the second caller reach the lock
+            await asyncio.sleep(0)
+        seen_while_blocked = main_calls
+
+        main_gate.set()
+        release_thread.set()
+        await asyncio.gather(first, second)
+        other.join()
+        return seen_while_blocked
+
+    seen_while_blocked = asyncio.run(scenario())
+
+    assert seen_while_blocked == 1  # the second main-loop caller was still excluded
+    assert main_calls == 1

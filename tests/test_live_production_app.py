@@ -481,55 +481,6 @@ def test_monitor_receives_the_app_repository_and_initializes_nothing_itself(
     assert len(initialized) == 1
 
 
-def test_registry_is_reloaded_from_the_db_once_the_repository_arrives(monkeypatch):
-    """CSV-only preload when QuestDB is down at startup, then one reload from the DB (review MEDIUM)."""
-    from scripts import mempool_whale_monitor
-
-    fetches: list[str] = []
-
-    class _Repo:
-        async def fetch(self, query: str):
-            fetches.append(query)
-            return [{"address": "bc1qdbonly", "cluster_id": "db-cluster"}]
-
-    monkeypatch.setattr(mempool_whale_monitor, "QuestDBRepository", _Repo)
-
-    async def scenario() -> None:
-        ready = asyncio.Event()
-        repo = _Repo()
-        monitor = mempool_whale_monitor.MempoolWhaleMonitor()
-        monitor.attach_app_repo(ready, lambda: repo)
-        monitor.exchange_addresses = {"bc1qcsv": "csv-cluster"}
-
-        await monitor._preload_registry()  # QuestDB not ready: CSV only
-        assert monitor.registry_cache == {"bc1qcsv": "csv-cluster"}
-        assert fetches == []
-        reload_task = monitor._schedule_registry_reload_if_needed()
-        assert reload_task is not None
-
-        ready.set()
-        await reload_task
-
-        assert len(fetches) == 1
-        assert monitor.repo is repo
-        assert monitor.registry_cache.get("bc1qdbonly") == "db-cluster"
-
-    asyncio.run(scenario())
-
-
-def test_no_registry_reload_is_scheduled_when_the_repository_is_already_up(monkeypatch):
-    from scripts import mempool_whale_monitor
-
-    async def scenario() -> None:
-        ready = asyncio.Event()
-        ready.set()
-        monitor = mempool_whale_monitor.MempoolWhaleMonitor()
-        monitor.attach_app_repo(ready, lambda: object())
-        assert monitor._schedule_registry_reload_if_needed() is None
-
-    asyncio.run(scenario())
-
-
 def test_slow_first_attempt_does_not_hold_the_startup_back(monkeypatch):
     """A QuestDB that never answers must not block the lifespan (review LOW)."""
     from api.apps import live as live_app
@@ -685,37 +636,6 @@ def test_shutdown_during_the_backoff_cancels_the_retry_cleanly(monkeypatch):
     assert time.monotonic() - started < 10
 
 
-def test_start_schedules_the_registry_reload_and_stop_cancels_it(monkeypatch):
-    from types import SimpleNamespace
-
-    from scripts import mempool_whale_monitor
-
-    class _Quiet:
-        async def start(self) -> None:
-            return None
-
-        async def stop(self) -> None:
-            return None
-
-    async def scenario() -> None:
-        monitor = mempool_whale_monitor.MempoolWhaleMonitor()
-        monitor.urgency_scorer = _Quiet()
-        monitor.reconnector = _Quiet()
-        monitor.attach_app_repo(asyncio.Event(), lambda: SimpleNamespace())
-
-        async def no_preload() -> None:
-            monitor.registry_cache = {}
-
-        monitor._preload_registry = no_preload
-        await monitor.start()
-        task = monitor._registry_reload_task
-        assert task is not None and not task.done()
-        await monitor.stop()
-        assert task.cancelled()
-
-    asyncio.run(scenario())
-
-
 def test_app_retry_and_the_real_snapshot_store_share_one_pool(monkeypatch):
     """F-399 M2: the retry and LiveSnapshotStore.ainitialize reach create_pool concurrently."""
     import types
@@ -748,8 +668,6 @@ def test_app_retry_and_the_real_snapshot_store_share_one_pool(monkeypatch):
     )
     monkeypatch.setattr(QuestDBRepository, "_ensure_sender", lambda self: None)
     monkeypatch.setattr(QuestDBRepository, "_pool", None, raising=False)
-    monkeypatch.setattr(QuestDBRepository, "_pool_lock", None, raising=False)
-    monkeypatch.setattr(QuestDBRepository, "_pool_lock_loop", None, raising=False)
 
     from api.apps import live as live_app
 
@@ -771,3 +689,106 @@ def test_app_retry_and_the_real_snapshot_store_share_one_pool(monkeypatch):
 
     assert len(pools) == 1
     assert [pool.closed for pool in pools] == [1]
+
+
+class _CountingReconnector:
+    """Stands in for the websocket reconnector: counts how often the stream would be opened."""
+
+    def __init__(self) -> None:
+        self.connects = 0
+
+    async def start(self) -> None:
+        self.connects += 1
+
+    async def stop(self) -> None:
+        return None
+
+
+class _QuietScorer:
+    async def start(self) -> None:
+        return None
+
+    async def stop(self) -> None:
+        return None
+
+
+def _monitor_with_app_repo(ready, repo):
+    from scripts import mempool_whale_monitor
+
+    monitor = mempool_whale_monitor.MempoolWhaleMonitor()
+    monitor.reconnector = _CountingReconnector()
+    monitor.urgency_scorer = _QuietScorer()
+    monitor.attach_app_repo(ready, lambda: repo)
+    reloads: list[object] = []
+
+    async def no_preload() -> None:
+        monitor.registry_cache = {}
+
+    async def reload_registry() -> None:
+        reloads.append(monitor.repo)
+
+    monitor._preload_registry = no_preload
+    monitor.reload_exchange_registry = reload_registry
+    return monitor, reloads
+
+
+def test_monitor_waits_for_the_app_repository_before_opening_the_websocket():
+    async def scenario() -> None:
+        ready, repo = asyncio.Event(), object()
+        monitor, reloads = _monitor_with_app_repo(ready, repo)
+
+        task = asyncio.create_task(monitor.start())
+        for _ in range(5):
+            await asyncio.sleep(0)
+        assert (
+            monitor.reconnector.connects == 0
+        )  # not ready: no stream, nothing to buffer
+        assert not task.done()
+
+        ready.set()
+        await task
+        assert monitor.reconnector.connects == 1
+        assert monitor.repo is repo
+        # The registry was preloaded from the CSV only: one reload from the DB, before the stream.
+        assert reloads == [repo]
+
+    asyncio.run(scenario())
+
+
+def test_monitor_opens_the_websocket_at_once_when_the_repository_is_already_up():
+    async def scenario() -> None:
+        ready, repo = asyncio.Event(), object()
+        ready.set()
+        monitor, reloads = _monitor_with_app_repo(ready, repo)
+
+        await monitor.start()
+
+        assert monitor.reconnector.connects == 1
+        assert reloads == []
+
+    asyncio.run(scenario())
+
+
+def test_cancelling_or_stopping_the_monitor_during_the_wait_exits_cleanly():
+    async def scenario() -> None:
+        ready, repo = asyncio.Event(), object()
+        monitor, _ = _monitor_with_app_repo(ready, repo)
+
+        cancelled = asyncio.create_task(monitor.start())
+        for _ in range(5):
+            await asyncio.sleep(0)
+        cancelled.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await cancelled
+
+        stopped_monitor, _ = _monitor_with_app_repo(asyncio.Event(), repo)
+        stopped = asyncio.create_task(stopped_monitor.start())
+        for _ in range(5):
+            await asyncio.sleep(0)
+        await stopped_monitor.stop()
+        await stopped  # returns normally: the wait was cancelled by stop()
+
+        assert monitor.reconnector.connects == 0
+        assert stopped_monitor.reconnector.connects == 0
+
+    asyncio.run(scenario())
