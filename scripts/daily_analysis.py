@@ -1459,7 +1459,7 @@ def utc_now() -> datetime:
 def analysis_day_for(now: datetime) -> datetime:
     """Row key of both tables: the analysed day, the UTC day before `now`, at 00:00Z.
 
-    The timer runs at 01:30Z and UTXOracle produces the price of "yesterday": the price is
+    The timer runs at 03:00Z and UTXOracle produces the price of "yesterday": the price is
     computed from the recent transactions at run time, i.e. mostly the day D-1. Any run on
     the same UTC date gets the same key, so the first successful run of the day wins and a
     rerun replaces nothing unless --overwrite is given (DEDUP UPSERT KEYS(ts) is the net).
