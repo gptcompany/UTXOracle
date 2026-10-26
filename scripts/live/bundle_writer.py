@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -23,6 +24,13 @@ from api.questdb_repository import QuestDBRepository
 from scripts.live.models import LiveSnapshot
 
 logger = logging.getLogger(__name__)
+
+# address_clusters is swapped in by RENAME (F-424): for the few ms between the two RENAMEs
+# a read finds the table absent. A short, bounded retry on that error only; any other
+# error, or a persistent absence, still fails the round as before.
+CLUSTER_READ_ATTEMPTS = 3
+CLUSTER_READ_RETRY_PAUSE_S = 0.3
+_sleep = asyncio.sleep
 
 CORE_BUNDLE_ID = "btc_core_live.v1"
 FLOW_BUNDLE_ID = "btc_flow.v1"
@@ -555,17 +563,27 @@ class BundleWriter:
             return {}
 
         placeholders = ", ".join(f"${idx}" for idx in range(1, len(addresses) + 1))
-        rows = await self.repo.fetch(
-            f"""
+        query = f"""
             SELECT
                 address,
                 cluster_id,
                 label
             FROM address_clusters
             WHERE address IN ({placeholders})
-            """,
-            *addresses,
-        )
+            """
+        for attempt in range(1, CLUSTER_READ_ATTEMPTS + 1):
+            try:
+                rows = await self.repo.fetch(query, *addresses)
+                break
+            except Exception as exc:
+                if "does not exist" not in str(exc) or attempt == CLUSTER_READ_ATTEMPTS:
+                    raise
+                logger.warning(
+                    "address_clusters absent (refresh swap in progress), retry %d/%d",
+                    attempt,
+                    CLUSTER_READ_ATTEMPTS - 1,
+                )
+                await _sleep(CLUSTER_READ_RETRY_PAUSE_S)
         grouped: dict[str, list[dict[str, Any]]] = {}
         for row in rows:
             grouped.setdefault(row["address"], []).append(dict(row))

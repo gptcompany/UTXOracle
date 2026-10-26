@@ -407,3 +407,65 @@ async def test_bundle_writer_accepts_legacy_absorption_rows_without_has_historic
     assert flow_payload["metadata"]["bundle_status"] == "healthy"
     assert flow_payload["absorption_rates"]["has_historical_data"] is True
     assert cohort_payload["absorption_rates"]["has_historical_data"] is True
+
+
+class _AbsentThenPresentRepo:
+    """fetch fails `failures` times with the given message, then returns one cluster row."""
+
+    def __init__(
+        self,
+        failures: int,
+        message: str = "table does not exist [name=address_clusters]",
+    ):
+        self.calls = 0
+        self.failures = failures
+        self.message = message
+
+    async def fetch(self, query, *args):
+        self.calls += 1
+        if self.calls <= self.failures:
+            raise RuntimeError(self.message)
+        return [{"address": "a1", "cluster_id": "c1", "label": "x"}]
+
+
+@pytest.fixture
+def no_pause(monkeypatch):
+    import scripts.live.bundle_writer as bw
+
+    pauses: list[float] = []
+
+    async def fake_sleep(seconds):
+        pauses.append(seconds)
+
+    monkeypatch.setattr(bw, "_sleep", fake_sleep)
+    return pauses
+
+
+@pytest.mark.asyncio
+async def test_cluster_read_retries_while_address_clusters_is_being_swapped(no_pause):
+    repo = _AbsentThenPresentRepo(failures=2)
+
+    rows = await BundleWriter(repo)._fetch_cluster_rows(["a1"])
+
+    assert rows == {"a1": [{"address": "a1", "cluster_id": "c1", "label": "x"}]}
+    assert repo.calls == 3 and no_pause == [0.3, 0.3]
+
+
+@pytest.mark.asyncio
+async def test_cluster_read_gives_up_after_three_attempts(no_pause):
+    repo = _AbsentThenPresentRepo(failures=99)
+
+    with pytest.raises(RuntimeError, match="does not exist"):
+        await BundleWriter(repo)._fetch_cluster_rows(["a1"])
+
+    assert repo.calls == 3
+
+
+@pytest.mark.asyncio
+async def test_cluster_read_does_not_retry_other_errors(no_pause):
+    repo = _AbsentThenPresentRepo(failures=99, message="connection reset")
+
+    with pytest.raises(RuntimeError, match="connection reset"):
+        await BundleWriter(repo)._fetch_cluster_rows(["a1"])
+
+    assert repo.calls == 1 and no_pause == []
