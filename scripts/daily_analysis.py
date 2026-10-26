@@ -52,7 +52,7 @@ try:
     from scripts.metrics.monte_carlo_fusion import monte_carlo_fusion
     from scripts.metrics.active_addresses import count_active_addresses
     from scripts.metrics.tx_volume import calculate_tx_volume
-    from scripts.metrics import save_metrics_to_db  # noqa: F401 - availability probe
+    from scripts.metrics import save_metrics_to_db
 
     METRICS_ENABLED = True
 except ImportError:
@@ -1379,12 +1379,12 @@ def main():
         mc_result = None
         active_addr_result = None
         tx_vol_result = None
+        current_time = datetime.now()
 
         if METRICS_ENABLED:
             try:
                 # Get transactions for metrics calculation
                 transactions = utx_result.get("transactions", [])
-                current_time = datetime.now()
 
                 # Monte Carlo Signal Fusion (replaces linear fusion when whale data available)
                 if whale_signal:
@@ -1452,6 +1452,7 @@ def main():
         symbolic_result = None
         fractal_result = None
         enhanced_fusion_result = None
+        wasserstein_result = None
 
         if ADVANCED_METRICS_ENABLED:
             try:
@@ -1664,6 +1665,21 @@ def main():
         # Step 5: Save to database
         if not args.dry_run:
             save_to_questdb(data)
+            # F-419: the metrics were computed and then dropped; persist them with the price row.
+            if METRICS_ENABLED and (mc_result or active_addr_result or tx_vol_result):
+                saved = save_metrics_to_db(
+                    timestamp=current_time,
+                    monte_carlo=mc_result.to_dict() if mc_result else None,
+                    active_addresses=active_addr_result.to_dict()
+                    if active_addr_result
+                    else None,
+                    tx_volume=tx_vol_result.to_dict() if tx_vol_result else None,
+                    wasserstein=wasserstein_result.to_dict()
+                    if wasserstein_result and wasserstein_result.is_valid
+                    else None,
+                )
+                if not saved:
+                    raise RuntimeError("Failed to save metrics to QuestDB")
         else:
             logging.info("[DRY-RUN] Would save data:")
             logging.info(json.dumps(data, indent=2))
