@@ -171,7 +171,7 @@ def _main_with_historical_day(monkeypatch, chain, tmp_path=None, expect_exit=Tru
 
     monkeypatch.setattr(daily, "UTXOracleCalculator", _Calculator)
 
-    def calculate(config):
+    def calculate(config, day=None):
         result = daily.UTXOracleCalculator().calculate_price_for_transactions(
             daily.fetch_historical_transactions(DAY, config)
         )
