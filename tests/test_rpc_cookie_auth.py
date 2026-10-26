@@ -282,10 +282,15 @@ def test_daily_analysis_historical_path_accepts_cookie_only_configuration(node):
     node.methods.update(
         getblockcount=lambda p: 1000,
         getblockhash=lambda p: f"{p[0]:064x}",
-        getblockheader=lambda p: {"time": now - (1000 - int(p[0], 16)) * 600},
+        getblockheader=lambda p: {
+            "time": now - (1000 - int(p[0], 16)) * 600,
+            "mediantime": now - (1000 - int(p[0], 16)) * 600,
+        },
         getblock=lambda p: {"tx": [{"txid": p[0]}]},
     )
     day = (datetime.now(timezone.utc) - timedelta(days=2)).strftime("%Y-%m-%d")
-    txs = fetch_historical_transactions(day, {"BITCOIN_DATADIR": str(node.datadir)})
+    txs = list(
+        fetch_historical_transactions(day, {"BITCOIN_DATADIR": str(node.datadir)})
+    )
     assert len(txs) >= 100
     assert {u for _, u in node.requests} == {"__cookie__"}
