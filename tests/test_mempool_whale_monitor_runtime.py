@@ -24,64 +24,36 @@ async def test_reload_exchange_registry_rebuilds_cache(monkeypatch):
 
     monitor = MempoolWhaleMonitor()
     monitor.repo = AsyncMock()
-    monitor.repo.fetch = AsyncMock(
-        return_value=[{"address": "db_addr", "cluster_id": "DbCluster"}]
-    )
 
     assert monitor.registry_cache == {"old_csv_addr": "OldCsv"}
 
     await monitor.reload_exchange_registry()
 
     assert monitor.exchange_addresses == {"new_csv_addr": "NewCsv"}
-    assert monitor.registry_cache == {
-        "db_addr": "DbCluster",
-        "new_csv_addr": "NewCsv",
-    }
+    assert monitor.registry_cache == {"new_csv_addr": "NewCsv"}
     assert "old_csv_addr" not in monitor.registry_cache
 
 
-def _monitor(monkeypatch, fetch):
+@pytest.mark.asyncio
+async def test_preload_is_csv_only_quiet_and_never_queries_the_db(monkeypatch, caplog):
     monkeypatch.setattr(
-        whale_monitor_module, "load_exchange_addresses", lambda _p: {"csv": "Csv"}
+        whale_monitor_module,
+        "load_exchange_addresses",
+        lambda _p: {"a1": "Binance", "a2": "Binance", "a3": "Kraken"},
     )
     monitor = MempoolWhaleMonitor()
     monitor.repo = AsyncMock()
-    monitor.repo.fetch = fetch
-    return monitor
 
-
-@pytest.mark.asyncio
-async def test_preload_reads_address_clusters_with_exchange_filter(monkeypatch):
-    queries = []
-
-    async def fetch(query, *args):
-        queries.append(query)
-        if "active_exchange_registry" in query:
-            raise RuntimeError("table does not exist")
-        return [{"address": "db", "cluster_id": "Db"}]
-
-    monitor = _monitor(monkeypatch, fetch)
-    await monitor._preload_registry()
-
-    assert "FROM address_clusters" in queries[0]
-    assert "is_exchange_likely = true" in queries[0]
-    assert monitor.registry_cache == {"db": "Db", "csv": "Csv"}
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("failure", ["empty", "error"])
-async def test_preload_falls_back_to_csv_with_warning(monkeypatch, caplog, failure):
-    if failure == "empty":
-        fetch = AsyncMock(return_value=[])
-    else:
-        fetch = AsyncMock(side_effect=RuntimeError("boom"))
-    monitor = _monitor(monkeypatch, fetch)
-
-    with caplog.at_level("INFO"):
+    with caplog.at_level("DEBUG"):
         await monitor._preload_registry()
 
-    assert monitor.registry_cache == {"csv": "Csv"}
+    monitor.repo.fetch.assert_not_called()
+    monitor.repo.fetchrow.assert_not_called()
+    assert monitor.registry_cache == {"a1": "Binance", "a2": "Binance", "a3": "Kraken"}
     assert monitor.is_healthy
-    levels = {r.levelname for r in caplog.records}
-    assert "WARNING" in levels
-    assert "ERROR" not in levels
+    assert not [r for r in caplog.records if r.levelname in ("WARNING", "ERROR")]
+    info = [
+        r.getMessage() for r in caplog.records if "Registry preloaded" in r.getMessage()
+    ]
+    assert len(info) == 1
+    assert "3 rows" in info[0] and "2 distinct exchanges" in info[0]
