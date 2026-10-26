@@ -80,6 +80,11 @@ class MempoolWhaleMonitor:
 
         # Initialize QuestDB repository
         self.repo = QuestDBRepository()
+        # Set by attach_app_repo(): when the hosting app owns the repository and its pool,
+        # this monitor waits for it instead of initializing a pool of its own.
+        self._repo_ready: asyncio.Event | None = None
+        self._repo_getter = None
+        self._stop_event = asyncio.Event()
 
         # Transaction cache (prevents duplicate processing)
         self.tx_cache = TransactionCache(maxlen=10000)
@@ -120,12 +125,53 @@ class MempoolWhaleMonitor:
         logger.info(f"Whale threshold: {whale_threshold_btc} BTC")
         logger.info("Using QuestDB for persistence")
 
+    def attach_app_repo(self, ready: asyncio.Event, getter) -> None:
+        """Use the repository owned by the hosting app once `ready` is set (F-399)."""
+        self._repo_ready = ready
+        self._repo_getter = getter
+
+    async def _ensure_repo(self) -> None:
+        if self._repo_ready is None:
+            await self.repo.initialize()
+            return
+        if not self._repo_ready.is_set():
+            logger.warning(
+                "Waiting for the app QuestDB repository before reading the stream"
+            )
+        await self._repo_ready.wait()
+        self.repo = self._repo_getter()
+
+    async def _wait_for_app_repo(self) -> bool:
+        """Wait for the app's repository BEFORE the stream is opened (nothing to buffer).
+
+        Returns True if it had to wait (the registry was then preloaded from the CSV only) and
+        the repository is up; False if no wait was needed or stop() ended the wait.
+        """
+        if self._repo_ready is None or self._repo_ready.is_set():
+            return False
+        logger.warning(
+            "Waiting for the app QuestDB repository before opening the stream"
+        )
+        ready = asyncio.ensure_future(self._repo_ready.wait())
+        stopped = asyncio.ensure_future(self._stop_event.wait())
+        try:
+            await asyncio.wait({ready, stopped}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            ready.cancel()
+            stopped.cancel()
+        if not self._repo_ready.is_set():
+            logger.info("Stopped while waiting for the app QuestDB repository")
+            return False
+        self.repo = self._repo_getter()
+        logger.info("App QuestDB repository is up: continuing the monitor start")
+        return True
+
     async def _on_connect(self, websocket):
         """Handle WebSocket connection established"""
         logger.info("🔗 Connected to mempool.space transaction stream")
 
         # Initialize repository on first connect if needed
-        await self.repo.initialize()
+        await self._ensure_repo()
 
         # Listen for incoming messages
         async for message in websocket:
@@ -507,6 +553,12 @@ class MempoolWhaleMonitor:
         logger.info("Loading active exchange registry into memory...")
         self.registry_cache = {}
         try:
+            if self._repo_ready is not None:
+                if not self._repo_ready.is_set():
+                    # fetch() would lazily open a pool of its own: use the CSV registry until
+                    # the app's repository is up.
+                    raise RuntimeError("app QuestDB repository not ready yet")
+                self.repo = self._repo_getter()
             # Query all known clusters from QuestDB
             query = "SELECT address, cluster_id FROM active_exchange_registry"
             rows = await self.repo.fetch(query)
@@ -528,7 +580,7 @@ class MempoolWhaleMonitor:
                 )
         except Exception as e:
             logger.error(f"Failed to preload registry from DB: {e}")
-            self.registry_cache = self.exchange_addresses
+            self.registry_cache = dict(self.exchange_addresses)
             self.is_healthy = len(self.registry_cache) > 0
 
     async def reload_exchange_registry(self):
@@ -548,6 +600,11 @@ class MempoolWhaleMonitor:
 
         # Load registry into RAM before accepting any transactions
         await self._preload_registry()
+        if await self._wait_for_app_repo():
+            # The preload fell back to the CSV: reload the registry from the DB once.
+            await self.reload_exchange_registry()
+        if self._stop_event.is_set():
+            return
 
         # Start urgency scorer (fee metrics updates)
         await self.urgency_scorer.start()
@@ -559,6 +616,8 @@ class MempoolWhaleMonitor:
     async def stop(self):
         """Stop the mempool whale monitor"""
         logger.info("🛑 Stopping mempool whale monitor...")
+
+        self._stop_event.set()  # ends a start() still waiting for the app repository
 
         # Stop WebSocket connection
         await self.reconnector.stop()
