@@ -4,7 +4,9 @@ Repository for interacting with QuestDB.
 
 import asyncio
 import fcntl
+import inspect
 import logging
+import sys
 import weakref
 import threading
 import time
@@ -201,6 +203,53 @@ def _require_lock(token: Any) -> None:
             "address_clusters refresh mutations need the live RefreshLock "
             "(go through QuestDBRepository.refresh_address_clusters)"
         )
+
+
+def _swallow_if_in_flight(what: str, error: Exception, in_flight) -> None:
+    """Called from an except block: a cleanup error never replaces the primary error. It
+    is re-raised only when no other exception is in flight; otherwise it is logged."""
+    if in_flight is None:
+        raise error
+    logger.error(
+        "Closing %s failed while another error is in flight (kept as primary): %s",
+        what,
+        error,
+    )
+
+
+async def close_safely(closer, what: str) -> None:
+    """Run a cleanup (sync or async callable) on the way out of a refresh step. If an
+    exception is already in flight, a failure of the cleanup is logged at ERROR and not
+    raised, so the primary error (and its exit classification) survives."""
+    in_flight = sys.exc_info()[1]
+    try:
+        result = closer()
+        if inspect.isawaitable(result):
+            await result
+    except Exception as e:
+        _swallow_if_in_flight(what, e, in_flight)
+
+
+def refresh_exit_status(exc: BaseException) -> Optional[tuple[int, str]]:
+    """Exit code and message for a refresh failure, decided on the WHOLE exception chain
+    (__cause__ and __context__, cycle-safe): an AddressClustersLostError anywhere in it is
+    exit 6 with its own manual command, whatever exception reached the top. Else 5 for an
+    OldCopyCleanupError, 1 for a concurrent refresh, None for anything else."""
+    seen: set[int] = set()
+    stack: list[Optional[BaseException]] = [exc]
+    while stack:
+        current = stack.pop()
+        if current is None or id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, AddressClustersLostError):
+            return 6, str(current)
+        stack.extend((current.__cause__, current.__context__))
+    if isinstance(exc, OldCopyCleanupError):
+        return 5, str(exc)
+    if isinstance(exc, ConcurrentRefreshError):
+        return 1, f"another address_clusters refresh holds the lock: {exc}"
+    return None
 
 
 ADDRESS_CLUSTERS_REBUILD_COMMAND = (
@@ -1260,10 +1309,11 @@ class QuestDBRepository:
         sender, self._refresh_sender = self._refresh_sender, None
         self._refresh_buffered = 0
         if sender is not None:
+            in_flight = sys.exc_info()[1]
             try:
                 sender.close(flush=False)
             except Exception as e:
-                logger.error(f"Error closing address_clusters refresh sender: {e}")
+                _swallow_if_in_flight("the refresh sender", e, in_flight)
 
     def _build_sender(self):
         if Sender is None:
@@ -1728,7 +1778,7 @@ class QuestDBRepository:
             )
             raise
         finally:
-            await conn.close()
+            await close_safely(conn.close, "the DDL connection")
 
     async def prepare_address_clusters_refresh(self, token: RefreshLock) -> bool:
         """
@@ -2062,7 +2112,7 @@ class QuestDBRepository:
                 raise OldCopyCleanupError(left)
             return True
         finally:
-            await conn.close()
+            await close_safely(conn.close, "the cutover connection")
 
     async def commit_address_clusters_refresh(
         self,
@@ -2139,7 +2189,7 @@ class QuestDBRepository:
                 )
             raise
         finally:
-            token.release()
+            await close_safely(token.release, "the refresh lock")
 
     async def save_address_clusters_bulk(self, rows: List[Dict[str, Any]]) -> bool:
         """

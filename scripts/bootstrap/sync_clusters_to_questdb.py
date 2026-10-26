@@ -27,18 +27,15 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 
 from api.config import DUCKDB_PATH, setup_logging
 from api.questdb_repository import (
-    AddressClustersLostError,
-    ConcurrentRefreshError,
-    OldCopyCleanupError,
     QuestDBRepository,
+    close_safely,
+    refresh_exit_status,
 )
 
 # Exit codes: 0 synced; 1 failed, DuckDB missing or concurrent refresh; 2 usage error
 # (argparse); 5 swap ok but cleanup of an older _old copy failed (see the ERROR);
 # 6 the refresh state is lost or unobservable: no address_clusters and no _old copy after
 # a swap, or the tables could not be observed or restored (the ERROR has the command).
-EXIT_CLEANUP_FAILED = 5
-EXIT_CLUSTERS_LOST = 6
 
 logger = setup_logging("sync_clusters")
 
@@ -175,17 +172,17 @@ async def main() -> int:
     try:
         ok = await sync_clusters(repo, conn, args.batch_size)
         return 0 if ok else 1
-    except ConcurrentRefreshError:
-        return 1  # already logged as concurrent_refresh
-    except OldCopyCleanupError as e:
-        logger.error("%s", e)
-        return EXIT_CLEANUP_FAILED
-    except AddressClustersLostError as e:
-        logger.error("%s", e)
-        return EXIT_CLUSTERS_LOST
+    except Exception as e:
+        # the exit code is decided on the whole exception chain (exit 6 survives any
+        # exception that reached the top)
+        status = refresh_exit_status(e)
+        if status is None:
+            raise
+        logger.error("%s", status[1])
+        return status[0]
     finally:
-        conn.close()
-        await repo.close()
+        await close_safely(conn.close, "the DuckDB connection")
+        await close_safely(repo.close, "the QuestDB repository")
 
 
 if __name__ == "__main__":

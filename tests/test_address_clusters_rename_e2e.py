@@ -603,3 +603,81 @@ async def test_lost_ack_at_the_first_install_is_observed_and_published():
         await _drop(ddl, live, staging, old)
         for conn in (ddl, reader):
             await conn.close()
+
+
+class _CloseFailsAfterSwap:
+    """Real DDL connection whose close() fails once the staging RENAME was executed; also
+    makes the old-copies listing fail after the swap (client-side injection)."""
+
+    def __init__(self, conn):
+        self.conn, self.swapped = conn, False
+
+    async def execute(self, query, *args):
+        result = await self.conn.execute(query, *args)
+        if query.startswith("RENAME TABLE address_clusters_staging TO"):
+            self.swapped = True
+        return result
+
+    async def close(self):
+        if self.swapped:
+            raise RuntimeError("injected: close failed")
+
+
+async def test_failing_close_after_the_swap_keeps_the_exit_6_classification(
+    tmp_path, monkeypatch
+):
+    """r6 on the real CI QuestDB: B is live, A is the rollback, exit-6 error preserved."""
+    import asyncpg
+
+    from api.questdb_repository import AddressClustersLostError, RefreshLock
+
+    monkeypatch.setenv("ADDRESS_CLUSTERS_LOCK_DIR", str(tmp_path / "locks"))
+    target = _target()
+    ddl = await asyncpg.connect(**target)
+    reader = await asyncpg.connect(**target)
+    live = "address_clusters"
+
+    async def wipe():
+        for (name,) in await reader.fetch(
+            "SELECT table_name FROM tables() WHERE table_name LIKE 'address_clusters%'"
+        ):
+            await ddl.execute(f"DROP TABLE IF EXISTS {name}")
+
+    repo = QuestDBRepository()
+    injected = _CloseFailsAfterSwap(ddl)
+
+    async def fetch(query, *args):
+        if injected.swapped and "FROM tables()" in query and "LIKE" in query:
+            raise ConnectionError("injected: the old-copies listing failed")
+        return await reader.fetch(query, *args)
+
+    repo.fetch, repo.fetchrow = fetch, reader.fetchrow
+    repo._open_dedicated_connection = lambda: _async_value(injected)
+
+    async def producer():
+        for i in range(5):
+            assert repo.stage_address_cluster({"address": f"b{i}", "cluster_id": "c"})
+        return 5
+
+    try:
+        await wipe()
+        await ddl.execute(_CLUSTER_DDL.format(live))
+        _ingest_clusters(live, 3)  # A
+        await _wait_applied(reader, live, 3)
+
+        with pytest.raises(AddressClustersLostError):
+            await repo.refresh_address_clusters(producer)
+
+        assert (await reader.fetch(f"SELECT count(*) FROM {live}"))[0][0] == 5  # B
+        olds = await reader.fetch(
+            "SELECT table_name FROM tables() WHERE table_name LIKE 'address_clusters_old_%'"
+        )
+        assert len(olds) == 1
+        assert (await reader.fetch(f"SELECT count(*) FROM {olds[0][0]}"))[0][
+            0
+        ] == 3  # A
+        RefreshLock.acquire().release()  # the lock was released
+    finally:
+        await wipe()
+        for conn in (ddl, reader):
+            await conn.close()

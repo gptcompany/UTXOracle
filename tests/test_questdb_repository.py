@@ -1428,29 +1428,10 @@ def test_same_loop_stays_excluded_while_another_loop_takes_its_own_lock(monkeypa
     assert main_calls == 1
 
 
-REFRESH_METHODS = (
-    "refresh_address_clusters",
-    "reconcile_address_clusters",
-    "prepare_address_clusters_refresh",
-    "abort_address_clusters_refresh",
-    "commit_address_clusters_refresh",
-    "save_address_clusters_bulk",
-    "_publish_staging",
-    "_wait_table_applied",
-    "_table_wal",
-    "_run_ddl",
-    "_swap_tables",
-    "_guarded_swap",
-    "_swap_or_reconcile",
-    "_reconcile_tables",
-    "_cutover",
-    "_observe_catalog",
-)
-
-
-def test_tables_is_read_only_inside_observe_catalog_in_the_refresh_path():
-    """Every catalog read of the refresh goes through _observe_catalog, the one place that
-    turns a failure into AddressClustersLostError (exit 6)."""
+def _refresh_methods():
+    """The refresh path, computed: the transitive closure of the self.* calls starting from
+    refresh_address_clusters and save_address_clusters_bulk. The pool access layer is the
+    boundary (it is shared infrastructure, not refresh logic)."""
     import ast
     import inspect
 
@@ -1464,16 +1445,136 @@ def test_tables_is_read_only_inside_observe_catalog_in_the_refresh_path():
         for node in cls.body
         if isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef))
     }
-    assert set(REFRESH_METHODS) <= set(methods)
+    boundary = {"fetch", "fetchrow", "execute", "initialize"}
+    todo = ["refresh_address_clusters", "save_address_clusters_bulk"]
+    seen: dict = {}
+    while todo:
+        name = todo.pop()
+        if name in seen or name in boundary or name not in methods:
+            continue
+        seen[name] = methods[name]
+        for sub in ast.walk(methods[name]):
+            if (
+                isinstance(sub, ast.Call)
+                and isinstance(sub.func, ast.Attribute)
+                and isinstance(sub.func.value, ast.Name)
+                and sub.func.value.id == "self"
+            ):
+                todo.append(sub.func.attr)
+    return seen
+
+
+def test_the_refresh_path_is_computed_and_reads_tables_only_in_observe_catalog():
+    import ast
+
+    refresh = _refresh_methods()
+    assert {"_observe_catalog", "_cutover", "_reconcile_tables", "_run_ddl"} <= set(
+        refresh
+    )
 
     def reads_tables(node):
-        found = []
-        for sub in ast.walk(node):
-            if isinstance(sub, ast.Constant) and isinstance(sub.value, str):
-                if "FROM tables()" in sub.value:
-                    found.append(sub.value)
-        return found
+        return [
+            sub.value
+            for sub in ast.walk(node)
+            if isinstance(sub, ast.Constant)
+            and isinstance(sub.value, str)
+            and "FROM tables()" in sub.value
+        ]
 
-    where = {name: reads_tables(methods[name]) for name in REFRESH_METHODS}
-    assert where["_observe_catalog"], "_observe_catalog must read tables()"
-    assert {n for n, f in where.items() if f} == {"_observe_catalog"}
+    assert {n for n, node in refresh.items() if reads_tables(node)} == {
+        "_observe_catalog"
+    }
+
+
+def test_no_cleanup_call_in_a_finally_of_the_refresh_path():
+    """A close()/release() in a finally can replace the primary error (r6): every cleanup
+    goes through the safe helpers."""
+    import ast
+
+    bad = []
+    for name, node in _refresh_methods().items():
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Try):
+                for stmt in sub.finalbody:
+                    for call in ast.walk(stmt):
+                        if (
+                            isinstance(call, ast.Call)
+                            and isinstance(call.func, ast.Attribute)
+                            and call.func.attr in {"close", "release"}
+                        ):
+                            bad.append(name)
+    assert bad == []
+
+
+def _chain(*errors):
+    """Link `errors` as __cause__ (even index) or __context__ (odd index) in order."""
+    for outer, inner, via in zip(errors, errors[1:], range(len(errors))):
+        if via % 2 == 0:
+            outer.__cause__ = inner
+        else:
+            outer.__context__ = inner
+    return errors[0]
+
+
+def test_refresh_exit_status_finds_the_lost_error_anywhere_in_the_chain():
+    import api.questdb_repository as qr
+
+    lost = qr.AddressClustersLostError("run `RENAME TABLE x TO y`")
+    direct = qr.refresh_exit_status(lost)
+    via_cause = qr.refresh_exit_status(_chain(RuntimeError("close boom"), lost))
+    via_context = qr.refresh_exit_status(
+        _chain(RuntimeError("a"), RuntimeError("b"), lost)
+    )
+
+    assert direct == via_cause == via_context == (6, str(lost))
+
+
+def test_refresh_exit_status_other_errors_and_cycles():
+    import api.questdb_repository as qr
+
+    assert qr.refresh_exit_status(RuntimeError("plain")) is None
+    assert qr.refresh_exit_status(_chain(RuntimeError("a"), ValueError("b"))) is None
+    assert qr.refresh_exit_status(qr.OldCopyCleanupError(["x"]))[0] == 5
+    assert qr.refresh_exit_status(qr.ConcurrentRefreshError("lock"))[0] == 1
+    # a cycle in the chain must not loop forever, with or without the error inside it
+    a, b = RuntimeError("a"), RuntimeError("b")
+    a.__cause__, b.__context__ = b, a
+    assert qr.refresh_exit_status(a) is None
+    lost = qr.AddressClustersLostError("lost")
+    lost.__context__ = a
+    a.__cause__ = lost
+    assert qr.refresh_exit_status(b)[0] == 6
+
+
+def test_a_failing_close_is_logged_and_never_replaces_the_primary_error(
+    monkeypatch, caplog
+):
+    import api.questdb_repository as qr
+
+    repo = _repo(monkeypatch)
+    repo.dedicated.close = AsyncMock(side_effect=RuntimeError("close boom"))
+
+    async def boom():
+        conn = await repo._open_dedicated_connection()
+        try:
+            raise ValueError("primary")
+        finally:
+            await qr.close_safely(conn.close, "dedicated connection")
+
+    with caplog.at_level("ERROR"), pytest.raises(ValueError, match="primary"):
+        asyncio.run(boom())
+    assert any("close boom" in r.getMessage() for r in caplog.records)
+
+
+def test_a_failing_close_without_a_primary_error_is_raised(monkeypatch):
+    import api.questdb_repository as qr
+
+    repo = _repo(monkeypatch)
+    repo.dedicated.close = AsyncMock(side_effect=RuntimeError("close boom"))
+
+    async def only_close():
+        conn = await repo._open_dedicated_connection()
+        await qr.close_safely(conn.close, "dedicated connection")
+
+    with pytest.raises(RuntimeError, match="close boom"):
+        asyncio.run(only_close())

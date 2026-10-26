@@ -384,8 +384,8 @@ class _CatalogConn:
     """DDL connection over a fake catalog {table: data}; the RENAME of the staging table
     can lose its acknowledgement (applied, then raised)."""
 
-    def __init__(self, catalog, ack_lost=False):
-        self.catalog, self.ack_lost = catalog, ack_lost
+    def __init__(self, catalog, ack_lost=False, close_fails=False):
+        self.catalog, self.ack_lost, self.close_fails = catalog, ack_lost, close_fails
         self.executed: list[str] = []
         self.renames_done = 0
 
@@ -407,10 +407,13 @@ class _CatalogConn:
             self.catalog.setdefault("address_clusters_staging", "empty")
 
     async def close(self):
-        return None
+        if self.close_fails and self.renames_done >= 2:
+            raise RuntimeError("close boom")  # after the swap, as the r6 case
 
 
-def _run_sync_main_with_a_failing_catalog_read(monkeypatch, tmp_path, scenario):
+def _run_sync_main_with_a_failing_catalog_read(
+    monkeypatch, tmp_path, scenario, close_fails=False
+):
     """The real sync main over a fake database whose tables() listing fails at one point
     of the refresh; returns (exit code, catalog, DDL connection)."""
     import re
@@ -422,14 +425,22 @@ def _run_sync_main_with_a_failing_catalog_read(monkeypatch, tmp_path, scenario):
     db = tmp_path / "x.duckdb"
     _db_with_one_cluster(db)
     catalog = {"address_clusters": "old data", "address_clusters_staging": "new data"}
-    conn = _CatalogConn(catalog, ack_lost=scenario == "post_reconcile_staging")
+    conn = _CatalogConn(
+        catalog, ack_lost=scenario == "post_reconcile_staging", close_fails=close_fails
+    )
+
+    failed_once: list[bool] = []
 
     def tables_read_fails(query):
         if scenario == "pre_swap_catalog":  # after prepare, before any RENAME
             return any("TRUNCATE" in q for q in conn.executed) and not conn.renames_done
         if scenario == "post_reconcile_staging":  # the check of the staging table
             return "address_clusters_staging" in query
-        return conn.renames_done >= 2  # post_swap_old_listing: the swap is done
+        # post_swap_old_listing: the first read after the swap fails, then recovers
+        if conn.renames_done >= 2 and not failed_once:
+            failed_once.append(True)
+            return True
+        return False
 
     class _Repo(qr.QuestDBRepository):
         async def initialize(self):
@@ -500,3 +511,23 @@ def test_a_failed_catalog_read_anywhere_in_the_refresh_is_exit_6_and_keeps_the_d
         assert catalog["address_clusters"] == "new data"  # published
         olds = [n for n in catalog if n.startswith("address_clusters_old_")]
         assert [catalog[n] for n in olds] == ["old data"]  # recoverable copy kept
+
+
+def test_a_failing_close_never_replaces_the_primary_error_and_the_lock_is_released(
+    monkeypatch, tmp_path, capsys, caplog
+):
+    """r6: the old listing fails after the swap AND closing the DDL connection fails."""
+    import api.questdb_repository as qr
+
+    with caplog.at_level("ERROR"):
+        code, catalog, conn = _run_sync_main_with_a_failing_catalog_read(
+            monkeypatch, tmp_path, "post_swap_old_listing", close_fails=True
+        )
+
+    assert code == 6
+    assert "sync_clusters_to_questdb" in capsys.readouterr().err
+    assert any("close boom" in r.getMessage() for r in caplog.records)  # logged
+    assert catalog["address_clusters"] == "new data"  # B is live
+    olds = [n for n in catalog if n.startswith("address_clusters_old_")]
+    assert [catalog[n] for n in olds] == ["old data"]  # A kept as the rollback
+    qr.RefreshLock.acquire().release()  # the lock was released
