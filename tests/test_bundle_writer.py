@@ -430,14 +430,14 @@ class _AbsentThenPresentRepo:
 
 @pytest.fixture
 def no_pause(monkeypatch):
-    import scripts.live.bundle_writer as bw
+    import api.questdb_repository as qr
 
     pauses: list[float] = []
 
     async def fake_sleep(seconds):
         pauses.append(seconds)
 
-    monkeypatch.setattr(bw, "_sleep", fake_sleep)
+    monkeypatch.setattr(qr, "_sleep", fake_sleep)
     return pauses
 
 

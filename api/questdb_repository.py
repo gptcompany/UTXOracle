@@ -45,6 +45,32 @@ logger = logging.getLogger(__name__)
 _monotonic = time.monotonic
 _sleep = asyncio.sleep
 
+# address_clusters is swapped in by RENAME (F-424): for the few ms between the two RENAMEs
+# a read finds the table absent. Readers retry a short, bounded number of times on that
+# error only; any other error, or a persistent absence, still fails the read.
+ADDRESS_CLUSTERS_READ_ATTEMPTS = 3
+ADDRESS_CLUSTERS_READ_RETRY_PAUSE_S = 0.3
+
+
+async def fetch_address_clusters(repo, query: str, *args):
+    """repo.fetch with the short retry on "table does not exist" (see above)."""
+    for attempt in range(1, ADDRESS_CLUSTERS_READ_ATTEMPTS + 1):
+        try:
+            return await repo.fetch(query, *args)
+        except Exception as exc:
+            if (
+                "does not exist" not in str(exc)
+                or attempt == ADDRESS_CLUSTERS_READ_ATTEMPTS
+            ):
+                raise
+            logger.warning(
+                "address_clusters absent (refresh swap in progress), retry %d/%d",
+                attempt,
+                ADDRESS_CLUSTERS_READ_ATTEMPTS - 1,
+            )
+            await _sleep(ADDRESS_CLUSTERS_READ_RETRY_PAUSE_S)
+
+
 # QuestDB connection details from environment variables
 QUESTDB_ILP_HOST = os.getenv("QUESTDB_ILP_HOST", "localhost")
 QUESTDB_ILP_PORT = int(os.getenv("QUESTDB_ILP_PORT", 9009))
@@ -879,7 +905,7 @@ async def create_tables_if_not_exist():
                 is_exchange_likely BOOLEAN,
                 label SYMBOL,
                 confidence DOUBLE
-            ) timestamp(ts) PARTITION BY YEAR;
+            ) timestamp(ts) PARTITION BY YEAR WAL;
             """
         )
 

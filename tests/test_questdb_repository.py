@@ -644,6 +644,12 @@ def test_create_tables_declares_the_staging_table_as_wal(monkeypatch):
         if q.startswith("CREATE TABLE IF NOT EXISTS address_clusters_staging")
     ]
     assert len(staging) == 1 and staging[0].endswith("PARTITION BY YEAR WAL")
+    live = [
+        q
+        for q in statements
+        if q.startswith("CREATE TABLE IF NOT EXISTS address_clusters (")
+    ]
+    assert len(live) == 1 and live[0].rstrip("; ").endswith("PARTITION BY YEAR WAL")
 
 
 def test_save_cost_basis_passes_empty_symbols():

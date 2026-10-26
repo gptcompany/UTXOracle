@@ -28,11 +28,16 @@ class _FakeWhaleRepo:
         self.cluster_rows = list(cluster_rows or [])
         self.entity_row = entity_row
         self.raise_entity_lookup = False
+        self.cluster_failures: list[
+            Exception
+        ] = []  # raised by successive cluster reads
 
     async def fetch(self, query, *args):
         if "FROM mempool_predictions" in query:
             return [self.row]
         if "FROM address_clusters" in query:
+            if self.cluster_failures:
+                raise self.cluster_failures.pop(0)
             addresses = set(args)
             return [row for row in self.cluster_rows if row["address"] in addresses]
         raise AssertionError(f"Unexpected query: {query}")
@@ -235,3 +240,64 @@ def test_legacy_whale_routes_return_explicit_deprecation_metadata(whale_client):
         assert body["status"] == "deprecated"
         assert body["canonical_surface_id"] == "whale_query_surface"
         assert "/api/whale/transactions" in body["canonical_routes"]
+
+
+def _client_with_failing_clusters(monkeypatch, failures, *, persistent=False):
+    from api.main import app
+    import api.questdb_repository as qr
+
+    async def no_pause(seconds):
+        return None
+
+    monkeypatch.setattr(qr, "_sleep", no_pause)
+    repo = _FakeWhaleRepo(
+        exchange_addresses="1Binance,1BinanceHot",
+        cluster_rows=[
+            {"address": "1Binance", "cluster_id": "cluster_001", "label": "Binance"},
+            {"address": "1BinanceHot", "cluster_id": "cluster_001", "label": "Binance"},
+        ],
+    )
+    repo.cluster_failures = list(failures)
+    monkeypatch.setattr(app.state, "questdb_repo", repo, raising=False)
+    return TestClient(app), repo
+
+
+def test_whale_enrichment_retries_while_address_clusters_is_being_swapped(monkeypatch):
+    absent = RuntimeError("table does not exist [name=address_clusters]")
+    client, repo = _client_with_failing_clusters(monkeypatch, [absent, absent])
+
+    body = client.get("/api/whale/transaction/tx-001").json()
+    client.close()
+
+    assert body["entity_enrichment_status"] == "inferred"
+    assert body["entity_enrichment_reason"] is None
+    assert repo.cluster_failures == []
+
+
+def test_whale_enrichment_is_explicitly_unavailable_when_the_table_stays_absent(
+    monkeypatch,
+):
+    absent = RuntimeError("table does not exist [name=address_clusters]")
+    client, _ = _client_with_failing_clusters(monkeypatch, [absent] * 6)
+
+    response = client.get("/api/whale/transactions")
+    single = client.get("/api/whale/transaction/tx-001")
+    client.close()
+
+    for body in (response.json()[0], single.json()):
+        assert body["entity_enrichment_status"] == "unavailable"
+        assert body["entity"] is None
+        assert "table does not exist" in body["entity_enrichment_reason"]
+
+
+def test_whale_enrichment_reports_other_errors_without_retrying(monkeypatch):
+    client, repo = _client_with_failing_clusters(
+        monkeypatch, [RuntimeError("connection reset"), RuntimeError("never read")]
+    )
+
+    body = client.get("/api/whale/transaction/tx-001").json()
+    client.close()
+
+    assert body["entity_enrichment_status"] == "unavailable"
+    assert "connection reset" in body["entity_enrichment_reason"]
+    assert len(repo.cluster_failures) == 1  # the second failure was never consumed
