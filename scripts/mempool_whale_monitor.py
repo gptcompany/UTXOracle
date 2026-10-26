@@ -20,6 +20,7 @@ Architecture:
 """
 
 import asyncio
+from contextlib import suppress
 import json
 import logging
 import os
@@ -84,6 +85,7 @@ class MempoolWhaleMonitor:
         # this monitor waits for it instead of initializing a pool of its own.
         self._repo_ready: asyncio.Event | None = None
         self._repo_getter = None
+        self._registry_reload_task: asyncio.Task | None = None
 
         # Transaction cache (prevents duplicate processing)
         self.tx_cache = TransactionCache(maxlen=10000)
@@ -133,8 +135,29 @@ class MempoolWhaleMonitor:
         if self._repo_ready is None:
             await self.repo.initialize()
             return
+        if not self._repo_ready.is_set():
+            logger.warning(
+                "Waiting for the app QuestDB repository before reading the stream"
+            )
         await self._repo_ready.wait()
         self.repo = self._repo_getter()
+
+    def _schedule_registry_reload_if_needed(self) -> asyncio.Task | None:
+        """If the registry was preloaded from the CSV only, reload it once the repository is up."""
+        if self._repo_ready is None or self._repo_ready.is_set():
+            return None
+        self._registry_reload_task = asyncio.create_task(
+            self._reload_registry_when_repo_ready(), name="whale-registry-reload"
+        )
+        return self._registry_reload_task
+
+    async def _reload_registry_when_repo_ready(self) -> None:
+        await self._repo_ready.wait()
+        self.repo = self._repo_getter()
+        logger.info(
+            "App QuestDB repository is up: reloading the exchange registry from the DB"
+        )
+        await self.reload_exchange_registry()
 
     async def _on_connect(self, websocket):
         """Handle WebSocket connection established"""
@@ -550,7 +573,7 @@ class MempoolWhaleMonitor:
                 )
         except Exception as e:
             logger.error(f"Failed to preload registry from DB: {e}")
-            self.registry_cache = self.exchange_addresses
+            self.registry_cache = dict(self.exchange_addresses)
             self.is_healthy = len(self.registry_cache) > 0
 
     async def reload_exchange_registry(self):
@@ -570,6 +593,7 @@ class MempoolWhaleMonitor:
 
         # Load registry into RAM before accepting any transactions
         await self._preload_registry()
+        self._schedule_registry_reload_if_needed()
 
         # Start urgency scorer (fee metrics updates)
         await self.urgency_scorer.start()
@@ -581,6 +605,11 @@ class MempoolWhaleMonitor:
     async def stop(self):
         """Stop the mempool whale monitor"""
         logger.info("🛑 Stopping mempool whale monitor...")
+
+        if self._registry_reload_task is not None:
+            self._registry_reload_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._registry_reload_task
 
         # Stop WebSocket connection
         await self.reconnector.stop()

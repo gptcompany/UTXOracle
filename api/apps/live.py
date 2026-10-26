@@ -118,6 +118,9 @@ class LiveHealthStatus(BaseModel):
 
 QUESTDB_RETRY_INITIAL_SECONDS = 2.0
 QUESTDB_RETRY_MAX_SECONDS = 60.0
+# The first attempt runs in the startup path: a host that drops packets must not hold the
+# snapshot surfaces back for asyncpg's own connect timeout.
+QUESTDB_STARTUP_TIMEOUT_SECONDS = 15.0
 
 
 def _discard_failed_repo(questdb_repo: QuestDBRepository) -> None:
@@ -207,9 +210,20 @@ async def lifespan(app: FastAPI):
     # repository is retried in the background (F-399): containers start together and QuestDB
     # may accept connections only seconds after the API, which used to leave it None for good.
     _init_questdb_state(app)
-    if not await _connect_questdb_repo(
-        app, attempt=1, retry_in=QUESTDB_RETRY_INITIAL_SECONDS
-    ):
+    try:
+        connected = await asyncio.wait_for(
+            _connect_questdb_repo(
+                app, attempt=1, retry_in=QUESTDB_RETRY_INITIAL_SECONDS
+            ),
+            timeout=QUESTDB_STARTUP_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logging.warning(
+            "QuestDB repository not ready after %.0fs at startup; retrying in the background",
+            QUESTDB_STARTUP_TIMEOUT_SECONDS,
+        )
+        connected = False
+    if not connected:
         app.state.questdb_retry_task = asyncio.create_task(
             _retry_questdb_repo(app),
             name="live-questdb-repo-retry",
