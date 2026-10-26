@@ -226,35 +226,71 @@ def test_both_tables_are_keyed_by_the_analysed_day_not_the_run_time(monkeypatch)
 
 
 class _RecordingConnection:
-    def __init__(self, states: dict[str, tuple[bool, bool]] | None = None) -> None:
+    """The DDL connection: simple protocol only. QuestDB 7.x breaks a connection that runs a
+    DDL after an extended-protocol query (asyncpg: 'NoneType' has no attribute 'decode')."""
+
+    def __init__(self) -> None:
         self.statements: list[str] = []
-        # table -> (walEnabled, dedup) as tables() reports it; default: WAL, no dedup yet
-        self.states = states or {}
 
     async def execute(self, statement: str, *args) -> None:
         self.statements.append(" ".join(statement.split()))
 
-    async def fetchrow(self, query: str, table: str):
-        assert "tables()" in query
-        wal, dedup = self.states.get(table, (True, False))
-        return {"walEnabled": wal, "dedup": dedup}
+    async def _extended(self, *args, **kwargs):
+        raise AssertionError("the DDL connection received an extended-protocol query")
+
+    fetch = fetchrow = fetchval = _extended
 
     async def close(self) -> None:
         return None
 
 
-def test_ddl_dedups_price_analysis_and_metrics_on_ts(monkeypatch):
-    """M1: the schema makes the daily rerun idempotent (WAL table + DEDUP UPSERT KEYS(ts))."""
+class _StateConnection:
+    """A short-lived read connection answering SELECT ... FROM tables()."""
+
+    def __init__(self, states: dict[str, tuple[bool, bool]]) -> None:
+        self.states = states
+        self.closed = False
+
+    async def fetchrow(self, query: str, table: str):
+        assert "tables()" in query
+        if table not in self.states:
+            return None
+        wal, dedup = self.states[table]
+        return {"walEnabled": wal, "dedup": dedup}
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+def _fake_questdb(monkeypatch, states=None, ddl=None, *, ddl_via_connect=True):
+    """asyncpg stand-in. With ddl_via_connect the first connection is the DDL one; every other
+    connection (or all, when the caller holds the DDL connection itself) is a state read."""
     import types as _types
 
     import api.questdb_repository as repository
 
-    conn = _RecordingConnection()
+    ddl = ddl or _RecordingConnection()
+    reads: list[_StateConnection] = []
+    pending_ddl = [ddl_via_connect]
 
     async def connect(**kwargs):
+        if pending_ddl[0]:
+            pending_ddl[0] = False
+            return ddl
+        conn = _StateConnection(states or {})
+        reads.append(conn)
         return conn
 
     monkeypatch.setattr(repository, "asyncpg", _types.SimpleNamespace(connect=connect))
+    return ddl, reads
+
+
+def test_ddl_dedups_price_analysis_and_metrics_on_ts(monkeypatch):
+    """M1: the schema makes the daily rerun idempotent (WAL table + DEDUP UPSERT KEYS(ts))."""
+    import api.questdb_repository as repository
+
+    states = {"price_analysis": (True, False), "metrics": (True, False)}
+    conn, reads = _fake_questdb(monkeypatch, states)
     asyncio.run(repository.create_tables_if_not_exist())
 
     for table in ("price_analysis", "metrics"):
@@ -265,6 +301,8 @@ def test_ddl_dedups_price_analysis_and_metrics_on_ts(monkeypatch):
         # A WAL table without dedup gets it enabled; a schema conversion is never run.
         assert f"ALTER TABLE {table} DEDUP ENABLE UPSERT KEYS(ts)" in conn.statements
         assert f"ALTER TABLE {table} SET TYPE WAL" not in conn.statements
+    # the state was read on connections of their own, all closed
+    assert reads and all(c.closed for c in reads)
 
 
 def test_count_treats_only_a_missing_table_as_zero(monkeypatch):
@@ -517,16 +555,17 @@ class _AlterFails(_RecordingConnection):
         await super().execute(statement, *args)
 
 
-def _enable(conn, table: str = "price_analysis") -> None:
+def _enable(monkeypatch, states, ddl=None, table: str = "price_analysis"):
     import api.questdb_repository as repository
 
+    conn, reads = _fake_questdb(monkeypatch, states, ddl, ddl_via_connect=False)
     asyncio.run(repository._enable_daily_dedup(conn, table))
+    return conn, reads
 
 
-def test_dedup_already_active_is_info_and_runs_no_alter(caplog):
-    conn = _RecordingConnection({"price_analysis": (True, True)})
+def test_dedup_already_active_is_info_and_runs_no_alter(monkeypatch, caplog):
     with caplog.at_level("INFO"):
-        _enable(conn)
+        conn, _ = _enable(monkeypatch, {"price_analysis": (True, True)})
 
     assert conn.statements == []
     assert any(
@@ -535,21 +574,22 @@ def test_dedup_already_active_is_info_and_runs_no_alter(caplog):
     )
 
 
-def test_wal_table_without_dedup_gets_the_alter_and_its_failure_is_fatal():
-    conn = _RecordingConnection({"price_analysis": (True, False)})
-    _enable(conn)
+def test_wal_table_without_dedup_gets_the_alter_and_its_failure_is_fatal(monkeypatch):
+    conn, reads = _enable(monkeypatch, {"price_analysis": (True, False)})
     assert conn.statements == [
         "ALTER TABLE price_analysis DEDUP ENABLE UPSERT KEYS(ts)"
     ]
+    assert reads and all(c.closed for c in reads)
 
     with pytest.raises(RuntimeError, match="alter failed"):
-        _enable(_AlterFails({"price_analysis": (True, False)}))
+        _enable(monkeypatch, {"price_analysis": (True, False)}, ddl=_AlterFails())
 
 
-def test_non_wal_table_is_an_error_log_without_alter_and_without_exception(caplog):
-    conn = _RecordingConnection({"metrics": (False, False)})
+def test_non_wal_table_is_an_error_log_without_alter_and_without_exception(
+    monkeypatch, caplog
+):
     with caplog.at_level("ERROR"):
-        _enable(conn, "metrics")
+        conn, _ = _enable(monkeypatch, {"metrics": (False, False)}, table="metrics")
 
     assert conn.statements == []  # no SET TYPE WAL: a conversion is not a startup step
     assert any(
@@ -558,6 +598,15 @@ def test_non_wal_table_is_an_error_log_without_alter_and_without_exception(caplo
         and "dedup non attivabile: tabella non WAL" in r.getMessage()
         for r in caplog.records
     )
+
+
+def test_the_ddl_connection_never_runs_an_extended_protocol_query(monkeypatch):
+    """QuestDB 7.x: a fetch on the DDL connection breaks the next DDL. Reads go elsewhere."""
+    conn, _ = _enable(monkeypatch, {"price_analysis": (True, False)})
+
+    with pytest.raises(AssertionError, match="extended-protocol"):
+        asyncio.run(conn.fetchrow("SELECT 1"))  # the guard itself works
+    assert conn.statements  # and the migration ran without tripping it
 
 
 # --- The daily job refuses to write into a table without dedup -------------------------
@@ -570,9 +619,7 @@ def test_tables_without_dedup_reads_tables_and_reports_the_ones_not_deduplicatin
 
     import api.questdb_repository as repository
 
-    conn = _RecordingConnection(
-        {"price_analysis": (True, True), "metrics": (True, False)}
-    )
+    conn = _StateConnection({"price_analysis": (True, True), "metrics": (True, False)})
 
     async def connect(**kwargs):
         return conn
@@ -580,10 +627,10 @@ def test_tables_without_dedup_reads_tables_and_reports_the_ones_not_deduplicatin
     monkeypatch.setattr(repository, "asyncpg", _types.SimpleNamespace(connect=connect))
 
     missing = asyncio.run(
-        repository.tables_without_dedup(("price_analysis", "metrics"))
+        repository.tables_without_dedup(("price_analysis", "metrics", "absent"))
     )
 
-    assert missing == ["metrics"]
+    assert missing == ["metrics", "absent"]
 
 
 def test_write_is_refused_when_a_table_has_no_dedup(monkeypatch, caplog):

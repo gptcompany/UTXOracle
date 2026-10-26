@@ -291,10 +291,35 @@ def save_backtest_whale_signal_row(
 _TABLE_STATE_QUERY = "SELECT walEnabled, dedup FROM tables() WHERE table_name = $1"
 
 
+async def read_table_states(tables) -> dict:
+    """tables() state (walEnabled, dedup) of each table, None when it does not exist.
+
+    Read on a connection of its own, closed on return: QuestDB 7.x breaks a connection that
+    runs a DDL after an extended-protocol query (asyncpg: 'NoneType' has no attribute
+    'decode'), so the DDL connection must never run a fetch.
+    """
+    if asyncpg is None:
+        raise ModuleNotFoundError(
+            "asyncpg package is required to read tables(); install project dependencies"
+        )
+    conn = await asyncpg.connect(
+        host=QUESTDB_PG_HOST,
+        port=QUESTDB_PG_PORT,
+        user=QUESTDB_PG_USER,
+        password=QUESTDB_PG_PASSWORD,
+        database=QUESTDB_PG_DATABASE,
+    )
+    try:
+        return {t: await conn.fetchrow(_TABLE_STATE_QUERY, t) for t in tables}
+    finally:
+        await conn.close()
+
+
 async def _enable_daily_dedup(conn, table: str) -> None:
     """Enable DEDUP UPSERT KEYS(ts) on `table` when the state reported by tables() allows it.
 
-    The decision is taken from the walEnabled and dedup columns, never from an error text:
+    The decision is taken from the walEnabled and dedup columns, never from an error text;
+    `conn` is the DDL connection and only executes the ALTER (simple protocol):
     - dedup already on: INFO, nothing else;
     - WAL without dedup: ALTER ... DEDUP ENABLE; a failure is fatal, because without dedup
       the daily rerun would duplicate its row;
@@ -302,7 +327,7 @@ async def _enable_daily_dedup(conn, table: str) -> None:
       table name and startup goes on. The daily job itself refuses to write to a table
       without dedup (tables_without_dedup), so the error stays visible.
     """
-    row = await conn.fetchrow(_TABLE_STATE_QUERY, table)
+    row = (await read_table_states([table]))[table]
     if row is None:
         return  # created just before by the caller with dedup; nothing to migrate
     if row["dedup"]:
@@ -321,26 +346,8 @@ async def _enable_daily_dedup(conn, table: str) -> None:
 
 async def tables_without_dedup(tables) -> list[str]:
     """Names among `tables` that do not exist or are not deduplicating (read from tables())."""
-    if asyncpg is None:
-        raise ModuleNotFoundError(
-            "asyncpg package is required to read tables(); install project dependencies"
-        )
-    conn = await asyncpg.connect(
-        host=QUESTDB_PG_HOST,
-        port=QUESTDB_PG_PORT,
-        user=QUESTDB_PG_USER,
-        password=QUESTDB_PG_PASSWORD,
-        database=QUESTDB_PG_DATABASE,
-    )
-    try:
-        missing = []
-        for table in tables:
-            row = await conn.fetchrow(_TABLE_STATE_QUERY, table)
-            if row is None or not row["dedup"]:
-                missing.append(table)
-        return missing
-    finally:
-        await conn.close()
+    states = await read_table_states(tables)
+    return [t for t in tables if states[t] is None or not states[t]["dedup"]]
 
 
 async def tables_with_day_row(tables, day: datetime) -> list[str]:
