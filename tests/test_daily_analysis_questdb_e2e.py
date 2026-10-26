@@ -898,3 +898,301 @@ def test_destination_and_dedup_exits_keep_their_codes_and_log_the_cause(
     with caplog.at_level("ERROR"):
         assert _exit_code(daily) == 4
     assert "without dedup" in caplog.text
+
+
+# --- Every persisted metrics block: a failure writes nothing, names the block ------------
+
+
+class _FakeWhaleSignal:
+    net_flow_btc = 12.0
+    direction = "OUTFLOW"
+    confidence = 0.8
+
+
+class _FakeWhaleDetector:
+    def __init__(self, csv_path) -> None:
+        self.csv_path = csv_path
+
+    def get_exchange_address_count(self) -> int:
+        return 1
+
+    async def analyze_latest_block(self):
+        return _FakeWhaleSignal()
+
+
+def _enable_all_persisted_blocks(monkeypatch, daily, tmp_path) -> None:
+    """Whale signal (monte_carlo) and Wasserstein switched on, with enough synthetic outputs."""
+    csv = tmp_path / "exchange.csv"
+    csv.write_text("address\\n")
+    real_load = daily.load_config
+    monkeypatch.setattr(
+        daily,
+        "load_config",
+        lambda: {**real_load(), "EXCHANGE_ADDRESSES_CSV": str(csv)},
+    )
+    monkeypatch.setattr(daily, "WhaleFlowDetector", _FakeWhaleDetector)
+    monkeypatch.setattr(daily, "ADVANCED_METRICS_ENABLED", True)
+    monkeypatch.setattr(daily, "WASSERSTEIN_ENABLED", True)
+    many = [
+        {
+            "vin": [{"prevout": {"scriptpubkey_address": f"bc1qsender{i}"}}],
+            "vout": [
+                {"scriptpubkey_address": f"bc1qreceiver{i}", "value": 0.01 + i / 1e5}
+            ],
+        }
+        for i in range(300)
+    ]
+    monkeypatch.setattr(
+        daily,
+        "calculate_utxoracle_price",
+        lambda config: {
+            "price_usd": 99_500.0,
+            "confidence": 0.9,
+            "tx_count": 300,
+            "fetch_tier": 1,
+            "transactions": many,
+        },
+    )
+    # The other advanced analytics are not under test here; keep them light.
+    ns = types.SimpleNamespace
+    monkeypatch.setattr(
+        daily,
+        "power_law_fit",
+        lambda v: ns(tau=2.0, regime="x", power_law_vote=0.0, is_valid=True),
+    )
+    monkeypatch.setattr(
+        daily,
+        "fractal_analyze",
+        lambda v: ns(dimension=1.0, structure="x", fractal_vote=0.0, is_valid=True),
+    )
+    monkeypatch.setattr(
+        daily,
+        "symbolic_analyze",
+        lambda v, order=5: ns(
+            permutation_entropy=1.0,
+            pattern_type="x",
+            symbolic_vote=0.0,
+            is_valid=True,
+        ),
+    )
+    # No derivatives database, no SOPR: nothing outside the process may be read.
+    monkeypatch.setattr(daily, "DERIVATIVES_ENABLED", False)
+    monkeypatch.setattr(daily, "SOPR_ENABLED", False)
+
+
+def _ok_wasserstein(**kwargs):
+    import types as _t
+
+    return _t.SimpleNamespace(
+        is_valid=True,
+        wasserstein_vote=0.0,
+        mean_distance=0.1,
+        regime_status="normal",
+        to_dict=lambda: {"mean_distance": 0.1},
+    )
+
+
+@pytest.mark.parametrize(
+    "block, target",
+    [
+        ("monte_carlo", "monte_carlo_fusion"),
+        ("active_addresses", "count_active_addresses"),
+        ("tx_volume", "calculate_tx_volume"),
+        ("wasserstein", "rolling_wasserstein"),
+    ],
+)
+def test_each_persisted_metrics_block_that_raises_writes_nothing(
+    monkeypatch, tmp_path, caplog, block, target
+):
+    import scripts.daily_analysis as daily
+
+    sent = _record_rows(monkeypatch)
+    _stub_inputs(monkeypatch, daily)
+    _enable_all_persisted_blocks(monkeypatch, daily, tmp_path)
+
+    def boom(*args, **kwargs):
+        raise ValueError(f"{block} broke (test)")
+
+    # the other blocks succeed so that only the one under test is at fault
+    if target != "rolling_wasserstein":
+        monkeypatch.setattr(daily, "rolling_wasserstein", _ok_wasserstein)
+    monkeypatch.setattr(daily, target, boom)
+
+    with caplog.at_level("ERROR"):
+        assert _exit_code(daily) == 2
+
+    assert sent == []
+    assert any(
+        r.levelname == "ERROR" and f"Metrics block {block} failed" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+def test_all_persisted_blocks_succeeding_still_writes_both_tables(
+    monkeypatch, tmp_path
+):
+    """Guard for the parametrized test above: its setup, without a failure, writes."""
+    import scripts.daily_analysis as daily
+
+    sent = _record_rows(monkeypatch)
+    _stub_inputs(monkeypatch, daily)
+    _enable_all_persisted_blocks(monkeypatch, daily, tmp_path)
+    monkeypatch.setattr(daily, "rolling_wasserstein", _ok_wasserstein)
+
+    daily.main()
+
+    assert {row[0] for row in sent} == {"price_analysis", "metrics"}
+    metrics_columns = next(row[2] for row in sent if row[0] == "metrics")
+    assert metrics_columns["wasserstein_distance"] == 0.1
+
+
+# --- tx_volume units: sat -> BTC happens once, at the source (tiers 1 and 2) -------------
+#
+# Tiers 1 and 2 fetch satoshi from the APIs and _convert_satoshi_to_btc turns vout["value"]
+# into BTC in place; tx_volume must therefore be told the values are BTC, not divide again.
+
+
+def _block_of_txs(half_btc_in_sat: int = 50_000_000, n: int = 1000) -> list[dict]:
+    """n transactions; one pays 0.5 BTC (in satoshi, as the APIs return it), the rest 0."""
+    txs = [
+        {
+            "txid": f"{i:064x}",
+            "vin": [{"prevout": {"scriptpubkey_address": f"bc1qin{i}"}}],
+            "vout": [{"scriptpubkey_address": f"bc1qout{i}", "value": 0}],
+        }
+        for i in range(n)
+    ]
+    txs[0]["vout"][0]["value"] = half_btc_in_sat
+    return txs
+
+
+class _Response:
+    def __init__(self, payload, text: str = "") -> None:
+        self._payload = payload
+        self.text = text
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self):
+        return self._payload
+
+
+def _fake_requests_tier1(monkeypatch, daily, txs) -> None:
+    by_id = {tx["txid"]: tx for tx in txs}
+
+    def get(url, timeout=None):
+        if url.endswith("/blocks/tip/hash"):
+            return _Response(None, text='"' + "ab" * 32 + '"')
+        if url.endswith("/txids"):
+            return _Response(list(by_id))
+        return _Response(by_id[url.rsplit("/", 1)[1]])
+
+    monkeypatch.setattr(daily.requests, "get", get)
+
+
+def _fake_requests_tier2(monkeypatch, daily, txs) -> None:
+    def get(url, timeout=None):
+        if "localhost:3002" in url:
+            raise daily.requests.exceptions.ConnectionError("tier 1 down (test)")
+        if url.endswith("/api/blocks/tip/hash"):
+            return _Response(None, text="cd" * 32)
+        if url.endswith(("cd" * 32)):
+            return _Response({"tx_count": len(txs)})
+        start = int(url.rsplit("/", 1)[1])
+        return _Response(txs[start : start + 25])
+
+    monkeypatch.setattr(daily.requests, "get", get)
+
+
+def _tx_volume_btc_written_by_main(monkeypatch, daily, tier_setup, txs, tier) -> float:
+    sent = _record_rows(monkeypatch)
+    _stub_inputs(monkeypatch, daily)
+    tier_setup(monkeypatch, daily, txs)
+    config = {
+        "MEMPOOL_API_URL": "http://localhost:8999",
+        "MEMPOOL_FALLBACK_ENABLED": True,
+        "MEMPOOL_FALLBACK_URL": "https://mempool.invalid",
+    }
+
+    def calculate(_config):
+        fetched, used_tier = daily.fetch_bitcoin_transactions(config)
+        assert used_tier == tier
+        return {
+            "price_usd": 100_000.0,
+            "confidence": 0.9,
+            "tx_count": len(fetched),
+            "fetch_tier": used_tier,
+            "transactions": fetched,
+        }
+
+    monkeypatch.setattr(daily, "calculate_utxoracle_price", calculate)
+
+    daily.main()
+
+    return next(row[2] for row in sent if row[0] == "metrics")["tx_volume_btc"]
+
+
+def test_tier1_half_a_bitcoin_output_is_half_a_bitcoin_of_volume(monkeypatch):
+    import scripts.daily_analysis as daily
+
+    volume = _tx_volume_btc_written_by_main(
+        monkeypatch, daily, _fake_requests_tier1, _block_of_txs(), tier=1
+    )
+
+    assert volume == pytest.approx(0.5)
+
+
+def test_tier2_half_a_bitcoin_output_is_half_a_bitcoin_of_volume(monkeypatch):
+    import scripts.daily_analysis as daily
+
+    volume = _tx_volume_btc_written_by_main(
+        monkeypatch, daily, _fake_requests_tier2, _block_of_txs(), tier=2
+    )
+
+    assert volume == pytest.approx(0.5)
+
+
+def test_tx_volume_units_are_explicit_and_validated():
+    from scripts.metrics.tx_volume import calculate_tx_volume, estimate_real_volume
+
+    sat_tx = {"vout": [{"value": 50_000_000}]}
+    btc_tx = {"vout": [{"value": 0.5}]}
+
+    assert estimate_real_volume(sat_tx) == pytest.approx(0.5)  # default: satoshi
+    assert estimate_real_volume(btc_tx, value_unit="btc") == pytest.approx(0.5)
+    assert calculate_tx_volume(
+        [btc_tx], utxoracle_price=100_000.0, confidence=0.9, value_unit="btc"
+    ).tx_volume_usd == pytest.approx(50_000.0)
+    with pytest.raises(ValueError, match="value_unit"):
+        estimate_real_volume(btc_tx, value_unit="msat")
+
+
+def test_failure_before_the_wasserstein_block_runs_still_fails_the_block(
+    monkeypatch, tmp_path, caplog
+):
+    """Input extraction for the advanced analytics broke: Wasserstein never ran, so no write."""
+    import scripts.daily_analysis as daily
+
+    sent = _record_rows(monkeypatch)
+    _stub_inputs(monkeypatch, daily)
+    _enable_all_persisted_blocks(monkeypatch, daily, tmp_path)
+    monkeypatch.setattr(daily, "rolling_wasserstein", _ok_wasserstein)
+    broken = [{"vin": [], "vout": [{"value": None}]}] + SYNTHETIC_TRANSACTIONS
+    monkeypatch.setattr(
+        daily,
+        "calculate_utxoracle_price",
+        lambda config: {
+            "price_usd": 99_500.0,
+            "confidence": 0.9,
+            "tx_count": 3,
+            "fetch_tier": 1,
+            "transactions": broken,
+        },
+    )
+
+    with caplog.at_level("ERROR"):
+        assert _exit_code(daily) == 2
+
+    assert sent == []
+    assert "Metrics block wasserstein failed" in caplog.text

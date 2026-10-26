@@ -1588,6 +1588,9 @@ def main():
                     utxoracle_price=utx_result["price_usd"],
                     confidence=utx_result["confidence"],
                     timestamp=current_time,
+                    # The fetchers already turned satoshi into BTC (_convert_satoshi_to_btc):
+                    # the conversion happens once, there. Dividing again here gave 1e-8 of it.
+                    value_unit="btc",
                 )
                 logging.info(
                     f"💰 TX Volume: {tx_vol_result.tx_volume_btc:.2f} BTC "
@@ -1607,6 +1610,7 @@ def main():
         fractal_result = None
         enhanced_fusion_result = None
         wasserstein_result = None
+        wasserstein_attempted = False
 
         if ADVANCED_METRICS_ENABLED:
             try:
@@ -1617,6 +1621,31 @@ def main():
                         value = vout.get("value", 0)
                         if value > 0:
                             utxo_values.append(value)
+
+                # Spec-010: Wasserstein Distribution Shift Detection. Persisted in metrics, so a
+                # failure is a metrics-block failure (no write, exit 2), not a warning.
+                wasserstein_attempted = True
+                w_vote = None
+
+                def wasserstein_block() -> None:
+                    nonlocal wasserstein_result, w_vote
+                    wasserstein_result = rolling_wasserstein(
+                        values=utxo_values,  # B1 fix: series → values
+                        window_size=144,  # 24h of blocks (144 blocks/day)
+                        step_size=6,  # 1h steps (6 blocks/hour)
+                    )
+                    if wasserstein_result.is_valid:
+                        w_vote = (
+                            wasserstein_result.wasserstein_vote
+                        )  # B2 fix: use precomputed vote
+                        logging.info(
+                            f"📊 Wasserstein: W={wasserstein_result.mean_distance:.4f} "
+                            f"(regime: {wasserstein_result.regime_status}, "
+                            f"vote: {w_vote:+.3f})"
+                        )
+
+                if WASSERSTEIN_ENABLED and len(utxo_values) >= 288:  # 2 windows of 144
+                    run_metrics_block("wasserstein", wasserstein_block)
 
                 if len(utxo_values) >= 100:
                     # US1: Power Law Regime Detection
@@ -1649,28 +1678,6 @@ def main():
                         f"(pattern: {symbolic_result.pattern_type}, "
                         f"vote: {symbolic_result.symbolic_vote:+.3f})"
                     )
-
-                # Spec-010: Wasserstein Distribution Shift Detection
-                wasserstein_result = None
-                w_vote = None
-                if WASSERSTEIN_ENABLED and len(utxo_values) >= 288:  # 2 windows of 144
-                    try:
-                        wasserstein_result = rolling_wasserstein(
-                            values=utxo_values,  # B1 fix: series → values
-                            window_size=144,  # 24h of blocks (144 blocks/day)
-                            step_size=6,  # 1h steps (6 blocks/hour)
-                        )
-                        if wasserstein_result.is_valid:
-                            w_vote = (
-                                wasserstein_result.wasserstein_vote
-                            )  # B2 fix: use precomputed vote
-                            logging.info(
-                                f"📊 Wasserstein: W={wasserstein_result.mean_distance:.4f} "
-                                f"(regime: {wasserstein_result.regime_status}, "
-                                f"vote: {w_vote:+.3f})"
-                            )
-                    except Exception as e:
-                        logging.warning(f"Wasserstein calculation failed: {e}")
 
                 # US4: Enhanced 8-Component Fusion (spec-009 + spec-010) + Derivatives (spec-008)
                 if whale_signal and mc_result:
@@ -1792,6 +1799,11 @@ def main():
 
             except Exception as e:
                 logging.warning(f"Spec-009 advanced metrics calculation failed: {e}")
+                if WASSERSTEIN_ENABLED and not wasserstein_attempted:
+                    # The failure came before the Wasserstein block could run: its columns
+                    # would be NULL for a reason nobody sees.
+                    metrics_failed.append("wasserstein")
+                    logging.error(f"Metrics block wasserstein failed: {e}")
 
         # Step 3: Compare prices (T041)
         comparison = compare_prices(utx_result["price_usd"], mempool_price)
