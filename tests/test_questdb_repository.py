@@ -163,7 +163,7 @@ def test_commit_address_clusters_refresh_aborts_without_touching_live_when_stagi
 
     with caplog.at_level("ERROR"):
         ok = asyncio.run(
-            repo.commit_address_clusters_refresh(5, timeout_s=0.05, poll_s=0.01)
+            repo.commit_address_clusters_refresh(5, stall_timeout_s=0.05, poll_s=0.01)
         )
 
     assert ok is False
@@ -172,6 +172,79 @@ def test_commit_address_clusters_refresh_aborts_without_touching_live_when_stagi
     assert not any("INSERT" in q for q in calls)
     errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
     assert any("expected 5" in m and "observed 3" in m for m in errors)
+
+
+class _FakeClock:
+    def __init__(self):
+        self.now = 0.0
+
+    def monotonic(self):
+        return self.now
+
+    async def sleep(self, seconds):
+        self.now += seconds
+
+
+def _fake_clock(monkeypatch):
+    import api.questdb_repository as qr
+
+    clock = _FakeClock()
+    monkeypatch.setattr(qr, "_monotonic", clock.monotonic)
+    monkeypatch.setattr(qr, "_sleep", clock.sleep)
+    return clock
+
+
+def _growing(step, expected, clock, stop_at=None):
+    """count(staging) growing by `step` rows per poll, optionally frozen at stop_at."""
+
+    async def fetchrow(query, *args):
+        n = int(clock.now) * step
+        return (min(n, stop_at) if stop_at is not None else min(n, expected),)
+
+    return fetchrow
+
+
+def test_commit_waits_past_stall_timeout_while_count_keeps_growing(monkeypatch):
+    clock = _fake_clock(monkeypatch)
+    repo = _repo_with_staging_count([0])
+    repo.fetchrow = _growing(1, 200, clock)  # 200 s total, never idle for 60 s
+
+    assert asyncio.run(repo.commit_address_clusters_refresh(200)) is True
+    assert clock.now > 60
+
+
+def test_commit_aborts_on_stall_even_below_absolute_cap(monkeypatch, caplog):
+    clock = _fake_clock(monkeypatch)
+    repo = _repo_with_staging_count([0])
+    repo.fetchrow = _growing(1, 200, clock, stop_at=30)  # stalls at 30 rows
+
+    with caplog.at_level("ERROR"):
+        ok = asyncio.run(repo.commit_address_clusters_refresh(200))
+
+    assert ok is False
+    assert [c.args[0] for c in repo.execute.await_args_list] == [
+        "TRUNCATE TABLE address_clusters_staging"
+    ]
+    msg = next(r.getMessage() for r in caplog.records if r.levelname == "ERROR")
+    assert "expected 200" in msg and "observed 30" in msg and "no progress" in msg
+    assert 85 <= clock.now <= 95  # 30 s of growth + 60 s stall
+
+
+def test_commit_aborts_at_absolute_cap_even_if_still_growing(monkeypatch, caplog):
+    clock = _fake_clock(monkeypatch)
+    repo = _repo_with_staging_count([0])
+    repo.fetchrow = _growing(1, 10_000, clock)
+
+    with caplog.at_level("ERROR"):
+        ok = asyncio.run(repo.commit_address_clusters_refresh(10_000, max_wait_s=120))
+
+    assert ok is False
+    assert [c.args[0] for c in repo.execute.await_args_list] == [
+        "TRUNCATE TABLE address_clusters_staging"
+    ]
+    msg = next(r.getMessage() for r in caplog.records if r.levelname == "ERROR")
+    assert "absolute cap" in msg
+    assert 120 <= clock.now < 125
 
 
 def test_commit_address_clusters_refresh_aborts_when_live_lacks_a_column(caplog):

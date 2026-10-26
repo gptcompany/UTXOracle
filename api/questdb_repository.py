@@ -6,6 +6,7 @@ import asyncio
 import logging
 import weakref
 import threading
+import time
 import json
 import os
 import re
@@ -36,6 +37,10 @@ AsyncpgRecord = Any
 
 logger = logging.getLogger(__name__)
 
+# Indirections so tests can drive a fake clock without really waiting.
+_monotonic = time.monotonic
+_sleep = asyncio.sleep
+
 # QuestDB connection details from environment variables
 QUESTDB_ILP_HOST = os.getenv("QUESTDB_ILP_HOST", "localhost")
 QUESTDB_ILP_PORT = int(os.getenv("QUESTDB_ILP_PORT", 9009))
@@ -49,6 +54,13 @@ QUESTDB_PG_DATABASE = os.getenv("QUESTDB_PG_DATABASE", "main")
 
 ADDRESS_CLUSTERS_TABLE = "address_clusters"
 ADDRESS_CLUSTERS_STAGING_TABLE = "address_clusters_staging"
+# Absolute cap on the wait for WAL to apply the staged rows. The full sync
+# (scripts/bootstrap/sync_clusters_to_questdb.py) reads the DuckDB address_clusters table,
+# about 55M rows per specs/037-database-consolidation/spec.md; the stall timeout already
+# covers a slow-but-moving apply, so the cap only bounds a crawl. 4 h allows 55M rows at
+# ~3.8k rows/s, well under the ~64k rows the ingest delivered in the 23/10 incident.
+ADDRESS_CLUSTERS_MAX_WAIT_S = 4 * 3600.0
+ADDRESS_CLUSTERS_PROGRESS_LOG_S = 30.0
 ADDRESS_CLUSTERS_COLUMNS = (
     "address",
     "cluster_id",
@@ -1505,12 +1517,23 @@ class QuestDBRepository:
             )
 
     async def _wait_for_staged_rows(
-        self, expected_rows: int, *, timeout_s: float, poll_s: float
+        self,
+        expected_rows: int,
+        *,
+        stall_timeout_s: float,
+        max_wait_s: float,
+        poll_s: float,
     ) -> bool:
-        """Poll count(staging) until WAL has applied every row sent over ILP."""
-        loop = asyncio.get_running_loop()
-        started = loop.time()
+        """Poll count(staging) until WAL has applied every row sent over ILP.
+
+        Aborts when the count has not grown for `stall_timeout_s` (the timer restarts at
+        every growth) or when `max_wait_s` has elapsed in total.
+        """
+        started = _monotonic()
+        last_growth = started
+        last_log = started
         observed = -1
+        best = -1
         while True:
             try:
                 row = await self.fetchrow(
@@ -1519,7 +1542,8 @@ class QuestDBRepository:
                 observed = int(row[0]) if row is not None else 0
             except Exception as e:
                 logger.warning("Staging count poll failed: %s", e)
-            elapsed = loop.time() - started
+            now = _monotonic()
+            elapsed = now - started
             if observed == expected_rows:
                 logger.info(
                     "address_clusters staging complete: %d rows after %.1f s",
@@ -1527,22 +1551,40 @@ class QuestDBRepository:
                     elapsed,
                 )
                 return True
-            if elapsed >= timeout_s:
+            if observed > best:
+                best = observed
+                last_growth = now
+            reason = None
+            if now - last_growth >= stall_timeout_s:
+                reason = f"no progress for {now - last_growth:.1f} s"
+            elif elapsed >= max_wait_s:
+                reason = f"absolute cap of {max_wait_s:.0f} s reached"
+            if reason:
                 logger.error(
                     "address_clusters staging incomplete: expected %d rows, observed %d "
-                    "after %.1f s; live table left untouched",
+                    "after %.1f s (%s); live table left untouched",
                     expected_rows,
                     observed,
                     elapsed,
+                    reason,
                 )
                 return False
-            await asyncio.sleep(poll_s)
+            if now - last_log >= ADDRESS_CLUSTERS_PROGRESS_LOG_S:
+                last_log = now
+                logger.info(
+                    "address_clusters staging progress: %d / %d rows after %.1f s",
+                    observed,
+                    expected_rows,
+                    elapsed,
+                )
+            await _sleep(poll_s)
 
     async def commit_address_clusters_refresh(
         self,
         expected_rows: int,
         *,
-        timeout_s: float = 60.0,
+        stall_timeout_s: float = 60.0,
+        max_wait_s: float = ADDRESS_CLUSTERS_MAX_WAIT_S,
         poll_s: float = 1.0,
     ) -> bool:
         """
@@ -1550,7 +1592,8 @@ class QuestDBRepository:
 
         `expected_rows` is the number of rows the caller sent to staging: the flush
         returns before WAL has applied them all (F-424), so the cutover waits for
-        count(staging) to match and aborts, leaving the live table untouched, if not.
+        count(staging) to match and aborts, leaving the live table untouched, if the count
+        stalls for `stall_timeout_s` or `max_wait_s` is exceeded.
         """
         if not await self.async_flush_ingestion():
             logger.error("Failed to flush staged address_clusters rows before cutover.")
@@ -1558,7 +1601,10 @@ class QuestDBRepository:
             return False
 
         if not await self._wait_for_staged_rows(
-            expected_rows, timeout_s=timeout_s, poll_s=poll_s
+            expected_rows,
+            stall_timeout_s=stall_timeout_s,
+            max_wait_s=max_wait_s,
+            poll_s=poll_s,
         ):
             await self.abort_address_clusters_refresh()
             return False
