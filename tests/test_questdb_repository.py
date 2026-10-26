@@ -171,32 +171,69 @@ class _FakeHttpSender:
         self.closed_with = flush
 
 
-def _repo(monkeypatch, wal=None, count=5, live_columns=None, execute=None, sender=None):
-    """Repo with fake clock, ILP/HTTP sender, wal_tables() and count(staging); wal and
-    count may be callables of the fake time (None wal = table absent from wal_tables)."""
+class _DedicatedConn:
+    """Cutover connection: execute/close only, so any fetch/fetchrow/fetchval is an
+    AttributeError."""
+
+    def __init__(self, fail_on=None):
+        self.executed = []
+        self.closed = False
+        self.fail_on = fail_on
+
+    async def execute(self, query, *args):
+        query = " ".join(query.split())
+        self.executed.append(query)
+        if self.fail_on and query.startswith(self.fail_on):
+            raise RuntimeError("boom")
+
+    async def close(self):
+        self.closed = True
+
+
+def _repo(
+    monkeypatch,
+    wal=None,
+    count=5,
+    live_wal=None,
+    live_count=None,
+    live_columns=None,
+    execute=None,
+    sender=None,
+    fail_on=None,
+):
+    """Repo with fake clock, ILP/HTTP sender, wal_tables() and counts per table; wal and
+    count may be callables of the fake time (wal "absent" = not in wal_tables())."""
     import api.questdb_repository as qr
 
     clock = _FakeClock()
     monkeypatch.setattr(qr, "_monotonic", clock.monotonic)
     monkeypatch.setattr(qr, "_sleep", clock.sleep)
     wal = _wal(9, 9) if wal is None else wal
+    live_wal = _wal(4, 4) if live_wal is None else live_wal
+    live_count = count if live_count is None else live_count
 
     def at(value):
         return value(clock.now) if callable(value) else value
 
     async def fetch(query, *args):
         if "wal_tables" in query:
-            current = at(wal)
+            current = at(live_wal if args[0] == "address_clusters" else wal)
             return [] if current == "absent" else [current]
         return live_columns or _LIVE_COLUMNS
+
+    async def fetchrow(query, *args):
+        live = query.rstrip().endswith("FROM address_clusters")
+        return (at(live_count if live else count),)
 
     repo = QuestDBRepository()
     repo.clock = clock
     repo.fetch = fetch
     repo._refresh_sender = sender
     repo._refresh_buffered = 1 if sender else 0
-    repo.fetchrow = AsyncMock(side_effect=lambda q, *a: (at(count),))
+    repo.fetchrow = AsyncMock(side_effect=fetchrow)
     repo.execute = execute or AsyncMock(return_value="OK")
+    repo.dedicated = _DedicatedConn(fail_on)
+    repo._open_dedicated_connection = AsyncMock(return_value=repo.dedicated)
     return repo
 
 
@@ -246,21 +283,24 @@ def test_stage_address_cluster_reports_a_server_rejection(monkeypatch, caplog):
 def test_commit_address_clusters_refresh_runs_cutover(monkeypatch):
     sender = _FakeHttpSender()
     repo = _repo(
-        monkeypatch, wal=lambda t: _wal(8, 9) if t < 10 else _wal(9, 9), sender=sender
+        monkeypatch,
+        wal=lambda t: _wal(8, 9) if t < 10 else _wal(9, 9),
+        sender=sender,
     )
 
     assert asyncio.run(repo.commit_address_clusters_refresh(5)) is True
 
     assert sender.flushes == 1 and repo._refresh_sender is None
-    calls = _executed(repo)
+    calls = repo.dedicated.executed
     assert calls[0] == "TRUNCATE TABLE address_clusters"
-    insert = " ".join(calls[1].split())
-    assert insert.startswith(
+    assert calls[1].startswith(
         "INSERT INTO address_clusters (address, cluster_id, ts, last_seen, "
         "is_exchange_likely, label, confidence) SELECT address, cluster_id, ts, "
         "last_seen, is_exchange_likely, label, confidence FROM address_clusters_staging"
     )
     assert calls[2] == "TRUNCATE TABLE address_clusters_staging"
+    assert repo.dedicated.closed
+    repo.execute.assert_not_awaited()  # no write on a pooled connection
 
 
 def test_commit_raises_and_aborts_when_the_server_rejects_the_flush(
@@ -362,25 +402,82 @@ def test_commit_address_clusters_refresh_aborts_when_live_lacks_a_column(
     with caplog.at_level("ERROR"):
         ok = asyncio.run(repo.commit_address_clusters_refresh(5))
 
-    assert ok is False and _only_staging_truncated(repo)
+    assert ok is False and repo.dedicated.executed == []
     assert any("confidence" in m for m in _errors(caplog))
 
 
-def test_commit_address_clusters_refresh_clears_tables_on_cutover_failure(monkeypatch):
-    repo = _repo(
-        monkeypatch,
-        execute=AsyncMock(
-            side_effect=["TRUNCATE", RuntimeError("boom"), "TRUNCATE", "TRUNCATE"]
-        ),
-    )
+def _no_staging_truncate(repo):
+    assert "TRUNCATE TABLE address_clusters_staging" not in repo.dedicated.executed
+    repo.execute.assert_not_awaited()
 
-    assert asyncio.run(repo.commit_address_clusters_refresh(5)) is False
 
-    calls = _executed(repo)
-    assert calls[0] == "TRUNCATE TABLE address_clusters"
-    assert "INSERT INTO address_clusters" in calls[1]
-    assert calls[2] == "TRUNCATE TABLE address_clusters_staging"
-    assert calls[3] == "TRUNCATE TABLE address_clusters"
+def test_failed_insert_leaves_staging_intact_and_logs_the_recovery_command(
+    monkeypatch, caplog
+):
+    repo = _repo(monkeypatch, fail_on="INSERT INTO")
+
+    with caplog.at_level("ERROR"):
+        ok = asyncio.run(repo.commit_address_clusters_refresh(5))
+
+    assert ok is False  # callers exit non-zero on False
+    _no_staging_truncate(repo)
+    msg = " ".join(_errors(caplog))
+    assert "--cutover-only --expected-rows 5" in msg and "staging left intact" in msg
+
+
+def test_wrong_live_count_leaves_staging_intact_and_logs_the_recovery_command(
+    monkeypatch, caplog
+):
+    repo = _repo(monkeypatch, count=5, live_count=3)
+
+    with caplog.at_level("ERROR"):
+        ok = asyncio.run(repo.commit_address_clusters_refresh(5))
+
+    assert ok is False
+    _no_staging_truncate(repo)
+    msg = " ".join(_errors(caplog))
+    assert "count_mismatch" in msg and "observed 3" in msg
+    assert "--cutover-only --expected-rows 5" in msg
+
+
+def test_suspended_live_wal_leaves_staging_intact(monkeypatch, caplog):
+    repo = _repo(monkeypatch, live_wal=_wal(2, 4, True, "DISK_FULL", "no space"))
+
+    with caplog.at_level("ERROR"):
+        assert asyncio.run(repo.commit_address_clusters_refresh(5)) is False
+
+    _no_staging_truncate(repo)
+    assert "suspended" in " ".join(_errors(caplog))
+
+
+def test_cutover_only_completes_from_a_full_staging_table(monkeypatch):
+    repo = _repo(monkeypatch)
+
+    assert asyncio.run(repo.cutover_address_clusters_from_staging(5)) is True
+
+    assert repo.dedicated.executed[0] == "TRUNCATE TABLE address_clusters"
+    assert repo.dedicated.executed[-1] == "TRUNCATE TABLE address_clusters_staging"
+
+
+def test_cutover_only_refuses_a_staging_table_with_the_wrong_count(monkeypatch, caplog):
+    repo = _repo(monkeypatch, count=4)
+
+    with caplog.at_level("ERROR"):
+        assert asyncio.run(repo.cutover_address_clusters_from_staging(5)) is False
+
+    assert repo.dedicated.executed == []  # live untouched
+    repo.execute.assert_not_awaited()  # staging untouched
+    assert "count_mismatch" in " ".join(_errors(caplog))
+
+
+def test_dedicated_connection_never_receives_a_fetch(monkeypatch):
+    repo = _repo(monkeypatch)
+
+    asyncio.run(repo.commit_address_clusters_refresh(5))
+
+    for name in ("fetch", "fetchrow", "fetchval"):
+        assert not hasattr(repo.dedicated, name)
+    assert repo.dedicated.executed  # it ran the cutover statements
 
 
 def _patch_asyncpg(monkeypatch, read_fetch, alter_error=None):

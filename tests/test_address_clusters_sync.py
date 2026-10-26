@@ -143,3 +143,35 @@ def test_sync_main_exits_nonzero_when_the_sync_fails(monkeypatch, tmp_path):
             "scripts/bootstrap/sync_clusters_to_questdb.py", run_name="__main__"
         )
     assert exc.value.code == 1
+
+
+@pytest.mark.parametrize("cutover_ok, code", [(True, 0), (False, 1)])
+def test_sync_cutover_only_exit_code_follows_the_recovery_result(
+    monkeypatch, cutover_ok, code
+):
+    import runpy
+    import sys
+
+    calls = []
+
+    class _Repo:
+        async def initialize(self):
+            return None
+
+        async def close(self):
+            return None
+
+        async def cutover_address_clusters_from_staging(self, expected_rows):
+            calls.append(expected_rows)
+            return cutover_ok
+
+    monkeypatch.setattr("api.questdb_repository.QuestDBRepository", _Repo)
+    monkeypatch.setattr(
+        sys, "argv", ["sync", "--cutover-only", "--expected-rows", "64011"]
+    )
+    with pytest.raises(SystemExit) as exc:
+        runpy.run_path(
+            "scripts/bootstrap/sync_clusters_to_questdb.py", run_name="__main__"
+        )
+    assert exc.value.code == code
+    assert calls == [64011]

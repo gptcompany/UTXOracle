@@ -8,6 +8,10 @@ staged full-refresh cutover.
 
 Usage:
   python3 scripts/bootstrap/sync_clusters_to_questdb.py [--batch-size 100000]
+  python3 scripts/bootstrap/sync_clusters_to_questdb.py --cutover-only --expected-rows N
+
+--cutover-only redoes only the cutover from the existing staging table (recovery after
+a failed cutover: the staging table is the only good copy and is not rewritten).
 """
 
 import argparse
@@ -146,10 +150,29 @@ async def main() -> int:
         default=100000,
         help="Batch size for reading from DuckDB",
     )
+    parser.add_argument(
+        "--cutover-only",
+        action="store_true",
+        help="Redo only the cutover from the existing staging table",
+    )
+    parser.add_argument(
+        "--expected-rows",
+        type=int,
+        help="Rows the staging table must hold (required with --cutover-only)",
+    )
     args = parser.parse_args()
+    if args.cutover_only and args.expected_rows is None:
+        parser.error("--cutover-only requires --expected-rows N")
 
     repo = QuestDBRepository()
     await repo.initialize()
+
+    if args.cutover_only:
+        try:
+            ok = await repo.cutover_address_clusters_from_staging(args.expected_rows)
+            return 0 if ok else 1
+        finally:
+            await repo.close()
 
     if not os.path.exists(DUCKDB_PATH):
         logger.error(f"DuckDB database not found at {DUCKDB_PATH}")
