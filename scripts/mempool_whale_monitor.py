@@ -559,9 +559,17 @@ class MempoolWhaleMonitor:
                     # the app's repository is up.
                     raise RuntimeError("app QuestDB repository not ready yet")
                 self.repo = self._repo_getter()
-            # Query all known clusters from QuestDB
-            query = "SELECT address, cluster_id FROM active_exchange_registry"
+            # address_clusters is the table data-updater writes (save_address_clusters_bulk)
+            query = (
+                "SELECT address, cluster_id FROM address_clusters "
+                "WHERE is_exchange_likely = true"
+            )
             rows = await self.repo.fetch(query)
+            if not rows:
+                # CSV stays as fallback only
+                logger.warning(
+                    "No exchange addresses in address_clusters: using CSV registry"
+                )
 
             # Combine CSV-loaded addresses with DB registry
             self.registry_cache = {row["address"]: row["cluster_id"] for row in rows}
@@ -579,7 +587,7 @@ class MempoolWhaleMonitor:
                     "⚠️ Whale monitor started in DEGRADED state: empty registry"
                 )
         except Exception as e:
-            logger.error(f"Failed to preload registry from DB: {e}")
+            logger.warning(f"Failed to preload registry from DB, using CSV: {e}")
             self.registry_cache = dict(self.exchange_addresses)
             self.is_healthy = len(self.registry_cache) > 0
 
