@@ -149,6 +149,8 @@ services:
       ELECTRS_HTTP_URL: ${ELECTRS_HTTP_URL:-http://host.docker.internal:3002}
       MEMPOOL_API_URL: ${MEMPOOL_API_URL:-http://host.docker.internal:8999}
       MEMPOOL_API_V1_URL: ${MEMPOOL_API_V1_URL:-http://host.docker.internal:8999/api/v1}
+      MEMPOOL_HTTP_URL: ${MEMPOOL_HTTP_URL:-http://host.docker.internal:8999}
+      MEMPOOL_WS_URL: ${MEMPOOL_WS_URL:-ws://host.docker.internal:8999/ws/track-mempool-tx}
       BRK_BASE_URL: ${BRK_BASE_URL:-http://host.docker.internal:7070}
       HYPERLIQUID_NODE_API_URL: ${HYPERLIQUID_NODE_API_URL:-http://host.docker.internal:3001/info}
       HYPERLIQUID_NODE_INFO_REQUEST_TYPE: ${HYPERLIQUID_NODE_INFO_REQUEST_TYPE:-l4Book}
