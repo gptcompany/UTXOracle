@@ -799,8 +799,8 @@ def test_monitor_waits_for_the_app_repository_before_opening_the_websocket():
         await task
         assert monitor.reconnector.connects == 1
         assert monitor.repo is repo
-        # The registry was preloaded from the CSV only: one reload from the DB, before the stream.
-        assert reloads == [repo]
+        # The registry is CSV-only (F-418): waiting for the repository never reloads it.
+        assert reloads == []
 
     asyncio.run(scenario())
 

@@ -19,7 +19,7 @@ from scripts.models.metrics_models import (
     AddressCohortsResult,
 )
 from typing import TYPE_CHECKING, Optional, List, Dict, Any, Union
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 if TYPE_CHECKING:
     from scripts.models.metrics_models import CostBasisResult, URPDFeaturesResult
@@ -442,6 +442,99 @@ def save_backtest_whale_signal_row(
     return True
 
 
+_TABLE_STATE_QUERY = "SELECT walEnabled, dedup FROM tables() WHERE table_name = $1"
+
+
+async def read_table_states(tables) -> dict:
+    """tables() state (walEnabled, dedup) of each table, None when it does not exist.
+
+    Read on a connection of its own, closed on return: QuestDB 7.x breaks a connection that
+    runs a DDL after an extended-protocol query (asyncpg: 'NoneType' has no attribute
+    'decode'), so the DDL connection must never run a fetch.
+    """
+    if asyncpg is None:
+        raise ModuleNotFoundError(
+            "asyncpg package is required to read tables(); install project dependencies"
+        )
+    conn = await asyncpg.connect(
+        host=QUESTDB_PG_HOST,
+        port=QUESTDB_PG_PORT,
+        user=QUESTDB_PG_USER,
+        password=QUESTDB_PG_PASSWORD,
+        database=QUESTDB_PG_DATABASE,
+    )
+    try:
+        return {t: await conn.fetchrow(_TABLE_STATE_QUERY, t) for t in tables}
+    finally:
+        await conn.close()
+
+
+async def _enable_daily_dedup(conn, table: str) -> None:
+    """Enable DEDUP UPSERT KEYS(ts) on `table` when the state reported by tables() allows it.
+
+    The decision is taken from the walEnabled and dedup columns, never from an error text;
+    `conn` is the DDL connection and only executes the ALTER (simple protocol):
+    - dedup already on: INFO, nothing else;
+    - WAL without dedup: ALTER ... DEDUP ENABLE; a failure is fatal, because without dedup
+      the daily rerun would duplicate its row;
+    - not WAL: no schema conversion (that is not a service-startup step); ERROR with the
+      table name and startup goes on. The daily job itself refuses to write to a table
+      without dedup (tables_without_dedup), so the error stays visible.
+    """
+    row = (await read_table_states([table]))[table]
+    if row is None:
+        return  # created just before by the caller with dedup; nothing to migrate
+    if row["dedup"]:
+        logger.info("%s: dedup already active, no change", table)
+    elif row["walEnabled"]:
+        ddl = f"ALTER TABLE {table} DEDUP ENABLE UPSERT KEYS(ts)"
+        try:
+            await conn.execute(ddl)
+        except Exception as exc:
+            logger.error("%s: %s failed: %s", table, ddl, exc)
+            raise
+        logger.info("%s: dedup enabled on ts", table)
+    else:
+        logger.error("%s: dedup non attivabile: tabella non WAL", table)
+
+
+async def tables_without_dedup(tables) -> list[str]:
+    """Names among `tables` that do not exist or are not deduplicating (read from tables())."""
+    states = await read_table_states(tables)
+    return [t for t in tables if states[t] is None or not states[t]["dedup"]]
+
+
+async def tables_with_day_row(tables, day: datetime) -> list[str]:
+    """Names among `tables` that already hold a row whose ts is exactly `day` (read-only).
+
+    `day` is a UTC midnight built by the caller, so it is rendered into the query as a
+    literal: the connection stays on one-shot reads and takes no bind parameters.
+    """
+    if asyncpg is None:
+        raise ModuleNotFoundError(
+            "asyncpg package is required to read QuestDB; install project dependencies"
+        )
+    literal = day.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    conn = await asyncpg.connect(
+        host=QUESTDB_PG_HOST,
+        port=QUESTDB_PG_PORT,
+        user=QUESTDB_PG_USER,
+        password=QUESTDB_PG_PASSWORD,
+        database=QUESTDB_PG_DATABASE,
+    )
+    try:
+        found = []
+        for table in tables:
+            count = await conn.fetchval(
+                f"SELECT count() FROM {table} WHERE ts = '{literal}'"
+            )
+            if count:
+                found.append(table)
+        return found
+    finally:
+        await conn.close()
+
+
 async def create_tables_if_not_exist():
     """
     Creates the necessary tables in QuestDB if they do not already exist.
@@ -531,7 +624,8 @@ async def create_tables_if_not_exist():
                 fetch_tier LONG,
                 is_valid BOOLEAN,
                 created_at TIMESTAMP
-            ) timestamp(ts) PARTITION BY DAY;
+            ) timestamp(ts) PARTITION BY DAY WAL
+              DEDUP UPSERT KEYS(ts);
             """
         )
 
@@ -808,9 +902,14 @@ async def create_tables_if_not_exist():
                 wasserstein_vote DOUBLE,
                 wasserstein_is_valid BOOLEAN,
                 created_at TIMESTAMP
-            ) timestamp(ts) PARTITION BY DAY;
+            ) timestamp(ts) PARTITION BY DAY WAL
+              DEDUP UPSERT KEYS(ts);
             """
         )
+
+        # F-419: one row per analysed day (DEDUP UPSERT KEYS(ts)); see _enable_daily_dedup.
+        for table_name in ("price_analysis", "metrics"):
+            await _enable_daily_dedup(conn, table_name)
 
         await conn.execute(
             """

@@ -24,6 +24,7 @@ import json
 import logging
 import os
 import sys
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -144,8 +145,8 @@ class MempoolWhaleMonitor:
     async def _wait_for_app_repo(self) -> bool:
         """Wait for the app's repository BEFORE the stream is opened (nothing to buffer).
 
-        Returns True if it had to wait (the registry was then preloaded from the CSV only) and
-        the repository is up; False if no wait was needed or stop() ended the wait.
+        Returns True if it had to wait and the repository is up; False if no wait was
+        needed or stop() ended the wait.
         """
         if self._repo_ready is None or self._repo_ready.is_set():
             return False
@@ -549,43 +550,26 @@ class MempoolWhaleMonitor:
             logger.error(f"Failed to broadcast alert: {e}", exc_info=True)
 
     async def _preload_registry(self):
-        """Load entire active exchange registry into RAM for O(1) lock-free lookups."""
-        logger.info("Loading active exchange registry into memory...")
-        self.registry_cache = {}
-        try:
-            if self._repo_ready is not None:
-                if not self._repo_ready.is_set():
-                    # fetch() would lazily open a pool of its own: use the CSV registry until
-                    # the app's repository is up.
-                    raise RuntimeError("app QuestDB repository not ready yet")
-                self.repo = self._repo_getter()
-            # Query all known clusters from QuestDB
-            query = "SELECT address, cluster_id FROM active_exchange_registry"
-            rows = await self.repo.fetch(query)
+        """Build the in-RAM lookup cache from the CSV registry only (F-418, F-421).
 
-            # Combine CSV-loaded addresses with DB registry
-            self.registry_cache = {row["address"]: row["cluster_id"] for row in rows}
-
-            # If CSV has entries not in DB (or newer), they take precedence
-            for addr, cluster in self.exchange_addresses.items():
-                self.registry_cache[addr] = cluster
-
-            logger.info(
-                f"Registry preloaded: {len(self.registry_cache)} addresses cached in RAM."
-            )
-            self.is_healthy = len(self.registry_cache) > 0
-            if not self.is_healthy:
-                logger.error(
-                    "⚠️ Whale monitor started in DEGRADED state: empty registry"
-                )
-        except Exception as e:
-            logger.error(f"Failed to preload registry from DB: {e}")
-            self.registry_cache = dict(self.exchange_addresses)
-            self.is_healthy = len(self.registry_cache) > 0
+        The DB never contributed: address_clusters has two producers with different
+        cluster_id semantics and a heuristic flag, so it is not a registry source.
+        """
+        started = time.monotonic()
+        self.registry_cache = dict(self.exchange_addresses)
+        self.is_healthy = len(self.registry_cache) > 0
+        logger.info(
+            "Registry preloaded from CSV: %d rows, %d distinct exchanges, %.3f s",
+            len(self.registry_cache),
+            len(set(self.registry_cache.values())),
+            time.monotonic() - started,
+        )
+        if not self.is_healthy:
+            logger.error("⚠️ Whale monitor started in DEGRADED state: empty registry")
 
     async def reload_exchange_registry(self):
         """Reload CSV-backed exchange labels and rebuild the effective lookup cache."""
-        logger.info("Reloading exchange registry from CSV and QuestDB...")
+        logger.info("Reloading exchange registry from CSV...")
         self.exchange_addresses = load_exchange_addresses("data/exchange_addresses.csv")
         await self._preload_registry()
         logger.info(
@@ -600,9 +584,7 @@ class MempoolWhaleMonitor:
 
         # Load registry into RAM before accepting any transactions
         await self._preload_registry()
-        if await self._wait_for_app_repo():
-            # The preload fell back to the CSV: reload the registry from the DB once.
-            await self.reload_exchange_registry()
+        await self._wait_for_app_repo()
         if self._stop_event.is_set():
             return
 
