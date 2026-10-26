@@ -1045,12 +1045,19 @@ def save_to_questdb(data: Dict) -> None:
     """
     Save price comparison data to QuestDB.
 
+    The row key is data["timestamp"]: for the daily run it is the UTC day of execution at
+    00:00Z, the last snapshot of that day counts, and a rerun on the same day replaces the
+    row (DEDUP UPSERT KEYS(ts)).
+
     Args:
         data: Price data dictionary
+
+    Raises:
+        RuntimeError: if the ILP write or its flush failed (_send_row answers False).
     """
     try:
         repo = QuestDBRepository()
-        repo._send_row(
+        sent = repo._send_row(
             "price_analysis",
             symbols={},
             columns={
@@ -1067,6 +1074,10 @@ def save_to_questdb(data: Dict) -> None:
             at=datetime.fromisoformat(data["timestamp"]),
             flush=True,
         )
+        if sent is not True:
+            raise RuntimeError(
+                "QuestDB refused the price_analysis row (see ILP error above)"
+            )
         logging.info("Data saved to QuestDB")
     except Exception as e:
         logging.error(f"Failed to save data to QuestDB: {e}")

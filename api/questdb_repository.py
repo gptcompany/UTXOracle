@@ -288,6 +288,31 @@ def save_backtest_whale_signal_row(
     return True
 
 
+async def _enable_daily_dedup(conn, table: str) -> None:
+    """Make an existing `table` WAL and deduplicating on ts, without hiding any error.
+
+    Without DEDUP the daily job duplicates its row on every rerun, so a DEDUP failure that is
+    not "already enabled" aborts the table creation. SET TYPE WAL only schedules a conversion
+    that completes at the next QuestDB restart, so its unexpected failure is a WARNING: the
+    DEDUP statement right after it then decides whether the table is usable. Precondition
+    for deploy: the tables are already WAL (true on the live QuestDB).
+    """
+    for ddl, fatal in (
+        (f"ALTER TABLE {table} SET TYPE WAL", False),
+        (f"ALTER TABLE {table} DEDUP ENABLE UPSERT KEYS(ts)", True),
+    ):
+        try:
+            await conn.execute(ddl)
+        except Exception as exc:
+            if "already" in str(exc).lower():
+                logger.info("%s: nothing to do (%s): %s", table, ddl, exc)
+            elif fatal:
+                logger.error("%s: %s failed: %s", table, ddl, exc)
+                raise
+            else:
+                logger.warning("%s: %s failed: %s", table, ddl, exc)
+
+
 async def create_tables_if_not_exist():
     """
     Creates the necessary tables in QuestDB if they do not already exist.
@@ -660,17 +685,9 @@ async def create_tables_if_not_exist():
             """
         )
 
-        # F-419: one row per analysed day. Tables created before this change are neither WAL
-        # nor deduplicating; the conversion takes effect on the next QuestDB restart.
+        # F-419: one row per analysed day (DEDUP UPSERT KEYS(ts)); see _enable_daily_dedup.
         for table_name in ("price_analysis", "metrics"):
-            for ddl in (
-                f"ALTER TABLE {table_name} SET TYPE WAL",
-                f"ALTER TABLE {table_name} DEDUP ENABLE UPSERT KEYS(ts)",
-            ):
-                try:
-                    await conn.execute(ddl)
-                except Exception:
-                    pass
+            await _enable_daily_dedup(conn, table_name)
 
         await conn.execute(
             """

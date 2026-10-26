@@ -366,3 +366,158 @@ def test_destination_without_expectation_logs_and_does_not_fail(monkeypatch, cap
     assert sent
     assert "no expected destination set" in caplog.text
     assert "ILP db.invalid:1111" in caplog.text
+
+
+# --- Write failures must end the process with a non-zero exit (F-419 audit) -------------
+
+
+class _FlakySender:
+    """ILP sender stand-in: rows are accepted, flush fails (broken connection)."""
+
+    def row(self, *args, **kwargs) -> None:
+        return None
+
+    def flush(self) -> None:
+        raise ConnectionResetError("flush failed (test)")
+
+    def close(self) -> None:
+        return None
+
+
+def _exit_code(daily) -> int:
+    with pytest.raises(SystemExit) as stop:
+        daily.main()
+    return stop.value.code
+
+
+def test_price_analysis_row_refused_by_ilp_exits_non_zero(monkeypatch):
+    """_send_row answers False on ILP errors; save_to_questdb used to ignore it."""
+    import api.questdb_repository as repository
+    import scripts.daily_analysis as daily
+    import scripts.metrics as metrics
+
+    monkeypatch.setattr(
+        repository.QuestDBRepository, "_send_row", lambda self, *a, **k: False
+    )
+    # Isolate the first table: the metrics writer would succeed.
+    monkeypatch.setattr(metrics._repo, "_send_row", lambda *a, **k: True)
+    _stub_inputs(monkeypatch, daily)
+
+    assert _exit_code(daily) == 2
+
+
+def test_failed_flush_exits_non_zero_for_the_first_table(monkeypatch):
+    import api.questdb_repository as repository
+    import scripts.daily_analysis as daily
+    import scripts.metrics as metrics
+
+    monkeypatch.setattr(
+        repository.QuestDBRepository, "_build_sender", lambda self: _FlakySender()
+    )
+    monkeypatch.setattr(metrics._repo, "_send_row", lambda *a, **k: True)
+    _stub_inputs(monkeypatch, daily)
+
+    assert _exit_code(daily) == 2
+
+
+def test_metrics_row_refused_exits_non_zero(monkeypatch):
+    import scripts.daily_analysis as daily
+    import scripts.metrics as metrics
+
+    _record_rows(monkeypatch)  # price_analysis succeeds
+    monkeypatch.setattr(metrics._repo, "_send_row", lambda *a, **k: False)
+    _stub_inputs(monkeypatch, daily)
+
+    assert _exit_code(daily) == 2
+
+
+def test_metrics_write_raising_exits_non_zero(monkeypatch):
+    import scripts.daily_analysis as daily
+    import scripts.metrics as metrics
+
+    def boom(*args, **kwargs):
+        raise ConnectionResetError("ilp down (test)")
+
+    _record_rows(monkeypatch)
+    monkeypatch.setattr(metrics._repo, "_send_row", boom)
+    _stub_inputs(monkeypatch, daily)
+
+    assert _exit_code(daily) == 2
+
+
+def test_metrics_failed_flush_exits_non_zero(monkeypatch):
+    import scripts.daily_analysis as daily
+    import scripts.metrics as metrics
+
+    _record_rows(monkeypatch)
+    monkeypatch.setattr(metrics._repo, "_build_sender", lambda: _FlakySender())
+    monkeypatch.setattr(metrics._repo, "sender", None)
+    _stub_inputs(monkeypatch, daily)
+
+    assert _exit_code(daily) == 2
+
+
+# --- Schema migration: no error may vanish ---------------------------------------------
+
+
+class _AlterConnection(_RecordingConnection):
+    """Fails the statements whose text contains a key of `failures`."""
+
+    def __init__(self, failures: dict[str, str]) -> None:
+        super().__init__()
+        self.failures = failures
+
+    async def execute(self, statement: str, *args) -> None:
+        text = " ".join(statement.split())
+        for needle, message in self.failures.items():
+            if needle in text:
+                raise RuntimeError(message)
+        self.statements.append(text)
+
+
+def _create_tables(monkeypatch, conn) -> None:
+    import types as _types
+
+    import api.questdb_repository as repository
+
+    async def connect(**kwargs):
+        return conn
+
+    monkeypatch.setattr(repository, "asyncpg", _types.SimpleNamespace(connect=connect))
+    asyncio.run(repository.create_tables_if_not_exist())
+
+
+def test_unexpected_dedup_error_fails_the_table_creation(monkeypatch):
+    """Without DEDUP the daily rerun would duplicate rows: the error must surface."""
+    conn = _AlterConnection(
+        {"price_analysis DEDUP ENABLE": "deduplication is possible only on WAL tables"}
+    )
+    with pytest.raises(RuntimeError, match="only on WAL"):
+        _create_tables(monkeypatch, conn)
+
+
+def test_dedup_already_enabled_is_logged_at_info_and_does_not_fail(monkeypatch, caplog):
+    conn = _AlterConnection(
+        {"metrics DEDUP ENABLE": "deduplication is already enabled on the table"}
+    )
+    with caplog.at_level("INFO"):
+        _create_tables(monkeypatch, conn)
+
+    assert any(
+        r.levelname == "INFO"
+        and "metrics" in r.getMessage()
+        and "already" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+def test_unexpected_set_type_wal_error_is_logged_as_warning(monkeypatch, caplog):
+    conn = _AlterConnection({"metrics SET TYPE WAL": "permission denied"})
+    with caplog.at_level("WARNING"):
+        _create_tables(monkeypatch, conn)
+
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert any(
+        "metrics" in m and "SET TYPE WAL" in m and "permission denied" in m
+        for m in warnings
+    )
