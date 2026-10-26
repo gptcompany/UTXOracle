@@ -131,7 +131,7 @@ async def sync_clusters(
         total_synced += len(rows_to_insert)
         logger.info(f"Synced {total_synced:,} / {total_rows:,} clusters...")
 
-    if not await repo.commit_address_clusters_refresh():
+    if not await repo.commit_address_clusters_refresh(total_synced):
         return False
 
     logger.info(f"✅ Successfully synchronized {total_synced:,} clusters to QuestDB.")

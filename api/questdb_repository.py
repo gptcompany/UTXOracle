@@ -822,6 +822,15 @@ async def create_tables_if_not_exist():
             """
         )
 
+        # F-424: the live table predates the confidence column; the cutover INSERT names it.
+        for table in ("address_clusters", "address_clusters_staging"):
+            try:
+                await conn.execute(
+                    f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS confidence DOUBLE"
+                )
+            except Exception as e:
+                logger.warning("Could not ensure %s.confidence: %s", table, e)
+
         await conn.execute(
             """
             CREATE TABLE IF NOT EXISTS exchange_addresses (
@@ -1486,12 +1495,62 @@ class QuestDBRepository:
                 reason="address_clusters cutover recovery",
             )
 
-    async def commit_address_clusters_refresh(self) -> bool:
+    async def _wait_for_staged_rows(
+        self, expected_rows: int, *, timeout_s: float, poll_s: float
+    ) -> bool:
+        """Poll count(staging) until WAL has applied every row sent over ILP."""
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        observed = -1
+        while True:
+            try:
+                row = await self.fetchrow(
+                    f"SELECT count(*) FROM {ADDRESS_CLUSTERS_STAGING_TABLE}"
+                )
+                observed = int(row[0]) if row is not None else 0
+            except Exception as e:
+                logger.warning("Staging count poll failed: %s", e)
+            elapsed = loop.time() - started
+            if observed == expected_rows:
+                logger.info(
+                    "address_clusters staging complete: %d rows after %.1f s",
+                    observed,
+                    elapsed,
+                )
+                return True
+            if elapsed >= timeout_s:
+                logger.error(
+                    "address_clusters staging incomplete: expected %d rows, observed %d "
+                    "after %.1f s; live table left untouched",
+                    expected_rows,
+                    observed,
+                    elapsed,
+                )
+                return False
+            await asyncio.sleep(poll_s)
+
+    async def commit_address_clusters_refresh(
+        self,
+        expected_rows: int,
+        *,
+        timeout_s: float = 60.0,
+        poll_s: float = 1.0,
+    ) -> bool:
         """
         Publish a staged address_clusters snapshot after the ILP load completes.
+
+        `expected_rows` is the number of rows the caller sent to staging: the flush
+        returns before WAL has applied them all (F-424), so the cutover waits for
+        count(staging) to match and aborts, leaving the live table untouched, if not.
         """
         if not await self.async_flush_ingestion():
             logger.error("Failed to flush staged address_clusters rows before cutover.")
+            await self.abort_address_clusters_refresh()
+            return False
+
+        if not await self._wait_for_staged_rows(
+            expected_rows, timeout_s=timeout_s, poll_s=poll_s
+        ):
             await self.abort_address_clusters_refresh()
             return False
 
@@ -1500,6 +1559,7 @@ class QuestDBRepository:
             await self.execute(
                 f"""
                 INSERT INTO {ADDRESS_CLUSTERS_TABLE}
+                    (address, cluster_id, ts, last_seen, is_exchange_likely, label, confidence)
                 SELECT
                     address,
                     cluster_id,
@@ -1532,7 +1592,7 @@ class QuestDBRepository:
                 await self.abort_address_clusters_refresh()
                 return False
 
-        return await self.commit_address_clusters_refresh()
+        return await self.commit_address_clusters_refresh(len(rows))
 
     async def get_cluster_for_address(self, address: str) -> Optional[Dict[str, Any]]:
         """Fetch fine-grained cluster info from QuestDB."""

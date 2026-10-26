@@ -117,28 +117,57 @@ def test_abort_ingestion_drops_buffer_and_prevents_flush_on_close():
     assert sender.flushed == 0
 
 
-def test_commit_address_clusters_refresh_runs_cutover_after_flush():
+def _repo_with_staging_count(counts, execute=None):
     repo = QuestDBRepository()
     repo.async_flush_ingestion = AsyncMock(return_value=True)
-    repo.execute = AsyncMock(return_value="OK")
+    repo.fetchrow = AsyncMock(side_effect=[(c,) for c in counts] + [(counts[-1],)] * 50)
+    repo.execute = execute or AsyncMock(return_value="OK")
+    return repo
 
-    assert asyncio.run(repo.commit_address_clusters_refresh()) is True
 
-    calls = repo.execute.await_args_list
-    assert calls[0].args == ("TRUNCATE TABLE address_clusters",)
-    assert "INSERT INTO address_clusters" in calls[1].args[0]
-    assert "FROM address_clusters_staging" in calls[1].args[0]
-    assert calls[2].args == ("TRUNCATE TABLE address_clusters_staging",)
+def test_commit_address_clusters_refresh_runs_cutover_after_flush():
+    repo = _repo_with_staging_count([2, 5])
+
+    assert asyncio.run(repo.commit_address_clusters_refresh(5, poll_s=0)) is True
+
+    calls = [call.args[0] for call in repo.execute.await_args_list]
+    assert calls[0] == "TRUNCATE TABLE address_clusters"
+    insert = " ".join(calls[1].split())
+    assert insert.startswith(
+        "INSERT INTO address_clusters (address, cluster_id, ts, last_seen, "
+        "is_exchange_likely, label, confidence) SELECT address, cluster_id, ts, "
+        "last_seen, is_exchange_likely, label, confidence FROM address_clusters_staging"
+    )
+    assert calls[2] == "TRUNCATE TABLE address_clusters_staging"
+
+
+def test_commit_address_clusters_refresh_aborts_without_touching_live_when_staging_short(
+    caplog,
+):
+    repo = _repo_with_staging_count([3])
+
+    with caplog.at_level("ERROR"):
+        ok = asyncio.run(
+            repo.commit_address_clusters_refresh(5, timeout_s=0.05, poll_s=0.01)
+        )
+
+    assert ok is False
+    calls = [call.args[0] for call in repo.execute.await_args_list]
+    assert calls == ["TRUNCATE TABLE address_clusters_staging"]
+    assert not any("INSERT" in q for q in calls)
+    errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+    assert any("expected 5" in m and "observed 3" in m for m in errors)
 
 
 def test_commit_address_clusters_refresh_clears_tables_on_cutover_failure():
-    repo = QuestDBRepository()
-    repo.async_flush_ingestion = AsyncMock(return_value=True)
-    repo.execute = AsyncMock(
-        side_effect=["TRUNCATE", RuntimeError("boom"), "TRUNCATE", "TRUNCATE"]
+    repo = _repo_with_staging_count(
+        [5],
+        AsyncMock(
+            side_effect=["TRUNCATE", RuntimeError("boom"), "TRUNCATE", "TRUNCATE"]
+        ),
     )
 
-    assert asyncio.run(repo.commit_address_clusters_refresh()) is False
+    assert asyncio.run(repo.commit_address_clusters_refresh(5, poll_s=0)) is False
 
     calls = [call.args[0] for call in repo.execute.await_args_list]
     assert calls[0] == "TRUNCATE TABLE address_clusters"
