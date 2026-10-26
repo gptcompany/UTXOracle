@@ -681,32 +681,11 @@ def main():
     saved = save_clusters_bulk(uf, addr_to_int, UTXO_DB_PATH)
 
     # Phase 4: Sync to QuestDB (Optional Operationalization)
+    sync_exit = 0
     if args.sync_questdb:
-        print("\n" + "=" * 70)
-        print("SYNCING CLUSTERS TO QUESTDB SERVING PLANE")
-        print("=" * 70)
-        try:
-            import asyncio
-            import duckdb
-            from scripts.bootstrap.sync_clusters_to_questdb import sync_clusters
-            from api.questdb_repository import QuestDBRepository
+        from scripts.bootstrap.sync_clusters_to_questdb import run_optional_sync
 
-            async def run_sync():
-                repo = QuestDBRepository()
-                await repo.initialize()
-                conn = duckdb.connect(str(UTXO_DB_PATH), read_only=True)
-                try:
-                    await sync_clusters(repo, conn, batch_size=100000)
-                finally:
-                    conn.close()
-                    await repo.close()
-
-            asyncio.run(run_sync())
-            print("  ✅ QuestDB sync completed successfully.")
-        except Exception as e:
-            logger.error(f"Failed to sync clusters to QuestDB: {e}")
-            print(f"  ❌ QuestDB sync failed: {e}")
-            print("  ⚠️  DuckDB analytical plane remains the source of truth.")
+        sync_exit = run_optional_sync(str(UTXO_DB_PATH))
 
     # Summary
     duration = time.time() - start_time
@@ -732,7 +711,8 @@ def main():
     print("  Speedup: ~10x")
     print("=" * 70)
     print("\nNext: Run migrate_cost_basis.py to populate wallet_cost_basis")
+    return sync_exit
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

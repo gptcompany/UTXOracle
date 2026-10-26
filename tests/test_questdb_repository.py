@@ -1578,3 +1578,185 @@ def test_a_failing_close_without_a_primary_error_is_raised(monkeypatch):
 
     with pytest.raises(RuntimeError, match="close boom"):
         asyncio.run(only_close())
+
+
+def test_close_safely_is_only_used_in_the_finally_of_a_try_without_handlers():
+    """R10: close_safely reads sys.exc_info(), which is only meaningful in a finally that
+    is not preceded by an except that already handled the error."""
+    import ast
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    offenders = []
+    for path in [
+        root / "api/questdb_repository.py",
+        *sorted((root / "scripts").rglob("*.py")),
+    ]:
+        tree = ast.parse(path.read_text())
+        parents = {}
+        for node in ast.walk(tree):
+            for child in ast.iter_child_nodes(node):
+                parents[child] = node
+        for call in ast.walk(tree):
+            if not (
+                isinstance(call, ast.Call)
+                and getattr(call.func, "id", getattr(call.func, "attr", None))
+                == "close_safely"
+            ):
+                continue
+            node, ok = call, False
+            while node in parents:
+                parent = parents[node]
+                if isinstance(parent, ast.Try) and node in parent.finalbody:
+                    ok = not parent.handlers
+                    break
+                if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    break
+                node = parent
+            if not ok:
+                offenders.append(f"{path.name}:{call.lineno}")
+    assert offenders == []
+
+
+def test_run_sync_closes_outside_any_try():
+    """The final closes of the CLI/bootstraps run after the classification, not in a
+    finally: close_all is called outside every try in run_sync."""
+    import ast
+    from pathlib import Path
+
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "scripts/bootstrap/sync_clusters_to_questdb.py"
+    )
+    run_sync = next(
+        n
+        for n in ast.parse(path.read_text()).body
+        if isinstance(n, ast.AsyncFunctionDef) and n.name == "run_sync"
+    )
+    calls = [
+        c
+        for c in ast.walk(run_sync)
+        if isinstance(c, ast.Call) and getattr(c.func, "id", None) == "close_all"
+    ]
+    assert len(calls) == 1
+    inside_try = [
+        t
+        for t in ast.walk(run_sync)
+        if isinstance(t, ast.Try)
+        for n in ast.walk(t)
+        if n is calls[0]
+    ]
+    assert inside_try == []
+
+
+def test_close_all_tries_every_closer_and_never_raises():
+    import api.questdb_repository as qr
+
+    calls = []
+
+    def sync_fail():
+        calls.append("a")
+        raise ConnectionError("a boom")
+
+    async def async_fail():
+        calls.append("b")
+        raise RuntimeError("b boom")
+
+    def fine():
+        calls.append("c")
+
+    errors = asyncio.run(
+        qr.close_all([(sync_fail, "A"), (async_fail, "B"), (fine, "C")])
+    )
+
+    assert calls == ["a", "b", "c"]
+    assert [str(e) for e in errors] == ["a boom", "b boom"]
+
+
+# --- R12: a CancelledError from a cleanup never replaces the primary error
+
+
+def _lost_after_the_swap_with_a_failing_close(monkeypatch, close_error):
+    """A refresh whose old-copies listing fails once after the swap (Lost) while closing the
+    dedicated connection raises `close_error`; returns (repo, catalog, producer)."""
+    catalog = {"address_clusters": "A", "address_clusters_staging": "B"}
+    repo = _repo(monkeypatch, catalog=catalog)
+    real_fetch = repo.fetch
+    state = {"failed": False}
+
+    async def fetch(query, *args):
+        swapped = catalog.get("address_clusters") == "B"
+        if swapped and "FROM tables()" in query and not state["failed"]:
+            state["failed"] = True
+            raise ConnectionError("catalog read failed after the swap")
+        return await real_fetch(query, *args)
+
+    async def close():
+        if catalog.get("address_clusters") == "B":
+            raise close_error
+
+    repo.fetch = fetch
+    repo.dedicated.close = close
+
+    async def producer():
+        catalog["address_clusters_staging"] = "B"
+        return 5
+
+    return repo, catalog, producer
+
+
+def test_a_cancelled_error_from_the_dedicated_close_never_replaces_lost(monkeypatch):
+    import api.questdb_repository as qr
+
+    repo, catalog, producer = _lost_after_the_swap_with_a_failing_close(
+        monkeypatch, asyncio.CancelledError("close cancelled")
+    )
+
+    with pytest.raises(qr.AddressClustersLostError):
+        asyncio.run(repo.refresh_address_clusters(producer))
+
+    assert catalog["address_clusters"] == "B"  # B is live
+    olds = [catalog[n] for n in catalog if n.startswith("address_clusters_old_")]
+    assert olds == ["A"]  # A kept as the rollback
+    _tok()  # the lock was released
+
+
+def test_a_cancelled_error_without_lost_still_propagates(monkeypatch):
+    catalog = {"address_clusters": "A", "address_clusters_staging": "B"}
+    repo = _repo(monkeypatch, catalog=catalog)
+
+    async def close():
+        raise asyncio.CancelledError("close cancelled")
+
+    repo.dedicated.close = close
+
+    async def producer():
+        return 5
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(repo.refresh_address_clusters(producer))
+
+
+def test_close_safely_and_close_all_treat_cancelled_error_like_any_cleanup_error(
+    caplog,
+):
+    import api.questdb_repository as qr
+
+    def cancelled():
+        raise asyncio.CancelledError("cancelled")
+
+    async def primary_then_cancelled_close():
+        try:
+            raise ValueError("primary")
+        finally:
+            await qr.close_safely(cancelled, "a closer")
+
+    with caplog.at_level("ERROR"), pytest.raises(ValueError, match="primary"):
+        asyncio.run(primary_then_cancelled_close())
+    assert any("cancelled" in r.getMessage() for r in caplog.records)
+
+    with pytest.raises(asyncio.CancelledError):  # no primary error: re-raised as is
+        asyncio.run(qr.close_safely(cancelled, "a closer"))
+
+    errors = asyncio.run(qr.close_all([(cancelled, "A"), (lambda: None, "B")]))
+    assert len(errors) == 1 and isinstance(errors[0], asyncio.CancelledError)

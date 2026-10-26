@@ -205,7 +205,7 @@ def _require_lock(token: Any) -> None:
         )
 
 
-def _swallow_if_in_flight(what: str, error: Exception, in_flight) -> None:
+def _swallow_if_in_flight(what: str, error: BaseException, in_flight) -> None:
     """Called from an except block: a cleanup error never replaces the primary error. It
     is re-raised only when no other exception is in flight; otherwise it is logged."""
     if in_flight is None:
@@ -226,8 +226,28 @@ async def close_safely(closer, what: str) -> None:
         result = closer()
         if inspect.isawaitable(result):
             await result
-    except Exception as e:
+    except (Exception, asyncio.CancelledError) as e:
+        # CancelledError is a BaseException: without this it would replace the primary
+        # error and bypass the exit classification (R12). KeyboardInterrupt/SystemExit
+        # are deliberately left alone.
         _swallow_if_in_flight(what, e, in_flight)
+
+
+async def close_all(closers) -> list[BaseException]:
+    """Run EVERY (closer, what) pair, sync or async, after the outcome is already decided
+    (never inside a try/finally of the caller). Each failure is logged at ERROR; the list
+    of errors is returned and nothing is ever raised, so a cleanup can neither skip the
+    next closer nor change an exit classification already taken."""
+    errors: list[BaseException] = []
+    for closer, what in closers:
+        try:
+            result = closer()
+            if inspect.isawaitable(result):
+                await result
+        except (Exception, asyncio.CancelledError) as e:
+            logger.error("Closing %s failed: %s", what, e)
+            errors.append(e)
+    return errors
 
 
 def refresh_exit_status(exc: BaseException) -> Optional[tuple[int, str]]:
@@ -1770,13 +1790,14 @@ class QuestDBRepository:
         conn = await self._open_dedicated_connection()
         statement = ""
         try:
-            for statement in statements:
-                await conn.execute(statement)
-        except Exception:
-            logger.exception(
-                "address_clusters DDL failed: %s", " ".join(statement.split())
-            )
-            raise
+            try:
+                for statement in statements:
+                    await conn.execute(statement)
+            except Exception:
+                logger.exception(
+                    "address_clusters DDL failed: %s", " ".join(statement.split())
+                )
+                raise
         finally:
             await close_safely(conn.close, "the DDL connection")
 
@@ -2165,6 +2186,21 @@ class QuestDBRepository:
         token = RefreshLock.acquire()
         self._swap_attempted = False
         try:
+            return await self._refresh_under_lock(
+                token, producer, max_wait_s=max_wait_s, poll_s=poll_s
+            )
+        finally:
+            await close_safely(token.release, "the refresh lock")
+
+    async def _refresh_under_lock(
+        self,
+        token: RefreshLock,
+        producer,
+        *,
+        max_wait_s: Optional[float],
+        poll_s: float,
+    ) -> bool:
+        try:
             await self.reconcile_address_clusters(token)
             await self.prepare_address_clusters_refresh(token)
             try:
@@ -2188,8 +2224,6 @@ class QuestDBRepository:
                     ADDRESS_CLUSTERS_TABLE, ADDRESS_CLUSTERS_TABLE
                 )
             raise
-        finally:
-            await close_safely(token.release, "the refresh lock")
 
     async def save_address_clusters_bulk(self, rows: List[Dict[str, Any]]) -> bool:
         """

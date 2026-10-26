@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 from api.config import DUCKDB_PATH, setup_logging
 from api.questdb_repository import (
     QuestDBRepository,
-    close_safely,
+    close_all,
     refresh_exit_status,
 )
 
@@ -38,6 +38,9 @@ from api.questdb_repository import (
 # a swap, or the tables could not be observed or restored (the ERROR has the command).
 
 logger = setup_logging("sync_clusters")
+
+EXIT_CLEANUP_FAILED = 5
+EXIT_CLUSTERS_LOST = 6
 
 
 def _build_duckdb_cluster_query(conn: duckdb.DuckDBPyConnection) -> str:
@@ -150,6 +153,69 @@ async def sync_clusters(
     return True
 
 
+async def run_sync(duckdb_path: str, batch_size: int) -> int:
+    """The one entry for the CLI and the bootstraps; returns the process exit code.
+
+    0 synced; 1 not synced, unclassified error or a failed cleanup (never lowers 5 or 6);
+    5/6 as classified by refresh_exit_status on the whole exception chain. Nothing is
+    raised (except a CancelledError with no Lost in its chain, re-raised after the
+    cleanups). The cleanups run last, outside any try/finally, so a failing close can neither
+    replace the exit status nor skip the other closer."""
+    status = 1
+    cancelled: Optional[BaseException] = None
+    closers = []
+    repo = QuestDBRepository()
+    closers.append((repo.close, "the QuestDB repository"))
+    try:
+        await repo.initialize()
+        if not os.path.exists(duckdb_path):
+            logger.error(f"DuckDB database not found at {duckdb_path}")
+        else:
+            conn = duckdb.connect(duckdb_path, read_only=True)
+            closers.insert(0, (conn.close, "the DuckDB connection"))
+            ok = await sync_clusters(repo, conn, batch_size)
+            status = 0 if ok is True else 1
+    except (Exception, asyncio.CancelledError) as e:
+        # the exit code is decided on the whole exception chain (exit 6 survives any
+        # exception that reached the top, a CancelledError included)
+        found = refresh_exit_status(e)
+        if found is not None:
+            logger.error("%s", found[1])
+            status = found[0]
+        elif isinstance(e, asyncio.CancelledError):
+            cancelled = e  # no Lost in the chain: re-raised after the cleanups
+        else:
+            logger.exception("address_clusters sync failed")
+    errors = await close_all(closers)
+    if cancelled is not None:
+        raise cancelled
+    if errors and status == 0:
+        status = 1
+    return status
+
+
+def run_optional_sync(duckdb_path: str, batch_size: int = 100000) -> int:
+    """The optional QuestDB step of the clustering bootstraps. Returns the exit code the
+    bootstrap must end with after its own summary: 5 or 6 when the sync classified a
+    problem to act on, else 0 (a plain failure is a warning: DuckDB stays the source of
+    truth)."""
+    print("\n" + "=" * 70)
+    print("SYNCING CLUSTERS TO QUESTDB SERVING PLANE")
+    print("=" * 70)
+    code = asyncio.run(run_sync(duckdb_path, batch_size))
+    if code == 0:
+        print("  ✅ QuestDB sync completed successfully.")
+    elif code in (EXIT_CLEANUP_FAILED, EXIT_CLUSTERS_LOST):
+        print(
+            f"  ❌ QuestDB sync ended with exit code {code}: see the ERROR log above for the recovery command."
+        )
+        return code
+    else:
+        print("  ❌ QuestDB sync failed (see the log above).")
+        print("  ⚠️  DuckDB analytical plane remains the source of truth.")
+    return 0
+
+
 async def main() -> int:
     parser = argparse.ArgumentParser(description="Sync Address Clusters to QuestDB")
     parser.add_argument(
@@ -159,30 +225,7 @@ async def main() -> int:
         help="Batch size for reading from DuckDB",
     )
     args = parser.parse_args()
-
-    repo = QuestDBRepository()
-    await repo.initialize()
-
-    if not os.path.exists(DUCKDB_PATH):
-        logger.error(f"DuckDB database not found at {DUCKDB_PATH}")
-        return 1
-
-    conn = duckdb.connect(DUCKDB_PATH, read_only=True)
-
-    try:
-        ok = await sync_clusters(repo, conn, args.batch_size)
-        return 0 if ok else 1
-    except Exception as e:
-        # the exit code is decided on the whole exception chain (exit 6 survives any
-        # exception that reached the top)
-        status = refresh_exit_status(e)
-        if status is None:
-            raise
-        logger.error("%s", status[1])
-        return status[0]
-    finally:
-        await close_safely(conn.close, "the DuckDB connection")
-        await close_safely(repo.close, "the QuestDB repository")
+    return await run_sync(DUCKDB_PATH, args.batch_size)
 
 
 if __name__ == "__main__":

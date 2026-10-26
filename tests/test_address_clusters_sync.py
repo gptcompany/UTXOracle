@@ -531,3 +531,302 @@ def test_a_failing_close_never_replaces_the_primary_error_and_the_lock_is_releas
     olds = [n for n in catalog if n.startswith("address_clusters_old_")]
     assert [catalog[n] for n in olds] == ["old data"]  # A kept as the rollback
     qr.RefreshLock.acquire().release()  # the lock was released
+
+
+# --- r7: the exit classification survives every cleanup, for the CLI and the bootstraps
+
+
+class _SyncRepo:
+    """Stub QuestDBRepository for run_sync: refresh raises/returns what the test wants and
+    close() can fail. Shared by the CLI and the two bootstrap callers."""
+
+    events: list[str] = []
+    refresh_raises: BaseException | None = None
+    refresh_result = True
+    close_fails = False
+
+    async def initialize(self):
+        self.events.append("initialized")
+
+    async def refresh_address_clusters(self, producer):
+        if self.refresh_raises is not None:
+            raise self.refresh_raises
+        return self.refresh_result
+
+    async def close(self):
+        self.events.append("repo_close")
+        if self.close_fails:
+            raise ConnectionError("repo close boom")
+
+
+def _stub_sync_environment(
+    monkeypatch, tmp_path, *, duck_close_fails=False, duck_close_error=None, **repo
+):
+    """Patch the repository (both import paths) and DuckDB's read-only connection."""
+    import duckdb as _duckdb
+
+    events: list[str] = []
+    attrs = {
+        "events": events,
+        "refresh_raises": None,
+        "refresh_result": True,
+        "close_fails": False,
+    }
+    attrs.update(repo)
+    stub = type("Repo", (_SyncRepo,), attrs)
+    monkeypatch.setattr("api.questdb_repository.QuestDBRepository", stub)
+    # the bootstraps import the already-loaded sync module: patch its bound name too
+    monkeypatch.setattr(
+        "scripts.bootstrap.sync_clusters_to_questdb.QuestDBRepository", stub
+    )
+    real_connect = _duckdb.connect
+
+    class _Proxy:
+        def __init__(self, conn):
+            self._conn = conn
+
+        def __getattr__(self, name):
+            return getattr(self._conn, name)
+
+        def close(self):
+            events.append("duckdb_close")
+            self._conn.close()
+            if duck_close_fails:
+                raise duck_close_error or ConnectionError("duckdb close boom")
+
+    def connect(*args, **kwargs):
+        conn = real_connect(*args, **kwargs)
+        return _Proxy(conn) if kwargs.get("read_only") else conn
+
+    monkeypatch.setattr(_duckdb, "connect", connect)
+    return events, stub
+
+
+def _lost(
+    message="run `RENAME TABLE x TO y`, or rebuild it with `uv run python -m scripts.bootstrap.sync_clusters_to_questdb`",
+):
+    from api.questdb_repository import AddressClustersLostError
+
+    return AddressClustersLostError(message)
+
+
+def _run_cli(monkeypatch, tmp_path, *, db_exists=True, **kwargs):
+    import runpy
+    import sys
+
+    events, stub = _stub_sync_environment(monkeypatch, tmp_path, **kwargs)
+    db = tmp_path / "x.duckdb"
+    if db_exists:
+        _db_with_one_cluster(db)
+    monkeypatch.setattr("api.config.DUCKDB_PATH", str(db))
+    monkeypatch.setattr(sys, "argv", ["sync"])
+    with pytest.raises(SystemExit) as exc:
+        runpy.run_path(
+            "scripts/bootstrap/sync_clusters_to_questdb.py", run_name="__main__"
+        )
+    return exc.value.code, events
+
+
+def test_cli_lost_error_survives_a_failing_duckdb_close_and_the_repo_is_still_closed(
+    monkeypatch, tmp_path, caplog
+):
+    with caplog.at_level("ERROR"):
+        code, events = _run_cli(
+            monkeypatch, tmp_path, duck_close_fails=True, refresh_raises=_lost()
+        )
+
+    assert code == 6
+    assert "repo_close" in events  # the second closer still ran
+    log = " ".join(r.getMessage() for r in caplog.records)
+    assert "duckdb close boom" in log and "RENAME TABLE x TO y" in log
+
+
+def test_cli_both_closes_failing_never_lowers_exit_6(monkeypatch, tmp_path, caplog):
+    with caplog.at_level("ERROR"):
+        code, _ = _run_cli(
+            monkeypatch,
+            tmp_path,
+            duck_close_fails=True,
+            close_fails=True,
+            refresh_raises=_lost(),
+        )
+
+    assert code == 6
+    log = " ".join(r.getMessage() for r in caplog.records)
+    assert "duckdb close boom" in log and "repo close boom" in log
+
+
+def test_cli_a_failing_close_turns_a_success_into_exit_1(monkeypatch, tmp_path):
+    code, events = _run_cli(monkeypatch, tmp_path, close_fails=True)
+
+    assert code == 1
+    assert "duckdb_close" in events and "repo_close" in events
+
+
+def test_cli_missing_duckdb_is_exit_1_with_the_repository_closed(monkeypatch, tmp_path):
+    code, events = _run_cli(monkeypatch, tmp_path, db_exists=False)
+
+    assert code == 1
+    assert "repo_close" in events
+
+
+def test_cli_an_unclassified_error_is_logged_and_exit_1(monkeypatch, tmp_path, caplog):
+    with caplog.at_level("ERROR"):
+        code, events = _run_cli(
+            monkeypatch, tmp_path, refresh_raises=RuntimeError("unexpected")
+        )
+
+    assert code == 1
+    assert "repo_close" in events
+    assert any(r.exc_info for r in caplog.records)  # logger.exception, not a bare raise
+
+
+def _bootstrap_run(monkeypatch, tmp_path, which, capsys):
+    """Run the real main() of one of the two bootstraps with the heavy work patched out;
+    returns its return value. Only the optional QuestDB sync is real."""
+    import importlib
+    import sys
+
+    db = tmp_path / "utxo.duckdb"
+    _db_with_one_cluster(db)
+    if which == "run_combined_bootstrap":
+        module = importlib.import_module("scripts.bootstrap.run_combined_bootstrap")
+        stats = {
+            "start_block": 0,
+            "end_block": 1,
+            "blocks_processed": 1,
+            "txs_clustered": 1,
+            "addresses_clustered": 1,
+            "clusters_created": 1,
+            "utxos_spent": 1,
+            "duration_seconds": 1.0,
+        }
+        monkeypatch.setattr(module, "run_combined_bootstrap", lambda **kwargs: stats)
+        argv = [
+            "x", "--sync-questdb", "--start-block", "0", "--end-block", "1",
+            "--utxo-db-path", str(db),
+        ]  # fmt: skip
+    else:
+        module = importlib.import_module(
+            "scripts.bootstrap.complete_clustering_v3_fast"
+        )
+        out = tmp_path / "pairs"
+        out.mkdir()
+        (out / "pairs_0.csv.gz").write_bytes(b"x")
+
+        class _UF:
+            def memory_usage_gb(self):
+                return 0.0
+
+        monkeypatch.setattr(module, "CYTHON_AVAILABLE", True, raising=False)
+        monkeypatch.setattr(module, "OUTPUT_DIR", out)
+        monkeypatch.setattr(module, "UTXO_DB_PATH", db)
+        monkeypatch.setattr(module, "build_address_mapping_fast", lambda *a, **k: {})
+        monkeypatch.setattr(module, "run_cython_clustering", lambda *a, **k: _UF())
+        monkeypatch.setattr(module, "save_clusters_bulk", lambda *a, **k: 0)
+        monkeypatch.setattr(module, "count_clusters", lambda *a, **k: 0)
+        argv = ["x", "--sync-questdb"]
+    monkeypatch.setattr(sys, "argv", argv)
+    return module.main()
+
+
+BOOTSTRAPS = ["run_combined_bootstrap", "complete_clustering_v3_fast"]
+
+
+@pytest.mark.parametrize("which", BOOTSTRAPS)
+def test_bootstrap_lost_error_is_exit_6_after_the_summary(
+    monkeypatch, tmp_path, capsys, caplog, which
+):
+    _stub_sync_environment(monkeypatch, tmp_path, refresh_raises=_lost())
+
+    with caplog.at_level("ERROR"):
+        code = _bootstrap_run(monkeypatch, tmp_path, which, capsys)
+
+    out = capsys.readouterr().out
+    assert code == 6
+    assert "COMPLETE" in out  # the summary was printed first
+    assert any("RENAME TABLE x TO y" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.parametrize("which", BOOTSTRAPS)
+def test_bootstrap_lost_error_plus_failing_close_keeps_exit_6_and_the_command(
+    monkeypatch, tmp_path, capsys, caplog, which
+):
+    _stub_sync_environment(
+        monkeypatch, tmp_path, duck_close_fails=True, refresh_raises=_lost()
+    )
+
+    with caplog.at_level("ERROR"):
+        code = _bootstrap_run(monkeypatch, tmp_path, which, capsys)
+
+    assert code == 6
+    log = " ".join(r.getMessage() for r in caplog.records)
+    assert "RENAME TABLE x TO y" in log and "duckdb close boom" in log
+
+
+@pytest.mark.parametrize("which", BOOTSTRAPS)
+def test_bootstrap_unclassified_sync_error_is_a_warning_and_exit_0(
+    monkeypatch, tmp_path, capsys, which
+):
+    _stub_sync_environment(monkeypatch, tmp_path, refresh_raises=RuntimeError("boom"))
+
+    code = _bootstrap_run(monkeypatch, tmp_path, which, capsys)
+
+    out = capsys.readouterr().out
+    assert code in (0, None) and not code
+    assert "DuckDB analytical plane remains the source of truth" in out
+
+
+@pytest.mark.parametrize("which", BOOTSTRAPS)
+def test_bootstrap_successful_sync_prints_the_success_message_and_exit_0(
+    monkeypatch, tmp_path, capsys, which
+):
+    _stub_sync_environment(monkeypatch, tmp_path)
+
+    code = _bootstrap_run(monkeypatch, tmp_path, which, capsys)
+
+    assert not code
+    assert "QuestDB sync completed successfully" in capsys.readouterr().out
+
+
+def test_cli_cancelled_error_from_a_close_never_replaces_lost(
+    monkeypatch, tmp_path, caplog
+):
+    import asyncio
+
+    with caplog.at_level("ERROR"):
+        code, events = _run_cli(
+            monkeypatch,
+            tmp_path,
+            duck_close_fails=True,
+            duck_close_error=asyncio.CancelledError("duckdb close cancelled"),
+            refresh_raises=_lost(),
+        )
+
+    assert code == 6
+    assert "repo_close" in events
+
+
+def test_cli_a_cancelled_error_without_lost_is_raised_after_the_closes(
+    monkeypatch, tmp_path
+):
+    import asyncio
+    import runpy
+    import sys
+
+    events, _ = _stub_sync_environment(
+        monkeypatch, tmp_path, refresh_raises=asyncio.CancelledError("cancelled")
+    )
+    db = tmp_path / "x.duckdb"
+    _db_with_one_cluster(db)
+    monkeypatch.setattr("api.config.DUCKDB_PATH", str(db))
+    monkeypatch.setattr(sys, "argv", ["sync"])
+
+    with pytest.raises(asyncio.CancelledError):
+        runpy.run_path(
+            "scripts/bootstrap/sync_clusters_to_questdb.py", run_name="__main__"
+        )
+
+    assert (
+        "duckdb_close" in events and "repo_close" in events
+    )  # closed BEFORE re-raising
