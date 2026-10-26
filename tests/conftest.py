@@ -420,3 +420,56 @@ def write_headers(monkeypatch):
         "tests", {"read", "write"}, expires_in_hours=1
     )
     return {"Authorization": f"Bearer {token}"}
+
+
+# Tests of the daily job (daily_analysis and what is wired to it). F-446: they used to make real
+# calls to the mempool of the machine running them (localhost:8999 answers on the Dell, not
+# in CI). pytest-socket is not a dependency of the project, so a small autouse guard does it.
+_DAILY_JOB_TEST_PREFIXES = ("test_daily_analysis", "test_historical_block_selection")
+_MEMPOOL_PORTS = {8999, 3002}  # mempool.space backend and electrs: defaults of the job
+
+
+@pytest.fixture(autouse=True)
+def _no_real_mempool_network(request):
+    """In the daily job tests, mempool.space/electrs and non-loopback hosts are off limits.
+
+    Loopback connections to other ports stay possible: the real-QuestDB test of CI and the
+    in-process fake bitcoind use them. Written with mock.patch and NOT with the monkeypatch
+    fixture on purpose: requesting monkeypatch from a conftest autouse fixture sets it up
+    before the module-level fixtures, so it is torn down after them, and the instance
+    attributes it leaves on the shared metrics repository would be restored by the e2e
+    file's fixture first and put back afterwards (order dependence).
+    """
+    if not request.node.path.name.startswith(_DAILY_JOB_TEST_PREFIXES):
+        yield
+        return
+    import socket
+    from unittest import mock
+
+    import scripts.bootstrap.build_price_table as price_table
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("real network call in a unit test: stub it")
+
+    def guarded(real):
+        def connect(self, address, *args):
+            if isinstance(address, tuple):
+                host, port = address[0], address[1]
+                loopback = host in ("localhost", "::1") or str(host).startswith("127.")
+                if port in _MEMPOOL_PORTS or not loopback:
+                    refuse()
+            return real(self, address, *args)
+
+        return connect
+
+    with (
+        # fetch_mempool_price_at calls this fetcher, which turns every error into "no
+        # price": refuse it before the socket. scripts.daily_analysis is NOT imported here:
+        # importing it would bind secrets_loader before the tests' own stub is in place.
+        mock.patch.object(price_table, "fetch_historical_price", refuse),
+        mock.patch.object(socket.socket, "connect", guarded(socket.socket.connect)),
+        mock.patch.object(
+            socket.socket, "connect_ex", guarded(socket.socket.connect_ex)
+        ),
+    ):
+        yield

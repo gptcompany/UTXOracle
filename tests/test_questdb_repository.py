@@ -1042,6 +1042,10 @@ def _patch_create_tables(monkeypatch, catalog):
                 None  # tables() state read by the daily-dedup step: nothing to migrate
             )
 
+        async def fetch(self, query, *args):
+            # table_columns() read by the F-438 migration: price_analysis already has it
+            return [{"column": "window_end_ts"}]
+
         async def close(self):
             return None
 

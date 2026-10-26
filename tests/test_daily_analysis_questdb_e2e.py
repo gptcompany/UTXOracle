@@ -14,6 +14,7 @@ save_metrics_to_db, the ILP sender and the QuestDB itself) is real.
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime, timedelta, timezone
 import os
 import sys
@@ -55,6 +56,12 @@ def _secrets_loader_stub(monkeypatch):
     stub = types.ModuleType("secrets_loader")
     stub.load_secrets = lambda _path=None: False
     monkeypatch.setitem(sys.modules, "secrets_loader", stub)
+    # If scripts.daily_analysis was imported earlier (collection, another module) it already
+    # holds the REAL load_secrets on a machine that has the loader (the Dell): that one reads
+    # the machine's encrypted secrets into os.environ. Replace the bound name too.
+    already_imported = sys.modules.get("scripts.daily_analysis")
+    if already_imported is not None:
+        monkeypatch.setattr(already_imported, "load_secrets", stub.load_secrets)
 
 
 SCHEDULE_ENV = "UTXORACLE_DAILY_SCHEDULE_UTC"
@@ -151,6 +158,10 @@ def _stub_inputs(monkeypatch, daily, *, dedup_check: bool = False) -> None:
     The dedup precheck reads tables() on a real QuestDB: it is stubbed to "all fine" unless
     dedup_check is True (the real-database test and the dedicated precheck tests).
     """
+    # Tests that drive main() beyond its head test the machinery as it will work once F-432
+    # computes the metrics in the same pass as the price: the fail-closed gate is lifted here
+    # and only the tests of the gate itself leave it on.
+    monkeypatch.setattr(daily, "HISTORICAL_DAY_IS_STREAMED", False)
     # No .env of the machine running the tests is ever read by the startup guard.
     monkeypatch.setattr(daily, "env_file_path", lambda: Path("/nonexistent/.env"))
     if not dedup_check:
@@ -167,11 +178,13 @@ def _stub_inputs(monkeypatch, daily, *, dedup_check: bool = False) -> None:
     monkeypatch.setattr(daily, "validate_config", lambda config: None)
     monkeypatch.setattr(daily, "WhaleFlowDetector", None)
     monkeypatch.setattr(daily, "ADVANCED_METRICS_ENABLED", False)
-    monkeypatch.setattr(daily, "fetch_mempool_price", lambda url: 100_000.0)
+    monkeypatch.setattr(
+        daily, "fetch_mempool_price_at", lambda timestamp, url: 100_000.0
+    )
     monkeypatch.setattr(
         daily,
         "calculate_utxoracle_price",
-        lambda config: {
+        lambda config, day=None: {
             "price_usd": 99_500.0,
             "confidence": 0.9,
             "tx_count": 2,
@@ -250,9 +263,19 @@ class _RecordingConnection:
 class _StateConnection:
     """A short-lived read connection answering SELECT ... FROM tables()."""
 
-    def __init__(self, states: dict[str, tuple[bool, bool]]) -> None:
+    def __init__(
+        self,
+        states: dict[str, tuple[bool, bool]],
+        columns: dict[str, set[str]] | None = None,
+    ) -> None:
         self.states = states
+        self.columns = columns or {}
         self.closed = False
+
+    async def fetch(self, query: str, *args):
+        assert "table_columns" in query
+        table = query.split("table_columns('")[1].split("'")[0]
+        return [{"column": name} for name in self.columns.get(table, set())]
 
     async def fetchrow(self, query: str, table: str):
         assert "tables()" in query
@@ -265,7 +288,9 @@ class _StateConnection:
         self.closed = True
 
 
-def _fake_questdb(monkeypatch, states=None, ddl=None, *, ddl_via_connect=True):
+def _fake_questdb(
+    monkeypatch, states=None, ddl=None, *, ddl_via_connect=True, columns=None
+):
     """asyncpg stand-in. With ddl_via_connect the first connection is the DDL one; every other
     connection (or all, when the caller holds the DDL connection itself) is a state read."""
     import types as _types
@@ -280,7 +305,7 @@ def _fake_questdb(monkeypatch, states=None, ddl=None, *, ddl_via_connect=True):
         if pending_ddl[0]:
             pending_ddl[0] = False
             return ddl
-        conn = _StateConnection(states or {})
+        conn = _StateConnection(states or {}, columns)
         reads.append(conn)
         return conn
 
@@ -945,7 +970,7 @@ def _enable_all_persisted_blocks(monkeypatch, daily, tmp_path) -> None:
     monkeypatch.setattr(
         daily,
         "calculate_utxoracle_price",
-        lambda config: {
+        lambda config, day=None: {
             "price_usd": 99_500.0,
             "confidence": 0.9,
             "tx_count": 300,
@@ -1115,7 +1140,7 @@ def _tx_volume_btc_written_by_main(monkeypatch, daily, tier_setup, txs, tier) ->
         "MEMPOOL_FALLBACK_URL": "https://mempool.invalid",
     }
 
-    def calculate(_config):
+    def calculate(_config, day=None):
         fetched, used_tier = daily.fetch_bitcoin_transactions(config)
         assert used_tier == tier
         return {
@@ -1182,7 +1207,7 @@ def test_failure_before_the_wasserstein_block_runs_still_fails_the_block(
     monkeypatch.setattr(
         daily,
         "calculate_utxoracle_price",
-        lambda config: {
+        lambda config, day=None: {
             "price_usd": 99_500.0,
             "confidence": 0.9,
             "tx_count": 3,
@@ -1382,3 +1407,438 @@ def test_missing_env_file_is_info_and_does_not_block(monkeypatch, tmp_path, capl
         and "not found" in r.getMessage()
         for r in caplog.records
     )
+
+
+# --- F-438: the analysed day is defined by block timestamps, not by the run time ---------
+#
+# SYNTHETIC chain (declared): the FakeChain of test_historical_block_selection (a fake
+# rpc_client, mediantime monotone, 144 blocks for D = 2026-10-26, heights 500..643). The price
+# library is replaced by a spy that records which transactions it received. A streamed day
+# cannot feed the spec-007 metrics (same pass: F-432), so the tests that look at the row use
+# --dry-run with the metrics modules off; the guard tests run the real flow.
+
+from tests.test_historical_block_selection import FIRST as CHAIN_FIRST  # noqa: E402
+from tests.test_historical_block_selection import FakeChain  # noqa: E402
+
+DAY = datetime(2026, 10, 26, tzinfo=timezone.utc)  # D: the analysed day
+
+
+class _MempoolShapedChain(FakeChain):
+    """Same chain, transactions in the shape the metrics read (mempool.space/electrs)."""
+
+    def call(self, method, params=None):
+        out = super().call(method, params)
+        if method == "getblock":
+            for tx in out["tx"]:
+                tx["vin"] = [{"prevout": {"scriptpubkey_address": "bc1qin"}}]
+                tx["vout"] = [{"scriptpubkey_address": "bc1qout", "value": 0.5}]
+        return out
+
+
+def _window_run(monkeypatch, daily, run_at: datetime, chain=None, argv=()):
+    """Run main() at run_at over the fake chain; returns (txids seen, prices asked, rows)."""
+    real_calculate = daily.calculate_utxoracle_price
+    sent = _record_rows(monkeypatch)
+    _stub_inputs(monkeypatch, daily)
+    chain = chain or FakeChain(tip=700)
+    seen: list[list[str]] = []
+    asked: list[int] = []
+
+    class _Calculator:
+        def calculate_price_for_transactions(self, transactions):
+            seen.append([tx["txid"] for tx in transactions])
+            return {"price_usd": 99_500.0, "confidence": 0.9, "tx_count": 1500}
+
+    def price_at(timestamp, url):
+        asked.append(timestamp)
+        return 100_000.0
+
+    monkeypatch.setattr(daily, "rpc_client", lambda config=None, timeout=60: chain)
+    monkeypatch.setattr(daily, "UTXOracleCalculator", _Calculator)
+    monkeypatch.setattr(daily, "calculate_utxoracle_price", real_calculate)
+    monkeypatch.setattr(daily, "fetch_mempool_price_at", price_at)
+    monkeypatch.setattr(daily, "utc_now", lambda: run_at)
+    monkeypatch.setattr(sys, "argv", ["daily_analysis.py", *argv])
+    daily.main()
+    return seen, asked, sent
+
+
+def _dry_run_data(monkeypatch, caplog, daily, run_at):
+    """The row main() would write, from the --dry-run log, plus what the spy saw."""
+    monkeypatch.setattr(daily, "METRICS_ENABLED", False)
+    with caplog.at_level("INFO"):
+        seen, asked, _ = _window_run(monkeypatch, daily, run_at, argv=("--dry-run",))
+    record = next(r for r in caplog.records if r.getMessage().startswith("{"))
+    return seen, asked, json.loads(record.getMessage())
+
+
+def test_runs_at_00_30_and_23_30_of_the_same_utc_day_pick_the_same_blocks_and_row(
+    monkeypatch, caplog
+):
+    import scripts.daily_analysis as daily
+
+    early = _dry_run_data(
+        monkeypatch, caplog, daily, datetime(2026, 10, 27, 0, 30, tzinfo=timezone.utc)
+    )
+    caplog.clear()
+    late = _dry_run_data(
+        monkeypatch, caplog, daily, datetime(2026, 10, 27, 23, 30, tzinfo=timezone.utc)
+    )
+
+    assert early[0] == late[0] and len(early[0][0]) == 144  # same 144 blocks of D
+    assert early[0][0][0] == f"tx{CHAIN_FIRST}"
+    for _, _, data in (early, late):
+        assert data["timestamp"] == DAY.isoformat()  # key: the analysed day D
+        assert data["window_end_ts"] == str(DAY + timedelta(days=1))
+    assert early[2]["window_end_ts"] == late[2]["window_end_ts"]
+
+
+def test_reference_price_is_asked_for_the_end_of_the_analysed_day_not_for_now(
+    monkeypatch, caplog
+):
+    import scripts.daily_analysis as daily
+
+    _, asked, _ = _dry_run_data(
+        monkeypatch, caplog, daily, datetime(2026, 10, 27, 15, 45, tzinfo=timezone.utc)
+    )
+
+    assert asked == [int((DAY + timedelta(days=1)).timestamp())]
+
+
+def test_rpc_shaped_transactions_fail_with_the_missing_fields_and_write_nothing(
+    monkeypatch, caplog
+):
+    """getblock verbosity 2 has no prevout and scriptPubKey.address: addresses would be 0."""
+    import scripts.daily_analysis as daily
+
+    # Until F-432 the day is refused at the head of main(); the format guard is what protects
+    # the metrics once that gate is lifted, so the gate is lifted here to exercise it.
+    monkeypatch.setattr(daily, "HISTORICAL_DAY_IS_STREAMED", False)
+    with caplog.at_level("ERROR"), pytest.raises(SystemExit) as stop:
+        _window_run(
+            monkeypatch, daily, datetime(2026, 10, 27, 1, 30, tzinfo=timezone.utc)
+        )
+
+    assert stop.value.code == 2
+    assert "vin[].prevout.scriptpubkey_address" in caplog.text
+    assert "vout[].scriptpubkey_address" in caplog.text
+    assert "vout[].value" not in caplog.text  # present in both shapes
+
+
+def test_a_streamed_day_cannot_feed_the_metrics_yet_so_nothing_is_written(
+    monkeypatch, caplog
+):
+    """Even with data in the shape the metrics read: they need the same pass (F-432)."""
+    import api.questdb_repository as repository
+    import scripts.daily_analysis as daily
+
+    real_calculate = daily.calculate_utxoracle_price  # before _stub_inputs replaces it
+    rows = _record_rows(monkeypatch)
+    _stub_inputs(monkeypatch, daily)
+    monkeypatch.setattr(
+        daily, "utc_now", lambda: datetime(2026, 10, 27, 1, 30, tzinfo=timezone.utc)
+    )
+    monkeypatch.setattr(
+        daily, "fetch_mempool_price_at", lambda timestamp, url: 100_000.0
+    )
+    monkeypatch.setattr(daily, "calculate_utxoracle_price", real_calculate)
+    chain = _MempoolShapedChain(tip=700)
+    monkeypatch.setattr(daily, "rpc_client", lambda config=None, timeout=60: chain)
+
+    class _Calculator:
+        def calculate_price_for_transactions(self, transactions):
+            return {
+                "price_usd": 99_500.0,
+                "confidence": 0.9,
+                "tx_count": sum(1 for _ in transactions),
+            }
+
+    monkeypatch.setattr(daily, "UTXOracleCalculator", _Calculator)
+    assert repository  # (QuestDBRepository._send_row is recorded by _record_rows)
+
+    with caplog.at_level("ERROR"), pytest.raises(SystemExit) as stop:
+        daily.main()
+
+    assert stop.value.code == 2
+    assert rows == []
+    assert "no transactions available" in caplog.text
+
+
+# --- B3 decisions on #64: fail closed, narrow except, coinbase-safe format guard ---------
+
+
+def _real_calculate(monkeypatch, daily, chain, run_at=None):
+    """The REAL calculate_utxoracle_price over a fake chain; only the price library is a spy."""
+    seen: list[list[str]] = []
+
+    class _Calculator:
+        def calculate_price_for_transactions(self, transactions):
+            seen.append([tx["txid"] for tx in transactions])
+            return {"price_usd": 99_500.0, "confidence": 0.9, "tx_count": 1500}
+
+    monkeypatch.setattr(daily, "rpc_client", lambda config=None, timeout=60: chain)
+    monkeypatch.setattr(daily, "UTXOracleCalculator", _Calculator)
+    return seen
+
+
+def test_a_streamed_day_fails_closed_with_the_explicit_message_and_zero_writes(
+    monkeypatch, caplog
+):
+    """B3: no price row without metrics, no partial write; real main(), both tables checked."""
+    import scripts.daily_analysis as daily
+
+    real_calculate = daily.calculate_utxoracle_price
+    rows = _record_rows(monkeypatch)
+    _stub_inputs(monkeypatch, daily)
+    monkeypatch.setattr(
+        daily, "HISTORICAL_DAY_IS_STREAMED", True
+    )  # the production value
+    monkeypatch.setattr(daily, "calculate_utxoracle_price", real_calculate)
+    monkeypatch.setattr(
+        daily, "utc_now", lambda: datetime(2026, 10, 27, 1, 30, tzinfo=timezone.utc)
+    )
+    chain = _MempoolShapedChain(tip=700)
+    _real_calculate(monkeypatch, daily, chain)
+
+    with caplog.at_level("ERROR"), pytest.raises(SystemExit) as stop:
+        daily.main()
+
+    assert stop.value.code == 2
+    assert (
+        chain.calls == []
+    )  # refused at the head of main(): the node got no call at all
+    assert rows == []  # neither price_analysis nor metrics
+    assert (
+        "metriche non calcolabili dallo stream fino a F-432: nessuna scrittura"
+        in caplog.text
+    )
+
+
+class _CoinbaseFirstChain(FakeChain):
+    """Each block starts with a coinbase, then a normal transaction."""
+
+    def __init__(self, *args, shape="mempool", **kwargs):
+        super().__init__(*args, **kwargs)
+        self.shape = shape
+
+    def call(self, method, params=None):
+        out = super().call(method, params)
+        if method == "getblock":
+            txid = out["tx"][0]["txid"]
+            if self.shape == "mempool":
+                coinbase = {
+                    "txid": f"cb{txid}",
+                    "vin": [{"prevout": None, "is_coinbase": True}],
+                    "vout": [{"scriptpubkey_address": "bc1qminer", "value": 3.0}],
+                }
+                normal = {
+                    "txid": txid,
+                    "vin": [{"prevout": {"scriptpubkey_address": "bc1qin"}}],
+                    "vout": [{"scriptpubkey_address": "bc1qout", "value": 0.5}],
+                }
+            else:  # Core, verbosity 2
+                coinbase = {
+                    "txid": f"cb{txid}",
+                    "vin": [{"coinbase": "03aa"}],
+                    "vout": [{"scriptPubKey": {"address": "bc1qminer"}, "value": 3.0}],
+                }
+                normal = {
+                    "txid": txid,
+                    "vin": [{"txid": "x", "vout": 0}],
+                    "vout": [{"scriptPubKey": {"address": "bc1qout"}, "value": 0.5}],
+                }
+            out["tx"] = [coinbase, normal]
+        return out
+
+
+def test_the_format_guard_looks_at_the_first_non_coinbase_transaction(monkeypatch):
+    import scripts.daily_analysis as daily
+
+    seen = _real_calculate(monkeypatch, daily, _CoinbaseFirstChain(tip=700))
+
+    result = daily.calculate_utxoracle_price({}, DAY)
+
+    sample = result["format_sample"]
+    assert sample["txid"] == f"tx{CHAIN_FIRST}"  # not the coinbase "cbtx500"
+    assert daily.missing_metric_fields([sample]) == []
+    assert (
+        seen[0][0] == f"cbtx{CHAIN_FIRST}"
+    )  # nothing lost: the coinbase is still first
+    assert seen[0][1] == f"tx{CHAIN_FIRST}" and len(seen[0]) == 288  # once, in order
+
+
+def test_the_format_guard_reports_only_the_real_gaps_for_a_core_shaped_day(monkeypatch):
+    import scripts.daily_analysis as daily
+
+    _real_calculate(monkeypatch, daily, _CoinbaseFirstChain(tip=700, shape="core"))
+
+    sample = daily.calculate_utxoracle_price({}, DAY)["format_sample"]
+
+    assert sample["txid"] == f"tx{CHAIN_FIRST}"
+    assert daily.missing_metric_fields([sample]) == [
+        "vin[].prevout.scriptpubkey_address",
+        "vout[].scriptpubkey_address",
+    ]
+
+
+def test_errors_of_the_historical_day_keep_their_own_cause_and_exit_code(
+    monkeypatch, caplog
+):
+    """The calculation must not turn a stream/RPC failure into 'no price' (exit 2, cause lost)."""
+    import scripts.daily_analysis as daily
+
+    chain = FakeChain(tip=700)
+    chain.fail_block = CHAIN_FIRST + 20  # an RPC error in the middle of the stream
+    _real_calculate(monkeypatch, daily, chain)
+    monkeypatch.setattr(
+        daily,
+        "UTXOracleCalculator",
+        type(
+            "C",
+            (),
+            {
+                "calculate_price_for_transactions": lambda self, t: {
+                    "price_usd": 1.0,
+                    "confidence": 1.0,
+                    "tx_count": sum(1 for _ in t),
+                }
+            },
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="rpc block down"):
+        daily.calculate_utxoracle_price({}, DAY)
+
+
+@pytest.mark.parametrize(
+    "env, tip, code",
+    [
+        ({"MIN_CONFIRMATIONS": "0"}, 700, 6),  # bad value: exit 6, name only
+        ({}, 643, 7),  # the day is still open: exit 7
+    ],
+)
+def test_real_main_keeps_the_exit_codes_of_the_selection(
+    monkeypatch, caplog, env, tip, code
+):
+    import scripts.daily_analysis as daily
+
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+
+    with pytest.raises(SystemExit) as stop:
+        _window_run(
+            monkeypatch,
+            daily,
+            datetime(2026, 10, 27, 1, 30, tzinfo=timezone.utc),
+            chain=FakeChain(tip=tip),
+        )
+
+    assert stop.value.code == code
+
+
+_DONE = {"price_analysis": (True, True), "metrics": (True, True)}
+
+
+def test_window_end_column_already_present_runs_no_alter(monkeypatch):
+    """On a WAL table ADD COLUMN IF NOT EXISTS of an existing column is a rejected no-op."""
+    import api.questdb_repository as repository
+
+    conn, reads = _fake_questdb(
+        monkeypatch, _DONE, columns={"price_analysis": {"ts", "window_end_ts"}}
+    )
+    asyncio.run(repository.create_tables_if_not_exist())
+
+    create = next(
+        s for s in conn.statements if "CREATE TABLE IF NOT EXISTS price_analysis (" in s
+    )
+    assert "window_end_ts TIMESTAMP" in create
+    assert not any("ADD COLUMN" in s and "window_end_ts" in s for s in conn.statements)
+    assert reads and all(
+        c.closed for c in reads
+    )  # columns read on connections of their own
+
+
+def test_window_end_column_missing_is_added_by_one_plain_alter(monkeypatch):
+    import api.questdb_repository as repository
+
+    conn, _ = _fake_questdb(
+        monkeypatch, _DONE, columns={"price_analysis": {"ts", "exchange_price"}}
+    )
+    asyncio.run(repository.create_tables_if_not_exist())
+
+    alters = [s for s in conn.statements if "ADD COLUMN" in s and "window_end_ts" in s]
+    assert alters == ["ALTER TABLE price_analysis ADD COLUMN window_end_ts TIMESTAMP"]
+
+
+def test_a_failed_window_end_alter_is_an_error_not_a_swallowed_exception(monkeypatch):
+    import api.questdb_repository as repository
+
+    class _AlterRefused(_RecordingConnection):
+        async def execute(self, statement: str, *args) -> None:
+            if "ADD COLUMN" in statement and "window_end_ts" in statement:
+                raise RuntimeError("alter refused (test)")
+            await super().execute(statement, *args)
+
+    _fake_questdb(
+        monkeypatch, _DONE, _AlterRefused(), columns={"price_analysis": {"ts"}}
+    )
+
+    with pytest.raises(RuntimeError, match="alter refused"):
+        asyncio.run(repository.create_tables_if_not_exist())
+
+
+class _CorruptChain(FakeChain):
+    """A node answering one block with garbage (json.JSONDecodeError in the client)."""
+
+    def call(self, method, params=None):
+        if method == "getblock" and params[0] == f"hash{CHAIN_FIRST + 20}":
+            raise json.JSONDecodeError("Expecting value", "<html>502</html>", 0)
+        return super().call(method, params)
+
+
+def test_a_corrupt_rpc_response_is_not_turned_into_no_price(monkeypatch):
+    import scripts.daily_analysis as daily
+
+    _real_calculate(monkeypatch, daily, _CorruptChain(tip=700))
+
+    with pytest.raises(json.JSONDecodeError):
+        daily.calculate_utxoracle_price({}, DAY)
+
+
+def test_a_corrupt_rpc_response_ends_main_with_exit_2_and_its_own_cause(
+    monkeypatch, caplog
+):
+    import scripts.daily_analysis as daily
+
+    monkeypatch.setattr(daily, "METRICS_ENABLED", False)  # dry run: the price path only
+    with caplog.at_level("ERROR"), pytest.raises(SystemExit) as stop:
+        _window_run(
+            monkeypatch,
+            daily,
+            datetime(2026, 10, 27, 1, 30, tzinfo=timezone.utc),
+            chain=_CorruptChain(tip=700),
+            argv=("--dry-run",),
+        )
+
+    assert stop.value.code == 2
+    assert "Expecting value" in caplog.text  # the cause, not "no price"
+    assert "row incomplete" not in caplog.text
+
+
+def test_a_failed_price_validation_of_the_day_is_still_no_price(monkeypatch):
+    """Only the validation of the day's price becomes "no price" (PriceValidationError)."""
+    import scripts.daily_analysis as daily
+
+    _real_calculate(monkeypatch, daily, FakeChain(tip=700))
+
+    class _Weak:
+        def calculate_price_for_transactions(self, transactions):
+            sum(1 for _ in transactions)
+            return {"price_usd": 99_500.0, "confidence": 0.9, "tx_count": 5}  # < 1000
+
+    monkeypatch.setattr(daily, "UTXOracleCalculator", _Weak)
+
+    result = daily.calculate_utxoracle_price({}, DAY)
+
+    assert result["price_usd"] is None
+    assert issubclass(daily.PriceValidationError, ValueError)
