@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta, timezone
 import os
+import threading
 import time
 
 import pytest
@@ -254,15 +255,36 @@ async def test_reload_registry_if_changed_only_reloads_on_mtime_change(tmp_path)
 
 
 class _FlakyQuestDBRepository:
-    """Fails the first `failures` initialize() calls, then succeeds (the startup race of F-399)."""
+    """Fails the first `failures` initialize() calls, then succeeds (the startup race of F-399).
+
+    The first successful call waits for `release`, so a test can observe the route while the
+    repository is still missing and then let the retry finish.
+    """
 
     failures = 2
     attempts = 0
+    release: threading.Event
 
     async def initialize(self) -> None:
-        type(self).attempts += 1
-        if type(self).attempts <= type(self).failures:
+        cls = type(self)
+        cls.attempts += 1
+        if cls.attempts <= cls.failures:
             raise ConnectionError("Connection refused (test)")
+        await asyncio.get_running_loop().run_in_executor(
+            None, lambda: cls.release.wait(5)
+        )
+
+    async def get_latest_price_analysis(self) -> dict:
+        return {
+            "ts": datetime(2026, 10, 26, tzinfo=timezone.utc),
+            "utxoracle_price": 84000.0,
+            "exchange_price": 84010.0,
+            "confidence": 0.9,
+            "tx_count": 1000,
+            "price_difference": 10.0,
+            "avg_pct_diff": 0.01,
+            "is_valid": True,
+        }
 
     async def close(self) -> None:
         return None
@@ -290,7 +312,7 @@ def _flaky_repository(monkeypatch, failures: int) -> type:
     repository = type(
         "FlakyRepository",
         (_FlakyQuestDBRepository,),
-        {"failures": failures, "attempts": 0},
+        {"failures": failures, "attempts": 0, "release": threading.Event()},
     )
     monkeypatch.setattr(live_app, "QuestDBRepository", repository)
     monkeypatch.setattr(live_app, "QUESTDB_RETRY_INITIAL_SECONDS", 0.01)
@@ -302,19 +324,34 @@ def _empty_store() -> InMemorySnapshotStore:
     return InMemorySnapshotStore([])
 
 
-def test_questdb_repository_is_set_after_two_failed_attempts(monkeypatch, caplog):
+def test_route_answers_503_then_200_once_the_third_attempt_succeeds(
+    monkeypatch, caplog
+):
     repository = _flaky_repository(monkeypatch, failures=2)
 
     with caplog.at_level("INFO"), _build_client(_empty_store()) as client:
         deadline = time.monotonic() + 5
+        while repository.attempts < 3 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        # Third attempt is in flight: still no repository, the route says why.
+        assert client.app.state.questdb_repo is None
+        unavailable = client.get("/api/prices/latest")
+        assert unavailable.status_code == 503
+        assert "QuestDB repository unavailable" in unavailable.json()["detail"]
+
+        repository.release.set()
+        deadline = time.monotonic() + 5
         while client.app.state.questdb_repo is None and time.monotonic() < deadline:
             time.sleep(0.01)
         assert isinstance(client.app.state.questdb_repo, repository)
+        assert client.get("/api/prices/latest").status_code == 200
         retry_task = client.app.state.questdb_retry_task
 
     assert repository.attempts == 3
     warnings = [r for r in caplog.records if "repository unavailable" in r.getMessage()]
-    assert len(warnings) == 2
+    assert [
+        ("attempt %d" % n) in w.getMessage() for n, w in enumerate(warnings, 1)
+    ] == [True, True]
     assert "Connection refused (test)" in warnings[0].getMessage()
     assert any("repository initialized" in r.getMessage() for r in caplog.records)
     assert retry_task.done()
@@ -345,6 +382,7 @@ def test_questdb_repository_stays_unavailable_with_a_logged_reason_and_task_is_c
 
 def test_startup_does_not_start_a_retry_task_when_questdb_is_up(monkeypatch):
     repository = _flaky_repository(monkeypatch, failures=0)
+    repository.release.set()
 
     with _build_client(_empty_store()) as client:
         assert isinstance(client.app.state.questdb_repo, repository)
