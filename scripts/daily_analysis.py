@@ -1350,17 +1350,64 @@ def analysis_day_for(now: datetime) -> datetime:
     )
 
 
+SCHEDULE_ENV = "UTXORACLE_DAILY_SCHEDULE_UTC"
+EXIT_OUTSIDE_WINDOW = 5
+
+
+def check_run_window(now: datetime) -> None:
+    """Exit 5, writing nothing, when the run started outside its window.
+
+    The scheduled time ("HH:MM", UTC) comes from the systemd unit through
+    UTXORACLE_DAILY_SCHEDULE_UTC, the single place it is written (a test keeps it equal to the
+    timer's OnCalendar). The window of the run on UTC day D is [scheduled time on D,
+    23:59:59Z on D]. A Persistent=true catch-up that fires after midnight is outside it:
+    its key (the day before the run) would label the wrong day. Without the variable
+    (manual use, tests) the window is not checked and that is logged; an unparsable value
+    is an error (exit 2 through the usual path).
+    """
+    schedule = os.environ.get(SCHEDULE_ENV)
+    if not schedule:
+        logging.info("%s not set: run window not checked", SCHEDULE_ENV)
+        return
+    try:
+        scheduled = datetime.strptime(schedule, "%H:%M")
+    except ValueError as exc:
+        raise ValueError(f"{SCHEDULE_ENV}={schedule!r} is not HH:MM") from exc
+    now = now.astimezone(timezone.utc)
+    start = now.replace(
+        hour=scheduled.hour, minute=scheduled.minute, second=0, microsecond=0
+    )
+    if now < start:
+        logging.error(
+            "run fuori finestra: started at %s, the window of %s is [%s, 23:59:59Z]; "
+            "writing nothing (exit %d)",
+            now.isoformat(timespec="seconds"),
+            now.date(),
+            start.strftime("%H:%M:%SZ"),
+            EXIT_OUTSIDE_WINDOW,
+        )
+        sys.exit(EXIT_OUTSIDE_WINDOW)
+
+
 def preflight(args) -> tuple[datetime, set[str], bool]:
     """Destination, dedup and already-written-day checks, before any computation or write.
 
     Returns (analysis_day, tables to skip, nothing_to_do). Runs inside main()'s try so every
-    non-zero exit (3, 4 through sys.exit; 2 through any exception) is logged the same way.
+    non-zero exit is logged the same way. Exit codes of the script: 0 done or both rows of
+    the day already present; 1 invalid configuration; 2 any failure (exception, incomplete
+    row, failed metrics block, failed write); 3 QuestDB destination mismatch; 4 a table
+    without dedup on ts; 5 run outside its window (check_run_window).
+
+    The skip needs BOTH rows of the day: with only one present the run was incomplete and
+    both are rewritten, as with --overwrite, after a WARNING.
     """
     check_questdb_destination()
-    analysis_day = analysis_day_for(utc_now())
+    now = utc_now()
+    analysis_day = analysis_day_for(now)
     skip_tables: set[str] = set()
     if args.dry_run:
         return analysis_day, skip_tables, False
+    check_run_window(now)
 
     import asyncio
 
@@ -1376,17 +1423,20 @@ def preflight(args) -> tuple[datetime, set[str], bool]:
             ", ".join(existing),
             analysis_day.date(),
         )
-    elif existing:
-        skip_tables = set(existing)
+    elif len(existing) == 2:
         logging.info(
-            "Row of %s already written in %s: the first successful run wins, "
-            "not writing it again (--overwrite replaces it)",
+            "Both rows of %s already written: the first successful run wins, nothing to "
+            "do (--overwrite replaces them)",
             analysis_day.date(),
-            ", ".join(existing),
         )
-        if len(existing) == 2:
-            logging.info("Nothing to do for %s", analysis_day.date())
-            return analysis_day, skip_tables, True
+        return analysis_day, skip_tables, True
+    elif existing:
+        logging.warning(
+            "only one row of %s exists (%s): the previous run was incomplete, rewriting "
+            "BOTH rows as with --overwrite",
+            analysis_day.date(),
+            existing[0],
+        )
     return analysis_day, skip_tables, False
 
 

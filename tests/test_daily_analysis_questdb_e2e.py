@@ -56,6 +56,9 @@ def _secrets_loader_stub(monkeypatch):
     monkeypatch.setitem(sys.modules, "secrets_loader", stub)
 
 
+SCHEDULE_ENV = "UTXORACLE_DAILY_SCHEDULE_UTC"
+
+
 @pytest.fixture(autouse=True)
 def _restore_metrics_repo():
     """monkeypatch leaves bound methods as instance attributes on the shared metrics repo.
@@ -66,9 +69,15 @@ def _restore_metrics_repo():
     import scripts.metrics as metrics
 
     before = dict(metrics._repo.__dict__)
+    # No schedule unless a test sets one. Done without the monkeypatch fixture on purpose:
+    # a fixture requesting monkeypatch here would be torn down before it, and the restore
+    # of the repository state would run before monkeypatch re-adds its instance attributes.
+    saved_schedule = os.environ.pop(SCHEDULE_ENV, None)
     yield
     metrics._repo.__dict__.clear()
     metrics._repo.__dict__.update(before)
+    if saved_schedule is not None:
+        os.environ[SCHEDULE_ENV] = saved_schedule
 
 
 def _target() -> dict:
@@ -738,18 +747,6 @@ def test_rerun_with_the_day_already_written_skips_with_info_and_exit_zero(
     )
 
 
-def test_only_the_missing_table_is_written(monkeypatch):
-    import scripts.daily_analysis as daily
-
-    sent = _record_rows(monkeypatch)
-    _stub_inputs(monkeypatch, daily)
-    _existing_rows(monkeypatch, ["price_analysis"])
-
-    daily.main()
-
-    assert [row[0] for row in sent] == ["metrics"]
-
-
 def test_overwrite_writes_again_and_warns(monkeypatch, caplog):
     import scripts.daily_analysis as daily
 
@@ -1196,3 +1193,99 @@ def test_failure_before_the_wasserstein_block_runs_still_fails_the_block(
 
     assert sent == []
     assert "Metrics block wasserstein failed" in caplog.text
+
+
+# --- Run window: a late catch-up must not label the wrong day ------------------------------
+
+
+def _run_at(monkeypatch, daily, when: datetime) -> None:
+    monkeypatch.setattr(daily, "utc_now", lambda: when)
+
+
+def test_run_inside_the_window_writes_with_the_analysed_day(monkeypatch):
+    import scripts.daily_analysis as daily
+
+    sent = _record_rows(monkeypatch)
+    _stub_inputs(monkeypatch, daily)
+    monkeypatch.setenv(SCHEDULE_ENV, "01:30")
+    for when in (
+        datetime(2026, 10, 27, 1, 30, 0, tzinfo=timezone.utc),  # the scheduled time
+        datetime(2026, 10, 27, 3, 0, tzinfo=timezone.utc),  # a late catch-up, same day
+        datetime(2026, 10, 27, 23, 59, 59, tzinfo=timezone.utc),  # last second
+    ):
+        sent.clear()
+        _run_at(monkeypatch, daily, when)
+        daily.main()
+        assert {row[0] for row in sent} == {"price_analysis", "metrics"}, when
+        assert {row[1] for row in sent} == {datetime(2026, 10, 26, tzinfo=timezone.utc)}
+
+
+@pytest.mark.parametrize(
+    "when",
+    [
+        datetime(2026, 10, 28, 0, 10, tzinfo=timezone.utc),  # catch-up after midnight
+        datetime(2026, 10, 27, 1, 29, 59, tzinfo=timezone.utc),  # one second early
+    ],
+)
+def test_run_outside_the_window_exits_5_and_writes_nothing(monkeypatch, caplog, when):
+    import scripts.daily_analysis as daily
+
+    sent = _record_rows(monkeypatch)
+    _stub_inputs(monkeypatch, daily)
+    monkeypatch.setenv(SCHEDULE_ENV, "01:30")
+    _run_at(monkeypatch, daily, when)
+
+    with caplog.at_level("ERROR"):
+        assert _exit_code(daily) == 5
+
+    assert sent == []
+    assert "run fuori finestra" in caplog.text
+
+
+def test_without_the_schedule_variable_the_window_is_not_checked(monkeypatch, caplog):
+    """Manual use: no schedule known, so no block; the run is logged as unchecked."""
+    import scripts.daily_analysis as daily
+
+    sent = _record_rows(monkeypatch)
+    _stub_inputs(monkeypatch, daily)
+    _run_at(monkeypatch, daily, datetime(2026, 10, 28, 0, 10, tzinfo=timezone.utc))
+
+    with caplog.at_level("INFO"):
+        daily.main()
+
+    assert {row[0] for row in sent} == {"price_analysis", "metrics"}
+    assert "run window not checked" in caplog.text
+
+
+def test_invalid_schedule_value_is_an_error_exit(monkeypatch, caplog):
+    import scripts.daily_analysis as daily
+
+    sent = _record_rows(monkeypatch)
+    _stub_inputs(monkeypatch, daily)
+    monkeypatch.setenv(SCHEDULE_ENV, "25:99")
+
+    with caplog.at_level("ERROR"):
+        assert _exit_code(daily) == 2
+
+    assert sent == []
+    assert SCHEDULE_ENV in caplog.text
+
+
+# --- The skip needs BOTH rows of the day ---------------------------------------------------
+
+
+def test_only_one_row_present_rewrites_both_with_a_warning(monkeypatch, caplog):
+    import scripts.daily_analysis as daily
+
+    sent = _record_rows(monkeypatch)
+    _stub_inputs(monkeypatch, daily)
+    _existing_rows(monkeypatch, ["price_analysis"])
+
+    with caplog.at_level("WARNING"):
+        daily.main()
+
+    assert {row[0] for row in sent} == {"price_analysis", "metrics"}
+    assert any(
+        r.levelname == "WARNING" and "only one" in r.getMessage()
+        for r in caplog.records
+    )

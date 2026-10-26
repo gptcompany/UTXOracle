@@ -66,3 +66,11 @@ def test_units_pass_systemd_analyze_verify():
         timeout=15,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_job_schedule_is_defined_once_and_matches_the_timer():
+    """The run window of daily_analysis is derived from the unit, not written twice."""
+    env = _environment(SERVICE)
+    scheduled = env["UTXORACLE_DAILY_SCHEDULE_UTC"]  # "HH:MM", read by the job
+    on_calendar = _parse(TIMER)["Timer"]["OnCalendar"]
+    assert on_calendar == f"*-*-* {scheduled}:00 UTC"
