@@ -283,7 +283,8 @@ def _repo(
                     for n in sorted(catalog)
                     if n.startswith("address_clusters_old_")
                 ]
-            return [("address_clusters",)] if "address_clusters" in catalog else []
+            wanted = re.search(r"table_name = '(\w+)'", query).group(1)
+            return [(wanted,)] if wanted in catalog else []
         if "tables()" in query and "LIKE" in query:
             return [(name,) for name in old_copies]
         if "tables()" in query:
@@ -486,6 +487,38 @@ def test_a_lost_ack_of_the_second_rename_leaves_a_valid_published_state(monkeypa
     asyncio.run(repo.commit_address_clusters_refresh(_tok(repo), 5))
 
     assert catalog["address_clusters"] == "new data"  # live and _old: a valid state
+
+
+def test_a_lost_ack_of_the_second_rename_logs_an_explicit_published_warning(
+    monkeypatch, caplog
+):
+    catalog = {"address_clusters": "old data", "address_clusters_staging": "new data"}
+    repo = _repo(
+        monkeypatch,
+        catalog=catalog,
+        ack_lost_on=("RENAME TABLE address_clusters_staging TO",),
+    )
+
+    with caplog.at_level("WARNING"):
+        asyncio.run(repo.commit_address_clusters_refresh(_tok(repo), 5))
+
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert any(
+        "snapshot pubblicato, ack perso, pulizia al prossimo giro" in r.getMessage()
+        for r in warnings
+    )
+
+
+def test_a_failed_first_rename_does_not_claim_a_published_snapshot(monkeypatch, caplog):
+    catalog = {"address_clusters": "old data", "address_clusters_staging": "new data"}
+    repo = _repo(
+        monkeypatch, catalog=catalog, fail_on=("RENAME TABLE address_clusters TO",)
+    )
+
+    with caplog.at_level("WARNING"):
+        asyncio.run(repo.commit_address_clusters_refresh(_tok(repo), 5))
+
+    assert not any("snapshot pubblicato" in r.getMessage() for r in caplog.records)
 
 
 def test_a_failed_restore_is_exit_6_with_the_manual_command(monkeypatch, caplog):

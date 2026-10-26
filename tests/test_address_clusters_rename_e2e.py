@@ -328,48 +328,112 @@ async def test_lost_ack_of_the_first_rename_is_recovered_on_an_independent_conne
             await conn.close()
 
 
-async def test_sigkill_between_the_renames_is_recovered_by_the_next_process():
-    """A separate process runs the production swap and is SIGKILLed between the RENAMEs."""
+_HOLD_SCRIPT = (
+    "import asyncio, os, asyncpg\n"
+    "from api.questdb_repository import QuestDBRepository\n"
+    "live, staging, old = os.environ['F424_NAMES'].split(',')\n"
+    "class Hold:\n"
+    "    def __init__(self, conn): self.conn = conn\n"
+    "    async def execute(self, q, *a):\n"
+    "        r = await self.conn.execute(q, *a)\n"
+    "        if q.startswith('RENAME TABLE ' + live + ' TO'):\n"
+    "            print('READY', flush=True)\n"
+    "            await asyncio.sleep(3600)\n"
+    "        return r\n"
+    "async def main():\n"
+    "    conn = await asyncpg.connect(host=os.environ['QUESTDB_TEST_HOST'],\n"
+    "        port=int(os.environ['QUESTDB_TEST_PORT']), user=os.environ['QUESTDB_TEST_USER'],\n"
+    "        password=os.environ['QUESTDB_TEST_PASSWORD'],\n"
+    "        database=os.getenv('QUESTDB_TEST_DATABASE', 'qdb'))\n"
+    "    await QuestDBRepository()._swap_tables(Hold(conn), live, staging, old)\n"
+    "asyncio.run(main())\n"
+)
+
+_CLUSTER_DDL = """CREATE TABLE {} (address STRING, cluster_id STRING, ts TIMESTAMP,
+    last_seen TIMESTAMP, is_exchange_likely BOOLEAN, label SYMBOL, confidence DOUBLE
+    ) timestamp(ts) PARTITION BY YEAR WAL"""
+
+
+def _ingest_clusters(table: str, rows: int) -> None:
+    from datetime import datetime, timezone
+
+    from questdb.ingress import Sender
+
+    now = datetime.now(timezone.utc)
+    with Sender(
+        "http",
+        os.environ["QUESTDB_TEST_HOST"],
+        int(os.environ["QUESTDB_TEST_HTTP_PORT"]),
+        auto_flush=False,
+    ) as sender:
+        for i in range(rows):
+            sender.row(
+                table,
+                symbols={"label": "e2e"},
+                columns={
+                    "address": f"a{i}",
+                    "cluster_id": "c",
+                    "last_seen": now,
+                    "is_exchange_likely": False,
+                    "confidence": 0.6,
+                },
+                at=now,
+            )
+        sender.flush()
+
+
+async def test_cli_restart_after_a_sigkill_between_the_renames_restores_before_refreshing(
+    tmp_path,
+):
+    """R4. The production swap runs in a subprocess killed with SIGKILL between the two
+    RENAMEs (a pause hook in the CLI would be extra production surface); the RECOVERY is
+    the real CLI entry point (`python -m scripts.bootstrap.sync_clusters_to_questdb`,
+    initialize then refresh) against the CI QuestDB, with a small temporary DuckDB.
+    Uses the real address_clusters names: only ever the CI service container."""
     import subprocess
     import sys
     from pathlib import Path
 
     import asyncpg
+    import duckdb
 
     target = _target()
-    suffix = uuid.uuid4().hex[:8]
-    live, staging = f"f424_live_{suffix}", f"f424_staging_{suffix}"
-    old = f"{live}_old_20260101T000000Z"
+    root = Path(__file__).resolve().parents[1]
+    live, staging = "address_clusters", "address_clusters_staging"
+    old = "address_clusters_old_20260101T000000Z"
     ddl = await asyncpg.connect(**target)
     reader = await asyncpg.connect(**target)
-    repo = QuestDBRepository()
-    repo.fetch = reader.fetch
-    repo._open_dedicated_connection = lambda: _async_value(_KeepOpen(ddl))
-    script = (
-        "import asyncio, os, asyncpg\n"
-        "from api.questdb_repository import QuestDBRepository\n"
-        "live, staging, old = os.environ['F424_NAMES'].split(',')\n"
-        "class Hold:\n"
-        "    def __init__(self, conn): self.conn = conn\n"
-        "    async def execute(self, q, *a):\n"
-        "        r = await self.conn.execute(q, *a)\n"
-        "        if q.startswith('RENAME TABLE ' + live + ' TO'):\n"
-        "            print('READY', flush=True)\n"
-        "            await asyncio.sleep(3600)\n"
-        "        return r\n"
-        "async def main():\n"
-        "    conn = await asyncpg.connect(host=os.environ['QUESTDB_TEST_HOST'],\n"
-        "        port=int(os.environ['QUESTDB_TEST_PORT']), user=os.environ['QUESTDB_TEST_USER'],\n"
-        "        password=os.environ['QUESTDB_TEST_PASSWORD'],\n"
-        "        database=os.getenv('QUESTDB_TEST_DATABASE', 'qdb'))\n"
-        "    await QuestDBRepository()._swap_tables(Hold(conn), live, staging, old)\n"
-        "asyncio.run(main())\n"
+
+    async def wipe():
+        names = await reader.fetch(
+            "SELECT table_name FROM tables() WHERE table_name LIKE 'address_clusters%'"
+        )
+        for (name,) in names:
+            await ddl.execute(f"DROP TABLE IF EXISTS {name}")
+
+    db = tmp_path / "clusters.duckdb"
+    con = duckdb.connect(str(db))
+    con.execute(
+        "CREATE TABLE address_clusters (address VARCHAR, cluster_id VARCHAR, "
+        "first_seen TIMESTAMP, last_seen TIMESTAMP)"
     )
+    con.execute(
+        "INSERT INTO address_clusters VALUES ('n1','c','2024-01-01','2024-01-02'),"
+        "('n2','c','2024-01-01','2024-01-02'),('n3','c','2024-01-01','2024-01-02')"
+    )
+    con.close()
     try:
-        await _two_tables(ddl, reader, live, staging)
+        await wipe()
+        await ddl.execute(_CLUSTER_DDL.format(live))
+        await ddl.execute(_CLUSTER_DDL.format(staging))
+        _ingest_clusters(live, 4)  # the snapshot to be saved
+        _ingest_clusters(staging, 5)
+        await _wait_applied(reader, live, 4)
+        await _wait_applied(reader, staging, 5)
+
         proc = subprocess.Popen(
-            [sys.executable, "-c", script],
-            cwd=Path(__file__).resolve().parents[1],
+            [sys.executable, "-c", _HOLD_SCRIPT],
+            cwd=root,
             env={**os.environ, "F424_NAMES": f"{live},{staging},{old}"},
             stdout=subprocess.PIPE,
             text=True,
@@ -377,19 +441,49 @@ async def test_sigkill_between_the_renames_is_recovered_by_the_next_process():
         try:
             line = await asyncio.wait_for(asyncio.to_thread(proc.stdout.readline), 60)
             assert line.strip() == "READY"  # first RENAME applied, second never sent
-            proc.kill()  # SIGKILL
         finally:
-            proc.kill()
+            proc.kill()  # SIGKILL
             proc.wait(timeout=30)
         assert not await reader.fetch(
             f"SELECT 1 FROM tables() WHERE table_name = '{live}'"
         )
 
-        await repo._reconcile_tables(live, live)  # what the next refresh does first
+        env = {
+            **os.environ,
+            "QUESTDB_PG_HOST": target["host"],
+            "QUESTDB_PG_PORT": str(target["port"]),
+            "QUESTDB_PG_USER": target["user"],
+            "QUESTDB_PG_PASSWORD": target["password"],
+            "QUESTDB_PG_DATABASE": target["database"],
+            "QUESTDB_HTTP_HOST": target["host"],
+            "QUESTDB_HTTP_PORT": os.environ["QUESTDB_TEST_HTTP_PORT"],
+            "DUCKDB_PATH": str(db),
+            "ADDRESS_CLUSTERS_LOCK_DIR": str(tmp_path / "locks"),
+            "JWT_SECRET": os.getenv("JWT_SECRET") or "e2e-not-a-secret-" + "x" * 32,
+        }
+        cli = await asyncio.to_thread(
+            subprocess.run,
+            [sys.executable, "-m", "scripts.bootstrap.sync_clusters_to_questdb"],
+            cwd=root,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        output = cli.stdout + cli.stderr
 
+        assert cli.returncode == 0, output
+        # restored by the reconcile, BEFORE the new refresh (initialize did not recreate
+        # an empty live table): the saved snapshot is now the rollback copy
+        assert f"restored from {old}" in output, output
         assert (await reader.fetch(f"SELECT count(*) FROM {live}"))[0][0] == 3
+        olds = await reader.fetch(
+            "SELECT table_name FROM tables() WHERE table_name LIKE 'address_clusters_old_%'"
+        )
+        assert len(olds) == 1
+        assert (await reader.fetch(f"SELECT count(*) FROM {olds[0][0]}"))[0][0] == 4
     finally:
-        await _drop(ddl, live, staging, old)
+        await wipe()
         for conn in (ddl, reader):
             await conn.close()
 

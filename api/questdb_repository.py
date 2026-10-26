@@ -1825,6 +1825,15 @@ class QuestDBRepository:
             await self._reconcile_tables(live, live, after_failure=True)
             if not isinstance(e, Exception):
                 raise
+            if not await self.fetch(
+                f"SELECT table_name FROM tables() WHERE table_name = '{staging}'"
+            ):  # live present, staging consumed: the second RENAME was applied
+                logger.warning(
+                    "%s: snapshot pubblicato, ack perso, pulizia al prossimo giro "
+                    "(rollback copy: %s)",
+                    live,
+                    old,
+                )
             return None
 
     async def _reconcile_tables(
