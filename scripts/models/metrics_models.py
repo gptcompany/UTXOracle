@@ -1860,7 +1860,10 @@ class URPDFeaturesResult:
     total_supply_btc: float
     block_height: int
     timestamp: datetime = field(default_factory=datetime.utcnow)
+    availability_timestamp: datetime = field(default_factory=datetime.utcnow)
     confidence: float = 0.85
+    schema_version: str = "urpd_features_daily.v1"
+    source_health: dict = field(default_factory=dict)
 
     def __post_init__(self):
         """Validate derived feature bounds."""

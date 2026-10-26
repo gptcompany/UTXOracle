@@ -197,7 +197,7 @@ def test_get_cost_basis_latest_uses_fetchrow():
     assert "LATEST ON ts" not in query
 
 
-def test_save_urpd_features_passes_empty_symbols():
+def test_save_urpd_features_persists_schema_version_and_health():
     repo = QuestDBRepository()
     calls: list[tuple[str, dict, dict, object]] = []
 
@@ -218,7 +218,9 @@ def test_save_urpd_features_passes_empty_symbols():
         total_supply_btc=18.5,
         block_height=900000,
         timestamp=timestamp,
+        availability_timestamp=timestamp,
         confidence=0.85,
+        source_health={"status": "healthy", "source_freshness_seconds": 42.0},
     )
 
     assert repo.save_urpd_features(result) is True
@@ -226,10 +228,13 @@ def test_save_urpd_features_passes_empty_symbols():
     assert len(calls) == 1
     table, symbols, columns, at = calls[0]
     assert table == "urpd_features_daily"
-    assert symbols == {}
+    assert symbols == {"schema_version": "urpd_features_daily.v1"}
     assert columns["supply_below_price_pct"] == 72.0
     assert columns["top_bucket_concentration"] == 14.5
     assert columns["distribution_entropy"] == 0.84
+    assert columns["availability_timestamp"] is timestamp
+    assert columns["source_freshness_seconds"] == 42.0
+    assert '"status": "healthy"' in columns["source_health_json"]
     assert at is timestamp
 
 
