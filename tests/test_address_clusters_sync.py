@@ -320,3 +320,61 @@ def test_sync_main_exits_6_when_live_and_old_copies_are_both_gone(
             "scripts/bootstrap/sync_clusters_to_questdb.py", run_name="__main__"
         )
     assert exc.value.code == 6
+
+
+def _restart_with_a_broken_recovery(monkeypatch, tmp_path, *, observation_fails):
+    """Runs the real sync main with a repository that cannot restore (or observe) at
+    restart; returns the exit code. Only the database access is faked."""
+    import runpy
+    import sys
+
+    import api.questdb_repository as qr
+
+    db = tmp_path / "x.duckdb"
+    _db_with_one_cluster(db)
+    old = "address_clusters_old_20260101T000000Z"
+
+    class _Conn:
+        async def execute(self, query, *args):
+            raise RuntimeError("cannot rename")
+
+        async def close(self):
+            return None
+
+    class _Repo(qr.QuestDBRepository):
+        async def initialize(self):
+            return None
+
+        async def close(self):
+            return None
+
+        async def fetch(self, query, *args):
+            if observation_fails:
+                raise ConnectionError("pool down")
+            if "LIKE" in query:
+                return [(old,)]
+            return []  # the live table is absent
+
+        async def _open_dedicated_connection(self):
+            return _Conn()
+
+    monkeypatch.setattr("api.questdb_repository.QuestDBRepository", _Repo)
+    monkeypatch.setattr("api.config.DUCKDB_PATH", str(db))
+    monkeypatch.setattr(sys, "argv", ["sync"])
+    with pytest.raises(SystemExit) as exc:
+        runpy.run_path(
+            "scripts/bootstrap/sync_clusters_to_questdb.py", run_name="__main__"
+        )
+    return exc.value.code
+
+
+@pytest.mark.parametrize("observation_fails", [False, True])
+def test_sync_main_exits_6_with_the_manual_command_when_the_restart_recovery_fails(
+    monkeypatch, tmp_path, capsys, observation_fails
+):
+    code = _restart_with_a_broken_recovery(
+        monkeypatch, tmp_path, observation_fails=observation_fails
+    )
+
+    assert code == 6
+    assert "sync_clusters_to_questdb" in capsys.readouterr().err

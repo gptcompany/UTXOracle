@@ -526,3 +526,80 @@ async def test_production_read_helper_rides_out_a_transient_absence_and_exposes_
         await _drop(ddl, live, staging, old)
         for conn in (ddl, reader, watcher):
             await conn.close()
+
+
+class _FailingConn:
+    """Client-side injection: statements starting with `prefix` fail before being sent."""
+
+    def __init__(self, conn, prefix: str):
+        self.conn, self.prefix = conn, prefix
+
+    async def execute(self, query, *args):
+        if query.startswith(self.prefix):
+            raise ConnectionError("injected: the restore cannot be sent")
+        return await self.conn.execute(query, *args)
+
+    async def close(self):
+        return None
+
+
+async def test_failed_restore_at_restart_is_exit_6_with_the_manual_command():
+    import asyncpg
+
+    from api.questdb_repository import AddressClustersLostError
+
+    target = _target()
+    suffix = uuid.uuid4().hex[:8]
+    live, staging = f"f424_live_{suffix}", f"f424_staging_{suffix}"
+    old = f"{live}_old_20260101T000000Z"
+    ddl = await asyncpg.connect(**target)
+    reader = await asyncpg.connect(**target)
+    repo = QuestDBRepository()
+    repo.fetch = reader.fetch
+    repo._open_dedicated_connection = lambda: _async_value(
+        _FailingConn(ddl, f"RENAME TABLE {old} TO")
+    )
+    try:
+        await _two_tables(ddl, reader, live, staging)
+        await ddl.execute(f"RENAME TABLE {live} TO {old}")  # what a killed swap leaves
+
+        with pytest.raises(AddressClustersLostError) as exc:
+            await repo._reconcile_tables(live, live)
+
+        assert f"RENAME TABLE {old} TO {live}" in str(exc.value)
+        assert (await reader.fetch(f"SELECT count(*) FROM {old}"))[0][0] == 3  # intact
+    finally:
+        await _drop(ddl, live, staging, old)
+        for conn in (ddl, reader):
+            await conn.close()
+
+
+async def test_lost_ack_at_the_first_install_is_observed_and_published():
+    import asyncpg
+
+    target = _target()
+    suffix = uuid.uuid4().hex[:8]
+    live, staging = f"f424_live_{suffix}", f"f424_staging_{suffix}"
+    old = f"{live}_old_20260101T000000Z"
+    ddl = await asyncpg.connect(**target)
+    reader = await asyncpg.connect(**target)
+    repo = QuestDBRepository()
+    repo.fetch = reader.fetch
+    repo._open_dedicated_connection = lambda: _async_value(_KeepOpen(ddl))
+    try:
+        await ddl.execute(_DDL.format(staging))  # first install: no live table yet
+        _ingest(5, staging)
+        await _wait_applied(reader, staging, 5)
+        lossy = _AckLostConn(ddl, f"RENAME TABLE {staging} TO")
+
+        assert (
+            await repo._swap_or_reconcile(lossy, live, staging, old, live_exists=False)
+            is None
+        )
+
+        assert lossy.fired
+        assert (await reader.fetch(f"SELECT count(*) FROM {live}"))[0][0] == 5
+    finally:
+        await _drop(ddl, live, staging, old)
+        for conn in (ddl, reader):
+            await conn.close()

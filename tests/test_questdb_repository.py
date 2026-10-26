@@ -431,14 +431,18 @@ def test_without_a_live_table_the_staging_table_is_renamed_once(monkeypatch):
     assert not any("_old_" in q and q.startswith("RENAME") for q in ddl)
 
 
-def test_without_a_live_table_a_failed_rename_is_an_error(monkeypatch, caplog):
+def test_without_a_live_table_a_failed_rename_is_exit_6_with_the_staging_hint(
+    monkeypatch,
+):
+    import api.questdb_repository as qr
+
     repo = _repo(monkeypatch, live_exists=False, fail_on=("RENAME",))
 
-    with caplog.at_level("ERROR"):
-        assert asyncio.run(repo.commit_address_clusters_refresh(_tok(repo), 5)) is False
+    with pytest.raises(qr.AddressClustersLostError) as exc:
+        asyncio.run(repo.commit_address_clusters_refresh(_tok(repo), 5))
 
-    assert len(_ddl(repo)) == 1
-    assert "does not exist and RENAME" in " ".join(_errors(caplog))
+    assert "staging" in str(exc.value) and "sync_clusters_to_questdb" in str(exc.value)
+    assert len(_ddl(repo)) == 1  # only the failed RENAME
 
 
 def test_second_rename_failure_restores_the_live_table_from_the_observed_state(
@@ -938,7 +942,7 @@ def test_reconcile_leaves_a_published_state_alone(monkeypatch):
     assert set(catalog) == {"address_clusters", "address_clusters_old_20260101T000000Z"}
 
 
-def test_reconcile_with_neither_table_is_a_first_install_at_start_but_lost_after_a_failure(
+def test_reconcile_with_neither_table_is_a_first_install_only_before_any_swap(
     monkeypatch,
 ):
     import api.questdb_repository as qr
@@ -946,9 +950,68 @@ def test_reconcile_with_neither_table_is_a_first_install_at_start_but_lost_after
     repo = _repo(monkeypatch, catalog={})
 
     asyncio.run(repo.reconcile_address_clusters(_tok(repo)))  # first install: fine
+    repo._swap_attempted = True  # a swap was tried in this process: no longer fine
     with pytest.raises(qr.AddressClustersLostError) as exc:
-        asyncio.run(repo.reconcile_address_clusters(_tok(repo), after_failure=True))
+        asyncio.run(repo.reconcile_address_clusters(_tok(repo)))
     assert "sync_clusters_to_questdb" in str(exc.value)  # the manual command
+
+
+def test_a_failed_restore_at_the_start_of_a_refresh_is_exit_6_with_the_command(
+    monkeypatch,
+):
+    import api.questdb_repository as qr
+
+    old = "address_clusters_old_20260101T000000Z"
+    repo = _repo(
+        monkeypatch, catalog={old: "A"}, fail_on=("RENAME TABLE address_clusters_old",)
+    )
+
+    async def producer():
+        pytest.fail("the refresh must not start")
+
+    with pytest.raises(qr.AddressClustersLostError) as exc:
+        asyncio.run(repo.refresh_address_clusters(producer))
+
+    assert f"RENAME TABLE {old} TO address_clusters" in str(exc.value)
+    assert "sync_clusters_to_questdb" in str(exc.value)
+
+
+def test_a_failed_observation_at_the_start_of_a_refresh_is_exit_6(monkeypatch):
+    import api.questdb_repository as qr
+
+    repo = _repo(monkeypatch, catalog={})
+    repo.fetch = AsyncMock(side_effect=ConnectionError("pool down"))
+
+    async def producer():
+        pytest.fail("the refresh must not start")
+
+    with pytest.raises(qr.AddressClustersLostError) as exc:
+        asyncio.run(repo.refresh_address_clusters(producer))
+
+    assert "sync_clusters_to_questdb" in str(exc.value)
+    assert _ddl(repo) == []  # nothing was touched
+
+
+def test_a_lost_ack_at_the_first_install_is_observed_and_published(monkeypatch, caplog):
+    catalog = {"address_clusters_staging": "new data"}  # no live table yet
+    repo = _repo(
+        monkeypatch,
+        catalog=catalog,
+        ack_lost_on=("RENAME TABLE address_clusters_staging TO",),
+    )
+
+    with caplog.at_level("WARNING"):
+        asyncio.run(repo.commit_address_clusters_refresh(_tok(repo), 5))
+
+    assert catalog["address_clusters"] == "new data"
+    assert any(
+        "snapshot pubblicato, ack perso, pulizia al prossimo giro" in r.getMessage()
+        for r in caplog.records
+        if r.levelname == "WARNING"
+    )
+    assert not any(
+        "does not exist and RENAME" in r.getMessage() for r in caplog.records
+    )
 
 
 def test_refresh_reconciles_before_touching_anything(monkeypatch):
