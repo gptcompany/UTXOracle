@@ -1,9 +1,16 @@
+import contextlib
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 import duckdb
 
 from scripts.bootstrap.sync_clusters_to_questdb import sync_clusters
 from api.questdb_repository import QuestDBRepository
+
+
+@pytest.fixture(autouse=True)
+def _lock_dir(monkeypatch, tmp_path):
+    monkeypatch.setenv("ADDRESS_CLUSTERS_LOCK_DIR", str(tmp_path / "locks"))
 
 
 @pytest.fixture
@@ -135,6 +142,9 @@ def test_sync_main_exits_nonzero_when_the_sync_fails(monkeypatch, tmp_path):
         async def prepare_address_clusters_refresh(self):
             return False
 
+        def refresh_lock(self):
+            return contextlib.nullcontext()
+
     monkeypatch.setattr("api.questdb_repository.QuestDBRepository", _Repo)
     monkeypatch.setattr("api.config.DUCKDB_PATH", str(db))
     monkeypatch.setattr(sys, "argv", ["sync"])
@@ -145,14 +155,19 @@ def test_sync_main_exits_nonzero_when_the_sync_fails(monkeypatch, tmp_path):
     assert exc.value.code == 1
 
 
-@pytest.mark.parametrize("cutover_ok, code", [(True, 0), (False, 1)])
-def test_sync_cutover_only_exit_code_follows_the_recovery_result(
-    monkeypatch, cutover_ok, code
+def test_sync_main_exits_nonzero_when_another_refresh_holds_the_lock(
+    monkeypatch, tmp_path
 ):
     import runpy
     import sys
+    from contextlib import contextmanager
 
-    calls = []
+    import duckdb as _duckdb
+
+    from api.questdb_repository import ConcurrentRefreshError
+
+    db = tmp_path / "x.duckdb"
+    _duckdb.connect(str(db)).close()
 
     class _Repo:
         async def initialize(self):
@@ -161,17 +176,16 @@ def test_sync_cutover_only_exit_code_follows_the_recovery_result(
         async def close(self):
             return None
 
-        async def cutover_address_clusters_from_staging(self, expected_rows):
-            calls.append(expected_rows)
-            return cutover_ok
+        @contextmanager
+        def refresh_lock(self):
+            raise ConcurrentRefreshError("locked")
+            yield
 
     monkeypatch.setattr("api.questdb_repository.QuestDBRepository", _Repo)
-    monkeypatch.setattr(
-        sys, "argv", ["sync", "--cutover-only", "--expected-rows", "64011"]
-    )
+    monkeypatch.setattr("api.config.DUCKDB_PATH", str(db))
+    monkeypatch.setattr(sys, "argv", ["sync"])
     with pytest.raises(SystemExit) as exc:
         runpy.run_path(
             "scripts/bootstrap/sync_clusters_to_questdb.py", run_name="__main__"
         )
-    assert exc.value.code == code
-    assert calls == [64011]
+    assert exc.value.code == 1

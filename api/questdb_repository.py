@@ -3,6 +3,7 @@ Repository for interacting with QuestDB.
 """
 
 import asyncio
+import fcntl
 import logging
 import weakref
 import threading
@@ -10,6 +11,8 @@ import time
 import json
 import os
 import re
+from contextlib import contextmanager
+from pathlib import Path
 from api.models.data import WhaleTransaction, NetFlowMetrics, Alert
 from scripts.models.metrics_models import (
     WalletWavesResult,
@@ -59,16 +62,6 @@ ADDRESS_CLUSTERS_STAGING_TABLE = "address_clusters_staging"
 # (specs/037-database-consolidation/spec.md), so 3.8k rows/s gives ~4 h for the full sync;
 # the CSV ingest (tens of thousands of rows) gets the 10 min floor.
 ADDRESS_CLUSTERS_MIN_APPLY_ROWS_PER_S = 3800.0
-# Recovery command shown when the cutover fails after the live TRUNCATE.
-ADDRESS_CLUSTERS_CUTOVER_ONLY_COMMAND = (
-    "uv run python -m scripts.bootstrap.sync_clusters_to_questdb "
-    "--cutover-only --expected-rows {rows}"
-)
-# Operator procedure when the LIVE table is not WAL: never DROP it, it holds the served data.
-ADDRESS_CLUSTERS_LIVE_NOT_WAL_HINT = (
-    "ALTER TABLE address_clusters SET TYPE WAL followed by a QuestDB restart "
-    "(never DROP TABLE: it holds the served data)"
-)
 # Operator procedure shown when the staging table is not WAL (no automatic migration).
 ADDRESS_CLUSTERS_NOT_WAL_HINT = (
     "DROP TABLE address_clusters_staging (it is empty outside a refresh and is "
@@ -81,15 +74,42 @@ ADDRESS_CLUSTERS_FLUSH_ROWS = 5000
 # One INFO line per poll: 5 s keeps a 4 h wait to ~2.9k lines at worst, while a
 # normal small ingest is done within one or two polls.
 ADDRESS_CLUSTERS_POLL_S = 5.0
-ADDRESS_CLUSTERS_COLUMNS = (
-    "address",
-    "cluster_id",
-    "ts",
-    "last_seen",
-    "is_exchange_likely",
-    "label",
-    "confidence",
-)
+# Name and type of every column the staging table must have to become the live table.
+ADDRESS_CLUSTERS_SCHEMA = [
+    ("address", "STRING"),
+    ("cluster_id", "STRING"),
+    ("ts", "TIMESTAMP"),
+    ("last_seen", "TIMESTAMP"),
+    ("is_exchange_likely", "BOOLEAN"),
+    ("label", "SYMBOL"),
+    ("confidence", "DOUBLE"),
+]
+ADDRESS_CLUSTERS_STAGING_DDL = f"""
+    CREATE TABLE IF NOT EXISTS {ADDRESS_CLUSTERS_STAGING_TABLE} (
+        address STRING,
+        cluster_id STRING,
+        ts TIMESTAMP,
+        last_seen TIMESTAMP,
+        is_exchange_likely BOOLEAN,
+        label SYMBOL,
+        confidence DOUBLE
+    ) timestamp(ts) PARTITION BY YEAR WAL
+"""
+
+
+class ConcurrentRefreshError(RuntimeError):
+    """Another process holds the address_clusters refresh lock."""
+
+
+class CutoverSwapError(RuntimeError):
+    """The RENAME swap failed; `restored` says whether the live table is back."""
+
+    def __init__(self, message: str, restored: bool):
+        super().__init__(message)
+        self.restored = restored
+
+
+_OLD_COPY_RE = re.compile(r"^address_clusters_old_[0-9]{8}T[0-9]{6}Z$")
 
 
 QUESTDB_POOL_MIN_SIZE = int(os.getenv("QUESTDB_POOL_MIN_SIZE", "5"))
@@ -849,56 +869,7 @@ async def create_tables_if_not_exist():
             """
         )
 
-        await conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS address_clusters_staging (
-                address STRING,
-                cluster_id STRING,
-                ts TIMESTAMP,
-                last_seen TIMESTAMP,
-                is_exchange_likely BOOLEAN,
-                label SYMBOL,
-                confidence DOUBLE
-            ) timestamp(ts) PARTITION BY YEAR WAL;
-            """
-        )
-
-        # F-424: the live table predates the confidence column; the cutover INSERT names it.
-        # ADD COLUMN IF NOT EXISTS is rejected as a no-op on WAL tables when the column is
-        # already there, so the column list is read first and the ALTER runs only if needed.
-        for table in ("address_clusters", "address_clusters_staging"):
-            try:
-                # Separate short connection for the read: on QuestDB 7.4 an extended-protocol
-                # query (fetch) followed by an execute on the same asyncpg connection breaks
-                # it ('NoneType' object has no attribute 'decode'). The DDL connection
-                # never runs fetch.
-                read_conn = await asyncpg.connect(
-                    host=QUESTDB_PG_HOST,
-                    port=QUESTDB_PG_PORT,
-                    user=QUESTDB_PG_USER,
-                    password=QUESTDB_PG_PASSWORD,
-                    database=QUESTDB_PG_DATABASE,
-                )
-                try:
-                    present = {
-                        r[0]
-                        for r in await read_conn.fetch(
-                            f"SELECT \"column\" FROM table_columns('{table}')"
-                        )
-                    }
-                finally:
-                    await read_conn.close()
-                if "confidence" not in present:
-                    await conn.execute(
-                        f"ALTER TABLE {table} ADD COLUMN confidence DOUBLE"
-                    )
-            except Exception as e:
-                logger.error(
-                    "Could not ensure %s.confidence: %s; address_clusters refreshes "
-                    "will be rejected while the column is missing",
-                    table,
-                    e,
-                )
+        await conn.execute(ADDRESS_CLUSTERS_STAGING_DDL)
 
         await conn.execute(
             """
@@ -1086,6 +1057,7 @@ class QuestDBRepository:
         # only once the server committed the rows and raises if it rejects them (F-424).
         self._refresh_sender: Sender | None = None
         self._refresh_buffered = 0
+        self._lock_depth = 0
 
     def _build_refresh_sender(self):
         if Sender is None:
@@ -1556,41 +1528,83 @@ class QuestDBRepository:
             logger.error(f"Failed to stage address_clusters row over ILP/HTTP: {e}")
             return False
 
+    @contextmanager
+    def refresh_lock(self):
+        """Host-local flock serialising address_clusters refreshes (one lock file).
+
+        Path: $ADDRESS_CLUSTERS_LOCK_DIR/address_clusters.lock, default
+        <project>/data/locks/address_clusters.lock. `data/` is the directory the compose
+        services (data-updater included) bind-mount at /app/data, so host and containers
+        lock the same inode. Re-entrant within one repository, so the entry points hold
+        it for the whole prepare..commit while prepare and commit also take it. Already
+        held elsewhere: ERROR `concurrent_refresh` and ConcurrentRefreshError.
+        """
+        if self._lock_depth:
+            self._lock_depth += 1
+            try:
+                yield
+            finally:
+                self._lock_depth -= 1
+            return
+        lock_dir = Path(
+            os.getenv("ADDRESS_CLUSTERS_LOCK_DIR")
+            or Path(__file__).resolve().parent.parent / "data" / "locks"
+        )
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        path = lock_dir / "address_clusters.lock"
+        fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            os.close(fd)
+            logger.error(
+                "address_clusters refresh refused (concurrent_refresh): %s is locked "
+                "by another process",
+                path,
+            )
+            raise ConcurrentRefreshError(str(path))
+        self._lock_depth = 1
+        try:
+            yield
+        finally:
+            self._lock_depth = 0
+            os.close(fd)  # closing the descriptor releases the flock
+
+    async def _run_ddl(self, *statements: str) -> None:
+        """Run DDL on a dedicated connection (never the pool); a failure raises."""
+        conn = await self._open_dedicated_connection()
+        statement = ""
+        try:
+            for statement in statements:
+                await conn.execute(statement)
+        except Exception:
+            logger.exception(
+                "address_clusters DDL failed: %s", " ".join(statement.split())
+            )
+            raise
+        finally:
+            await conn.close()
+
     async def prepare_address_clusters_refresh(self) -> bool:
         """
-        Clear the staging table before loading a new full-refresh snapshot.
+        Make sure the staging table exists and is empty before loading a snapshot.
 
-        The live table is left untouched until commit succeeds.
+        The live table is left untouched until the cutover. A failure raises.
         """
-        self._close_refresh_sender()
-        try:
-            await self.execute(f"TRUNCATE TABLE {ADDRESS_CLUSTERS_STAGING_TABLE}")
-            logger.info("Prepared QuestDB address_clusters staging table.")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to prepare address_clusters staging table: {e}")
-            return False
-
-    async def _truncate_address_clusters_table(
-        self, table: str, *, reason: str
-    ) -> None:
-        try:
-            await self.execute(f"TRUNCATE TABLE {table}")
-        except Exception as e:
-            logger.error("Failed to truncate %s during %s: %s", table, reason, e)
+        with self.refresh_lock():
+            self._close_refresh_sender()
+            await self._run_ddl(
+                ADDRESS_CLUSTERS_STAGING_DDL,
+                f"TRUNCATE TABLE {ADDRESS_CLUSTERS_STAGING_TABLE}",
+            )
+        logger.info("Prepared QuestDB address_clusters staging table.")
+        return True
 
     async def abort_address_clusters_refresh(self) -> None:
-        """
-        Abort a staged refresh before the cutover and clean up any staged rows.
-
-        Never used once the live table was truncated: from then on the staging table is
-        the only good copy (see _cutover_from_staging).
-        """
+        """Abort a staged refresh before the cutover: the staged rows are dropped. A
+        failing TRUNCATE raises."""
         self._close_refresh_sender()
-        await self._truncate_address_clusters_table(
-            ADDRESS_CLUSTERS_STAGING_TABLE,
-            reason="address_clusters refresh abort",
-        )
+        await self._run_ddl(f"TRUNCATE TABLE {ADDRESS_CLUSTERS_STAGING_TABLE}")
 
     async def _table_wal(self, table: str) -> Optional[Any]:
         rows = await self.fetch(
@@ -1607,27 +1621,25 @@ class QuestDBRepository:
         *,
         max_wait_s: float,
         poll_s: float,
-        tail: str,
         not_wal_hint: str = "",
     ) -> bool:
         """Wait until WAL has applied every row written to `table`, judged on wal_tables().
 
         The sequencerTxn read on entry (after the last confirmed write) is the target:
         wait for writerTxn >= target, then require an exact count. Returns False (ERROR
-        with the cause: not_wal, suspended, ceiling, count_mismatch, then `tail`);
-        exceptions propagate.
+        with the cause: not_wal, suspended, ceiling, count_mismatch); exceptions propagate.
         """
         started = _monotonic()
 
         def fail(cause: str, detail: str) -> bool:
             logger.error(
-                "%s not applied (%s): expected %d rows, %s, after %.1f s; %s",
+                "%s not applied (%s): expected %d rows, %s, after %.1f s; live table "
+                "left untouched",
                 table,
                 cause,
                 expected_rows,
                 detail,
                 _monotonic() - started,
-                tail,
             )
             return False
 
@@ -1676,33 +1688,49 @@ class QuestDBRepository:
     async def _publish_staging(
         self, expected_rows: int, *, max_wait_s: float, poll_s: float
     ) -> bool:
-        """Flush the staging load and wait until WAL has applied it (no cutover).
+        """Flush the staging load and verify it before the cutover (read-only).
 
-        ILP/HTTP flush() returns after the commit. Returns False without touching the
-        live table; exceptions propagate. There is no automatic WAL migration: on not_wal
-        the operator runs either DROP TABLE address_clusters_staging (empty outside a
-        refresh, recreated as WAL at the next start) or ALTER TABLE
-        address_clusters_staging SET TYPE WAL plus a QuestDB restart.
+        ILP/HTTP flush() returns after the commit. Checks: WAL, not suspended, writerTxn
+        reached, exact count, and name and type of every column (schema_mismatch).
+        Returns False without touching the live table; exceptions propagate. There is no
+        automatic WAL migration: on not_wal the operator runs either DROP TABLE
+        address_clusters_staging (empty outside a refresh, recreated as WAL at the next
+        refresh) or ALTER TABLE address_clusters_staging SET TYPE WAL plus a QuestDB
+        restart.
         """
         if self._refresh_sender is not None and self._refresh_buffered > 0:
             self._refresh_sender.flush()
             self._refresh_buffered = 0
         self._close_refresh_sender()
-        return await self._wait_table_applied(
+        if not await self._wait_table_applied(
             ADDRESS_CLUSTERS_STAGING_TABLE,
             expected_rows,
             max_wait_s=max_wait_s,
             poll_s=poll_s,
-            tail="live table left untouched",
             not_wal_hint=ADDRESS_CLUSTERS_NOT_WAL_HINT,
-        )
+        ):
+            return False
+        columns = [
+            (r[0], r[1])
+            for r in await self.fetch(
+                'SELECT "column", "type" FROM '
+                f"table_columns('{ADDRESS_CLUSTERS_STAGING_TABLE}')"
+            )
+        ]
+        if columns != ADDRESS_CLUSTERS_SCHEMA:
+            logger.error(
+                "%s not applied (schema_mismatch): found %s, expected %s; live table "
+                "left untouched",
+                ADDRESS_CLUSTERS_STAGING_TABLE,
+                columns,
+                ADDRESS_CLUSTERS_SCHEMA,
+            )
+            return False
+        return True
 
     async def _open_dedicated_connection(self):
-        """Fresh PG connection for the cutover writes, never used for a fetch.
-
-        On QuestDB 7.4 an extended-protocol query followed by an execute on the same
-        asyncpg connection breaks it; all reads go through the pool instead.
-        """
+        """Fresh PG connection for DDL, never the pool and never used for a fetch (on
+        QuestDB 7.4 a fetch followed by an execute on one asyncpg connection breaks it)."""
         if asyncpg is None:
             raise ModuleNotFoundError("asyncpg package is required for the cutover")
         return await asyncpg.connect(
@@ -1713,143 +1741,91 @@ class QuestDBRepository:
             database=QUESTDB_PG_DATABASE,
         )
 
-    async def _precheck_cutover(self, expected_rows: int) -> bool:
-        """The only precondition check of the cutover: read-only, run BEFORE any
-        destructive step (refresh and --cutover-only alike).
-
-        Live and staging must be in wal_tables() and not suspended, the live columns must
-        be the ones the INSERT names, and count(staging) must equal expected_rows. Any
-        failure is an ERROR with cause and operator procedure; neither table is touched.
-        After the live TRUNCATE there is no precondition left to fail.
-        """
-        problems: list[tuple[str, str]] = []
-        for table, hint in (
-            (ADDRESS_CLUSTERS_TABLE, ADDRESS_CLUSTERS_LIVE_NOT_WAL_HINT),
-            (ADDRESS_CLUSTERS_STAGING_TABLE, ADDRESS_CLUSTERS_NOT_WAL_HINT),
-        ):
-            wal = await self._table_wal(table)
-            if wal is None:
-                problems.append(
-                    ("not_wal", f"{table} not in wal_tables(); operator: {hint}")
-                )
-            elif wal["suspended"]:
-                problems.append(
-                    (
-                        "suspended",
-                        f"{table} WAL suspended (errorTag={wal['errorTag']!r} "
-                        f"errorMessage={wal['errorMessage']!r}); operator: resume the "
-                        f"table (ALTER TABLE {table} RESUME WAL) after fixing the cause",
-                    )
-                )
-        present = {
-            r[0]
-            for r in await self.fetch(
-                f"SELECT \"column\" FROM table_columns('{ADDRESS_CLUSTERS_TABLE}')"
-            )
-        }
-        missing = [c for c in ADDRESS_CLUSTERS_COLUMNS if c not in present]
-        if missing:
-            problems.append(
-                (
-                    "missing_columns",
-                    f"{ADDRESS_CLUSTERS_TABLE} lacks {missing}; operator: ALTER TABLE "
-                    f"{ADDRESS_CLUSTERS_TABLE} ADD COLUMN <name> <type>",
-                )
-            )
-        count_row = await self.fetchrow(
-            f"SELECT count(*) FROM {ADDRESS_CLUSTERS_STAGING_TABLE}"
-        )
-        observed = int(count_row[0]) if count_row is not None else 0
-        if observed != expected_rows:
-            problems.append(
-                (
-                    "count_mismatch",
-                    f"{ADDRESS_CLUSTERS_STAGING_TABLE} holds {observed} rows, "
-                    f"expected {expected_rows}",
-                )
-            )
-        for cause, detail in problems:
-            logger.error(
-                "address_clusters cutover precheck failed (%s): %s; live and staging "
-                "left untouched",
-                cause,
-                detail,
-            )
-        return not problems
-
     def _default_max_wait_s(self, expected_rows: int) -> float:
         return max(
             ADDRESS_CLUSTERS_MIN_WAIT_S,
             expected_rows / ADDRESS_CLUSTERS_MIN_APPLY_ROWS_PER_S,
         )
 
-    async def _cutover_from_staging(
-        self, expected_rows: int, *, max_wait_s: float, poll_s: float
-    ) -> bool:
-        """Replace the live table with the (verified) staging table.
+    async def _swap_tables(self, conn, live: str, staging: str, old: str) -> float:
+        """RENAME live -> old, then staging -> live; returns the ms the live name was
+        absent. If the second RENAME fails the first is undone at once; if that fails
+        too the ERROR carries the exact names and the manual command."""
+        try:
+            await conn.execute(f"RENAME TABLE {live} TO {old}")
+        except Exception as e:
+            raise CutoverSwapError(
+                f"RENAME {live} TO {old} failed: {e}; nothing changed", True
+            ) from e
+        absent_since = _monotonic()
+        try:
+            await conn.execute(f"RENAME TABLE {staging} TO {live}")
+        except Exception as e:
+            try:
+                await conn.execute(f"RENAME TABLE {old} TO {live}")
+            except Exception as undo_error:
+                raise CutoverSwapError(
+                    f"RENAME {staging} TO {live} failed ({e}) and so did the undo "
+                    f"({undo_error}); {live} is ABSENT, the data is in {old}: run "
+                    f"RENAME TABLE {old} TO {live}",
+                    False,
+                ) from e
+            raise CutoverSwapError(
+                f"RENAME {staging} TO {live} failed: {e}; {live} restored from {old}",
+                True,
+            ) from e
+        return (_monotonic() - absent_since) * 1000.0
 
-        Once the live table is truncated, NO failure clears staging: it is the only good
-        copy until the live table is verified. On INSERT, live WAL or live count failure
-        the ERROR carries the command that redoes only this cutover. Staging is truncated
-        last, after the live WAL applied and count(live) == expected_rows.
+    async def _cutover(self) -> bool:
+        """Swap the verified staging table in as the live table (RENAME, not INSERT).
+
+        Old copies: the previous live table stays as address_clusters_old_<UTC> for
+        rollback. It is deleted only by the NEXT successful refresh, never by the run
+        that created it; after a successful cutover at most one _old exists (the one just
+        made), older ones are dropped. Staging is recreated empty (WAL). A failing swap
+        returns False with the live table restored; a failing DROP raises.
         """
-        recover = ADDRESS_CLUSTERS_CUTOVER_ONLY_COMMAND.format(rows=expected_rows)
-
-        if not await self._precheck_cutover(expected_rows):
-            return False
-
+        old = f"{ADDRESS_CLUSTERS_TABLE}_old_{datetime.utcnow():%Y%m%dT%H%M%SZ}"
         conn = await self._open_dedicated_connection()
         try:
             try:
-                await conn.execute(f"TRUNCATE TABLE {ADDRESS_CLUSTERS_TABLE}")
-                await conn.execute(
-                    f"""
-                    INSERT INTO {ADDRESS_CLUSTERS_TABLE}
-                        (address, cluster_id, ts, last_seen, is_exchange_likely, label, confidence)
-                    SELECT
-                        address,
-                        cluster_id,
-                        ts,
-                        last_seen,
-                        is_exchange_likely,
-                        label,
-                        confidence
-                    FROM {ADDRESS_CLUSTERS_STAGING_TABLE}
-                    """
+                window_ms = await self._swap_tables(
+                    conn, ADDRESS_CLUSTERS_TABLE, ADDRESS_CLUSTERS_STAGING_TABLE, old
                 )
-            except Exception as e:
-                logger.error(
-                    "Cutover into %s failed (%s); staging left intact, live table may "
-                    "be empty; redo only the cutover with: %s",
-                    ADDRESS_CLUSTERS_TABLE,
-                    e,
-                    recover,
-                )
+            except CutoverSwapError as e:
+                logger.error("address_clusters cutover failed: %s", e)
+                if not e.restored:
+                    raise
                 return False
-            if not await self._wait_table_applied(
+            logger.info(
+                "address_clusters swapped in; %s absent for %.1f ms; previous kept "
+                "as %s",
                 ADDRESS_CLUSTERS_TABLE,
-                expected_rows,
-                max_wait_s=max_wait_s,
-                poll_s=poll_s,
-                tail=f"staging left intact; redo only the cutover with: {recover}",
-            ):
-                return False
+                window_ms,
+                old,
+            )
             try:
-                await conn.execute(f"TRUNCATE TABLE {ADDRESS_CLUSTERS_STAGING_TABLE}")
+                await conn.execute(ADDRESS_CLUSTERS_STAGING_DDL)
             except Exception as e:
                 logger.error(
-                    "Live %s verified but staging not cleared: %s (the next refresh "
-                    "truncates it)",
-                    ADDRESS_CLUSTERS_TABLE,
+                    "Could not recreate the empty staging table (the next refresh "
+                    "recreates it): %s",
                     e,
                 )
-            logger.info("Committed staged address_clusters refresh in QuestDB.")
+            for row in await self.fetch(
+                "SELECT table_name FROM tables() WHERE table_name LIKE "
+                "'address_clusters_old_%'"
+            ):
+                name = row[0]
+                if name != old and _OLD_COPY_RE.match(name):
+                    try:
+                        await conn.execute(f"DROP TABLE {name}")
+                    except Exception:
+                        logger.exception("Could not drop the older copy %s", name)
+                        raise
             return True
         finally:
-            try:
-                await conn.close()
-            except Exception as e:
-                logger.error(f"Error closing the cutover connection: {e}")
+            await conn.close()
 
     async def commit_address_clusters_refresh(
         self,
@@ -1861,83 +1837,44 @@ class QuestDBRepository:
         """
         Publish a staged address_clusters snapshot after the ILP load completes.
 
-        `expected_rows` is the number of rows the caller sent to staging. Failures before
-        the live TRUNCATE abort and leave the live table untouched; an unexpected
-        exception is logged with its traceback and re-raised so the job exits non-zero.
-        After the live TRUNCATE the staging table is never cleared on failure.
+        `expected_rows` is the number of rows sent to staging. The staging table is
+        verified (see _publish_staging) and swapped in with RENAME (see _cutover). Any
+        failed check aborts, leaving the live table untouched; an unexpected exception
+        is logged with its traceback and re-raised so the job exits non-zero.
         """
-        max_wait = (
-            max_wait_s
-            if max_wait_s is not None
-            else self._default_max_wait_s(expected_rows)
-        )
-        try:
-            published = await self._publish_staging(
-                expected_rows, max_wait_s=max_wait, poll_s=poll_s
-            )
-        except Exception:
-            logger.exception("address_clusters staging failed before cutover")
-            await self.abort_address_clusters_refresh()
-            raise
-        if not published:
-            await self.abort_address_clusters_refresh()
-            return False
-        try:
-            return await self._cutover_from_staging(
-                expected_rows, max_wait_s=max_wait, poll_s=poll_s
-            )
-        except Exception:
-            logger.exception(
-                "address_clusters cutover failed; staging left intact, redo only the "
-                "cutover with: %s",
-                ADDRESS_CLUSTERS_CUTOVER_ONLY_COMMAND.format(rows=expected_rows),
-            )
-            raise
-
-    async def cutover_address_clusters_from_staging(
-        self,
-        expected_rows: int,
-        *,
-        max_wait_s: Optional[float] = None,
-        poll_s: float = ADDRESS_CLUSTERS_POLL_S,
-    ) -> bool:
-        """Redo only the cutover from an existing staging table (recovery entry point).
-
-        Verifies staging (WAL applied, count == expected_rows) and runs the same cutover;
-        staging is never cleared on failure.
-        """
-        max_wait = (
-            max_wait_s
-            if max_wait_s is not None
-            else self._default_max_wait_s(expected_rows)
-        )
-        if not await self._wait_table_applied(
-            ADDRESS_CLUSTERS_STAGING_TABLE,
-            expected_rows,
-            max_wait_s=max_wait,
-            poll_s=poll_s,
-            tail="live and staging left untouched",
-            not_wal_hint=ADDRESS_CLUSTERS_NOT_WAL_HINT,
-        ):
-            return False
-        return await self._cutover_from_staging(
-            expected_rows, max_wait_s=max_wait, poll_s=poll_s
-        )
+        with self.refresh_lock():
+            try:
+                published = await self._publish_staging(
+                    expected_rows,
+                    max_wait_s=max_wait_s
+                    if max_wait_s is not None
+                    else self._default_max_wait_s(expected_rows),
+                    poll_s=poll_s,
+                )
+            except Exception:
+                logger.exception("address_clusters staging failed before cutover")
+                await self.abort_address_clusters_refresh()
+                raise
+            if not published:
+                await self.abort_address_clusters_refresh()
+                return False
+            return await self._cutover()
 
     async def save_address_clusters_bulk(self, rows: List[Dict[str, Any]]) -> bool:
         """
-        Stage and publish a full address_clusters refresh via ILP and PG cutover.
+        Stage and publish a full address_clusters refresh via ILP/HTTP and RENAME.
         """
-        if not await self.prepare_address_clusters_refresh():
-            return False
-
-        for row in rows:
-            row_success = self.stage_address_cluster(row)
-            if not row_success:
-                await self.abort_address_clusters_refresh()
+        with self.refresh_lock():
+            if not await self.prepare_address_clusters_refresh():
                 return False
 
-        return await self.commit_address_clusters_refresh(len(rows))
+            for row in rows:
+                row_success = self.stage_address_cluster(row)
+                if not row_success:
+                    await self.abort_address_clusters_refresh()
+                    return False
+
+            return await self.commit_address_clusters_refresh(len(rows))
 
     async def get_cluster_for_address(self, address: str) -> Optional[Dict[str, Any]]:
         """Fetch fine-grained cluster info from QuestDB."""

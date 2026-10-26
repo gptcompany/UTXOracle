@@ -8,10 +8,9 @@ staged full-refresh cutover.
 
 Usage:
   python3 scripts/bootstrap/sync_clusters_to_questdb.py [--batch-size 100000]
-  python3 scripts/bootstrap/sync_clusters_to_questdb.py --cutover-only --expected-rows N
 
---cutover-only redoes only the cutover from the existing staging table (recovery after
-a failed cutover: the staging table is the only good copy and is not rewritten).
+The whole refresh runs under the host-local address_clusters lock (see
+QuestDBRepository.refresh_lock); if another refresh holds it the script exits non-zero.
 """
 
 import argparse
@@ -25,7 +24,7 @@ import duckdb
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 from api.config import DUCKDB_PATH, setup_logging
-from api.questdb_repository import QuestDBRepository
+from api.questdb_repository import ConcurrentRefreshError, QuestDBRepository
 
 logger = setup_logging("sync_clusters")
 
@@ -150,29 +149,10 @@ async def main() -> int:
         default=100000,
         help="Batch size for reading from DuckDB",
     )
-    parser.add_argument(
-        "--cutover-only",
-        action="store_true",
-        help="Redo only the cutover from the existing staging table",
-    )
-    parser.add_argument(
-        "--expected-rows",
-        type=int,
-        help="Rows the staging table must hold (required with --cutover-only)",
-    )
     args = parser.parse_args()
-    if args.cutover_only and args.expected_rows is None:
-        parser.error("--cutover-only requires --expected-rows N")
 
     repo = QuestDBRepository()
     await repo.initialize()
-
-    if args.cutover_only:
-        try:
-            ok = await repo.cutover_address_clusters_from_staging(args.expected_rows)
-            return 0 if ok else 1
-        finally:
-            await repo.close()
 
     if not os.path.exists(DUCKDB_PATH):
         logger.error(f"DuckDB database not found at {DUCKDB_PATH}")
@@ -181,8 +161,11 @@ async def main() -> int:
     conn = duckdb.connect(DUCKDB_PATH, read_only=True)
 
     try:
-        ok = await sync_clusters(repo, conn, args.batch_size)
+        with repo.refresh_lock():
+            ok = await sync_clusters(repo, conn, args.batch_size)
         return 0 if ok else 1
+    except ConcurrentRefreshError:
+        return 1  # already logged as concurrent_refresh
     finally:
         conn.close()
         await repo.close()

@@ -79,6 +79,7 @@ jobs:
       QUESTDB_TEST_USER: admin
       QUESTDB_TEST_PASSWORD: quest
       QUESTDB_TEST_DATABASE: qdb
+      QUESTDB_TEST_HTTP_PORT: 9000
       # Honour the explicit opt-in guard in the test fixture.
       RUN_STREAMS_HEALTH_CONTRACT: "1"
 
@@ -128,6 +129,9 @@ jobs:
 
       - name: DDL coverage against live QuestDB
         run: uv run pytest tests/test_create_tables_ddl.py -v --tb=short
+
+      - name: address_clusters RENAME swap e2e (F-424 gate, prints the window in ms)
+        run: uv run pytest tests/test_address_clusters_rename_e2e.py -v -s --tb=short
 
   # F-400: the acceptance assertion (overall == "OK" for the 13 streams) needs real data
   # (operational backfill T036 and at least one daily aggregator run). A fresh CI QuestDB has
