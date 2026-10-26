@@ -748,7 +748,6 @@ def calculate_utxoracle_price(config: Dict, day: Optional[datetime] = None) -> D
         result["transactions"] = transactions if day is None else []
         if day is not None:
             result["format_sample"] = format_sample
-            result["transactions_streamed"] = True
 
         # Validate result quality
         price = result.get("price_usd")
@@ -757,22 +756,22 @@ def calculate_utxoracle_price(config: Dict, day: Optional[datetime] = None) -> D
 
         # Sanity checks
         if price is None:
-            raise ValueError("UTXOracle returned None price")
+            raise PriceValidationError("UTXOracle returned None price")
 
         if not (10000 <= price <= 500000):
-            raise ValueError(
+            raise PriceValidationError(
                 f"Price ${price:,.0f} outside valid range [$10k-$500k]. "
                 f"Likely calculation error or extreme market conditions."
             )
 
         if confidence < 0.3:
-            raise ValueError(
+            raise PriceValidationError(
                 f"Confidence {confidence:.2f} too low (<0.3). "
                 f"Result not reliable for production use."
             )
 
         if tx_count < 1000:
-            raise ValueError(
+            raise PriceValidationError(
                 f"Calculated from only {tx_count} tx (<1000). "
                 f"Data quality insufficient."
             )
@@ -791,9 +790,11 @@ def calculate_utxoracle_price(config: Dict, day: Optional[datetime] = None) -> D
     except (IncompleteWindowError, BadEnvValueError):
         raise  # they carry their own exit code (7 and 6): main() must see them
     except Exception as e:
-        if day is not None and not isinstance(e, ValueError):
-            # RPC and stream errors of a historical day (StaleBlockError, ImplausibleDayError,
-            # a failing node...) are not "no price": they keep their cause and exit code.
+        if day is not None and not isinstance(e, PriceValidationError):
+            # Every error of a historical day except the price validation (RPC and stream
+            # errors, StaleBlockError, ImplausibleDayError, a corrupt response such as
+            # JSONDecodeError or UnicodeDecodeError...) is not "no price": it keeps its cause
+            # and exit code.
             raise
         logging.error(f"Failed to calculate UTXOracle price: {e}")
         return {
@@ -980,6 +981,9 @@ def detect_gaps(conn, max_days_back: int = None) -> List[str]:
 FETCH_TIER_RPC_HISTORICAL = 4
 # Plausibility only: a day has ~144 blocks on average. More than this is an error, not a cap.
 MAX_BLOCKS_PER_DAY = 400
+# True while the metrics cannot be computed in the same pass as the price (F-432): the daily
+# job then refuses to run (exit 2, nothing read, nothing written). F-432 turns it off.
+HISTORICAL_DAY_IS_STREAMED = True
 # Exit code of main() when the window of the requested day is not complete yet.
 EXIT_INCOMPLETE_WINDOW = 7
 # The last block of the day needs this many confirmations (env MIN_CONFIRMATIONS overrides).
@@ -988,6 +992,10 @@ DEFAULT_MIN_CONFIRMATIONS = 6
 
 class IncompleteWindowError(Exception):
     """The chain tip is not past the end of the requested day (mediantime < D+1 00:00Z)."""
+
+
+class PriceValidationError(ValueError):
+    """The day's price failed its sanity checks: the only error that becomes "no price"."""
 
 
 class BadEnvValueError(ValueError):
@@ -1726,6 +1734,14 @@ def main():
         analysis_day, skip_tables, nothing_to_do = preflight(args)
         if nothing_to_do:
             return
+        # Fail closed (B3, F-438), at the head: before the block selection and any fetch. The
+        # day is a stream the price library consumes once and the metrics need the same pass
+        # (F-432): nothing can be computed completely, so nothing is read and nothing written
+        # (no price row without metrics, no partial write).
+        if METRICS_ENABLED and HISTORICAL_DAY_IS_STREAMED:
+            raise RuntimeError(
+                "metriche non calcolabili dallo stream fino a F-432: nessuna scrittura"
+            )
 
         # Step 1: Fetch mempool.space price (T039)
         window_end = analysis_day + timedelta(days=1)
@@ -1883,13 +1899,6 @@ def main():
                     )
 
             run_metrics_block("input_format", input_format_block)
-            if utx_result.get("transactions_streamed"):
-                # Fail closed (B3, F-438): the day is a stream the price library has already
-                # consumed, the metrics need the same pass (F-432). No price row without
-                # metrics, no partial write: nothing has been written at this point.
-                raise RuntimeError(
-                    "metriche non calcolabili dallo stream fino a F-432: nessuna scrittura"
-                )
 
             # Monte Carlo needs a whale signal: without one it does not apply.
             if whale_signal:

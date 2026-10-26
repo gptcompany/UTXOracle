@@ -158,6 +158,10 @@ def _stub_inputs(monkeypatch, daily, *, dedup_check: bool = False) -> None:
     The dedup precheck reads tables() on a real QuestDB: it is stubbed to "all fine" unless
     dedup_check is True (the real-database test and the dedicated precheck tests).
     """
+    # Tests that drive main() beyond its head test the machinery as it will work once F-432
+    # computes the metrics in the same pass as the price: the fail-closed gate is lifted here
+    # and only the tests of the gate itself leave it on.
+    monkeypatch.setattr(daily, "HISTORICAL_DAY_IS_STREAMED", False)
     # No .env of the machine running the tests is ever read by the startup guard.
     monkeypatch.setattr(daily, "env_file_path", lambda: Path("/nonexistent/.env"))
     if not dedup_check:
@@ -1507,6 +1511,9 @@ def test_rpc_shaped_transactions_fail_with_the_missing_fields_and_write_nothing(
     """getblock verbosity 2 has no prevout and scriptPubKey.address: addresses would be 0."""
     import scripts.daily_analysis as daily
 
+    # Until F-432 the day is refused at the head of main(); the format guard is what protects
+    # the metrics once that gate is lifted, so the gate is lifted here to exercise it.
+    monkeypatch.setattr(daily, "HISTORICAL_DAY_IS_STREAMED", False)
     with caplog.at_level("ERROR"), pytest.raises(SystemExit) as stop:
         _window_run(
             monkeypatch, daily, datetime(2026, 10, 27, 1, 30, tzinfo=timezone.utc)
@@ -1583,16 +1590,23 @@ def test_a_streamed_day_fails_closed_with_the_explicit_message_and_zero_writes(
     real_calculate = daily.calculate_utxoracle_price
     rows = _record_rows(monkeypatch)
     _stub_inputs(monkeypatch, daily)
+    monkeypatch.setattr(
+        daily, "HISTORICAL_DAY_IS_STREAMED", True
+    )  # the production value
     monkeypatch.setattr(daily, "calculate_utxoracle_price", real_calculate)
     monkeypatch.setattr(
         daily, "utc_now", lambda: datetime(2026, 10, 27, 1, 30, tzinfo=timezone.utc)
     )
-    _real_calculate(monkeypatch, daily, _MempoolShapedChain(tip=700))
+    chain = _MempoolShapedChain(tip=700)
+    _real_calculate(monkeypatch, daily, chain)
 
     with caplog.at_level("ERROR"), pytest.raises(SystemExit) as stop:
         daily.main()
 
     assert stop.value.code == 2
+    assert (
+        chain.calls == []
+    )  # refused at the head of main(): the node got no call at all
     assert rows == []  # neither price_analysis nor metrics
     assert (
         "metriche non calcolabili dallo stream fino a F-432: nessuna scrittura"
@@ -1771,3 +1785,60 @@ def test_a_failed_window_end_alter_is_an_error_not_a_swallowed_exception(monkeyp
 
     with pytest.raises(RuntimeError, match="alter refused"):
         asyncio.run(repository.create_tables_if_not_exist())
+
+
+class _CorruptChain(FakeChain):
+    """A node answering one block with garbage (json.JSONDecodeError in the client)."""
+
+    def call(self, method, params=None):
+        if method == "getblock" and params[0] == f"hash{CHAIN_FIRST + 20}":
+            raise json.JSONDecodeError("Expecting value", "<html>502</html>", 0)
+        return super().call(method, params)
+
+
+def test_a_corrupt_rpc_response_is_not_turned_into_no_price(monkeypatch):
+    import scripts.daily_analysis as daily
+
+    _real_calculate(monkeypatch, daily, _CorruptChain(tip=700))
+
+    with pytest.raises(json.JSONDecodeError):
+        daily.calculate_utxoracle_price({}, DAY)
+
+
+def test_a_corrupt_rpc_response_ends_main_with_exit_2_and_its_own_cause(
+    monkeypatch, caplog
+):
+    import scripts.daily_analysis as daily
+
+    monkeypatch.setattr(daily, "METRICS_ENABLED", False)  # dry run: the price path only
+    with caplog.at_level("ERROR"), pytest.raises(SystemExit) as stop:
+        _window_run(
+            monkeypatch,
+            daily,
+            datetime(2026, 10, 27, 1, 30, tzinfo=timezone.utc),
+            chain=_CorruptChain(tip=700),
+            argv=("--dry-run",),
+        )
+
+    assert stop.value.code == 2
+    assert "Expecting value" in caplog.text  # the cause, not "no price"
+    assert "row incomplete" not in caplog.text
+
+
+def test_a_failed_price_validation_of_the_day_is_still_no_price(monkeypatch):
+    """Only the validation of the day's price becomes "no price" (PriceValidationError)."""
+    import scripts.daily_analysis as daily
+
+    _real_calculate(monkeypatch, daily, FakeChain(tip=700))
+
+    class _Weak:
+        def calculate_price_for_transactions(self, transactions):
+            sum(1 for _ in transactions)
+            return {"price_usd": 99_500.0, "confidence": 0.9, "tx_count": 5}  # < 1000
+
+    monkeypatch.setattr(daily, "UTXOracleCalculator", _Weak)
+
+    result = daily.calculate_utxoracle_price({}, DAY)
+
+    assert result["price_usd"] is None
+    assert issubclass(daily.PriceValidationError, ValueError)

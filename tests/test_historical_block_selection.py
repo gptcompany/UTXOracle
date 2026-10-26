@@ -49,6 +49,7 @@ class FakeChain:
         self.fail_block = None
         self.tx_refs: dict[int, weakref.ref] = {}
         self.block_calls: list[str] = []  # hashes passed to getblock, in order
+        self.calls: list[str] = []  # every RPC method received, in order
         self.reorg_from: int | None = (
             None  # heights >= this are replaced by "alt" blocks
         )
@@ -75,6 +76,7 @@ class FakeChain:
         return special.get(h, self.mediantime(h) + 300)
 
     def call(self, method, params=None):
+        self.calls.append(method)
         if method == "getblockcount":
             return self.tip
         if method == "getblockhash":
@@ -163,6 +165,9 @@ def _main_with_historical_day(monkeypatch, chain, tmp_path=None, expect_exit=Tru
         "preflight",
         lambda args: (datetime(2026, 10, 25, tzinfo=timezone.utc), set(), False),
     )
+    # The fail-closed gate of main() (F-438) is lifted: these tests check the selection errors
+    # and exit codes as they will work once F-432 computes the metrics in the same pass.
+    monkeypatch.setattr(daily, "HISTORICAL_DAY_IS_STREAMED", False)
     monkeypatch.setattr(daily, "validate_config", lambda config: None)
     monkeypatch.setattr(daily, "WhaleFlowDetector", None)
     monkeypatch.setattr(daily, "ADVANCED_METRICS_ENABLED", False)
