@@ -387,3 +387,104 @@ def test_startup_does_not_start_a_retry_task_when_questdb_is_up(monkeypatch):
     with _build_client(_empty_store()) as client:
         assert isinstance(client.app.state.questdb_repo, repository)
         assert client.app.state.questdb_retry_task is None
+
+
+class _FakeSender:
+    def __init__(self) -> None:
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_failed_initialize_closes_the_ilp_sender_it_opened(monkeypatch):
+    """initialize() opens the ILP sender before the PG pool: a failure must not leak it (F-399 M2)."""
+    from types import SimpleNamespace
+
+    from api.apps import live as live_app
+
+    senders: list[_FakeSender] = []
+
+    class _OpensSenderThenFails:
+        def __init__(self) -> None:
+            self.sender = None
+
+        async def initialize(self) -> None:
+            self.sender = _FakeSender()
+            senders.append(self.sender)
+            raise ConnectionError("pool unavailable (test)")
+
+    monkeypatch.setattr(live_app, "QuestDBRepository", _OpensSenderThenFails)
+    app = SimpleNamespace(state=SimpleNamespace(questdb_repo=None))
+
+    for attempt in (1, 2, 3):
+        assert (
+            asyncio.run(
+                live_app._connect_questdb_repo(app, attempt=attempt, retry_in=0.0)
+            )
+            is False
+        )
+
+    assert len(senders) == 3
+    assert all(sender.closed for sender in senders)
+    assert app.state.questdb_repo is None
+
+
+def test_retry_success_leaves_the_whale_monitor_repository_alone(monkeypatch):
+    """The monitor owns and initializes its repository; swapping it would orphan its ILP rows (M1)."""
+    from types import SimpleNamespace
+
+    from api.apps import live as live_app
+
+    class _MonitorRepo:
+        closed = False
+
+        async def close(self) -> None:
+            type(self).closed = True
+
+    class _Repo:
+        async def initialize(self) -> None:
+            return None
+
+    own_repo = _MonitorRepo()
+    monitor = SimpleNamespace(repo=own_repo)
+    app = SimpleNamespace(
+        state=SimpleNamespace(questdb_repo=None, whale_monitor=monitor)
+    )
+    monkeypatch.setattr(live_app, "QuestDBRepository", _Repo)
+
+    assert (
+        asyncio.run(live_app._connect_questdb_repo(app, attempt=3, retry_in=0.0))
+        is True
+    )
+
+    assert isinstance(app.state.questdb_repo, _Repo)
+    assert monitor.repo is own_repo
+    assert _MonitorRepo.closed is False
+
+
+def test_retry_task_failures_are_logged_by_the_shared_callback(monkeypatch):
+    from api.apps import live as live_app
+
+    _flaky_repository(monkeypatch, failures=10**6)
+
+    async def boom(app) -> None:
+        raise RuntimeError("retry crashed (test)")
+
+    monkeypatch.setattr(live_app, "_retry_questdb_repo", boom)
+    messages: list[str] = []
+    monkeypatch.setattr(
+        live_app.logging, "error", lambda msg, *args: messages.append(msg % args)
+    )
+
+    with _build_client(_empty_store()) as client:
+        deadline = time.monotonic() + 5
+        while (
+            not client.app.state.questdb_retry_task.done()
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.01)
+
+    assert any(
+        "live-questdb-repo-retry" in m and "retry crashed (test)" in m for m in messages
+    )

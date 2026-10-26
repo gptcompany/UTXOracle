@@ -120,12 +120,40 @@ QUESTDB_RETRY_INITIAL_SECONDS = 2.0
 QUESTDB_RETRY_MAX_SECONDS = 60.0
 
 
+def _discard_failed_repo(questdb_repo: QuestDBRepository) -> None:
+    """Close what a failed initialize() left open.
+
+    initialize() opens the ILP sender (:9009) before the PG pool, so a failure after that leaves
+    a socket behind on every retry. Only the sender is closed: repository.close() would also
+    close the class-level PG pool shared with other repository instances (e.g. the whale monitor's).
+    """
+    sender = getattr(questdb_repo, "sender", None)
+    if sender is None:
+        return
+    try:
+        sender.close()
+    except Exception as exc:
+        logging.warning(
+            "Failed to close the ILP sender of a failed QuestDB attempt: %s", exc
+        )
+    finally:
+        questdb_repo.sender = None
+
+
 async def _connect_questdb_repo(app: FastAPI, *, attempt: int, retry_in: float) -> bool:
-    """One initialization attempt; on success the repository is set on app.state (and the monitor)."""
+    """One initialization attempt; on success the repository is set on app.state.
+
+    The whale monitor keeps the repository it created itself: it initializes it on every
+    connect (_on_connect), so it recovers by itself, and swapping it would either orphan its
+    buffered ILP rows or, if the old one were closed, close the shared PG pool this one uses.
+    """
+    questdb_repo = None
     try:
         questdb_repo = QuestDBRepository()
         await questdb_repo.initialize()
     except Exception as exc:
+        if questdb_repo is not None:
+            _discard_failed_repo(questdb_repo)
         logging.warning(
             "QuestDB repository unavailable (attempt %d); derived routes answer 503, retrying in %.0fs: %s",
             attempt,
@@ -134,9 +162,6 @@ async def _connect_questdb_repo(app: FastAPI, *, attempt: int, retry_in: float) 
         )
         return False
     app.state.questdb_repo = questdb_repo
-    monitor = getattr(app.state, "whale_monitor", None)
-    if monitor is not None:
-        monitor.repo = questdb_repo
     logging.info(
         "QuestDB repository initialized for live production app (attempt %d).", attempt
     )
@@ -171,6 +196,7 @@ async def lifespan(app: FastAPI):
             _retry_questdb_repo(app),
             name="live-questdb-repo-retry",
         )
+        app.state.questdb_retry_task.add_done_callback(_log_background_task_failure)
 
     # Initialize Unified Mempool Whale Monitor
     from scripts.mempool_whale_monitor import MempoolWhaleMonitor
@@ -223,7 +249,8 @@ async def lifespan(app: FastAPI):
     retry_task = getattr(app.state, "questdb_retry_task", None)
     if retry_task is not None:
         retry_task.cancel()
-        with suppress(asyncio.CancelledError):
+        # A crashed retry task is already logged by its done callback; shutdown goes on.
+        with suppress(asyncio.CancelledError, Exception):
             await retry_task
 
     if hasattr(app.state, "whale_monitor"):
