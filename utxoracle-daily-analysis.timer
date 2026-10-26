@@ -1,0 +1,11 @@
+[Unit]
+Description=Run UTXOracle daily analysis daily, after daily-prices-refresh (F-419)
+
+[Timer]
+# 30 minutes after utxoracle-daily-prices-refresh (01:00 UTC), which feeds the price inputs.
+OnCalendar=*-*-* 01:30:00 UTC
+Persistent=true
+Unit=utxoracle-daily-analysis.service
+
+[Install]
+WantedBy=timers.target

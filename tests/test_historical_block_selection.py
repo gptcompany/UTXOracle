@@ -132,7 +132,7 @@ def test_selection_is_exact_by_mediantime_even_with_time_out_of_order(monkeypatc
     assert f"tx{end_first}" not in selected  # mediantime == D+1 00:00:00Z: out
 
 
-def _main_with_historical_day(monkeypatch, chain, tmp_path=None):
+def _main_with_historical_day(monkeypatch, chain, tmp_path=None, expect_exit=True):
     """main() wired the way the daily job will use the historical path: the price comes
     from the library fed with the day's blocks; any exception must end the process."""
     import api.questdb_repository as repository
@@ -144,6 +144,13 @@ def _main_with_historical_day(monkeypatch, chain, tmp_path=None):
         "_send_row",
         lambda self, table, symbols, columns, at=None, flush=False: sent.append(table)
         or True,
+    )
+    # The start-up checks (destination, dedup, .env, run window) have their own tests in
+    # test_daily_analysis_questdb_e2e.py; here the day is fixed and nothing external is read.
+    monkeypatch.setattr(
+        daily,
+        "preflight",
+        lambda args: (datetime(2026, 10, 25, tzinfo=timezone.utc), set(), False),
     )
     monkeypatch.setattr(daily, "validate_config", lambda config: None)
     monkeypatch.setattr(daily, "WhaleFlowDetector", None)
@@ -164,9 +171,19 @@ def _main_with_historical_day(monkeypatch, chain, tmp_path=None):
             daily.fetch_historical_transactions(DAY, config)
         )
         result["fetch_tier"] = 3
+        # what the metrics need, so that a success would really write both tables
+        result["transactions"] = [
+            {
+                "vin": [{"prevout": {"scriptpubkey_address": "bc1qin"}}],
+                "vout": [{"scriptpubkey_address": "bc1qout", "value": 0.5}],
+            }
+        ]
         return result
 
     monkeypatch.setattr(daily, "calculate_utxoracle_price", calculate)
+    if not expect_exit:
+        daily.main()
+        return 0, sent
     with pytest.raises(SystemExit) as stop:
         daily.main()
     return stop.value.code, sent
@@ -385,3 +402,13 @@ def test_a_bad_min_confirmations_ends_the_process_with_exit_6_naming_only_the_va
         assert shape not in caplog.text
     if value.startswith("abc"):
         assert value not in caplog.text
+
+
+def test_the_wired_main_writes_both_tables_for_a_healthy_day(monkeypatch):
+    """Control for the exit tests above: with a healthy chain the same wiring writes."""
+    code, sent = _main_with_historical_day(
+        monkeypatch, FakeChain(tip=700), expect_exit=False
+    )
+
+    assert code == 0
+    assert set(sent) == {"price_analysis", "metrics"}
