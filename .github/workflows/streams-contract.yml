@@ -73,6 +73,12 @@ jobs:
       QUESTDB_PG_USER: admin
       QUESTDB_PG_PASSWORD: quest
       QUESTDB_PG_DATABASE: qdb
+      # Explicit target of tests/test_create_tables_ddl.py (the service container above).
+      QUESTDB_TEST_HOST: localhost
+      QUESTDB_TEST_PORT: 8812
+      QUESTDB_TEST_USER: admin
+      QUESTDB_TEST_PASSWORD: quest
+      QUESTDB_TEST_DATABASE: qdb
       # Honour the explicit opt-in guard in the test fixture.
       RUN_STREAMS_HEALTH_CONTRACT: "1"
 
