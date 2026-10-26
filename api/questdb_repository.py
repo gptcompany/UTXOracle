@@ -1013,9 +1013,11 @@ class QuestDBRepository:
         sender.establish()
         return sender
 
-    # Guards the creation of the shared class-level pool. Created lazily and bound to the
-    # running event loop (an asyncio.Lock is tied to one loop): the synchronous
-    # LiveSnapshotStore API runs its coroutines on a loop of its own.
+    # Guards the creation of the shared class-level pool among coroutines of ONE event loop.
+    # An asyncio.Lock belongs to one loop, so it is created lazily for the running loop and
+    # replaced when another loop calls (the synchronous LiveSnapshotStore API runs its
+    # coroutines on a loop of its own). It does not serialize callers on different loops or
+    # threads at the same time: that case is not covered here.
     _pool_lock: "asyncio.Lock | None" = None
     _pool_lock_loop: "asyncio.AbstractEventLoop | None" = None
 
