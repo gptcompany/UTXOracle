@@ -27,6 +27,10 @@ Environment=UTXORACLE_EXPECTED_QUESTDB_ILP_HOST=127.0.0.1
 Environment=UTXORACLE_EXPECTED_QUESTDB_ILP_PORT=9909
 Environment=UTXORACLE_EXPECTED_QUESTDB_PG_HOST=127.0.0.1
 Environment=UTXORACLE_EXPECTED_QUESTDB_PG_PORT=9912
+# PROVISIONAL limits, to be measured with a real run (F-432): a day of blocks is fetched
+# through RPC, so the run is long and heavy.
+TimeoutStartSec=3600
+MemoryMax=4G
 ExecStart=/usr/bin/env uv run python -m scripts.daily_analysis
 StandardOutput=journal
 StandardError=journal

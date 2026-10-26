@@ -322,6 +322,29 @@ def fetch_mempool_price(api_url: str = "http://localhost:8999") -> float:
         raise
 
 
+def fetch_mempool_price_at(
+    timestamp: int, api_url: str = "http://localhost:8999"
+) -> float:
+    """Reference BTC/USD price at `timestamp` (unix seconds) from mempool.space.
+
+    Reuses the bootstrap fetcher of /api/v1/historical-price. The endpoint answers with the
+    price nearest to the timestamp, not the average of a day: diff_* in price_analysis
+    compares two estimates of the same day, with this one taken at the end of the window.
+
+    Raises:
+        ValueError: if the API has no price for the timestamp.
+    """
+    import asyncio
+
+    from scripts.bootstrap.build_price_table import fetch_historical_price
+
+    price = asyncio.run(fetch_historical_price(timestamp, mempool_url=api_url))
+    if price is None:
+        raise ValueError(f"no historical price at {timestamp} from {api_url}")
+    logging.info(f"Fetched mempool.space price at {timestamp}: ${price:,.2f}")
+    return price
+
+
 def rpc_client(config: Optional[Dict] = None, timeout: float = 60) -> RpcClient:
     """The daily job's Bitcoin Core client, built only here.
 
@@ -570,7 +593,7 @@ def fetch_bitcoin_transactions(config: Dict[str, any]) -> tuple[List[dict], int]
         raise
 
 
-def calculate_utxoracle_price(config: Dict) -> Dict:
+def calculate_utxoracle_price(config: Dict, day: Optional[datetime] = None) -> Dict:
     """
     T040: Calculate BTC/USD price using UTXOracle algorithm.
 
@@ -578,6 +601,9 @@ def calculate_utxoracle_price(config: Dict) -> Dict:
 
     Args:
         config: Configuration dict with MEMPOOL_API_URL and fallback settings
+        day: analysed UTC day at 00:00Z. With it the transactions are those of the blocks
+            mined in [day, day + 1 day) (Bitcoin Core RPC, tier 3); without it, the latest
+            block through the three fetch tiers.
 
     Returns:
         dict: {
@@ -589,8 +615,14 @@ def calculate_utxoracle_price(config: Dict) -> Dict:
         }
     """
     try:
-        # Fetch transactions from mempool.space API (Phase 9: Soluzione 3c)
-        transactions, tier = fetch_bitcoin_transactions(config)
+        if day is None:
+            # Fetch transactions from mempool.space API (Phase 9: Soluzione 3c)
+            transactions, tier = fetch_bitcoin_transactions(config)
+        else:
+            transactions = fetch_historical_transactions(
+                day.strftime("%Y-%m-%d"), config
+            )
+            tier = 3
 
         # Calculate price using library
         calc = UTXOracleCalculator()
@@ -874,7 +906,7 @@ def fetch_historical_transactions(date_str: str, config: Dict) -> List[dict]:
 
     # Step 2: Estimate target block height (144 blocks per day)
     # Calculate days between target date and now
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     days_ago = (now - target_date).days
     estimated_height = current_height - (days_ago * 144)
 
@@ -1077,6 +1109,8 @@ def save_to_questdb(data: Dict) -> None:
                 "tx_count": data["tx_count"],
                 "fetch_tier": data.get("fetch_tier"),
                 "is_valid": data["is_valid"],
+                # Absent for backfill_gap (F-441): the column is simply not written.
+                "window_end_ts": data.get("window_end_ts"),
                 "created_at": datetime.now(),
             },
             at=datetime.fromisoformat(data["timestamp"]),
@@ -1390,6 +1424,33 @@ SCHEDULE_ENV = "UTXORACLE_DAILY_SCHEDULE_UTC"
 EXIT_OUTSIDE_WINDOW = 5
 
 
+def missing_metric_fields(transactions: list) -> list[str]:
+    """Names of the fields the metrics need that NO transaction carries (empty = usable).
+
+    Permanent guard, in one place, before any metrics block. The metrics read the
+    mempool.space/electrs shape: vin[].prevout.scriptpubkey_address (active addresses),
+    vout[].scriptpubkey_address (active addresses) and vout[].value (tx volume).
+    getblock verbosity 2 from Bitcoin Core has vout[].scriptPubKey.address and no prevout,
+    so with it the address metrics would silently be 0: reported here instead, and the run
+    ends with exit 2 and no write (until the metrics learn that shape, F-432).
+    """
+    senders = receivers = values = False
+    for tx in transactions:
+        for vin in tx.get("vin", []):
+            senders = senders or bool(
+                (vin.get("prevout") or {}).get("scriptpubkey_address")
+            )
+        for vout in tx.get("vout", []):
+            receivers = receivers or bool(vout.get("scriptpubkey_address"))
+            values = values or vout.get("value") is not None
+    present = {
+        "vin[].prevout.scriptpubkey_address": senders,
+        "vout[].scriptpubkey_address": receivers,
+        "vout[].value": values,
+    }
+    return [name for name, ok in present.items() if not ok]
+
+
 def check_run_window(now: datetime) -> None:
     """Exit 5, writing nothing, when the run started outside its window.
 
@@ -1544,12 +1605,15 @@ def main():
             return
 
         # Step 1: Fetch mempool.space price (T039)
+        window_end = analysis_day + timedelta(days=1)
         mempool_price = retry_with_backoff(
-            lambda: fetch_mempool_price(config["MEMPOOL_API_URL"])
+            lambda: fetch_mempool_price_at(
+                int(window_end.timestamp()), config["MEMPOOL_API_URL"]
+            )
         )
 
         # Step 2: Calculate UTXOracle price (T040 - Phase 9: uses mempool.space API)
-        utx_result = calculate_utxoracle_price(config)
+        utx_result = calculate_utxoracle_price(config, analysis_day)
 
         # Step 2.5: Analyze whale flow (T043 - spec-004)
         whale_signal = None
@@ -1684,6 +1748,15 @@ def main():
                     f"(${tx_vol_result.tx_volume_usd:,.0f} USD), "
                     f"{tx_vol_result.tx_count} transactions"
                 )
+
+            def input_format_block() -> None:
+                missing = missing_metric_fields(transactions)
+                if missing:
+                    raise ValueError(
+                        f"transactions lack the fields {', '.join(missing)}"
+                    )
+
+            run_metrics_block("input_format", input_format_block)
 
             # Monte Carlo needs a whale signal: without one it does not apply.
             if whale_signal:
@@ -1900,6 +1973,8 @@ def main():
             # The row key is the analysed UTC day at 00:00Z (not the run time): with DEDUP
             # UPSERT KEYS(ts) a rerun on the same day replaces the row instead of adding one.
             "timestamp": analysis_day.isoformat(),
+            # End of the analysed window [analysis_day, window_end): D 00:00Z.
+            "window_end_ts": window_end,
             "utxoracle_price": utx_result["price_usd"],
             "mempool_price": mempool_price,
             "confidence": utx_result["confidence"],

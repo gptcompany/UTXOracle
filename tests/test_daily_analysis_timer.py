@@ -74,3 +74,12 @@ def test_job_schedule_is_defined_once_and_matches_the_timer():
     scheduled = env["UTXORACLE_DAILY_SCHEDULE_UTC"]  # "HH:MM", read by the job
     on_calendar = _parse(TIMER)["Timer"]["OnCalendar"]
     assert on_calendar == f"*-*-* {scheduled}:00 UTC"
+
+
+def test_service_declares_the_provisional_run_limits():
+    """A day of blocks over RPC is long and heavy; limits are provisional (measured in F-432)."""
+    text = SERVICE.read_text()
+    service = _parse(SERVICE)["Service"]
+    assert service["TimeoutStartSec"] == "3600"
+    assert service["MemoryMax"] == "4G"
+    assert "PROVISIONAL" in text

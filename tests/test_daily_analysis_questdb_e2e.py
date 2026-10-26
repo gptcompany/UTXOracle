@@ -167,11 +167,13 @@ def _stub_inputs(monkeypatch, daily, *, dedup_check: bool = False) -> None:
     monkeypatch.setattr(daily, "validate_config", lambda config: None)
     monkeypatch.setattr(daily, "WhaleFlowDetector", None)
     monkeypatch.setattr(daily, "ADVANCED_METRICS_ENABLED", False)
-    monkeypatch.setattr(daily, "fetch_mempool_price", lambda url: 100_000.0)
+    monkeypatch.setattr(
+        daily, "fetch_mempool_price_at", lambda timestamp, url: 100_000.0
+    )
     monkeypatch.setattr(
         daily,
         "calculate_utxoracle_price",
-        lambda config: {
+        lambda config, day=None: {
             "price_usd": 99_500.0,
             "confidence": 0.9,
             "tx_count": 2,
@@ -945,7 +947,7 @@ def _enable_all_persisted_blocks(monkeypatch, daily, tmp_path) -> None:
     monkeypatch.setattr(
         daily,
         "calculate_utxoracle_price",
-        lambda config: {
+        lambda config, day=None: {
             "price_usd": 99_500.0,
             "confidence": 0.9,
             "tx_count": 300,
@@ -1115,7 +1117,7 @@ def _tx_volume_btc_written_by_main(monkeypatch, daily, tier_setup, txs, tier) ->
         "MEMPOOL_FALLBACK_URL": "https://mempool.invalid",
     }
 
-    def calculate(_config):
+    def calculate(_config, day=None):
         fetched, used_tier = daily.fetch_bitcoin_transactions(config)
         assert used_tier == tier
         return {
@@ -1182,7 +1184,7 @@ def test_failure_before_the_wasserstein_block_runs_still_fails_the_block(
     monkeypatch.setattr(
         daily,
         "calculate_utxoracle_price",
-        lambda config: {
+        lambda config, day=None: {
             "price_usd": 99_500.0,
             "confidence": 0.9,
             "tx_count": 3,
@@ -1381,4 +1383,161 @@ def test_missing_env_file_is_info_and_does_not_block(monkeypatch, tmp_path, capl
         and ".env" in r.getMessage()
         and "not found" in r.getMessage()
         for r in caplog.records
+    )
+
+
+# --- F-438: the analysed day is defined by block timestamps, not by the run time ---------
+#
+# SYNTHETIC chain (declared): Bitcoin Core is replaced by a fake rpc_client; one 600 s block
+# per height, height 856 mined exactly at D 00:00:00Z, the tip at 1010. The price library is
+# replaced by a spy that records which transactions it received.
+
+DAY = datetime(2026, 10, 26, tzinfo=timezone.utc)  # D: the analysed day
+FIRST = 856  # height mined at D 00:00:00Z
+TIP = 1010
+
+
+def _block_time(height: int) -> int:
+    return int(DAY.timestamp()) + (height - FIRST) * 600
+
+
+class _FakeRpc:
+    def __init__(self, verbose_shape: str) -> None:
+        self.shape = verbose_shape
+
+    def call(self, method, params=None):
+        if method == "getblockcount":
+            return TIP
+        if method == "getblockhash":
+            return f"hash{params[0]}"
+        if method == "getblockheader":
+            return {"time": _block_time(int(params[0][4:]))}
+        if method == "getblock":
+            height = int(params[0][4:])
+            tx = {"txid": f"tx{height}"}
+            if self.shape == "mempool":
+                tx.update(
+                    vin=[{"prevout": {"scriptpubkey_address": f"bc1qin{height}"}}],
+                    vout=[{"scriptpubkey_address": f"bc1qout{height}", "value": 0.5}],
+                )
+            else:  # getblock verbosity 2: no prevout, scriptPubKey.address
+                tx.update(
+                    vin=[{"txid": "x", "vout": 0}],
+                    vout=[
+                        {"scriptPubKey": {"address": f"bc1qout{height}"}, "value": 0.5}
+                    ],
+                )
+            return {"tx": [tx]}
+        raise AssertionError(method)
+
+
+def _window_run(monkeypatch, daily, run_at: datetime, shape: str = "mempool"):
+    """Run main() at run_at over the fake chain; returns (txids seen, prices asked, rows)."""
+    real_calculate = daily.calculate_utxoracle_price
+    sent = _record_rows(monkeypatch)
+    _stub_inputs(monkeypatch, daily)
+    seen: list[list[str]] = []
+    asked: list[int] = []
+
+    class _Calculator:
+        def calculate_price_for_transactions(self, transactions):
+            seen.append([tx["txid"] for tx in transactions])
+            return {"price_usd": 99_500.0, "confidence": 0.9, "tx_count": 1500}
+
+    def price_at(timestamp, url):
+        asked.append(timestamp)
+        return 100_000.0
+
+    monkeypatch.setattr(
+        daily, "rpc_client", lambda config=None, timeout=60: _FakeRpc(shape)
+    )
+    monkeypatch.setattr(daily, "UTXOracleCalculator", _Calculator)
+    monkeypatch.setattr(daily, "calculate_utxoracle_price", real_calculate)
+    monkeypatch.setattr(daily, "fetch_mempool_price_at", price_at)
+    monkeypatch.setattr(daily, "utc_now", lambda: run_at)
+    daily.main()
+    return seen, asked, sent
+
+
+def test_runs_at_00_30_and_23_30_of_the_same_utc_day_pick_the_same_blocks_and_row(
+    monkeypatch,
+):
+    import scripts.daily_analysis as daily
+
+    early = _window_run(
+        monkeypatch, daily, datetime(2026, 10, 27, 0, 30, tzinfo=timezone.utc)
+    )
+    late = _window_run(
+        monkeypatch, daily, datetime(2026, 10, 27, 23, 30, tzinfo=timezone.utc)
+    )
+
+    assert early[0] == late[0] and early[0]  # same blocks
+    for _, _, sent in (early, late):
+        price_row = next(r for r in sent if r[0] == "price_analysis")
+        assert price_row[1] == DAY  # key: the analysed day D
+        assert price_row[2]["window_end_ts"] == DAY + timedelta(days=1)
+
+
+def test_block_at_day_start_is_in_and_block_at_day_end_is_out(monkeypatch):
+    import scripts.daily_analysis as daily
+
+    seen, _, _ = _window_run(
+        monkeypatch, daily, datetime(2026, 10, 27, 1, 30, tzinfo=timezone.utc)
+    )
+
+    txids = set(seen[0])
+    assert f"tx{FIRST}" in txids  # mined at D 00:00:00Z: included
+    assert f"tx{FIRST - 1}" not in txids  # 600 s earlier: excluded
+    assert f"tx{FIRST + 143}" in txids  # D 23:50Z
+    assert f"tx{FIRST + 144}" not in txids  # D+1 00:00:00Z: excluded
+    assert len(txids) == 144
+
+
+def test_reference_price_is_asked_for_the_end_of_the_analysed_day_not_for_now(
+    monkeypatch,
+):
+    import scripts.daily_analysis as daily
+
+    _, asked, _ = _window_run(
+        monkeypatch, daily, datetime(2026, 10, 27, 15, 45, tzinfo=timezone.utc)
+    )
+
+    assert asked == [int((DAY + timedelta(days=1)).timestamp())]
+
+
+def test_rpc_shaped_transactions_fail_with_the_missing_fields_and_write_nothing(
+    monkeypatch, caplog
+):
+    """getblock verbosity 2 has no prevout and scriptPubKey.address: addresses would be 0."""
+    import scripts.daily_analysis as daily
+
+    with caplog.at_level("ERROR"), pytest.raises(SystemExit) as stop:
+        _window_run(
+            monkeypatch,
+            daily,
+            datetime(2026, 10, 27, 1, 30, tzinfo=timezone.utc),
+            shape="rpc",
+        )
+
+    assert stop.value.code == 2
+    assert "vin[].prevout.scriptpubkey_address" in caplog.text
+    assert "vout[].scriptpubkey_address" in caplog.text
+    assert "vout[].value" not in caplog.text  # present in both shapes
+
+
+def test_price_analysis_has_the_window_end_column_added_without_a_rewrite(monkeypatch):
+    import api.questdb_repository as repository
+
+    conn, _ = _fake_questdb(
+        monkeypatch, {"price_analysis": (True, True), "metrics": (True, True)}
+    )
+    asyncio.run(repository.create_tables_if_not_exist())
+
+    create = next(
+        s for s in conn.statements if "CREATE TABLE IF NOT EXISTS price_analysis (" in s
+    )
+    assert "window_end_ts TIMESTAMP" in create
+    assert (
+        "ALTER TABLE price_analysis ADD COLUMN IF NOT EXISTS window_end_ts TIMESTAMP"
+        in conn.statements
     )
