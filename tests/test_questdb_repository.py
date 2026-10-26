@@ -152,28 +152,49 @@ def _wal(writer, seq, suspended=False, tag="", message=""):
     }
 
 
-def _repo(monkeypatch, wal=None, count=5, live_columns=None, execute=None):
-    """Repo with fake clock, wal_tables() and count(staging); both may be callables of
-    the fake time."""
+class _FakeHttpSender:
+    def __init__(self, flush_error=None):
+        self.rows = []
+        self.flushes = 0
+        self.closed_with = None
+        self.flush_error = flush_error
+
+    def row(self, table, symbols=None, columns=None, at=None):
+        self.rows.append((table, symbols, columns))
+
+    def flush(self):
+        if self.flush_error:
+            raise self.flush_error
+        self.flushes += 1
+
+    def close(self, flush=True):
+        self.closed_with = flush
+
+
+def _repo(monkeypatch, wal=None, count=5, live_columns=None, execute=None, sender=None):
+    """Repo with fake clock, ILP/HTTP sender, wal_tables() and count(staging); wal and
+    count may be callables of the fake time (None wal = table absent from wal_tables)."""
     import api.questdb_repository as qr
 
     clock = _FakeClock()
     monkeypatch.setattr(qr, "_monotonic", clock.monotonic)
     monkeypatch.setattr(qr, "_sleep", clock.sleep)
-    wal = wal or _wal(8, 8)
+    wal = _wal(9, 9) if wal is None else wal
 
     def at(value):
         return value(clock.now) if callable(value) else value
 
     async def fetch(query, *args):
         if "wal_tables" in query:
-            return [at(wal)]
+            current = at(wal)
+            return [] if current == "absent" else [current]
         return live_columns or _LIVE_COLUMNS
 
     repo = QuestDBRepository()
     repo.clock = clock
     repo.fetch = fetch
-    repo.async_flush_ingestion = AsyncMock(return_value=True)
+    repo._refresh_sender = sender
+    repo._refresh_buffered = 1 if sender else 0
     repo.fetchrow = AsyncMock(side_effect=lambda q, *a: (at(count),))
     repo.execute = execute or AsyncMock(return_value="OK")
     return repo
@@ -187,11 +208,50 @@ def _errors(caplog):
     return [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
 
 
-def test_commit_address_clusters_refresh_runs_cutover_after_flush(monkeypatch):
-    repo = _repo(monkeypatch)
+def _only_staging_truncated(repo):
+    return _executed(repo) == ["TRUNCATE TABLE address_clusters_staging"]
+
+
+def test_stage_address_cluster_uses_http_sender_and_flushes_in_batches(monkeypatch):
+    import api.questdb_repository as qr
+
+    monkeypatch.setattr(qr, "ADDRESS_CLUSTERS_FLUSH_ROWS", 2)
+    sender = _FakeHttpSender()
+    repo = QuestDBRepository()
+    repo._build_refresh_sender = lambda: sender
+    repo._build_sender = lambda: pytest.fail("TCP sender must not be used")
+
+    results = [
+        repo.stage_address_cluster({"address": f"a{i}", "cluster_id": "c"})
+        for i in range(3)
+    ]
+
+    assert results == [True, True, True]
+    assert len(sender.rows) == 3 and sender.flushes == 1
+    assert all(t == "address_clusters_staging" for t, _, _ in sender.rows)
+
+
+def test_stage_address_cluster_reports_a_server_rejection(monkeypatch, caplog):
+    import api.questdb_repository as qr
+
+    monkeypatch.setattr(qr, "ADDRESS_CLUSTERS_FLUSH_ROWS", 1)
+    repo = QuestDBRepository()
+    repo._refresh_sender = _FakeHttpSender(flush_error=RuntimeError("rejected"))
+
+    with caplog.at_level("ERROR"):
+        assert repo.stage_address_cluster({"address": "a", "cluster_id": "c"}) is False
+    assert any("rejected" in m for m in _errors(caplog))
+
+
+def test_commit_address_clusters_refresh_runs_cutover(monkeypatch):
+    sender = _FakeHttpSender()
+    repo = _repo(
+        monkeypatch, wal=lambda t: _wal(8, 9) if t < 10 else _wal(9, 9), sender=sender
+    )
 
     assert asyncio.run(repo.commit_address_clusters_refresh(5)) is True
 
+    assert sender.flushes == 1 and repo._refresh_sender is None
     calls = _executed(repo)
     assert calls[0] == "TRUNCATE TABLE address_clusters"
     insert = " ".join(calls[1].split())
@@ -201,6 +261,22 @@ def test_commit_address_clusters_refresh_runs_cutover_after_flush(monkeypatch):
         "last_seen, is_exchange_likely, label, confidence FROM address_clusters_staging"
     )
     assert calls[2] == "TRUNCATE TABLE address_clusters_staging"
+
+
+def test_commit_raises_and_aborts_when_the_server_rejects_the_flush(
+    monkeypatch, caplog
+):
+    repo = _repo(
+        monkeypatch, sender=_FakeHttpSender(flush_error=RuntimeError("bad row"))
+    )
+
+    with caplog.at_level("ERROR"), pytest.raises(RuntimeError, match="bad row"):
+        asyncio.run(repo.commit_address_clusters_refresh(5))
+
+    assert _only_staging_truncated(repo)
+    assert any("Traceback" in (r.exc_text or "") for r in caplog.records) or any(
+        r.exc_info for r in caplog.records
+    )
 
 
 def test_commit_aborts_at_once_when_wal_is_suspended(monkeypatch, caplog):
@@ -215,59 +291,64 @@ def test_commit_aborts_at_once_when_wal_is_suspended(monkeypatch, caplog):
     with caplog.at_level("ERROR"):
         ok = asyncio.run(repo.commit_address_clusters_refresh(5))
 
-    assert ok is False
-    assert _executed(repo) == ["TRUNCATE TABLE address_clusters_staging"]
+    assert ok is False and _only_staging_truncated(repo)
     msg = _errors(caplog)[0]
     assert "suspended" in msg and "DISK_FULL" in msg and "no space" in msg
-    assert repo.clock.now < 20  # immediate, not at a ceiling
+    assert repo.clock.now < 20
+
+
+def test_commit_aborts_when_staging_is_not_a_wal_table(monkeypatch, caplog):
+    repo = _repo(monkeypatch, wal="absent")
+
+    with caplog.at_level("ERROR"):
+        ok = asyncio.run(repo.commit_address_clusters_refresh(5))
+
+    assert ok is False and _only_staging_truncated(repo)
+    assert "not_wal" in _errors(caplog)[0]
 
 
 def test_commit_survives_one_big_transaction_without_progress(monkeypatch):
-    # writerTxn stuck for 300 s (> the old 60 s stall), then the transaction lands.
     repo = _repo(
         monkeypatch,
         wal=lambda t: _wal(8, 9) if t < 300 else _wal(9, 9),
-        count=lambda t: 5 if t >= 300 else 0,
+        count=5,
     )
 
     assert asyncio.run(repo.commit_address_clusters_refresh(5, max_wait_s=900)) is True
     assert repo.clock.now >= 300
-    assert _executed(repo)[0] == "TRUNCATE TABLE address_clusters"
 
 
 def test_commit_aborts_at_ceiling(monkeypatch, caplog):
-    repo = _repo(monkeypatch, wal=lambda t: _wal(8, 9), count=0)
+    repo = _repo(monkeypatch, wal=_wal(8, 9))
 
     with caplog.at_level("ERROR"):
         ok = asyncio.run(repo.commit_address_clusters_refresh(5, max_wait_s=120))
 
-    assert ok is False
-    assert _executed(repo) == ["TRUNCATE TABLE address_clusters_staging"]
+    assert ok is False and _only_staging_truncated(repo)
     assert "ceiling" in _errors(caplog)[0]
     assert 120 <= repo.clock.now < 130
 
 
-def test_commit_aborts_on_count_mismatch_with_aligned_wal(monkeypatch, caplog):
+def test_commit_aborts_at_once_on_count_mismatch(monkeypatch, caplog):
     repo = _repo(monkeypatch, wal=_wal(9, 9), count=3)
 
     with caplog.at_level("ERROR"):
         ok = asyncio.run(repo.commit_address_clusters_refresh(5))
 
-    assert ok is False
-    assert _executed(repo) == ["TRUNCATE TABLE address_clusters_staging"]
+    assert ok is False and _only_staging_truncated(repo)
     msg = _errors(caplog)[0]
     assert "count_mismatch" in msg and "expected 5" in msg and "observed 3" in msg
+    assert repo.clock.now == 0
 
 
-def test_commit_tolerates_aligned_wal_before_sequencer_sees_the_rows(monkeypatch):
-    # Flush returned, WAL still aligned at the old txn with 0 rows, then the rows land.
-    repo = _repo(
-        monkeypatch,
-        wal=lambda t: _wal(8, 8) if t < 5 else _wal(9, 9),
-        count=lambda t: 0 if t < 5 else 5,
-    )
+def test_commit_raises_and_aborts_when_the_count_query_fails(monkeypatch):
+    repo = _repo(monkeypatch)
+    repo.fetchrow = AsyncMock(side_effect=ConnectionError("pg down"))
 
-    assert asyncio.run(repo.commit_address_clusters_refresh(5)) is True
+    with pytest.raises(ConnectionError):
+        asyncio.run(repo.commit_address_clusters_refresh(5))
+
+    assert _only_staging_truncated(repo)
 
 
 def test_commit_address_clusters_refresh_aborts_when_live_lacks_a_column(
@@ -278,8 +359,7 @@ def test_commit_address_clusters_refresh_aborts_when_live_lacks_a_column(
     with caplog.at_level("ERROR"):
         ok = asyncio.run(repo.commit_address_clusters_refresh(5))
 
-    assert ok is False
-    assert _executed(repo) == ["TRUNCATE TABLE address_clusters_staging"]
+    assert ok is False and _only_staging_truncated(repo)
     assert any("confidence" in m for m in _errors(caplog))
 
 
@@ -298,6 +378,40 @@ def test_commit_address_clusters_refresh_clears_tables_on_cutover_failure(monkey
     assert "INSERT INTO address_clusters" in calls[1]
     assert calls[2] == "TRUNCATE TABLE address_clusters_staging"
     assert calls[3] == "TRUNCATE TABLE address_clusters"
+
+
+def test_create_tables_declares_the_staging_table_as_wal(monkeypatch):
+    import api.questdb_repository as qr
+
+    statements = []
+
+    class _Conn:
+        async def fetch(self, query, *args):
+            statements.append(" ".join(query.split()))
+            if "address_clusters_staging" in query:
+                return [("confidence",)]
+            return [("address",)]  # live table without confidence
+
+        async def execute(self, query, *args):
+            statements.append(" ".join(query.split()))
+
+        async def close(self):
+            return None
+
+    async def connect(**kwargs):
+        return _Conn()
+
+    monkeypatch.setattr(qr.asyncpg, "connect", connect)
+    asyncio.run(qr.create_tables_if_not_exist())
+
+    staging = [
+        q
+        for q in statements
+        if q.startswith("CREATE TABLE IF NOT EXISTS address_clusters_staging")
+    ]
+    assert len(staging) == 1 and staging[0].rstrip("; ").endswith(
+        "PARTITION BY YEAR WAL"
+    )
 
 
 def test_save_cost_basis_passes_empty_symbols():

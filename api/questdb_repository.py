@@ -60,6 +60,8 @@ ADDRESS_CLUSTERS_STAGING_TABLE = "address_clusters_staging"
 # the CSV ingest (tens of thousands of rows) gets the 10 min floor.
 ADDRESS_CLUSTERS_MIN_APPLY_ROWS_PER_S = 3800.0
 ADDRESS_CLUSTERS_MIN_WAIT_S = 600.0
+# Rows per confirmed HTTP flush of the staging load (auto_flush is off).
+ADDRESS_CLUSTERS_FLUSH_ROWS = 5000
 # One INFO line per poll: 5 s keeps a 4 h wait to ~2.9k lines at worst, while a
 # normal small ingest is done within one or two polls.
 ADDRESS_CLUSTERS_POLL_S = 5.0
@@ -841,16 +843,25 @@ async def create_tables_if_not_exist():
                 is_exchange_likely BOOLEAN,
                 label SYMBOL,
                 confidence DOUBLE
-            ) timestamp(ts) PARTITION BY YEAR;
+            ) timestamp(ts) PARTITION BY YEAR WAL;
             """
         )
 
         # F-424: the live table predates the confidence column; the cutover INSERT names it.
+        # ADD COLUMN IF NOT EXISTS is rejected as a no-op on WAL tables when the column is
+        # already there, so the column list is read first and the ALTER runs only if needed.
         for table in ("address_clusters", "address_clusters_staging"):
             try:
-                await conn.execute(
-                    f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS confidence DOUBLE"
-                )
+                present = {
+                    r[0]
+                    for r in await conn.fetch(
+                        f"SELECT \"column\" FROM table_columns('{table}')"
+                    )
+                }
+                if "confidence" not in present:
+                    await conn.execute(
+                        f"ALTER TABLE {table} ADD COLUMN confidence DOUBLE"
+                    )
             except Exception as e:
                 logger.warning("Could not ensure %s.confidence: %s", table, e)
 
@@ -1036,6 +1047,29 @@ class QuestDBRepository:
         self._flush_batch_size = 100
         self._flush_interval_seconds = 5.0
         self._ingestion_aborted = False
+        # Dedicated ILP/HTTP sender of the address_clusters refresh: flush() returns
+        # only once the server committed the rows and raises if it rejects them (F-424).
+        self._refresh_sender: Sender | None = None
+        self._refresh_buffered = 0
+
+    def _build_refresh_sender(self):
+        if Sender is None:
+            raise ModuleNotFoundError(
+                "questdb package is required for ILP ingestion; install project dependencies "
+                "or monkeypatch QuestDBRepository._build_refresh_sender in tests"
+            )
+        sender = Sender("http", QUESTDB_HTTP_HOST, QUESTDB_HTTP_PORT, auto_flush=False)
+        sender.establish()
+        return sender
+
+    def _close_refresh_sender(self) -> None:
+        sender, self._refresh_sender = self._refresh_sender, None
+        self._refresh_buffered = 0
+        if sender is not None:
+            try:
+                sender.close(flush=False)
+            except Exception as e:
+                logger.error(f"Error closing address_clusters refresh sender: {e}")
 
     def _build_sender(self):
         if Sender is None:
@@ -1463,18 +1497,29 @@ class QuestDBRepository:
         if row.get("label"):
             symbols["label"] = str(row["label"])
 
-        return self._send_row(
-            table,
-            symbols=symbols,
-            columns={
-                "address": str(row["address"]),
-                "cluster_id": str(row["cluster_id"]),
-                "last_seen": row.get("last_seen"),
-                "is_exchange_likely": bool(row.get("is_exchange_likely", False)),
-                "confidence": float(row.get("confidence", 0.6)),
-            },
-            at=ts,
-        )
+        try:
+            if self._refresh_sender is None:
+                self._refresh_sender = self._build_refresh_sender()
+            self._refresh_sender.row(
+                table,
+                symbols=symbols,
+                columns={
+                    "address": str(row["address"]),
+                    "cluster_id": str(row["cluster_id"]),
+                    "last_seen": row.get("last_seen"),
+                    "is_exchange_likely": bool(row.get("is_exchange_likely", False)),
+                    "confidence": float(row.get("confidence", 0.6)),
+                },
+                at=ts,
+            )
+            self._refresh_buffered += 1
+            if self._refresh_buffered >= ADDRESS_CLUSTERS_FLUSH_ROWS:
+                self._refresh_sender.flush()
+                self._refresh_buffered = 0
+            return True
+        except Exception as e:
+            logger.error(f"Failed to stage address_clusters row over ILP/HTTP: {e}")
+            return False
 
     async def prepare_address_clusters_refresh(self) -> bool:
         """
@@ -1482,6 +1527,7 @@ class QuestDBRepository:
 
         The live table is left untouched until commit succeeds.
         """
+        self._close_refresh_sender()
         try:
             await self.execute(f"TRUNCATE TABLE {ADDRESS_CLUSTERS_STAGING_TABLE}")
             logger.info("Prepared QuestDB address_clusters staging table.")
@@ -1507,7 +1553,7 @@ class QuestDBRepository:
         `clear_target=True` is used only after a cutover failure to avoid serving a
         partially rebuilt snapshot.
         """
-        self.abort_ingestion()
+        self._close_refresh_sender()
         await self._truncate_address_clusters_table(
             ADDRESS_CLUSTERS_STAGING_TABLE,
             reason="address_clusters refresh abort",
@@ -1518,18 +1564,25 @@ class QuestDBRepository:
                 reason="address_clusters cutover recovery",
             )
 
-    async def _wait_for_staged_rows(
+    async def _staging_wal(self) -> Optional[Any]:
+        rows = await self.fetch(
+            'SELECT suspended, "writerTxn", "sequencerTxn", "errorTag", '
+            '"errorMessage" FROM wal_tables() WHERE name = $1',
+            ADDRESS_CLUSTERS_STAGING_TABLE,
+        )
+        return rows[0] if rows else None
+
+    async def _publish_staging(
         self, expected_rows: int, *, max_wait_s: float, poll_s: float
     ) -> bool:
-        """Wait until WAL has applied every staged row, judged on wal_tables().
+        """Flush the staging load and wait until WAL has applied it (no cutover).
 
-        Done when writerTxn == sequencerTxn and count(staging) == expected_rows. Aborts
-        (False, ERROR with the cause) on: suspended WAL, count_mismatch with an aligned
-        and unchanged WAL, or ceiling. A single large transaction may show no progress
-        for a long time, so there is no stall timeout.
+        ILP/HTTP flush() returns after the commit, so the sequencerTxn read right after
+        the last flush is the target: wait for writerTxn >= target. The final count must
+        then be exact. Returns False (ERROR with the cause: not_wal, suspended, ceiling,
+        count_mismatch) without touching the live table; exceptions propagate.
         """
         started = _monotonic()
-        mismatch_at: Optional[int] = None
 
         def fail(cause: str, detail: str) -> bool:
             logger.error(
@@ -1542,56 +1595,53 @@ class QuestDBRepository:
             )
             return False
 
+        if self._refresh_sender is not None and self._refresh_buffered > 0:
+            self._refresh_sender.flush()
+            self._refresh_buffered = 0
+        self._close_refresh_sender()
+
+        wal = await self._staging_wal()
+        if wal is None:
+            return fail(
+                "not_wal", f"{ADDRESS_CLUSTERS_STAGING_TABLE} not in wal_tables()"
+            )
+        target = int(wal["sequencerTxn"])
         while True:
-            elapsed = _monotonic() - started
-            try:
-                rows = await self.fetch(
-                    'SELECT suspended, "writerTxn", "sequencerTxn", "errorTag", '
-                    '"errorMessage" FROM wal_tables() WHERE name = $1',
-                    ADDRESS_CLUSTERS_STAGING_TABLE,
+            if wal is None:
+                return fail("not_wal", "staging table vanished from wal_tables()")
+            writer = int(wal["writerTxn"])
+            logger.info(
+                "address_clusters staging WAL: writerTxn=%d target=%d suspended=%s "
+                "after %.1f s",
+                writer,
+                target,
+                bool(wal["suspended"]),
+                _monotonic() - started,
+            )
+            if wal["suspended"]:
+                return fail(
+                    "suspended",
+                    f"errorTag={wal['errorTag']!r} errorMessage={wal['errorMessage']!r}",
                 )
-            except Exception as e:
-                logger.warning("wal_tables() poll failed: %s", e)
-                rows = []
-            if rows:
-                wal = rows[0]
-                writer, seq = int(wal["writerTxn"]), int(wal["sequencerTxn"])
-                logger.info(
-                    "address_clusters staging WAL: writerTxn=%d sequencerTxn=%d "
-                    "suspended=%s after %.1f s",
-                    writer,
-                    seq,
-                    bool(wal["suspended"]),
-                    elapsed,
-                )
-                if wal["suspended"]:
-                    return fail(
-                        "suspended",
-                        f"errorTag={wal['errorTag']!r} errorMessage={wal['errorMessage']!r}",
-                    )
-                if writer == seq:
-                    count_row = await self.fetchrow(
-                        f"SELECT count(*) FROM {ADDRESS_CLUSTERS_STAGING_TABLE}"
-                    )
-                    observed = int(count_row[0]) if count_row is not None else 0
-                    if observed == expected_rows:
-                        logger.info(
-                            "address_clusters staging complete: %d rows after %.1f s",
-                            observed,
-                            elapsed,
-                        )
-                        return True
-                    # The ILP flush can return before the sequencer saw the rows: a
-                    # mismatch is final only if the aligned WAL did not move since the
-                    # previous poll.
-                    if mismatch_at == seq:
-                        return fail("count_mismatch", f"observed {observed}")
-                    mismatch_at = seq
-                else:
-                    mismatch_at = None
-            if elapsed >= max_wait_s:
+            if writer >= target:
+                break
+            if _monotonic() - started >= max_wait_s:
                 return fail("ceiling", f"ceiling {max_wait_s:.0f} s reached")
             await _sleep(poll_s)
+            wal = await self._staging_wal()
+
+        count_row = await self.fetchrow(
+            f"SELECT count(*) FROM {ADDRESS_CLUSTERS_STAGING_TABLE}"
+        )
+        observed = int(count_row[0]) if count_row is not None else 0
+        if observed != expected_rows:
+            return fail("count_mismatch", f"observed {observed}")
+        logger.info(
+            "address_clusters staging complete: %d rows after %.1f s",
+            observed,
+            _monotonic() - started,
+        )
+        return True
 
     async def commit_address_clusters_refresh(
         self,
@@ -1603,27 +1653,27 @@ class QuestDBRepository:
         """
         Publish a staged address_clusters snapshot after the ILP load completes.
 
-        `expected_rows` is the number of rows the caller sent to staging: the flush
-        returns before WAL has applied them all (F-424), so the cutover waits on
-        wal_tables() and aborts, leaving the live table untouched, if the WAL is
-        suspended, the final count differs, or `max_wait_s` (default scaled on
-        `expected_rows`, see ADDRESS_CLUSTERS_MIN_APPLY_ROWS_PER_S) is exceeded.
+        `expected_rows` is the number of rows the caller sent to staging. The cutover
+        waits on wal_tables() (see _publish_staging) and aborts, leaving the live table
+        untouched, on any failure; an unexpected exception aborts, is logged with its
+        traceback and re-raised so the job exits non-zero.
         """
-        if not await self.async_flush_ingestion():
-            logger.error("Failed to flush staged address_clusters rows before cutover.")
+        try:
+            published = await self._publish_staging(
+                expected_rows,
+                max_wait_s=max_wait_s
+                if max_wait_s is not None
+                else max(
+                    ADDRESS_CLUSTERS_MIN_WAIT_S,
+                    expected_rows / ADDRESS_CLUSTERS_MIN_APPLY_ROWS_PER_S,
+                ),
+                poll_s=poll_s,
+            )
+        except Exception:
+            logger.exception("address_clusters staging failed before cutover")
             await self.abort_address_clusters_refresh()
-            return False
-
-        if not await self._wait_for_staged_rows(
-            expected_rows,
-            max_wait_s=max_wait_s
-            if max_wait_s is not None
-            else max(
-                ADDRESS_CLUSTERS_MIN_WAIT_S,
-                expected_rows / ADDRESS_CLUSTERS_MIN_APPLY_ROWS_PER_S,
-            ),
-            poll_s=poll_s,
-        ):
+            raise
+        if not published:
             await self.abort_address_clusters_refresh()
             return False
 
