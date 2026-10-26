@@ -117,8 +117,19 @@ def _day_start_utc() -> datetime:
     return datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
-def _stub_inputs(monkeypatch, daily) -> None:
-    """Replace only bitcoind, mempool.space and the config checks (synthetic, see header)."""
+def _stub_inputs(monkeypatch, daily, *, dedup_check: bool = False) -> None:
+    """Replace only bitcoind, mempool.space and the config checks (synthetic, see header).
+
+    The dedup precheck reads tables() on a real QuestDB: it is stubbed to "all fine" unless
+    dedup_check is True (the real-database test and the dedicated precheck tests).
+    """
+    if not dedup_check:
+        import api.questdb_repository as repository
+
+        async def deduplicated(tables):
+            return []
+
+        monkeypatch.setattr(repository, "tables_without_dedup", deduplicated)
     monkeypatch.setattr(daily, "validate_config", lambda config: None)
     monkeypatch.setattr(daily, "WhaleFlowDetector", None)
     monkeypatch.setattr(daily, "ADVANCED_METRICS_ENABLED", False)
@@ -184,11 +195,18 @@ def test_both_tables_are_keyed_by_the_analysed_day_not_the_run_time(monkeypatch)
 
 
 class _RecordingConnection:
-    def __init__(self) -> None:
+    def __init__(self, states: dict[str, tuple[bool, bool]] | None = None) -> None:
         self.statements: list[str] = []
+        # table -> (walEnabled, dedup) as tables() reports it; default: WAL, no dedup yet
+        self.states = states or {}
 
     async def execute(self, statement: str, *args) -> None:
         self.statements.append(" ".join(statement.split()))
+
+    async def fetchrow(self, query: str, table: str):
+        assert "tables()" in query
+        wal, dedup = self.states.get(table, (True, False))
+        return {"walEnabled": wal, "dedup": dedup}
 
     async def close(self) -> None:
         return None
@@ -213,9 +231,9 @@ def test_ddl_dedups_price_analysis_and_metrics_on_ts(monkeypatch):
             s for s in conn.statements if f"CREATE TABLE IF NOT EXISTS {table} (" in s
         )
         assert "WAL" in create and "DEDUP UPSERT KEYS(ts)" in create, table
-        # Existing (non-WAL, non-dedup) tables are migrated by the same function.
-        assert f"ALTER TABLE {table} SET TYPE WAL" in conn.statements
+        # A WAL table without dedup gets it enabled; a schema conversion is never run.
         assert f"ALTER TABLE {table} DEDUP ENABLE UPSERT KEYS(ts)" in conn.statements
+        assert f"ALTER TABLE {table} SET TYPE WAL" not in conn.statements
 
 
 def test_count_treats_only_a_missing_table_as_zero(monkeypatch):
@@ -284,7 +302,7 @@ def test_daily_analysis_is_idempotent_on_a_real_questdb(monkeypatch):
     # not turn the gate green.
     asyncio.run(repository.create_tables_if_not_exist())
 
-    _stub_inputs(monkeypatch, daily)
+    _stub_inputs(monkeypatch, daily, dedup_check=True)
     daily.main()
     daily.main()
 
@@ -457,67 +475,100 @@ def test_metrics_failed_flush_exits_non_zero(monkeypatch):
     assert _exit_code(daily) == 2
 
 
-# --- Schema migration: no error may vanish ---------------------------------------------
+# --- Schema migration: decided from tables(), never from an error message ---------------
 
 
-class _AlterConnection(_RecordingConnection):
-    """Fails the statements whose text contains a key of `failures`."""
-
-    def __init__(self, failures: dict[str, str]) -> None:
-        super().__init__()
-        self.failures = failures
-
+class _AlterFails(_RecordingConnection):
     async def execute(self, statement: str, *args) -> None:
-        text = " ".join(statement.split())
-        for needle, message in self.failures.items():
-            if needle in text:
-                raise RuntimeError(message)
-        self.statements.append(text)
+        if "DEDUP ENABLE" in statement:
+            raise RuntimeError("alter failed (test)")
+        await super().execute(statement, *args)
 
 
-def _create_tables(monkeypatch, conn) -> None:
+def _enable(conn, table: str = "price_analysis") -> None:
+    import api.questdb_repository as repository
+
+    asyncio.run(repository._enable_daily_dedup(conn, table))
+
+
+def test_dedup_already_active_is_info_and_runs_no_alter(caplog):
+    conn = _RecordingConnection({"price_analysis": (True, True)})
+    with caplog.at_level("INFO"):
+        _enable(conn)
+
+    assert conn.statements == []
+    assert any(
+        r.levelname == "INFO" and "price_analysis" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+def test_wal_table_without_dedup_gets_the_alter_and_its_failure_is_fatal():
+    conn = _RecordingConnection({"price_analysis": (True, False)})
+    _enable(conn)
+    assert conn.statements == [
+        "ALTER TABLE price_analysis DEDUP ENABLE UPSERT KEYS(ts)"
+    ]
+
+    with pytest.raises(RuntimeError, match="alter failed"):
+        _enable(_AlterFails({"price_analysis": (True, False)}))
+
+
+def test_non_wal_table_is_an_error_log_without_alter_and_without_exception(caplog):
+    conn = _RecordingConnection({"metrics": (False, False)})
+    with caplog.at_level("ERROR"):
+        _enable(conn, "metrics")
+
+    assert conn.statements == []  # no SET TYPE WAL: a conversion is not a startup step
+    assert any(
+        r.levelname == "ERROR"
+        and "metrics" in r.getMessage()
+        and "dedup non attivabile: tabella non WAL" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+# --- The daily job refuses to write into a table without dedup -------------------------
+
+
+def test_tables_without_dedup_reads_tables_and_reports_the_ones_not_deduplicating(
+    monkeypatch,
+):
     import types as _types
 
     import api.questdb_repository as repository
+
+    conn = _RecordingConnection(
+        {"price_analysis": (True, True), "metrics": (True, False)}
+    )
 
     async def connect(**kwargs):
         return conn
 
     monkeypatch.setattr(repository, "asyncpg", _types.SimpleNamespace(connect=connect))
-    asyncio.run(repository.create_tables_if_not_exist())
 
-
-def test_unexpected_dedup_error_fails_the_table_creation(monkeypatch):
-    """Without DEDUP the daily rerun would duplicate rows: the error must surface."""
-    conn = _AlterConnection(
-        {"price_analysis DEDUP ENABLE": "deduplication is possible only on WAL tables"}
-    )
-    with pytest.raises(RuntimeError, match="only on WAL"):
-        _create_tables(monkeypatch, conn)
-
-
-def test_dedup_already_enabled_is_logged_at_info_and_does_not_fail(monkeypatch, caplog):
-    conn = _AlterConnection(
-        {"metrics DEDUP ENABLE": "deduplication is already enabled on the table"}
-    )
-    with caplog.at_level("INFO"):
-        _create_tables(monkeypatch, conn)
-
-    assert any(
-        r.levelname == "INFO"
-        and "metrics" in r.getMessage()
-        and "already" in r.getMessage()
-        for r in caplog.records
+    missing = asyncio.run(
+        repository.tables_without_dedup(("price_analysis", "metrics"))
     )
 
+    assert missing == ["metrics"]
 
-def test_unexpected_set_type_wal_error_is_logged_as_warning(monkeypatch, caplog):
-    conn = _AlterConnection({"metrics SET TYPE WAL": "permission denied"})
-    with caplog.at_level("WARNING"):
-        _create_tables(monkeypatch, conn)
 
-    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
-    assert any(
-        "metrics" in m and "SET TYPE WAL" in m and "permission denied" in m
-        for m in warnings
-    )
+def test_write_is_refused_when_a_table_has_no_dedup(monkeypatch, caplog):
+    import api.questdb_repository as repository
+    import scripts.daily_analysis as daily
+
+    sent = _record_rows(monkeypatch)
+    _stub_inputs(monkeypatch, daily, dedup_check=True)
+
+    async def without_dedup(tables):
+        return ["metrics"]
+
+    monkeypatch.setattr(repository, "tables_without_dedup", without_dedup)
+
+    with caplog.at_level("ERROR"), pytest.raises(SystemExit) as stop:
+        daily.main()
+
+    assert stop.value.code == 4
+    assert sent == []
+    assert "without dedup" in caplog.text and "metrics" in caplog.text

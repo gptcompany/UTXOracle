@@ -1310,6 +1310,26 @@ def check_questdb_destination() -> None:
         sys.exit(3)
 
 
+def check_daily_tables_dedup() -> None:
+    """Refuse to write into a table that does not deduplicate on ts (exit code 4).
+
+    The daily row is keyed by the UTC day; without DEDUP UPSERT KEYS(ts) a rerun would add a
+    duplicate row. Checked once per run, before the first write, from tables().
+    """
+    import asyncio
+
+    import api.questdb_repository as questdb
+
+    missing = asyncio.run(questdb.tables_without_dedup(("price_analysis", "metrics")))
+    if missing:
+        logging.error(
+            "QuestDB tables without dedup on ts: %s; refusing to write "
+            "(enable DEDUP UPSERT KEYS(ts) on a WAL table first)",
+            ", ".join(missing),
+        )
+        sys.exit(4)
+
+
 def main():
     """
     Main execution flow for daily analysis.
@@ -1340,6 +1360,8 @@ def main():
         sys.exit(1)
 
     check_questdb_destination()
+    if not args.dry_run:
+        check_daily_tables_dedup()
 
     # Initialize Whale Flow Detector (T042 - spec-004)
     whale_detector = None

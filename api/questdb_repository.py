@@ -288,29 +288,59 @@ def save_backtest_whale_signal_row(
     return True
 
 
-async def _enable_daily_dedup(conn, table: str) -> None:
-    """Make an existing `table` WAL and deduplicating on ts, without hiding any error.
+_TABLE_STATE_QUERY = "SELECT walEnabled, dedup FROM tables() WHERE table_name = $1"
 
-    Without DEDUP the daily job duplicates its row on every rerun, so a DEDUP failure that is
-    not "already enabled" aborts the table creation. SET TYPE WAL only schedules a conversion
-    that completes at the next QuestDB restart, so its unexpected failure is a WARNING: the
-    DEDUP statement right after it then decides whether the table is usable. Precondition
-    for deploy: the tables are already WAL (true on the live QuestDB).
+
+async def _enable_daily_dedup(conn, table: str) -> None:
+    """Enable DEDUP UPSERT KEYS(ts) on `table` when the state reported by tables() allows it.
+
+    The decision is taken from the walEnabled and dedup columns, never from an error text:
+    - dedup already on: INFO, nothing else;
+    - WAL without dedup: ALTER ... DEDUP ENABLE; a failure is fatal, because without dedup
+      the daily rerun would duplicate its row;
+    - not WAL: no schema conversion (that is not a service-startup step); ERROR with the
+      table name and startup goes on. The daily job itself refuses to write to a table
+      without dedup (tables_without_dedup), so the error stays visible.
     """
-    for ddl, fatal in (
-        (f"ALTER TABLE {table} SET TYPE WAL", False),
-        (f"ALTER TABLE {table} DEDUP ENABLE UPSERT KEYS(ts)", True),
-    ):
+    row = await conn.fetchrow(_TABLE_STATE_QUERY, table)
+    if row is None:
+        return  # created just before by the caller with dedup; nothing to migrate
+    if row["dedup"]:
+        logger.info("%s: dedup already active, no change", table)
+    elif row["walEnabled"]:
+        ddl = f"ALTER TABLE {table} DEDUP ENABLE UPSERT KEYS(ts)"
         try:
             await conn.execute(ddl)
         except Exception as exc:
-            if "already" in str(exc).lower():
-                logger.info("%s: nothing to do (%s): %s", table, ddl, exc)
-            elif fatal:
-                logger.error("%s: %s failed: %s", table, ddl, exc)
-                raise
-            else:
-                logger.warning("%s: %s failed: %s", table, ddl, exc)
+            logger.error("%s: %s failed: %s", table, ddl, exc)
+            raise
+        logger.info("%s: dedup enabled on ts", table)
+    else:
+        logger.error("%s: dedup non attivabile: tabella non WAL", table)
+
+
+async def tables_without_dedup(tables) -> list[str]:
+    """Names among `tables` that do not exist or are not deduplicating (read from tables())."""
+    if asyncpg is None:
+        raise ModuleNotFoundError(
+            "asyncpg package is required to read tables(); install project dependencies"
+        )
+    conn = await asyncpg.connect(
+        host=QUESTDB_PG_HOST,
+        port=QUESTDB_PG_PORT,
+        user=QUESTDB_PG_USER,
+        password=QUESTDB_PG_PASSWORD,
+        database=QUESTDB_PG_DATABASE,
+    )
+    try:
+        missing = []
+        for table in tables:
+            row = await conn.fetchrow(_TABLE_STATE_QUERY, table)
+            if row is None or not row["dedup"]:
+                missing.append(table)
+        return missing
+    finally:
+        await conn.close()
 
 
 async def create_tables_if_not_exist():
