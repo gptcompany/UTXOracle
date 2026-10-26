@@ -470,6 +470,77 @@ def test_cutover_only_refuses_a_staging_table_with_the_wrong_count(monkeypatch, 
     assert "count_mismatch" in " ".join(_errors(caplog))
 
 
+_SUSPENDED = _wal(2, 4, True, "DISK_FULL", "no space")
+_PRECONDITIONS = {
+    "live_not_wal": (
+        {"live_wal": "absent"},
+        "ALTER TABLE address_clusters SET TYPE WAL",
+    ),
+    "live_suspended": ({"live_wal": _SUSPENDED}, "suspended"),
+    "staging_not_wal": ({"wal": "absent"}, "not_wal"),
+    "staging_suspended": ({"wal": _SUSPENDED}, "suspended"),
+    "live_column_missing": ({"live_columns": _LIVE_COLUMNS[:-1]}, "confidence"),
+    "staging_count_wrong": ({"count": 4}, "count_mismatch"),
+}
+
+
+@pytest.mark.parametrize("name", list(_PRECONDITIONS))
+def test_precheck_blocks_the_refresh_before_any_destructive_step(
+    monkeypatch, caplog, name
+):
+    kwargs, expected = _PRECONDITIONS[name]
+    repo = _repo(monkeypatch, **kwargs)
+
+    with caplog.at_level("ERROR"):
+        ok = asyncio.run(repo.commit_address_clusters_refresh(5))
+
+    assert ok is False
+    assert repo.dedicated.executed == []  # live never truncated, nothing inserted
+    assert expected in " ".join(_errors(caplog))
+    if name.startswith("live"):  # staging was published fine: it must stay as it is
+        repo.execute.assert_not_awaited()
+
+
+@pytest.mark.parametrize("name", list(_PRECONDITIONS))
+def test_precheck_blocks_cutover_only_and_leaves_both_tables_untouched(
+    monkeypatch, caplog, name
+):
+    kwargs, expected = _PRECONDITIONS[name]
+    repo = _repo(monkeypatch, **kwargs)
+
+    with caplog.at_level("ERROR"):
+        ok = asyncio.run(repo.cutover_address_clusters_from_staging(5))
+
+    assert ok is False
+    assert repo.dedicated.executed == []
+    repo.execute.assert_not_awaited()
+    assert expected in " ".join(_errors(caplog))
+
+
+@pytest.mark.parametrize("name", list(_PRECONDITIONS))
+def test_precheck_itself_reports_every_failed_precondition(monkeypatch, caplog, name):
+    kwargs, expected = _PRECONDITIONS[name]
+    repo = _repo(monkeypatch, **kwargs)
+
+    with caplog.at_level("ERROR"):
+        assert asyncio.run(repo._precheck_cutover(5)) is False
+
+    assert expected in " ".join(_errors(caplog))
+    assert repo.dedicated.executed == []
+    repo.execute.assert_not_awaited()
+
+
+def test_a_live_that_is_not_wal_is_never_truncated_by_the_refresh(monkeypatch, caplog):
+    repo = _repo(monkeypatch, live_wal="absent")
+
+    with caplog.at_level("ERROR"):
+        assert asyncio.run(repo.commit_address_clusters_refresh(5)) is False
+
+    msg = " ".join(_errors(caplog))
+    assert "never DROP" in msg and "QuestDB restart" in msg
+    assert "TRUNCATE TABLE address_clusters" not in repo.dedicated.executed
+
+
 def test_dedicated_connection_never_receives_a_fetch(monkeypatch):
     repo = _repo(monkeypatch)
 
@@ -553,6 +624,11 @@ def test_create_tables_logs_an_error_when_the_column_read_fails(monkeypatch, cap
 
     msgs = [r for r in caplog.records if "confidence" in r.getMessage()]
     assert msgs and all(r.levelname == "ERROR" for r in msgs)
+    assert any(
+        "address_clusters refreshes will be rejected while the column is missing"
+        in r.getMessage()
+        for r in msgs
+    )
 
 
 def test_create_tables_logs_an_error_when_the_alter_fails(monkeypatch, caplog):

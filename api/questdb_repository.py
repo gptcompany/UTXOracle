@@ -64,6 +64,11 @@ ADDRESS_CLUSTERS_CUTOVER_ONLY_COMMAND = (
     "uv run python -m scripts.bootstrap.sync_clusters_to_questdb "
     "--cutover-only --expected-rows {rows}"
 )
+# Operator procedure when the LIVE table is not WAL: never DROP it, it holds the served data.
+ADDRESS_CLUSTERS_LIVE_NOT_WAL_HINT = (
+    "ALTER TABLE address_clusters SET TYPE WAL followed by a QuestDB restart "
+    "(never DROP TABLE: it holds the served data)"
+)
 # Operator procedure shown when the staging table is not WAL (no automatic migration).
 ADDRESS_CLUSTERS_NOT_WAL_HINT = (
     "DROP TABLE address_clusters_staging (it is empty outside a refresh and is "
@@ -888,7 +893,12 @@ async def create_tables_if_not_exist():
                         f"ALTER TABLE {table} ADD COLUMN confidence DOUBLE"
                     )
             except Exception as e:
-                logger.error("Could not ensure %s.confidence: %s", table, e)
+                logger.error(
+                    "Could not ensure %s.confidence: %s; address_clusters refreshes "
+                    "will be rejected while the column is missing",
+                    table,
+                    e,
+                )
 
         await conn.execute(
             """
@@ -1703,6 +1713,70 @@ class QuestDBRepository:
             database=QUESTDB_PG_DATABASE,
         )
 
+    async def _precheck_cutover(self, expected_rows: int) -> bool:
+        """The only precondition check of the cutover: read-only, run BEFORE any
+        destructive step (refresh and --cutover-only alike).
+
+        Live and staging must be in wal_tables() and not suspended, the live columns must
+        be the ones the INSERT names, and count(staging) must equal expected_rows. Any
+        failure is an ERROR with cause and operator procedure; neither table is touched.
+        After the live TRUNCATE there is no precondition left to fail.
+        """
+        problems: list[tuple[str, str]] = []
+        for table, hint in (
+            (ADDRESS_CLUSTERS_TABLE, ADDRESS_CLUSTERS_LIVE_NOT_WAL_HINT),
+            (ADDRESS_CLUSTERS_STAGING_TABLE, ADDRESS_CLUSTERS_NOT_WAL_HINT),
+        ):
+            wal = await self._table_wal(table)
+            if wal is None:
+                problems.append(
+                    ("not_wal", f"{table} not in wal_tables(); operator: {hint}")
+                )
+            elif wal["suspended"]:
+                problems.append(
+                    (
+                        "suspended",
+                        f"{table} WAL suspended (errorTag={wal['errorTag']!r} "
+                        f"errorMessage={wal['errorMessage']!r}); operator: resume the "
+                        f"table (ALTER TABLE {table} RESUME WAL) after fixing the cause",
+                    )
+                )
+        present = {
+            r[0]
+            for r in await self.fetch(
+                f"SELECT \"column\" FROM table_columns('{ADDRESS_CLUSTERS_TABLE}')"
+            )
+        }
+        missing = [c for c in ADDRESS_CLUSTERS_COLUMNS if c not in present]
+        if missing:
+            problems.append(
+                (
+                    "missing_columns",
+                    f"{ADDRESS_CLUSTERS_TABLE} lacks {missing}; operator: ALTER TABLE "
+                    f"{ADDRESS_CLUSTERS_TABLE} ADD COLUMN <name> <type>",
+                )
+            )
+        count_row = await self.fetchrow(
+            f"SELECT count(*) FROM {ADDRESS_CLUSTERS_STAGING_TABLE}"
+        )
+        observed = int(count_row[0]) if count_row is not None else 0
+        if observed != expected_rows:
+            problems.append(
+                (
+                    "count_mismatch",
+                    f"{ADDRESS_CLUSTERS_STAGING_TABLE} holds {observed} rows, "
+                    f"expected {expected_rows}",
+                )
+            )
+        for cause, detail in problems:
+            logger.error(
+                "address_clusters cutover precheck failed (%s): %s; live and staging "
+                "left untouched",
+                cause,
+                detail,
+            )
+        return not problems
+
     def _default_max_wait_s(self, expected_rows: int) -> float:
         return max(
             ADDRESS_CLUSTERS_MIN_WAIT_S,
@@ -1721,25 +1795,7 @@ class QuestDBRepository:
         """
         recover = ADDRESS_CLUSTERS_CUTOVER_ONLY_COMMAND.format(rows=expected_rows)
 
-        # Read-only schema check BEFORE the live TRUNCATE: an INSERT naming a missing
-        # column would fail after the live table was already emptied.
-        try:
-            present = {
-                r[0]
-                for r in await self.fetch(
-                    f"SELECT \"column\" FROM table_columns('{ADDRESS_CLUSTERS_TABLE}')"
-                )
-            }
-        except Exception as e:
-            logger.error("Cannot read %s columns: %s", ADDRESS_CLUSTERS_TABLE, e)
-            return False
-        missing = [c for c in ADDRESS_CLUSTERS_COLUMNS if c not in present]
-        if missing:
-            logger.error(
-                "%s is missing columns %s; live table left untouched",
-                ADDRESS_CLUSTERS_TABLE,
-                missing,
-            )
+        if not await self._precheck_cutover(expected_rows):
             return False
 
         conn = await self._open_dedicated_connection()
