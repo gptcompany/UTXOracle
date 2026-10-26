@@ -89,6 +89,13 @@ async def _connect_questdb():
     )
 
 
+async def _create_tables() -> None:
+    """Run the production DDL: the fresh QuestDB of the CI gate has no tables until it runs."""
+    from api.questdb_repository import create_tables_if_not_exist
+
+    await create_tables_if_not_exist()
+
+
 async def _ensure_source_freshness_tables(conn) -> None:
     for ddl in SOURCE_FRESHNESS_DDLS:
         await conn.execute(ddl)
@@ -98,6 +105,8 @@ async def test_required_tables_exist():
     """T022a: every contract-required table must be created by `create_tables_if_not_exist`."""
     if not await _questdb_reachable():
         pytest.skip("QuestDB not reachable on :8812")
+
+    await _create_tables()
 
     conn = await _connect_questdb()
     try:
@@ -117,6 +126,8 @@ async def test_daily_aggregate_tables_are_deduplicated():
     """T022/T023b: daily aggregate target tables must deduplicate by ts."""
     if not await _questdb_reachable():
         pytest.skip("QuestDB not reachable on :8812")
+
+    await _create_tables()
 
     conn = await _connect_questdb()
     try:
