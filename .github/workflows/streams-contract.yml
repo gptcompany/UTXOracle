@@ -44,6 +44,10 @@ name: Streams Consumption Contract
       - '.github/workflows/streams-contract.yml'
   workflow_dispatch:
 
+# Read-only token: neither job writes to the repository.
+permissions:
+  contents: read
+
 jobs:
   contract:
     name: GET /v1/streams/health acceptance gate
@@ -125,14 +129,75 @@ jobs:
       - name: DDL coverage against live QuestDB
         run: uv run pytest tests/test_create_tables_ddl.py -v --tb=short
 
+  # F-400: the acceptance assertion (overall == "OK" for the 13 streams) needs real data
+  # (operational backfill T036 and at least one daily aggregator run). A fresh CI QuestDB has
+  # none, so it reports DEGRADED / 13 MISSING by construction. It lives in its own job so that
+  # the contract job above (registry, endpoint, DDL coverage) is judged on what CI can prove.
+  # The assertion is unchanged: non-blocking on pull requests, a hard failure on main (FR-012).
+  streams-acceptance-T036:
+    name: Streams acceptance gate (T036 data required)
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ github.ref != 'refs/heads/main' }}
+
+    services:
+      questdb:
+        image: questdb/questdb:7.4.0
+        ports:
+          - 8812:8812
+          - 9000:9000
+          - 9009:9009
+
+    env:
+      QUESTDB_PG_HOST: localhost
+      QUESTDB_PG_PORT: 8812
+      QUESTDB_PG_USER: admin
+      QUESTDB_PG_PASSWORD: quest
+      QUESTDB_PG_DATABASE: qdb
+      RUN_STREAMS_HEALTH_CONTRACT: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Wait for QuestDB to be ready
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS "http://localhost:9000/exec?query=SELECT%201" > /dev/null; then
+              echo "QuestDB ready after ${i} attempt(s)"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "QuestDB never became ready"
+          exit 1
+
+      # The tables the registry reads must exist, as they did when the DDL test ran first in
+      # the same job; only the data is missing.
+      - name: Create the tables (production DDL)
+        run: |
+          uv run python -c "import asyncio; from api.questdb_repository import create_tables_if_not_exist; asyncio.run(create_tables_if_not_exist())"
+
       - name: Acceptance gate (T010 — overall == OK)
         id: acceptance
-        continue-on-error: true
         run: |
           uv run pytest tests/integration/test_streams_health_contract.py \
             -v -m integration --tb=short
 
       - name: Acceptance summary
+        if: ${{ always() }}
         run: |
           echo "## Streams Consumption Contract — Acceptance Gate" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -143,12 +208,6 @@ jobs:
           if [ "${{ steps.acceptance.outcome }}" = "success" ]; then
             echo "Acceptance gate is GREEN. \`overall == \"OK\"\` against the live registry." >> $GITHUB_STEP_SUMMARY
           else
-            echo "Acceptance gate is RED. This is expected until the operational backfill (T036) lands real data." >> $GITHUB_STEP_SUMMARY
+            echo "Acceptance gate is RED. This is expected until the operational backfill (T036) lands real data (F-400)." >> $GITHUB_STEP_SUMMARY
             echo "Once the gate is green it must stay green — see spec FR-011, FR-012." >> $GITHUB_STEP_SUMMARY
           fi
-
-      - name: Fail the job if the gate is RED and we are on main
-        if: ${{ steps.acceptance.outcome != 'success' && github.ref == 'refs/heads/main' }}
-        run: |
-          echo "Acceptance gate is RED on main — blocking merge per spec FR-012."
-          exit 1
