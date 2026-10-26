@@ -44,6 +44,10 @@ name: Streams Consumption Contract
       - '.github/workflows/streams-contract.yml'
   workflow_dispatch:
 
+# Read-only token: neither job writes to the repository.
+permissions:
+  contents: read
+
 jobs:
   contract:
     name: GET /v1/streams/health acceptance gate
@@ -181,6 +185,23 @@ jobs:
           uv run python -c "import asyncio; from api.questdb_repository import create_tables_if_not_exist; asyncio.run(create_tables_if_not_exist())"
 
       - name: Acceptance gate (T010 — overall == OK)
+        id: acceptance
         run: |
           uv run pytest tests/integration/test_streams_health_contract.py \
             -v -m integration --tb=short
+
+      - name: Acceptance summary
+        if: ${{ always() }}
+        run: |
+          echo "## Streams Consumption Contract — Acceptance Gate" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ${{ steps.acceptance.outcome }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Spec**: 061-stream-consumption-contract" >> $GITHUB_STEP_SUMMARY
+          echo "- **Issue**: gptcompany/UTXOracle#8" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.acceptance.outcome }}" = "success" ]; then
+            echo "Acceptance gate is GREEN. \`overall == \"OK\"\` against the live registry." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Acceptance gate is RED. This is expected until the operational backfill (T036) lands real data (F-400)." >> $GITHUB_STEP_SUMMARY
+            echo "Once the gate is green it must stay green — see spec FR-011, FR-012." >> $GITHUB_STEP_SUMMARY
+          fi
