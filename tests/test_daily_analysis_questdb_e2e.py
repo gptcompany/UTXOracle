@@ -381,9 +381,8 @@ def test_daily_analysis_is_idempotent_on_a_real_questdb(monkeypatch):
 
     import api.questdb_repository as repository
     import scripts.daily_analysis as daily
-    import scripts.metrics as metrics
 
-    # Point both ILP writers (price_analysis via a new repository, metrics via the module
+    # Point the ILP/HTTP writers (price_analysis via a new repository, metrics via the module
     # singleton) and the schema creation at the test target.
     monkeypatch.setattr(repository, "QUESTDB_HTTP_HOST", target["host"])
     monkeypatch.setattr(repository, "QUESTDB_HTTP_PORT", target["http_port"])
