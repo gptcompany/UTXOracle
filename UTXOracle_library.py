@@ -599,7 +599,8 @@ class UTXOracleCalculator:
         data and returns the estimated BTC/USD price with confidence score.
 
         Args:
-            transactions: List of Bitcoin transaction dicts (from RPC or mempool)
+            transactions: Bitcoin transaction dicts (from RPC or mempool): a list, or any
+                iterable consumed once (a stream)
                 Each transaction should have:
                 - 'vout': List of outputs with 'value' (BTC)
                 - 'vin': List of inputs
@@ -655,7 +656,11 @@ class UTXOracleCalculator:
         # Build set of TXIDs for same-day check dynamically to match reference script
         todays_txids = set()
 
+        # `transactions` may be a one-shot iterable (a stream of a whole day): it is only
+        # iterated, once, and the count is kept here instead of len().
+        total_txs = 0
         for tx in transactions:
+            total_txs += 1
             # Basic filtering (from UTXOracle.py Step 6 filters)
             vouts = tx.get("vout", [])
             vins = tx.get("vin", [])
@@ -755,6 +760,15 @@ class UTXOracleCalculator:
                     # Only binned outputs go to raw_outputs (reference line 875, 882)
                     raw_outputs.append(value_btc)
 
+        if total_txs == 0:  # an empty stream answers like an empty list (see the top)
+            return {
+                "price_usd": None,
+                "confidence": 0.0,
+                "tx_count": 0,
+                "output_count": 0,
+                "histogram": {},
+            }
+
         # Step 7: Smooth round BTC amounts and normalize (lines 889-965)
         # Remove extreme bins
         for n in range(0, 201):  # Below 10k sats
@@ -851,7 +865,7 @@ class UTXOracleCalculator:
                 + filtered_same_day
             )
             result["diagnostics"] = {
-                "total_txs": len(transactions),
+                "total_txs": total_txs,
                 "filtered_inputs": filtered_inputs,
                 "filtered_outputs": filtered_outputs,
                 "filtered_coinbase": filtered_coinbase,

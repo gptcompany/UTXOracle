@@ -296,6 +296,11 @@ class _IdleWhaleMonitor:
     repo = None
     broadcaster = None
 
+    def __init__(
+        self, mempool_ws_url: str = "ws://localhost:8999/ws/track-mempool-tx"
+    ) -> None:
+        self.mempool_ws_url = mempool_ws_url
+
     def attach_app_repo(self, ready, getter) -> None:
         self.ready = ready
         self.getter = getter
@@ -305,6 +310,51 @@ class _IdleWhaleMonitor:
 
     async def stop(self) -> None:
         return None
+
+
+_DEFAULT_MEMPOOL_WS_URL = "ws://localhost:8999/ws/track-mempool-tx"
+
+
+def _mempool_url_seen_by_lifespan(monkeypatch, env_value: str | None) -> str | None:
+    """Run the lifespan with a stand-in monitor and return the URL it was built with."""
+    from api.apps import live as live_app
+    from scripts import mempool_whale_monitor
+    from scripts.config import mempool_config
+
+    built: list[_IdleWhaleMonitor] = []
+
+    class _Recording(_IdleWhaleMonitor):
+        def __init__(self, *args, **kwargs) -> None:
+            super().__init__(*args, **kwargs)
+            built.append(self)
+
+    monkeypatch.setattr(mempool_whale_monitor, "MempoolWhaleMonitor", _Recording)
+    # The config is a process-wide singleton: reset it so the patched env is read.
+    monkeypatch.setattr(mempool_config, "_config", None)
+    if env_value is None:
+        monkeypatch.delenv("MEMPOOL_WS_URL", raising=False)
+    else:
+        monkeypatch.setenv("MEMPOOL_WS_URL", env_value)
+
+    class _ReadyRepo:
+        async def initialize(self) -> None:
+            return None
+
+    monkeypatch.setattr(live_app, "QuestDBRepository", _ReadyRepo)
+    with _build_client(_empty_store()):
+        pass
+    assert len(built) == 1
+    return built[0].mempool_ws_url
+
+
+def test_lifespan_builds_the_whale_monitor_with_mempool_ws_url_from_env(monkeypatch):
+    """F-417: in the container the localhost default is refused; the env URL must be used."""
+    url = "ws://mempool.test.invalid:8999/ws/track-mempool-tx"
+    assert _mempool_url_seen_by_lifespan(monkeypatch, url) == url
+
+
+def test_lifespan_keeps_the_documented_default_without_mempool_ws_url(monkeypatch):
+    assert _mempool_url_seen_by_lifespan(monkeypatch, None) == _DEFAULT_MEMPOOL_WS_URL
 
 
 def _flaky_repository(monkeypatch, failures: int) -> type:
@@ -749,8 +799,8 @@ def test_monitor_waits_for_the_app_repository_before_opening_the_websocket():
         await task
         assert monitor.reconnector.connects == 1
         assert monitor.repo is repo
-        # The registry was preloaded from the CSV only: one reload from the DB, before the stream.
-        assert reloads == [repo]
+        # The registry is CSV-only (F-418): waiting for the repository never reloads it.
+        assert reloads == []
 
     asyncio.run(scenario())
 

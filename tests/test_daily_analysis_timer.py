@@ -37,7 +37,7 @@ def test_timer_points_at_the_service_and_runs_after_prices_refresh():
     assert timer["Timer"]["Unit"] == SERVICE.name
     assert timer["Timer"]["Persistent"] == "true"
     assert timer["Install"]["WantedBy"] == "timers.target"
-    assert timer["Timer"]["OnCalendar"] == "*-*-* 01:30:00 UTC"
+    assert timer["Timer"]["OnCalendar"] == "*-*-* 03:00:00 UTC"
     assert _parse(PRICES_TIMER)["Timer"]["OnCalendar"] == "*-*-* 01:00:00 UTC"
 
 
