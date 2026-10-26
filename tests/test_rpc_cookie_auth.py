@@ -285,6 +285,7 @@ def test_daily_analysis_historical_path_accepts_cookie_only_configuration(node):
         getblockheader=lambda p: {
             "time": now - (1000 - int(p[0], 16)) * 600,
             "mediantime": now - (1000 - int(p[0], 16)) * 600,
+            "confirmations": 1000 - int(p[0], 16) + 1,
         },
         getblock=lambda p: {"tx": [{"txid": p[0]}]},
     )

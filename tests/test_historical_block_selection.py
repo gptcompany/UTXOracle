@@ -42,6 +42,10 @@ class FakeChain:
         self.fail_header = set(fail_header)
         self.fail_block = None
         self.tx_refs: dict[int, weakref.ref] = {}
+        self.block_calls: list[str] = []  # hashes passed to getblock, in order
+        self.reorg_from: int | None = (
+            None  # heights >= this are replaced by "alt" blocks
+        )
 
     def mediantime(self, h):
         return START + self.offset(h - FIRST)
@@ -65,22 +69,40 @@ class FakeChain:
         if method == "getblockcount":
             return self.tip
         if method == "getblockhash":
-            return f"hash{params[0]}"
-        h = int(params[0][4:])
+            h = params[0]
+            return (
+                f"alt{h}"
+                if self.reorg_from is not None and h >= self.reorg_from
+                else f"hash{h}"
+            )
+        h = int(params[0][4:] if params[0].startswith("hash") else params[0][3:])
+        confirmations = self.tip - h + 1
         if method == "getblockheader":
             if h in self.fail_header:
                 raise RuntimeError("rpc header down (test)")
-            return {"time": self.time(h), "mediantime": self.mediantime(h)}
+            return {
+                "time": self.time(h),
+                "mediantime": self.mediantime(h),
+                "confirmations": confirmations,
+            }
         if method == "getblock":
+            self.block_calls.append(params[0])
             if h == self.fail_block:
                 raise RuntimeError("rpc block down (test)")
+            if (
+                self.reorg_from is not None
+                and params[0].startswith("hash")
+                and h >= self.reorg_from
+            ):
+                confirmations = -1  # the block left the best chain
+
             tx = _Tx(
                 txid=f"tx{h}",
                 vin=[{"txid": "x"}],
                 vout=[{"value": 0.1}, {"value": 0.2}],
             )
             self.tx_refs[h] = weakref.ref(tx)
-            return {"tx": [tx]}
+            return {"tx": [tx], "confirmations": confirmations}
         raise AssertionError(method)
 
 
@@ -250,3 +272,116 @@ def test_backfill_records_the_dedicated_historical_tier_and_streams(monkeypatch)
     assert daily.backfill_gap(DAY, {}) is True
     assert saved[0]["fetch_tier"] == daily.FETCH_TIER_RPC_HISTORICAL == 4
     assert saved[0]["tx_count"] == 144
+
+
+# --- M2 (B3): hashes fixed at selection, read by hash; last block needs confirmations ------
+
+
+def test_blocks_are_read_by_the_hashes_fixed_at_selection(monkeypatch):
+    chain = FakeChain(tip=700)
+
+    list(_fetch(monkeypatch, chain))
+
+    assert chain.block_calls == [f"hash{h}" for h in range(FIRST, FIRST + 144)]
+
+
+def test_a_block_that_left_the_best_chain_during_the_stream_is_an_explicit_error(
+    monkeypatch,
+):
+    import scripts.daily_analysis as daily
+
+    chain = FakeChain(tip=700)
+    stream = _fetch(monkeypatch, chain)
+    chain.reorg_from = FIRST + 10  # after the selection: heights >= this are replaced
+
+    with pytest.raises(daily.StaleBlockError, match="confirmations"):
+        list(stream)
+
+
+def test_a_reorg_mid_stream_ends_the_process_with_exit_2_and_nothing_written(
+    monkeypatch,
+):
+    chain = FakeChain(tip=700)
+    original = chain.call
+
+    def reorg_when_streaming(method, params=None):
+        if (
+            method == "getblock"
+            and chain.reorg_from is None
+            and len(chain.block_calls) == 5
+        ):
+            chain.reorg_from = FIRST + 10
+        return original(method, params)
+
+    chain.call = reorg_when_streaming
+
+    code, sent = _main_with_historical_day(monkeypatch, chain)
+
+    assert code == 2
+    assert sent == []
+
+
+def test_last_block_with_too_few_confirmations_is_an_incomplete_window(monkeypatch):
+    import scripts.daily_analysis as daily
+
+    end_first = FIRST + 144
+    # tip mediantime >= D+1 (so the tip check passes) but the last block of D has 4 confirmations
+    chain = FakeChain(tip=end_first + 2)
+    with pytest.raises(daily.IncompleteWindowError, match="confirmations"):
+        _fetch(monkeypatch, chain)
+
+    code, sent = _main_with_historical_day(monkeypatch, FakeChain(tip=end_first + 2))
+    assert code == daily.EXIT_INCOMPLETE_WINDOW
+    assert sent == []
+
+    assert len(list(_fetch(monkeypatch, FakeChain(tip=end_first + 5)))) == 144  # 7 >= 6
+
+
+def test_min_confirmations_is_configurable_and_a_bad_value_is_reported_by_name_only(
+    monkeypatch,
+):
+    import scripts.daily_analysis as daily
+
+    end_first = FIRST + 144
+    monkeypatch.setenv("MIN_CONFIRMATIONS", "3")
+    assert len(list(_fetch(monkeypatch, FakeChain(tip=end_first + 2)))) == 144  # 4 >= 3
+
+    monkeypatch.setenv("MIN_CONFIRMATIONS", "not-a-number-5521")
+    with pytest.raises(ValueError) as error:
+        _fetch(monkeypatch, FakeChain(tip=700))
+    assert "MIN_CONFIRMATIONS" in str(error.value)
+    assert "not-a-number-5521" not in str(error.value)
+    assert error.value.__cause__ is None and error.value.__suppress_context__
+    assert daily.DEFAULT_MIN_CONFIRMATIONS == 6
+
+
+@pytest.mark.parametrize("value", ["0", "-3", "abc-7741"])
+def test_min_confirmations_must_be_an_integer_of_at_least_1(monkeypatch, value):
+    monkeypatch.setenv("MIN_CONFIRMATIONS", value)
+
+    with pytest.raises(ValueError) as error:
+        _fetch(monkeypatch, FakeChain(tip=700))
+
+    assert "MIN_CONFIRMATIONS" in str(error.value)
+    assert value not in str(error.value)  # the value is never reported
+
+
+@pytest.mark.parametrize("value", ["0", "-3", "abc-7741"])
+def test_a_bad_min_confirmations_ends_the_process_with_exit_6_naming_only_the_variable(
+    monkeypatch, caplog, value
+):
+    import scripts.daily_analysis as daily
+
+    monkeypatch.setenv("MIN_CONFIRMATIONS", value)
+
+    with caplog.at_level("ERROR"):
+        code, sent = _main_with_historical_day(monkeypatch, FakeChain(tip=700))
+
+    assert code == daily.EXIT_BAD_ENV_VALUE == 6
+    assert sent == []
+    assert "MIN_CONFIRMATIONS" in caplog.text
+    # (a bare "0" or "-3" also occurs in line numbers: look for the value in context)
+    for shape in (f"={value}", f"'{value}'", f'"{value}"', f": {value}"):
+        assert shape not in caplog.text
+    if value.startswith("abc"):
+        assert value not in caplog.text

@@ -821,10 +821,23 @@ FETCH_TIER_RPC_HISTORICAL = 4
 MAX_BLOCKS_PER_DAY = 400
 # Exit code of main() when the window of the requested day is not complete yet.
 EXIT_INCOMPLETE_WINDOW = 7
+# The last block of the day needs this many confirmations (env MIN_CONFIRMATIONS overrides).
+DEFAULT_MIN_CONFIRMATIONS = 6
+# Exit code of main() for an environment variable with an invalid value (same code and name
+# as the startup guard of the daily-analysis timer PR, which defines it once on merge).
+EXIT_BAD_ENV_VALUE = 6
 
 
 class IncompleteWindowError(Exception):
     """The chain tip is not past the end of the requested day (mediantime < D+1 00:00Z)."""
+
+
+class BadEnvValueError(ValueError):
+    """An environment variable has an invalid value; the message names the variable only."""
+
+
+class StaleBlockError(RuntimeError):
+    """A block selected for the day is no longer in the best chain (confirmations == -1)."""
 
 
 class ImplausibleDayError(Exception):
@@ -850,39 +863,39 @@ def _first_height_with_mediantime_at_least(rpc, tip: int, timestamp: int) -> int
     return low
 
 
-def _stream_transactions(rpc, first: int, stop: int):
-    """Yield the transactions of blocks [first, stop), one block in memory at a time."""
-    total = 0
-    for height in range(first, stop):
-        if (height - first) % 50 == 0:
-            logging.info(
-                f"[Historical] Fetching block {height - first + 1}/{stop - first}..."
-            )
-        block = rpc.call("getblock", [rpc.call("getblockhash", [height]), 2])
-        total += len(block["tx"])
-        yield from block["tx"]
-    logging.info(
-        f"[Historical] Streamed {total} transactions from {stop - first} blocks"
-    )
+def _min_confirmations() -> int:
+    """MIN_CONFIRMATIONS from the environment: an integer >= 1, default 6.
 
-
-def fetch_historical_transactions(date_str: str, config: Dict):
+    Anything else (not an integer, 0, negative) raises BadEnvValueError (main: exit 6) naming
+    only the variable, never the value.
     """
-    Transactions of the blocks that belong to the UTC day `date_str`, as a stream.
+    raw = os.environ.get("MIN_CONFIRMATIONS")
+    if not raw:
+        return DEFAULT_MIN_CONFIRMATIONS
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    if value < 1:
+        raise BadEnvValueError(
+            "MIN_CONFIRMATIONS must be an integer >= 1 (value not logged)"
+        ) from None
+    return value
 
-    A block belongs to the day D when its MEDIAN-TIME-PAST (`mediantime`, BIP113) is in
-    [D 00:00:00Z, D+1 00:00:00Z). Unlike the header `time`, the mediantime never decreases
-    with the height, so the first and the last block of the day are found by an exact binary
-    search over [0, tip], with no estimate of the height and no margin.
 
-    The selection runs at call time, so its errors are raised here, not during iteration;
-    the returned generator then fetches one block at a time (getblock verbosity 2, values in
-    BTC) and keeps none of them: the day is never held in memory. Callers that need the
-    transactions twice (price library AND metrics) must compute both in the same pass.
+def select_day_blocks(rpc, date_str: str) -> tuple[int, list[str]]:
+    """(first height, block hashes) of the UTC day `date_str`, fixed once, by mediantime.
+
+    Convention: day D = the blocks whose MEDIAN-TIME-PAST is in [D 00:00:00Z, D+1 00:00:00Z),
+    which lags the header `time` by about an hour; the gap from the reference price is
+    measured by F-438 over several days. The mediantime never decreases with the height
+    (BIP113), so the boundaries come from an exact binary search over [0, tip], with no
+    estimate of the height and no margin.
 
     Raises:
-        ValueError: invalid date.
-        IncompleteWindowError: the tip's mediantime is before D+1 00:00Z (day still open).
+        ValueError: invalid date. BadEnvValueError: MIN_CONFIRMATIONS is not an integer >= 1.
+        IncompleteWindowError: the tip's mediantime is before D+1 00:00Z (day still open),
+            or the last block of D has fewer than MIN_CONFIRMATIONS confirmations.
         ImplausibleDayError: zero blocks, or more than MAX_BLOCKS_PER_DAY.
         Any RPC error is propagated unchanged: nothing is swallowed.
     """
@@ -895,8 +908,8 @@ def fetch_historical_transactions(date_str: str, config: Dict):
     except ValueError as e:
         raise ValueError(f"Invalid date format '{date_str}' (expected YYYY-MM-DD): {e}")
     end = start + 86400
+    min_confirmations = _min_confirmations()
 
-    rpc = rpc_client(config)
     tip = rpc.call("getblockcount", [])
     tip_mediantime = _median_time(rpc, tip)
     if tip_mediantime < end:
@@ -911,8 +924,56 @@ def fetch_historical_transactions(date_str: str, config: Dict):
         raise ImplausibleDayError(
             f"{count} blocks with mediantime in {date_str} (expected 1..{MAX_BLOCKS_PER_DAY})"
         )
+    hashes = [rpc.call("getblockhash", [height]) for height in range(first, stop)]
+    confirmations = rpc.call("getblockheader", [hashes[-1]])["confirmations"]
+    if confirmations < min_confirmations:
+        raise IncompleteWindowError(
+            f"last block of {date_str} has {confirmations} confirmations "
+            f"(< {min_confirmations}): too close to the tip to be final"
+        )
     logging.info(f"[Historical] {date_str}: {count} blocks, heights {first}-{stop - 1}")
-    return _stream_transactions(rpc, first, stop)
+    return first, hashes
+
+
+def _stream_transactions(rpc, hashes: list[str]):
+    """Yield the transactions of the blocks `hashes`, one block in memory at a time.
+
+    Blocks are read BY HASH, the ones fixed at selection: a block that left the best chain
+    meanwhile (confirmations == -1) is an explicit error, never silently replaced by the
+    block now at that height.
+    """
+    total = 0
+    for index, block_hash in enumerate(hashes):
+        if index % 50 == 0:
+            logging.info(f"[Historical] Fetching block {index + 1}/{len(hashes)}...")
+        block = rpc.call("getblock", [block_hash, 2])
+        if block.get("confirmations", 0) < 0:
+            raise StaleBlockError(
+                f"block {block_hash} has confirmations {block['confirmations']}: "
+                "it left the best chain while the day was being read"
+            )
+        total += len(block["tx"])
+        yield from block["tx"]
+    logging.info(
+        f"[Historical] Streamed {total} transactions from {len(hashes)} blocks"
+    )
+
+
+def fetch_historical_transactions(date_str: str, config: Dict):
+    """
+    Transactions of the blocks that belong to the UTC day `date_str`, as a stream.
+
+    The selection (select_day_blocks, mediantime, exact) runs at call time, so its errors
+    are raised here, not during iteration; the returned generator then fetches one block at
+    a time by hash (getblock verbosity 2, values in BTC) and keeps none of them: the day is
+    never held in memory. Callers that need the transactions twice (price library AND
+    metrics) must compute both in the same pass.
+
+    Raises: what select_day_blocks raises; StaleBlockError during iteration.
+    """
+    rpc = rpc_client(config)
+    _, hashes = select_day_blocks(rpc, date_str)
+    return _stream_transactions(rpc, hashes)
 
 
 def backfill_gap(date_str: str, config: Dict) -> bool:
@@ -1226,6 +1287,7 @@ def main():
     T046: Support CLI flags --init-db, --dry-run, --verbose
 
     Exit codes: 0 done; 1 invalid configuration; 2 any failure (no row is written);
+    6 an environment variable with an invalid value (BadEnvValueError, name only);
     7 the day to analyse is not complete yet (IncompleteWindowError, nothing written).
     """
     parser = argparse.ArgumentParser(description="UTXOracle Daily Analysis")
@@ -1637,7 +1699,13 @@ def main():
     except Exception as e:
         logging.error(f"Daily analysis failed: {e}", exc_info=True)
         send_alert_webhook("ERROR", f"Daily analysis failed: {e}")
-        sys.exit(EXIT_INCOMPLETE_WINDOW if isinstance(e, IncompleteWindowError) else 2)
+        sys.exit(
+            EXIT_INCOMPLETE_WINDOW
+            if isinstance(e, IncompleteWindowError)
+            else EXIT_BAD_ENV_VALUE
+            if isinstance(e, BadEnvValueError)
+            else 2
+        )
 
 
 if __name__ == "__main__":
