@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 import os
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -249,3 +251,101 @@ async def test_reload_registry_if_changed_only_reloads_on_mtime_change(tmp_path)
     assert changed_mtime is not None
     assert changed_mtime != first_mtime
     assert monitor.reloads == 1
+
+
+class _FlakyQuestDBRepository:
+    """Fails the first `failures` initialize() calls, then succeeds (the startup race of F-399)."""
+
+    failures = 2
+    attempts = 0
+
+    async def initialize(self) -> None:
+        type(self).attempts += 1
+        if type(self).attempts <= type(self).failures:
+            raise ConnectionError("Connection refused (test)")
+
+    async def close(self) -> None:
+        return None
+
+
+class _IdleWhaleMonitor:
+    """Stands in for MempoolWhaleMonitor, whose default would open a mempool websocket."""
+
+    repo = None
+    broadcaster = None
+
+    async def start(self) -> None:
+        await asyncio.Event().wait()
+
+    async def stop(self) -> None:
+        return None
+
+
+def _flaky_repository(monkeypatch, failures: int) -> type:
+    from api.apps import live as live_app
+    from scripts import mempool_whale_monitor
+
+    monkeypatch.setattr(mempool_whale_monitor, "MempoolWhaleMonitor", _IdleWhaleMonitor)
+
+    repository = type(
+        "FlakyRepository",
+        (_FlakyQuestDBRepository,),
+        {"failures": failures, "attempts": 0},
+    )
+    monkeypatch.setattr(live_app, "QuestDBRepository", repository)
+    monkeypatch.setattr(live_app, "QUESTDB_RETRY_INITIAL_SECONDS", 0.01)
+    monkeypatch.setattr(live_app, "QUESTDB_RETRY_MAX_SECONDS", 0.02)
+    return repository
+
+
+def _empty_store() -> InMemorySnapshotStore:
+    return InMemorySnapshotStore([])
+
+
+def test_questdb_repository_is_set_after_two_failed_attempts(monkeypatch, caplog):
+    repository = _flaky_repository(monkeypatch, failures=2)
+
+    with caplog.at_level("INFO"), _build_client(_empty_store()) as client:
+        deadline = time.monotonic() + 5
+        while client.app.state.questdb_repo is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert isinstance(client.app.state.questdb_repo, repository)
+        retry_task = client.app.state.questdb_retry_task
+
+    assert repository.attempts == 3
+    warnings = [r for r in caplog.records if "repository unavailable" in r.getMessage()]
+    assert len(warnings) == 2
+    assert "Connection refused (test)" in warnings[0].getMessage()
+    assert any("repository initialized" in r.getMessage() for r in caplog.records)
+    assert retry_task.done()
+
+
+def test_questdb_repository_stays_unavailable_with_a_logged_reason_and_task_is_cancelled(
+    monkeypatch, caplog
+):
+    repository = _flaky_repository(monkeypatch, failures=10**6)
+
+    with caplog.at_level("WARNING"), _build_client(_empty_store()) as client:
+        deadline = time.monotonic() + 5
+        while repository.attempts < 3 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert client.app.state.questdb_repo is None
+        retry_task = client.app.state.questdb_retry_task
+        assert not retry_task.done()
+        # A derived route keeps answering 503 while the repository is missing.
+        assert client.get("/api/prices/latest").status_code == 503
+
+    assert retry_task.cancelled()
+    assert any(
+        "repository unavailable" in r.getMessage()
+        and "Connection refused (test)" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+def test_startup_does_not_start_a_retry_task_when_questdb_is_up(monkeypatch):
+    repository = _flaky_repository(monkeypatch, failures=0)
+
+    with _build_client(_empty_store()) as client:
+        assert isinstance(client.app.state.questdb_repo, repository)
+        assert client.app.state.questdb_retry_task is None

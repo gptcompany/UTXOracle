@@ -116,21 +116,60 @@ class LiveHealthStatus(BaseModel):
     live: dict[str, Any]
 
 
+QUESTDB_RETRY_INITIAL_SECONDS = 2.0
+QUESTDB_RETRY_MAX_SECONDS = 60.0
+
+
+async def _connect_questdb_repo(app: FastAPI, *, attempt: int, retry_in: float) -> bool:
+    """One initialization attempt; on success the repository is set on app.state (and the monitor)."""
+    try:
+        questdb_repo = QuestDBRepository()
+        await questdb_repo.initialize()
+    except Exception as exc:
+        logging.warning(
+            "QuestDB repository unavailable (attempt %d); derived routes answer 503, retrying in %.0fs: %s",
+            attempt,
+            retry_in,
+            exc,
+        )
+        return False
+    app.state.questdb_repo = questdb_repo
+    monitor = getattr(app.state, "whale_monitor", None)
+    if monitor is not None:
+        monitor.repo = questdb_repo
+    logging.info(
+        "QuestDB repository initialized for live production app (attempt %d).", attempt
+    )
+    return True
+
+
+async def _retry_questdb_repo(app: FastAPI) -> None:
+    """Retry in the background with capped exponential backoff until the repository is up."""
+    delay = QUESTDB_RETRY_INITIAL_SECONDS
+    attempt = 1
+    while True:
+        await asyncio.sleep(delay)
+        attempt += 1
+        delay = min(delay * 2, QUESTDB_RETRY_MAX_SECONDS)
+        if await _connect_questdb_repo(app, attempt=attempt, retry_in=delay):
+            return
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logging.info("UTXOracle live production API starting...")
 
-    # Keep live snapshot surfaces available even if QuestDB startup is unavailable.
+    # Keep live snapshot surfaces available even if QuestDB startup is unavailable. The
+    # repository is retried in the background (F-399): containers start together and QuestDB
+    # may accept connections only seconds after the API, which used to leave it None for good.
     app.state.questdb_repo = None
-    try:
-        questdb_repo = QuestDBRepository()
-        await questdb_repo.initialize()
-        app.state.questdb_repo = questdb_repo
-        logging.info("QuestDB repository initialized for live production app.")
-    except Exception as exc:
-        logging.warning(
-            "QuestDB repository unavailable during live app startup; derived routes will stay degraded: %s",
-            exc,
+    app.state.questdb_retry_task = None
+    if not await _connect_questdb_repo(
+        app, attempt=1, retry_in=QUESTDB_RETRY_INITIAL_SECONDS
+    ):
+        app.state.questdb_retry_task = asyncio.create_task(
+            _retry_questdb_repo(app),
+            name="live-questdb-repo-retry",
         )
 
     # Initialize Unified Mempool Whale Monitor
@@ -180,6 +219,12 @@ async def lifespan(app: FastAPI):
 
     yield
     logging.info("UTXOracle live production API shutting down...")
+
+    retry_task = getattr(app.state, "questdb_retry_task", None)
+    if retry_task is not None:
+        retry_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await retry_task
 
     if hasattr(app.state, "whale_monitor"):
         try:
