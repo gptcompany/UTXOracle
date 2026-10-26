@@ -643,31 +643,11 @@ def main():
         checkpoint_interval=args.checkpoint_interval,
     )
 
+    sync_exit = 0
     if args.sync_questdb:
-        print("\n" + "=" * 70)
-        print("SYNCING CLUSTERS TO QUESTDB SERVING PLANE")
-        print("=" * 70)
-        try:
-            import asyncio
-            from scripts.bootstrap.sync_clusters_to_questdb import sync_clusters
-            from api.questdb_repository import QuestDBRepository
+        from scripts.bootstrap.optional_sync import run_optional_sync
 
-            async def run_sync():
-                repo = QuestDBRepository()
-                await repo.initialize()
-                conn = duckdb.connect(args.utxo_db_path, read_only=True)
-                try:
-                    await sync_clusters(repo, conn, batch_size=100000)
-                finally:
-                    conn.close()
-                    await repo.close()
-
-            asyncio.run(run_sync())
-            print("  ✅ QuestDB sync completed successfully.")
-        except Exception as e:
-            logger.error(f"Failed to sync clusters to QuestDB: {e}")
-            print(f"  ❌ QuestDB sync failed: {e}")
-            print("  ⚠️  DuckDB analytical plane remains the source of truth.")
+        sync_exit = run_optional_sync(args.utxo_db_path)
 
     print("\n" + "=" * 70)
     print("COMBINED BOOTSTRAP COMPLETE")
@@ -683,7 +663,7 @@ def main():
     )
     print("=" * 70)
 
-    return 0
+    return sync_exit
 
 
 if __name__ == "__main__":
