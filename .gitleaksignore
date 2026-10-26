@@ -1,0 +1,140 @@
+# Falsi positivi gitleaks (generic-api-key), uno per fingerprint commit:file:regola:riga.
+# Si usano fingerprint e non path: un valore nuovo nello stesso file viene segnalato.
+# - tests/fixtures/whale_transactions_sample.json (112): indirizzi e script Bitcoin pubblici.
+# - specs/006-.../contracts/websocket.md (2): Sec-WebSocket-Key di esempio (RFC 6455).
+# - specs/027-binary-cdd/research.md (1): parametro numerico "threshold=2.0".
+# - tests/test_power_law_recalibrate_auth.py:21: JWT sintetico con solo exp e firma fittizia di 4 caratteri.
+# - docs/WHALE_FLOW_DETECTOR.md:465 e AUTO_BACKFILL_IMPLEMENTATION_REPORT.md:556 (curl-auth-user, 4 commit): password segnaposto
+#   di esempio nella documentazione, non credenziali.
+# NON presenti di proposito: i 3 hit su due segreti JWT nella storia pubblica
+# (PRODUCTION_READINESS_FINAL_REPORT.md:150 e utxoracle-api.service:54). Si aggiungono
+# solo dopo la rotazione (gbg-agents F-215, #743). Fino ad allora Security Scan resta rosso.
+# - tests/test_daily_analysis_questdb_e2e.py (4, commit 1a9fb584 e 8bbb4dae): indirizzi Bitcoin di prova in scriptpubkey_address, valori presenti solo nel test.
+# - tests/test_power_law_recalibrate_auth.py:21 @fbb6f3b4: stesso JWT sintetico di c4fd3bba, su main.
+# - i 4 curl-auth-user restano: con gitleaks 8.30.1 scattano ancora, sono obsoleti solo per 8.18.4 (usato dalla CI).
+# Non sono ignorati di proposito i 3 finding di F-215 (JWT_SECRET: utxoracle-api.service:54 e PRODUCTION_READINESS_FINAL_REPORT.md:150).
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:101
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:114
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:121
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:125
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:138
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:145
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:149
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:15
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:162
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:169
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:173
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:187
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:193
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:200
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:214
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:221
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:235
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:242
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:246
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:260
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:267
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:28
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:281
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:288
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:302
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:309
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:313
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:332
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:346
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:35
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:353
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:357
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:371
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:378
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:382
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:396
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:402
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:409
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:423
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:429
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:430
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:431
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:432
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:433
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:434
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:435
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:436
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:437
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:438
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:48
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:55
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:68
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:75
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:8
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:88
+28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:94
+5dd5ef57b70228d85e408cc822cbfbc778c279c3:specs/006-specify-scripts-bash/contracts/websocket.md:generic-api-key:18
+64c317aafb39aef4cf626ba3e5d82f75482b226d:specs/006-specify-scripts-bash/contracts/websocket.md:generic-api-key:18
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:101
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:114
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:121
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:125
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:138
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:145
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:149
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:15
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:162
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:169
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:173
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:187
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:193
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:200
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:214
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:221
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:235
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:242
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:246
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:260
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:267
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:28
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:281
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:288
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:302
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:309
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:313
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:332
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:346
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:35
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:353
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:357
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:371
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:378
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:382
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:396
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:402
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:409
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:423
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:429
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:430
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:431
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:432
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:433
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:434
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:435
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:436
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:437
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:438
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:48
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:55
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:68
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:75
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:8
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:88
+64c317aafb39aef4cf626ba3e5d82f75482b226d:tests/fixtures/whale_transactions_sample.json:generic-api-key:94
+80a7d5fe939b5c39205086d014b718d3fa0b8316:specs/027-binary-cdd/research.md:generic-api-key:46
+5dd5ef57b70228d85e408cc822cbfbc778c279c3:docs/session_reports/AUTO_BACKFILL_IMPLEMENTATION_REPORT.md:curl-auth-user:556
+64c317aafb39aef4cf626ba3e5d82f75482b226d:docs/session_reports/AUTO_BACKFILL_IMPLEMENTATION_REPORT.md:curl-auth-user:556
+64c317aafb39aef4cf626ba3e5d82f75482b226d:docs/WHALE_FLOW_DETECTOR.md:curl-auth-user:465
+c4fd3bbaa9e37925d4a7ee354bda42aa4ea74813:tests/test_power_law_recalibrate_auth.py:generic-api-key:21
+e6e2b0fa3e22b0dd81851bcd0132a26e6b997a55:docs/WHALE_FLOW_DETECTOR.md:curl-auth-user:465
+1a9fb58430b467bac1de89cfc9176d8e495a0077:tests/test_daily_analysis_questdb_e2e.py:generic-api-key:38
+1a9fb58430b467bac1de89cfc9176d8e495a0077:tests/test_daily_analysis_questdb_e2e.py:generic-api-key:44
+8bbb4daeaf5ffbc9bf59d5c03d20f219deed7ac5:tests/test_daily_analysis_questdb_e2e.py:generic-api-key:35
+8bbb4daeaf5ffbc9bf59d5c03d20f219deed7ac5:tests/test_daily_analysis_questdb_e2e.py:generic-api-key:41
+fbb6f3b4eb44fae3810665edf2299857c287f317:tests/test_power_law_recalibrate_auth.py:generic-api-key:21
