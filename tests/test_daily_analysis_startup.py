@@ -85,3 +85,15 @@ def test_the_numeric_check_covers_every_int_conversion_of_the_repository_at_impo
 
     assert converted, "no int(os.getenv(...)) found: the check below would be vacuous"
     assert converted <= set(daily.NUMERIC_QUESTDB_ENV)
+
+
+def test_non_numeric_min_confirmations_exits_6_at_startup_naming_only_the_variable(
+    tmp_path,
+):
+    """MIN_CONFIRMATIONS is in the early numeric list too (F-442), same exit code 6."""
+    result = _run(tmp_path, None, MIN_CONFIRMATIONS=BAD)
+
+    assert result.returncode == 6, result.stderr
+    assert "MIN_CONFIRMATIONS" in result.stderr
+    assert BAD not in result.stdout + result.stderr
+    assert "Traceback" not in result.stderr
