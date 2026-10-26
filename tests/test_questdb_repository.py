@@ -304,7 +304,10 @@ def test_commit_aborts_when_staging_is_not_a_wal_table(monkeypatch, caplog):
         ok = asyncio.run(repo.commit_address_clusters_refresh(5))
 
     assert ok is False and _only_staging_truncated(repo)
-    assert "not_wal" in _errors(caplog)[0]
+    msg = _errors(caplog)[0]
+    assert "not_wal" in msg and "address_clusters_staging" in msg
+    assert "DROP TABLE address_clusters_staging" in msg
+    assert "ALTER TABLE address_clusters_staging SET TYPE WAL" in msg
 
 
 def test_commit_survives_one_big_transaction_without_progress(monkeypatch):
@@ -380,38 +383,93 @@ def test_commit_address_clusters_refresh_clears_tables_on_cutover_failure(monkey
     assert calls[3] == "TRUNCATE TABLE address_clusters"
 
 
-def test_create_tables_declares_the_staging_table_as_wal(monkeypatch):
+def _patch_asyncpg(monkeypatch, read_fetch, alter_error=None):
+    """DDL connection WITHOUT fetch/fetchrow (any call is an AttributeError); column reads
+    go through a separate short connection."""
     import api.questdb_repository as qr
 
-    statements = []
+    ddl, reads = [], []
 
-    class _Conn:
-        async def fetch(self, query, *args):
-            statements.append(" ".join(query.split()))
-            if "address_clusters_staging" in query:
-                return [("confidence",)]
-            return [("address",)]  # live table without confidence
-
+    class _DdlConn:
         async def execute(self, query, *args):
-            statements.append(" ".join(query.split()))
+            query = " ".join(query.split())
+            ddl.append(query)
+            if alter_error and query.startswith("ALTER TABLE"):
+                raise alter_error
 
         async def close(self):
             return None
 
+    class _ReadConn:
+        closed = False
+
+        async def fetch(self, query, *args):
+            reads.append(query)
+            return await read_fetch(query)
+
+        async def close(self):
+            _ReadConn.closed = True
+
+    conns = iter([_DdlConn()])
+
     async def connect(**kwargs):
-        return _Conn()
+        return next(conns, None) or _ReadConn()
 
     monkeypatch.setattr(qr.asyncpg, "connect", connect)
+    return ddl, reads, _ReadConn
+
+
+def test_create_tables_declares_the_staging_table_as_wal(monkeypatch):
+    import api.questdb_repository as qr
+
+    async def read_fetch(query):
+        if "address_clusters_staging" in query:
+            return [("confidence",)]
+        return [("address",)]  # live table without confidence
+
+    ddl, reads, read_conn = _patch_asyncpg(monkeypatch, read_fetch)
     asyncio.run(qr.create_tables_if_not_exist())
 
     staging = [
         q
-        for q in statements
+        for q in ddl
         if q.startswith("CREATE TABLE IF NOT EXISTS address_clusters_staging")
     ]
     assert len(staging) == 1 and staging[0].rstrip("; ").endswith(
         "PARTITION BY YEAR WAL"
     )
+    # ALTER only where the column is missing (a no-op ALTER errors on WAL tables)
+    assert "ALTER TABLE address_clusters ADD COLUMN confidence DOUBLE" in ddl
+    assert not any("ALTER TABLE address_clusters_staging" in q for q in ddl)
+    assert len(reads) == 2 and read_conn.closed
+
+
+def test_create_tables_logs_an_error_when_the_column_read_fails(monkeypatch, caplog):
+    import api.questdb_repository as qr
+
+    async def read_fetch(query):
+        raise ConnectionError("pg down")
+
+    _patch_asyncpg(monkeypatch, read_fetch)
+    with caplog.at_level("WARNING"):
+        asyncio.run(qr.create_tables_if_not_exist())
+
+    msgs = [r for r in caplog.records if "confidence" in r.getMessage()]
+    assert msgs and all(r.levelname == "ERROR" for r in msgs)
+
+
+def test_create_tables_logs_an_error_when_the_alter_fails(monkeypatch, caplog):
+    import api.questdb_repository as qr
+
+    async def read_fetch(query):
+        return [("address",)]
+
+    _patch_asyncpg(monkeypatch, read_fetch, alter_error=RuntimeError("alter refused"))
+    with caplog.at_level("WARNING"):
+        asyncio.run(qr.create_tables_if_not_exist())
+
+    msgs = [r for r in caplog.records if "alter refused" in r.getMessage()]
+    assert msgs and all(r.levelname == "ERROR" for r in msgs)
 
 
 def test_save_cost_basis_passes_empty_symbols():

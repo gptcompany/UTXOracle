@@ -59,6 +59,12 @@ ADDRESS_CLUSTERS_STAGING_TABLE = "address_clusters_staging"
 # (specs/037-database-consolidation/spec.md), so 3.8k rows/s gives ~4 h for the full sync;
 # the CSV ingest (tens of thousands of rows) gets the 10 min floor.
 ADDRESS_CLUSTERS_MIN_APPLY_ROWS_PER_S = 3800.0
+# Operator procedure shown when the staging table is not WAL (no automatic migration).
+ADDRESS_CLUSTERS_NOT_WAL_HINT = (
+    "DROP TABLE address_clusters_staging (it is empty outside a refresh and is "
+    "recreated as WAL at the next start); or ALTER TABLE address_clusters_staging "
+    "SET TYPE WAL followed by a QuestDB restart"
+)
 ADDRESS_CLUSTERS_MIN_WAIT_S = 600.0
 # Rows per confirmed HTTP flush of the staging load (auto_flush is off).
 ADDRESS_CLUSTERS_FLUSH_ROWS = 5000
@@ -852,18 +858,32 @@ async def create_tables_if_not_exist():
         # already there, so the column list is read first and the ALTER runs only if needed.
         for table in ("address_clusters", "address_clusters_staging"):
             try:
-                present = {
-                    r[0]
-                    for r in await conn.fetch(
-                        f"SELECT \"column\" FROM table_columns('{table}')"
-                    )
-                }
+                # Separate short connection for the read: on QuestDB 7.4 an extended-protocol
+                # query (fetch) followed by an execute on the same asyncpg connection breaks
+                # it ('NoneType' object has no attribute 'decode'). The DDL connection
+                # never runs fetch.
+                read_conn = await asyncpg.connect(
+                    host=QUESTDB_PG_HOST,
+                    port=QUESTDB_PG_PORT,
+                    user=QUESTDB_PG_USER,
+                    password=QUESTDB_PG_PASSWORD,
+                    database=QUESTDB_PG_DATABASE,
+                )
+                try:
+                    present = {
+                        r[0]
+                        for r in await read_conn.fetch(
+                            f"SELECT \"column\" FROM table_columns('{table}')"
+                        )
+                    }
+                finally:
+                    await read_conn.close()
                 if "confidence" not in present:
                     await conn.execute(
                         f"ALTER TABLE {table} ADD COLUMN confidence DOUBLE"
                     )
             except Exception as e:
-                logger.warning("Could not ensure %s.confidence: %s", table, e)
+                logger.error("Could not ensure %s.confidence: %s", table, e)
 
         await conn.execute(
             """
@@ -1580,7 +1600,10 @@ class QuestDBRepository:
         ILP/HTTP flush() returns after the commit, so the sequencerTxn read right after
         the last flush is the target: wait for writerTxn >= target. The final count must
         then be exact. Returns False (ERROR with the cause: not_wal, suspended, ceiling,
-        count_mismatch) without touching the live table; exceptions propagate.
+        count_mismatch) without touching the live table; exceptions propagate. There is no
+        automatic WAL migration: on not_wal the operator runs either DROP TABLE
+        address_clusters_staging (empty outside a refresh, recreated as WAL at the next
+        start) or ALTER TABLE address_clusters_staging SET TYPE WAL plus a QuestDB restart.
         """
         started = _monotonic()
 
@@ -1603,12 +1626,18 @@ class QuestDBRepository:
         wal = await self._staging_wal()
         if wal is None:
             return fail(
-                "not_wal", f"{ADDRESS_CLUSTERS_STAGING_TABLE} not in wal_tables()"
+                "not_wal",
+                f"{ADDRESS_CLUSTERS_STAGING_TABLE} not in wal_tables(); operator: "
+                + ADDRESS_CLUSTERS_NOT_WAL_HINT,
             )
         target = int(wal["sequencerTxn"])
         while True:
             if wal is None:
-                return fail("not_wal", "staging table vanished from wal_tables()")
+                return fail(
+                    "not_wal",
+                    f"{ADDRESS_CLUSTERS_STAGING_TABLE} vanished from wal_tables(); "
+                    "operator: " + ADDRESS_CLUSTERS_NOT_WAL_HINT,
+                )
             writer = int(wal["writerTxn"])
             logger.info(
                 "address_clusters staging WAL: writerTxn=%d target=%d suspended=%s "
