@@ -9,7 +9,8 @@ from api.questdb_repository import (
 )
 
 # Exit codes: 0 ingested; 1 failed or concurrent refresh; 5 swap ok, cleanup failed;
-# 6 neither address_clusters nor an _old copy exists after a failed cutover.
+# 6 the refresh state is lost or unobservable: no address_clusters and no _old copy after
+# a swap, or the tables could not be observed or restored (the ERROR has the command).
 EXIT_CLEANUP_FAILED = 5
 EXIT_CLUSTERS_LOST = 6
 

@@ -141,7 +141,8 @@ class RefreshLockError(RuntimeError):
 
 
 class AddressClustersLostError(RuntimeError):
-    """No live table and no _old copy after a failed cutover (exit code 6)."""
+    """The refresh state is lost or unobservable (exit code 6): no live table and no _old
+    copy after a swap, or the tables could not be observed or restored, at any moment."""
 
 
 class RefreshLock:
@@ -202,6 +203,9 @@ def _require_lock(token: Any) -> None:
         )
 
 
+ADDRESS_CLUSTERS_REBUILD_COMMAND = (
+    "rebuild it with `uv run python -m scripts.bootstrap.sync_clusters_to_questdb`"
+)
 _OLD_COPY_RE = re.compile(r"^address_clusters_old_[0-9]{8}T[0-9]{6}Z$")
 
 
@@ -1890,6 +1894,21 @@ class QuestDBRepository:
             expected_rows / ADDRESS_CLUSTERS_MIN_APPLY_ROWS_PER_S,
         )
 
+    async def _observe_catalog(self, prefix: str) -> set[str]:
+        """Names of the tables starting with `prefix`: the ONLY read of tables() in the
+        refresh path. Any failure is AddressClustersLostError (exit 6) with the manual
+        command: a refresh must never decide, or die, on a catalog it could not read."""
+        try:
+            rows = await self.fetch(
+                f"SELECT table_name FROM tables() WHERE table_name LIKE '{prefix}%'"
+            )
+        except Exception as e:
+            raise AddressClustersLostError(
+                f"could not observe the tables ({e}): inspect tables(), or "
+                f"{ADDRESS_CLUSTERS_REBUILD_COMMAND}"
+            ) from e
+        return {row[0] for row in rows}
+
     async def _swap_tables(
         self, conn, live: str, staging: str, old: str, live_exists: bool = True
     ) -> float:
@@ -1936,8 +1955,8 @@ class QuestDBRepository:
             await self._reconcile_tables(live, live)
             if not isinstance(e, Exception):
                 raise
-            if not await self.fetch(
-                f"SELECT table_name FROM tables() WHERE table_name = '{staging}'"
+            if staging not in await self._observe_catalog(
+                staging
             ):  # live present, staging consumed: the staging RENAME was applied
                 logger.warning(
                     "%s: snapshot pubblicato, ack perso, pulizia al prossimo giro "
@@ -1959,35 +1978,27 @@ class QuestDBRepository:
         process (first install).
         """
         old_re = re.compile(rf"^{re.escape(prefix)}_old_[0-9]{{8}}T[0-9]{{6}}Z$")
-        manual = "rebuild it with `uv run python -m scripts.bootstrap.sync_clusters_to_questdb`"
-        olds: list[str] = []
-        try:
-            if await self.fetch(
-                f"SELECT table_name FROM tables() WHERE table_name = '{live}'"
-            ):
-                return
-            olds = sorted(
-                row[0]
-                for row in await self.fetch(
-                    "SELECT table_name FROM tables() WHERE table_name LIKE "
-                    f"'{prefix}_old_%'"
-                )
-                if old_re.match(row[0])
-            )
-            if olds:
+        catalog = await self._observe_catalog(prefix)
+        if live in catalog:
+            return
+        olds = sorted(name for name in catalog if old_re.match(name))
+        if olds:
+            try:
                 await self._run_ddl(f"RENAME TABLE {olds[-1]} TO {live}")
-                logger.error("%s was missing: restored from %s", live, olds[-1])
-                return
-        except Exception as e:
-            hint = f"RENAME TABLE {olds[-1]} TO {live}" if olds else "inspect tables()"
-            raise AddressClustersLostError(
-                f"could not observe or restore {live} ({e}): run `{hint}`, or {manual}"
-            ) from e
+            except Exception as e:
+                raise AddressClustersLostError(
+                    f"could not restore {live} ({e}): run "
+                    f"`RENAME TABLE {olds[-1]} TO {live}`, or "
+                    f"{ADDRESS_CLUSTERS_REBUILD_COMMAND}"
+                ) from e
+            logger.error("%s was missing: restored from %s", live, olds[-1])
+            return
         if self._swap_attempted:
             raise AddressClustersLostError(
                 f"no {live} and no {prefix}_old_* copy after a swap: if the staging "
                 f"table still exists it holds the verified snapshot (RENAME it to "
-                f"{live}), otherwise restore from a backup or {manual}"
+                f"{live}), otherwise restore from a backup or "
+                f"{ADDRESS_CLUSTERS_REBUILD_COMMAND}"
             )
         logger.info("No %s and no _old copy: first install", live)
 
@@ -2007,11 +2018,8 @@ class QuestDBRepository:
         refresh retries the cleanup. Without a live table it is a single RENAME.
         """
         old = f"{ADDRESS_CLUSTERS_TABLE}_old_{datetime.utcnow():%Y%m%dT%H%M%SZ}"
-        live_exists = bool(
-            await self.fetch(
-                "SELECT table_name FROM tables() WHERE table_name = "
-                f"'{ADDRESS_CLUSTERS_TABLE}'"
-            )
+        live_exists = ADDRESS_CLUSTERS_TABLE in await self._observe_catalog(
+            ADDRESS_CLUSTERS_TABLE
         )
         conn = await self._open_dedicated_connection()
         try:
@@ -2039,11 +2047,7 @@ class QuestDBRepository:
                     e,
                 )
             left = []
-            for row in await self.fetch(
-                "SELECT table_name FROM tables() WHERE table_name LIKE "
-                "'address_clusters_old_%'"
-            ):
-                name = row[0]
+            for name in sorted(await self._observe_catalog(ADDRESS_CLUSTERS_TABLE)):
                 if name != old and _OLD_COPY_RE.match(name):
                     try:
                         await conn.execute(f"DROP TABLE {name}")
@@ -2124,6 +2128,16 @@ class QuestDBRepository:
             return await self.commit_address_clusters_refresh(
                 token, expected_rows, max_wait_s=max_wait_s, poll_s=poll_s
             )
+        except AddressClustersLostError:
+            raise
+        except Exception:
+            if self._swap_attempted:
+                # one boundary: the outcome is read from the tables, never inferred from
+                # the exception (an unobservable state is exit 6)
+                await self._reconcile_tables(
+                    ADDRESS_CLUSTERS_TABLE, ADDRESS_CLUSTERS_TABLE
+                )
+            raise
         finally:
             token.release()
 

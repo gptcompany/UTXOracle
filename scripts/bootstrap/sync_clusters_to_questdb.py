@@ -35,7 +35,8 @@ from api.questdb_repository import (
 
 # Exit codes: 0 synced; 1 failed, DuckDB missing or concurrent refresh; 2 usage error
 # (argparse); 5 swap ok but cleanup of an older _old copy failed (see the ERROR);
-# 6 neither address_clusters nor an _old copy exists after a failed cutover.
+# 6 the refresh state is lost or unobservable: no address_clusters and no _old copy after
+# a swap, or the tables could not be observed or restored (the ERROR has the command).
 EXIT_CLEANUP_FAILED = 5
 EXIT_CLUSTERS_LOST = 6
 

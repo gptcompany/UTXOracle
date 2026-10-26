@@ -276,19 +276,17 @@ def _repo(
             return [] if current == "absent" else [current]
         if "table_columns" in query:
             return list(columns)
-        if catalog is not None and "tables()" in query:
-            if "LIKE" in query:
-                return [
-                    (n,)
-                    for n in sorted(catalog)
-                    if n.startswith("address_clusters_old_")
-                ]
-            wanted = re.search(r"table_name = '(\w+)'", query).group(1)
-            return [(wanted,)] if wanted in catalog else []
-        if "tables()" in query and "LIKE" in query:
-            return [(name,) for name in old_copies]
-        if "tables()" in query:
-            return [("address_clusters",)] if live_exists else []
+        if "FROM tables()" in query:
+            prefix = re.search(r"LIKE '(\w+)%'", query).group(1)
+            if catalog is not None:
+                names = sorted(catalog)
+            else:
+                names = (
+                    (["address_clusters"] if live_exists else [])
+                    + list(old_copies)
+                    + ["address_clusters_staging"]
+                )
+            return [(n,) for n in names if n.startswith(prefix)]
         raise AssertionError(query)
 
     repo = QuestDBRepository()
@@ -1428,3 +1426,54 @@ def test_same_loop_stays_excluded_while_another_loop_takes_its_own_lock(monkeypa
 
     assert seen_while_blocked == 1  # the second main-loop caller was still excluded
     assert main_calls == 1
+
+
+REFRESH_METHODS = (
+    "refresh_address_clusters",
+    "reconcile_address_clusters",
+    "prepare_address_clusters_refresh",
+    "abort_address_clusters_refresh",
+    "commit_address_clusters_refresh",
+    "save_address_clusters_bulk",
+    "_publish_staging",
+    "_wait_table_applied",
+    "_table_wal",
+    "_run_ddl",
+    "_swap_tables",
+    "_guarded_swap",
+    "_swap_or_reconcile",
+    "_reconcile_tables",
+    "_cutover",
+    "_observe_catalog",
+)
+
+
+def test_tables_is_read_only_inside_observe_catalog_in_the_refresh_path():
+    """Every catalog read of the refresh goes through _observe_catalog, the one place that
+    turns a failure into AddressClustersLostError (exit 6)."""
+    import ast
+    import inspect
+
+    import api.questdb_repository as qr
+
+    tree = ast.parse(inspect.getsource(qr))
+    methods = {
+        node.name: node
+        for cls in tree.body
+        if isinstance(cls, ast.ClassDef) and cls.name == "QuestDBRepository"
+        for node in cls.body
+        if isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef))
+    }
+    assert set(REFRESH_METHODS) <= set(methods)
+
+    def reads_tables(node):
+        found = []
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Constant) and isinstance(sub.value, str):
+                if "FROM tables()" in sub.value:
+                    found.append(sub.value)
+        return found
+
+    where = {name: reads_tables(methods[name]) for name in REFRESH_METHODS}
+    assert where["_observe_catalog"], "_observe_catalog must read tables()"
+    assert {n for n, f in where.items() if f} == {"_observe_catalog"}

@@ -378,3 +378,125 @@ def test_sync_main_exits_6_with_the_manual_command_when_the_restart_recovery_fai
 
     assert code == 6
     assert "sync_clusters_to_questdb" in capsys.readouterr().err
+
+
+class _CatalogConn:
+    """DDL connection over a fake catalog {table: data}; the RENAME of the staging table
+    can lose its acknowledgement (applied, then raised)."""
+
+    def __init__(self, catalog, ack_lost=False):
+        self.catalog, self.ack_lost = catalog, ack_lost
+        self.executed: list[str] = []
+        self.renames_done = 0
+
+    async def execute(self, query, *args):
+        import re
+
+        q = " ".join(query.split())
+        self.executed.append(q)
+        m = re.fullmatch(r"RENAME TABLE (\S+) TO (\S+)", q)
+        if m:
+            src, dst = m.groups()
+            if src not in self.catalog:
+                raise RuntimeError(f"table does not exist [table={src}]")
+            self.catalog[dst] = self.catalog.pop(src)
+            self.renames_done += 1
+            if self.ack_lost and src == "address_clusters_staging":
+                raise ConnectionError("connection lost before the acknowledgement")
+        elif q.startswith("CREATE TABLE IF NOT EXISTS address_clusters_staging"):
+            self.catalog.setdefault("address_clusters_staging", "empty")
+
+    async def close(self):
+        return None
+
+
+def _run_sync_main_with_a_failing_catalog_read(monkeypatch, tmp_path, scenario):
+    """The real sync main over a fake database whose tables() listing fails at one point
+    of the refresh; returns (exit code, catalog, DDL connection)."""
+    import re
+    import runpy
+    import sys
+
+    import api.questdb_repository as qr
+
+    db = tmp_path / "x.duckdb"
+    _db_with_one_cluster(db)
+    catalog = {"address_clusters": "old data", "address_clusters_staging": "new data"}
+    conn = _CatalogConn(catalog, ack_lost=scenario == "post_reconcile_staging")
+
+    def tables_read_fails(query):
+        if scenario == "pre_swap_catalog":  # after prepare, before any RENAME
+            return any("TRUNCATE" in q for q in conn.executed) and not conn.renames_done
+        if scenario == "post_reconcile_staging":  # the check of the staging table
+            return "address_clusters_staging" in query
+        return conn.renames_done >= 2  # post_swap_old_listing: the swap is done
+
+    class _Repo(qr.QuestDBRepository):
+        async def initialize(self):
+            return None
+
+        async def close(self):
+            return None
+
+        def stage_address_cluster(self, row, **kwargs):
+            return True
+
+        async def fetch(self, query, *args):
+            if "FROM tables()" in query:
+                if tables_read_fails(query):
+                    raise ConnectionError("pool down")
+                exact = re.search(r"table_name = '(\w+)'", query)
+                like = re.search(r"LIKE '(\w+)%'", query)
+                if exact:
+                    return [(exact.group(1),)] if exact.group(1) in catalog else []
+                return [(n,) for n in sorted(catalog) if n.startswith(like.group(1))]
+            if "wal_tables" in query:
+                return [
+                    {
+                        "suspended": False,
+                        "writerTxn": 1,
+                        "sequencerTxn": 1,
+                        "errorTag": "",
+                        "errorMessage": "",
+                    }
+                ]
+            if "table_columns" in query:
+                return list(qr.ADDRESS_CLUSTERS_SCHEMA)
+            raise AssertionError(query)
+
+        async def fetchrow(self, query, *args):
+            return (1,)
+
+        async def _open_dedicated_connection(self):
+            return conn
+
+    monkeypatch.setattr("api.questdb_repository.QuestDBRepository", _Repo)
+    monkeypatch.setattr("api.config.DUCKDB_PATH", str(db))
+    monkeypatch.setattr(sys, "argv", ["sync"])
+    with pytest.raises(SystemExit) as exc:
+        runpy.run_path(
+            "scripts/bootstrap/sync_clusters_to_questdb.py", run_name="__main__"
+        )
+    return exc.value.code, catalog, conn
+
+
+@pytest.mark.parametrize(
+    "scenario", ["pre_swap_catalog", "post_reconcile_staging", "post_swap_old_listing"]
+)
+def test_a_failed_catalog_read_anywhere_in_the_refresh_is_exit_6_and_keeps_the_data(
+    monkeypatch, tmp_path, capsys, scenario
+):
+    code, catalog, conn = _run_sync_main_with_a_failing_catalog_read(
+        monkeypatch, tmp_path, scenario
+    )
+
+    assert code == 6
+    assert "sync_clusters_to_questdb" in capsys.readouterr().err  # the manual command
+    if scenario == "pre_swap_catalog":
+        assert catalog["address_clusters"] == "old data"  # nothing swapped
+        assert catalog["address_clusters_staging"] == "new data"  # verified, kept
+        assert conn.renames_done == 0
+    else:
+        assert catalog["address_clusters"] == "new data"  # published
+        olds = [n for n in catalog if n.startswith("address_clusters_old_")]
+        assert [catalog[n] for n in olds] == ["old data"]  # recoverable copy kept
