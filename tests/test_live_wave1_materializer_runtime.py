@@ -19,8 +19,6 @@ class _FakeConnection:
 def test_configure_live_questdb_defaults_sets_loopback_ports(monkeypatch):
     monkeypatch.delenv("QUESTDB_PG_HOST", raising=False)
     monkeypatch.delenv("QUESTDB_PG_PORT", raising=False)
-    monkeypatch.delenv("QUESTDB_ILP_HOST", raising=False)
-    monkeypatch.delenv("QUESTDB_ILP_PORT", raising=False)
     monkeypatch.delenv("QUESTDB_HTTP_HOST", raising=False)
     monkeypatch.delenv("QUESTDB_HTTP_PORT", raising=False)
 
@@ -28,8 +26,6 @@ def test_configure_live_questdb_defaults_sets_loopback_ports(monkeypatch):
 
     assert os.environ["QUESTDB_PG_HOST"] == "127.0.0.1"
     assert os.environ["QUESTDB_PG_PORT"] == "9912"
-    assert os.environ["QUESTDB_ILP_HOST"] == "127.0.0.1"
-    assert os.environ["QUESTDB_ILP_PORT"] == "9909"
     assert os.environ["QUESTDB_HTTP_HOST"] == "127.0.0.1"
     assert os.environ["QUESTDB_HTTP_PORT"] == "9900"
 

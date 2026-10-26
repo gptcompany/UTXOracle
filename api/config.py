@@ -58,8 +58,6 @@ def get_cors_middleware_kwargs(origins: list[str]) -> dict[str, object]:
 
 
 # QuestDB Configuration
-QUESTDB_ILP_HOST = get_clean_env("QUESTDB_ILP_HOST", "localhost")
-QUESTDB_ILP_PORT = int(get_clean_env("QUESTDB_ILP_PORT", "9009"))
 QUESTDB_PG_HOST = get_clean_env("QUESTDB_PG_HOST", "localhost")
 QUESTDB_PG_PORT = int(get_clean_env("QUESTDB_PG_PORT", "8812"))
 QUESTDB_HTTP_HOST = get_clean_env("QUESTDB_HTTP_HOST", "localhost")

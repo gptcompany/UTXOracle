@@ -26,7 +26,7 @@ import pytest
 _TARGET_ENV = (
     "QUESTDB_TEST_HOST",
     "QUESTDB_TEST_PORT",
-    "QUESTDB_TEST_ILP_PORT",
+    "QUESTDB_TEST_HTTP_PORT",
     "QUESTDB_TEST_USER",
     "QUESTDB_TEST_PASSWORD",
 )
@@ -97,12 +97,15 @@ def _target() -> dict:
     target = {
         "host": os.environ["QUESTDB_TEST_HOST"],
         "port": int(os.environ["QUESTDB_TEST_PORT"]),
-        "ilp_port": int(os.environ["QUESTDB_TEST_ILP_PORT"]),
+        "http_port": int(os.environ["QUESTDB_TEST_HTTP_PORT"]),
         "user": os.environ["QUESTDB_TEST_USER"],
         "password": os.environ["QUESTDB_TEST_PASSWORD"],
         "database": os.getenv("QUESTDB_TEST_DATABASE", "qdb"),
     }
-    forbidden = {target["port"], target["ilp_port"]} & _FORBIDDEN_PORTS
+    forbidden = {target["port"]} & _FORBIDDEN_PORTS
+    forbidden |= {target["http_port"]} & (_FORBIDDEN_PORTS - {9000})
+    if target["http_port"] == 9000 and os.getenv("GITHUB_ACTIONS") != "true":
+        forbidden.add(9000)  # the host QuestDB: accepted only on the CI service
     assert not forbidden, (
         f"QUESTDB_TEST_* points at a non-test QuestDB port: {forbidden}"
     )
@@ -378,12 +381,11 @@ def test_daily_analysis_is_idempotent_on_a_real_questdb(monkeypatch):
 
     import api.questdb_repository as repository
     import scripts.daily_analysis as daily
-    import scripts.metrics as metrics
 
-    # Point both ILP writers (price_analysis via a new repository, metrics via the module
+    # Point the ILP/HTTP writers (price_analysis via a new repository, metrics via the module
     # singleton) and the schema creation at the test target.
-    monkeypatch.setattr(repository, "QUESTDB_ILP_HOST", target["host"])
-    monkeypatch.setattr(repository, "QUESTDB_ILP_PORT", target["ilp_port"])
+    monkeypatch.setattr(repository, "QUESTDB_HTTP_HOST", target["host"])
+    monkeypatch.setattr(repository, "QUESTDB_HTTP_PORT", target["http_port"])
     for name, key in (
         ("QUESTDB_PG_HOST", "host"),
         ("QUESTDB_PG_PORT", "port"),
@@ -392,8 +394,6 @@ def test_daily_analysis_is_idempotent_on_a_real_questdb(monkeypatch):
         ("QUESTDB_PG_DATABASE", "database"),
     ):
         monkeypatch.setattr(repository, name, target[key])
-    monkeypatch.setattr(metrics._repo, "ilp_host", target["host"])
-    monkeypatch.setattr(metrics._repo, "ilp_port", target["ilp_port"])
 
     # Fails (not skips) when the target is configured but down: an unreachable QuestDB must
     # not turn the gate green.
@@ -409,18 +409,18 @@ def test_daily_analysis_is_idempotent_on_a_real_questdb(monkeypatch):
         assert rows == 1, f"{table}: {rows} rows for the analysed day after two runs"
 
 
-def _set_destination(monkeypatch, *, ilp=("127.0.0.1", 9909), pg=("127.0.0.1", 9912)):
+def _set_destination(monkeypatch, *, http=("127.0.0.1", 9900), pg=("127.0.0.1", 9912)):
     import api.questdb_repository as repository
 
-    monkeypatch.setattr(repository, "QUESTDB_ILP_HOST", ilp[0])
-    monkeypatch.setattr(repository, "QUESTDB_ILP_PORT", ilp[1])
+    monkeypatch.setattr(repository, "QUESTDB_HTTP_HOST", http[0])
+    monkeypatch.setattr(repository, "QUESTDB_HTTP_PORT", http[1])
     monkeypatch.setattr(repository, "QUESTDB_PG_HOST", pg[0])
     monkeypatch.setattr(repository, "QUESTDB_PG_PORT", pg[1])
 
 
-def _expect_destination(monkeypatch, *, ilp_port="9909", pg_port="9912"):
-    monkeypatch.setenv("UTXORACLE_EXPECTED_QUESTDB_ILP_HOST", "127.0.0.1")
-    monkeypatch.setenv("UTXORACLE_EXPECTED_QUESTDB_ILP_PORT", ilp_port)
+def _expect_destination(monkeypatch, *, http_port="9900", pg_port="9912"):
+    monkeypatch.setenv("UTXORACLE_EXPECTED_QUESTDB_HTTP_HOST", "127.0.0.1")
+    monkeypatch.setenv("UTXORACLE_EXPECTED_QUESTDB_HTTP_PORT", http_port)
     monkeypatch.setenv("UTXORACLE_EXPECTED_QUESTDB_PG_HOST", "127.0.0.1")
     monkeypatch.setenv("UTXORACLE_EXPECTED_QUESTDB_PG_PORT", pg_port)
 
@@ -432,7 +432,7 @@ def test_destination_mismatch_exits_before_any_write(monkeypatch, caplog):
     sent = _record_rows(monkeypatch)
     _stub_inputs(monkeypatch, daily)
     _set_destination(
-        monkeypatch, ilp=("127.0.0.1", 9009)
+        monkeypatch, http=("127.0.0.1", 9000)
     )  # the host QuestDB, not the live
     _expect_destination(monkeypatch)
 
@@ -442,7 +442,7 @@ def test_destination_mismatch_exits_before_any_write(monkeypatch, caplog):
     assert stop.value.code == 3
     assert sent == []
     assert "QuestDB destination mismatch" in caplog.text
-    assert "9009" in caplog.text and "9909" in caplog.text
+    assert "9000" in caplog.text and "9900" in caplog.text
 
 
 def test_destination_match_proceeds_and_logs_the_effective_target(monkeypatch, caplog):
@@ -457,7 +457,9 @@ def test_destination_match_proceeds_and_logs_the_effective_target(monkeypatch, c
         daily.main()
 
     assert {row[0] for row in sent} == {"price_analysis", "metrics"}
-    assert "QuestDB destination: ILP 127.0.0.1:9909, PG 127.0.0.1:9912" in caplog.text
+    assert (
+        "QuestDB destination: ILP/HTTP 127.0.0.1:9900, PG 127.0.0.1:9912" in caplog.text
+    )
 
 
 def test_destination_without_expectation_logs_and_does_not_fail(monkeypatch, caplog):
@@ -466,10 +468,10 @@ def test_destination_without_expectation_logs_and_does_not_fail(monkeypatch, cap
 
     sent = _record_rows(monkeypatch)
     _stub_inputs(monkeypatch, daily)
-    _set_destination(monkeypatch, ilp=("db.invalid", 1111), pg=("db.invalid", 2222))
+    _set_destination(monkeypatch, http=("db.invalid", 1111), pg=("db.invalid", 2222))
     for name in (
-        "UTXORACLE_EXPECTED_QUESTDB_ILP_HOST",
-        "UTXORACLE_EXPECTED_QUESTDB_ILP_PORT",
+        "UTXORACLE_EXPECTED_QUESTDB_HTTP_HOST",
+        "UTXORACLE_EXPECTED_QUESTDB_HTTP_PORT",
         "UTXORACLE_EXPECTED_QUESTDB_PG_HOST",
         "UTXORACLE_EXPECTED_QUESTDB_PG_PORT",
     ):
@@ -480,7 +482,7 @@ def test_destination_without_expectation_logs_and_does_not_fail(monkeypatch, cap
 
     assert sent
     assert "no expected destination set" in caplog.text
-    assert "ILP db.invalid:1111" in caplog.text
+    assert "ILP/HTTP db.invalid:1111" in caplog.text
 
 
 # --- Write failures must end the process with a non-zero exit (F-419 audit) -------------
@@ -907,7 +909,7 @@ def test_destination_and_dedup_exits_keep_their_codes_and_log_the_cause(
 
     _record_rows(monkeypatch)
     _stub_inputs(monkeypatch, daily, dedup_check=True)
-    _set_destination(monkeypatch, ilp=("127.0.0.1", 9009))
+    _set_destination(monkeypatch, http=("127.0.0.1", 9000))
     _expect_destination(monkeypatch)
     with caplog.at_level("ERROR"):
         assert _exit_code(daily) == 3
@@ -1332,7 +1334,8 @@ def _env_file(monkeypatch, daily, tmp_path, content: str | None) -> None:
 
 
 @pytest.mark.parametrize(
-    "key", ["QUESTDB_ILP_PORT", "QUESTDB_PG_HOST", "UTXORACLE_EXPECTED_QUESTDB_PG_PORT"]
+    "key",
+    ["QUESTDB_HTTP_PORT", "QUESTDB_PG_HOST", "UTXORACLE_EXPECTED_QUESTDB_PG_PORT"],
 )
 def test_env_file_defining_the_destination_exits_3_naming_only_the_keys(
     monkeypatch, tmp_path, caplog, key
@@ -1366,13 +1369,13 @@ def test_env_file_lists_every_offending_key_sorted(monkeypatch, tmp_path, caplog
         monkeypatch,
         daily,
         tmp_path,
-        f"QUESTDB_PG_PORT={SECRET_LOOKING_VALUE}\nUTXORACLE_EXPECTED_X=1\nQUESTDB_ILP_HOST=2\n",
+        f"QUESTDB_PG_PORT={SECRET_LOOKING_VALUE}\nUTXORACLE_EXPECTED_X=1\nQUESTDB_HTTP_HOST=2\n",
     )
 
     with caplog.at_level("ERROR"):
         assert _exit_code(daily) == 3
 
-    assert "QUESTDB_ILP_HOST, QUESTDB_PG_PORT, UTXORACLE_EXPECTED_X" in caplog.text
+    assert "QUESTDB_HTTP_HOST, QUESTDB_PG_PORT, UTXORACLE_EXPECTED_X" in caplog.text
     assert SECRET_LOOKING_VALUE not in caplog.text
 
 

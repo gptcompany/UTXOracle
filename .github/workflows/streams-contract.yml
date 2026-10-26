@@ -76,8 +76,6 @@ jobs:
       # Explicit target of tests/test_create_tables_ddl.py (the service container above).
       QUESTDB_TEST_HOST: localhost
       QUESTDB_TEST_PORT: 8812
-      # ILP port of the same service container (tests/test_daily_analysis_questdb_e2e.py).
-      QUESTDB_TEST_ILP_PORT: 9009
       QUESTDB_TEST_USER: admin
       QUESTDB_TEST_PASSWORD: quest
       QUESTDB_TEST_DATABASE: qdb
@@ -128,6 +126,7 @@ jobs:
             tests/test_mirror_utxo_lifecycle_to_questdb.py \
             tests/test_catchup_utxo_lifecycle_to_tip.py \
             tests/test_daily_analysis_questdb_e2e.py \
+            tests/test_questdb_wrong_type_e2e.py \
             -v --tb=short
 
       - name: DDL coverage against live QuestDB

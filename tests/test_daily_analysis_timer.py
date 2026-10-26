@@ -46,11 +46,13 @@ def test_service_runs_daily_analysis_against_the_live_questdb():
     assert service["Service"]["Type"] == "oneshot"
     assert "scripts.daily_analysis" in service["Service"]["ExecStart"]
     env = _environment(SERVICE)
-    assert (env["QUESTDB_ILP_HOST"], env["QUESTDB_ILP_PORT"]) == ("127.0.0.1", "9909")
     assert (env["QUESTDB_PG_HOST"], env["QUESTDB_PG_PORT"]) == ("127.0.0.1", "9912")
-    assert env["QUESTDB_HTTP_PORT"] == "9900"
+    assert (env["QUESTDB_HTTP_HOST"], env["QUESTDB_HTTP_PORT"]) == ("127.0.0.1", "9900")
+    assert not [key for key in env if "ILP" in key], (
+        "ILP over TCP drops rows silently (F-434)"
+    )
     # The destination guard (exit 3 on mismatch) expects exactly what the unit configures.
-    for key in ("ILP_HOST", "ILP_PORT", "PG_HOST", "PG_PORT"):
+    for key in ("HTTP_HOST", "HTTP_PORT", "PG_HOST", "PG_PORT"):
         assert env[f"UTXORACLE_EXPECTED_QUESTDB_{key}"] == env[f"QUESTDB_{key}"]
     assert "utxoracle-daily-prices-refresh.service" in service["Unit"]["After"]
 

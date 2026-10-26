@@ -72,8 +72,6 @@ async def fetch_address_clusters(repo, query: str, *args):
 
 
 # QuestDB connection details from environment variables
-QUESTDB_ILP_HOST = os.getenv("QUESTDB_ILP_HOST", "localhost")
-QUESTDB_ILP_PORT = int(os.getenv("QUESTDB_ILP_PORT", 9009))
 QUESTDB_PG_HOST = os.getenv("QUESTDB_PG_HOST", "localhost")
 QUESTDB_PG_PORT = int(os.getenv("QUESTDB_PG_PORT", 8812))
 QUESTDB_HTTP_HOST = os.getenv("QUESTDB_HTTP_HOST", "localhost")
@@ -1319,6 +1317,23 @@ async def create_tables_if_not_exist():
             await conn.close()
 
 
+def build_http_sender():
+    """The one ILP sender of the project: ILP over HTTP, auto_flush off.
+
+    Over TCP QuestDB drops a row it cannot ingest (e.g. a wrong column type) without telling
+    the client (F-434). Over HTTP flush() returns only once the server committed the rows and
+    raises IngressError if it rejected them. Host and port: QUESTDB_HTTP_HOST/PORT.
+    """
+    if Sender is None:
+        raise ModuleNotFoundError(
+            "questdb package is required for ILP ingestion; install project dependencies "
+            "or monkeypatch build_http_sender in tests"
+        )
+    sender = Sender("http", QUESTDB_HTTP_HOST, QUESTDB_HTTP_PORT, auto_flush=False)
+    sender.establish()
+    return sender
+
+
 class QuestDBRepository:
     """
     Repository for interacting with QuestDB.
@@ -1334,8 +1349,6 @@ class QuestDBRepository:
         """
         import time
 
-        self.ilp_host = QUESTDB_ILP_HOST
-        self.ilp_port = QUESTDB_ILP_PORT
         self.sender: Sender | None = None
         self._unflushed_rows = 0
         self._last_flush_time = time.time()
@@ -1351,14 +1364,7 @@ class QuestDBRepository:
         self._swap_attempted = False
 
     def _build_refresh_sender(self):
-        if Sender is None:
-            raise ModuleNotFoundError(
-                "questdb package is required for ILP ingestion; install project dependencies "
-                "or monkeypatch QuestDBRepository._build_refresh_sender in tests"
-            )
-        sender = Sender("http", QUESTDB_HTTP_HOST, QUESTDB_HTTP_PORT, auto_flush=False)
-        sender.establish()
-        return sender
+        return build_http_sender()
 
     def _close_refresh_sender(self) -> None:
         sender, self._refresh_sender = self._refresh_sender, None
@@ -1371,14 +1377,7 @@ class QuestDBRepository:
                 _swallow_if_in_flight("the refresh sender", e, in_flight)
 
     def _build_sender(self):
-        if Sender is None:
-            raise ModuleNotFoundError(
-                "questdb package is required for ILP ingestion; install project dependencies "
-                "or monkeypatch QuestDBRepository._build_sender in tests"
-            )
-        sender = Sender("tcp", self.ilp_host, self.ilp_port)
-        sender.establish()
-        return sender
+        return build_http_sender()
 
     # Guards the creation of the shared class-level pool, one asyncio.Lock per event loop:
     # an asyncio.Lock belongs to the loop that uses it, and the synchronous LiveSnapshotStore
