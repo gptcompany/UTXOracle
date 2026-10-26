@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 import os
 import sys
 import types
+from pathlib import Path
 
 import pytest
 
@@ -150,6 +151,8 @@ def _stub_inputs(monkeypatch, daily, *, dedup_check: bool = False) -> None:
     The dedup precheck reads tables() on a real QuestDB: it is stubbed to "all fine" unless
     dedup_check is True (the real-database test and the dedicated precheck tests).
     """
+    # No .env of the machine running the tests is ever read by the startup guard.
+    monkeypatch.setattr(daily, "env_file_path", lambda: Path("/nonexistent/.env"))
     if not dedup_check:
         import api.questdb_repository as repository
 
@@ -1287,5 +1290,95 @@ def test_only_one_row_present_rewrites_both_with_a_warning(monkeypatch, caplog):
     assert {row[0] for row in sent} == {"price_analysis", "metrics"}
     assert any(
         r.levelname == "WARNING" and "only one" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+# --- .env must not redefine the destination (exit 3, key NAMES only) ----------------------
+
+SECRET_LOOKING_VALUE = "value-that-must-never-be-logged-4711"
+
+
+def _env_file(monkeypatch, daily, tmp_path, content: str | None) -> None:
+    path = tmp_path / ".env"
+    if content is not None:
+        path.write_text(content)
+    monkeypatch.setattr(daily, "env_file_path", lambda: path)
+
+
+@pytest.mark.parametrize(
+    "key", ["QUESTDB_ILP_PORT", "QUESTDB_PG_HOST", "UTXORACLE_EXPECTED_QUESTDB_PG_PORT"]
+)
+def test_env_file_defining_the_destination_exits_3_naming_only_the_keys(
+    monkeypatch, tmp_path, caplog, key
+):
+    import scripts.daily_analysis as daily
+
+    sent = _record_rows(monkeypatch)
+    _stub_inputs(monkeypatch, daily)
+    _env_file(
+        monkeypatch,
+        daily,
+        tmp_path,
+        f"HARMLESS=1\n{key}={SECRET_LOOKING_VALUE}\nEXPORTED=also\n",
+    )
+
+    with caplog.at_level("INFO"):
+        assert _exit_code(daily) == 3
+
+    assert sent == []
+    assert key in caplog.text
+    assert "HARMLESS" not in caplog.text
+    assert SECRET_LOOKING_VALUE not in caplog.text
+
+
+def test_env_file_lists_every_offending_key_sorted(monkeypatch, tmp_path, caplog):
+    import scripts.daily_analysis as daily
+
+    _record_rows(monkeypatch)
+    _stub_inputs(monkeypatch, daily)
+    _env_file(
+        monkeypatch,
+        daily,
+        tmp_path,
+        f"QUESTDB_PG_PORT={SECRET_LOOKING_VALUE}\nUTXORACLE_EXPECTED_X=1\nQUESTDB_ILP_HOST=2\n",
+    )
+
+    with caplog.at_level("ERROR"):
+        assert _exit_code(daily) == 3
+
+    assert "QUESTDB_ILP_HOST, QUESTDB_PG_PORT, UTXORACLE_EXPECTED_X" in caplog.text
+    assert SECRET_LOOKING_VALUE not in caplog.text
+
+
+def test_clean_env_file_does_not_block(monkeypatch, tmp_path):
+    import scripts.daily_analysis as daily
+
+    sent = _record_rows(monkeypatch)
+    _stub_inputs(monkeypatch, daily)
+    _env_file(
+        monkeypatch, daily, tmp_path, "BITCOIN_DATADIR=/somewhere\nLOG_LEVEL=INFO\n"
+    )
+
+    daily.main()
+
+    assert {row[0] for row in sent} == {"price_analysis", "metrics"}
+
+
+def test_missing_env_file_is_info_and_does_not_block(monkeypatch, tmp_path, caplog):
+    import scripts.daily_analysis as daily
+
+    sent = _record_rows(monkeypatch)
+    _stub_inputs(monkeypatch, daily)
+    _env_file(monkeypatch, daily, tmp_path, None)
+
+    with caplog.at_level("INFO"):
+        daily.main()
+
+    assert sent
+    assert any(
+        r.levelname == "INFO"
+        and ".env" in r.getMessage()
+        and "not found" in r.getMessage()
         for r in caplog.records
     )

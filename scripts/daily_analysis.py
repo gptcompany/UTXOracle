@@ -187,6 +187,12 @@ def _get_env_str(key: str, default: str) -> str:
     return val
 
 
+def env_file_path() -> Path:
+    """The .env that load_config()/load_secrets() read (the unit's EnvironmentFile= is the
+    same file when WorkingDirectory is the repository)."""
+    return Path(__file__).parent.parent / ".env"
+
+
 def load_config() -> Dict[str, str]:
     """
     Load configuration from .env file or environment variables.
@@ -197,7 +203,7 @@ def load_config() -> Dict[str, str]:
         dict: Configuration dictionary
     """
     # Load .env file if exists (override=True to prioritize .env over existing env vars)
-    env_path = Path(__file__).parent.parent / ".env"
+    env_path = env_file_path()
     if env_path.exists():
         load_secrets()
         logging.info(f"Config loaded from .env file at {env_path} (override=True)")
@@ -1350,6 +1356,36 @@ def analysis_day_for(now: datetime) -> datetime:
     )
 
 
+FORBIDDEN_ENV_PREFIXES = ("UTXORACLE_EXPECTED_", "QUESTDB_")
+
+
+def check_env_file_guard() -> None:
+    """Exit 3 if the .env defines the QuestDB destination or its expectation.
+
+    The destination belongs to the systemd unit (Environment=); a .env that redefines it
+    would override the unit (EnvironmentFile= wins over Environment=) or load_secrets()
+    would. The file is read with a real parser (dotenv_values) and only the NAMES of the
+    offending keys are logged, never a value. A missing file is not an error.
+    """
+    from dotenv import dotenv_values
+
+    path = env_file_path()
+    if not path.exists():
+        logging.info(".env not found at %s: nothing to check", path)
+        return
+    offending = sorted(
+        key for key in dotenv_values(path) if key.startswith(FORBIDDEN_ENV_PREFIXES)
+    )
+    if offending:
+        logging.error(
+            "%s defines keys reserved to the systemd unit: %s (exit 3)",
+            path,
+            ", ".join(offending),
+        )
+        sys.exit(3)
+    logging.info(".env checked: no %s keys", " / ".join(FORBIDDEN_ENV_PREFIXES))
+
+
 SCHEDULE_ENV = "UTXORACLE_DAILY_SCHEDULE_UTC"
 EXIT_OUTSIDE_WINDOW = 5
 
@@ -1395,12 +1431,13 @@ def preflight(args) -> tuple[datetime, set[str], bool]:
     Returns (analysis_day, tables to skip, nothing_to_do). Runs inside main()'s try so every
     non-zero exit is logged the same way. Exit codes of the script: 0 done or both rows of
     the day already present; 1 invalid configuration; 2 any failure (exception, incomplete
-    row, failed metrics block, failed write); 3 QuestDB destination mismatch; 4 a table
+    row, failed metrics block, failed write); 3 QuestDB destination mismatch or the .env defining the destination; 4 a table
     without dedup on ts; 5 run outside its window (check_run_window).
 
     The skip needs BOTH rows of the day: with only one present the run was incomplete and
     both are rewritten, as with --overwrite, after a WARNING.
     """
+    check_env_file_guard()
     check_questdb_destination()
     now = utc_now()
     analysis_day = analysis_day_for(now)
