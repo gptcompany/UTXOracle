@@ -54,13 +54,15 @@ QUESTDB_PG_DATABASE = os.getenv("QUESTDB_PG_DATABASE", "main")
 
 ADDRESS_CLUSTERS_TABLE = "address_clusters"
 ADDRESS_CLUSTERS_STAGING_TABLE = "address_clusters_staging"
-# Absolute cap on the wait for WAL to apply the staged rows. The full sync
-# (scripts/bootstrap/sync_clusters_to_questdb.py) reads the DuckDB address_clusters table,
-# about 55M rows per specs/037-database-consolidation/spec.md; the stall timeout already
-# covers a slow-but-moving apply, so the cap only bounds a crawl. 4 h allows 55M rows at
-# ~3.8k rows/s, well under the ~64k rows the ingest delivered in the 23/10 incident.
-ADDRESS_CLUSTERS_MAX_WAIT_S = 4 * 3600.0
-ADDRESS_CLUSTERS_PROGRESS_LOG_S = 30.0
+# Ceiling on the wait for WAL to apply the staged rows: max(MIN_WAIT, rows / MIN_APPLY_RATE).
+# The full sync (scripts/bootstrap/sync_clusters_to_questdb.py) reads about 55M rows
+# (specs/037-database-consolidation/spec.md), so 3.8k rows/s gives ~4 h for the full sync;
+# the CSV ingest (tens of thousands of rows) gets the 10 min floor.
+ADDRESS_CLUSTERS_MIN_APPLY_ROWS_PER_S = 3800.0
+ADDRESS_CLUSTERS_MIN_WAIT_S = 600.0
+# One INFO line per poll: 5 s keeps a 4 h wait to ~2.9k lines at worst, while a
+# normal small ingest is done within one or two polls.
+ADDRESS_CLUSTERS_POLL_S = 5.0
 ADDRESS_CLUSTERS_COLUMNS = (
     "address",
     "cluster_id",
@@ -1517,83 +1519,95 @@ class QuestDBRepository:
             )
 
     async def _wait_for_staged_rows(
-        self,
-        expected_rows: int,
-        *,
-        stall_timeout_s: float,
-        max_wait_s: float,
-        poll_s: float,
+        self, expected_rows: int, *, max_wait_s: float, poll_s: float
     ) -> bool:
-        """Poll count(staging) until WAL has applied every row sent over ILP.
+        """Wait until WAL has applied every staged row, judged on wal_tables().
 
-        Aborts when the count has not grown for `stall_timeout_s` (the timer restarts at
-        every growth) or when `max_wait_s` has elapsed in total.
+        Done when writerTxn == sequencerTxn and count(staging) == expected_rows. Aborts
+        (False, ERROR with the cause) on: suspended WAL, count_mismatch with an aligned
+        and unchanged WAL, or ceiling. A single large transaction may show no progress
+        for a long time, so there is no stall timeout.
         """
         started = _monotonic()
-        last_growth = started
-        last_log = started
-        observed = -1
-        best = -1
+        mismatch_at: Optional[int] = None
+
+        def fail(cause: str, detail: str) -> bool:
+            logger.error(
+                "address_clusters staging not committed (%s): expected %d rows, %s, "
+                "after %.1f s; live table left untouched",
+                cause,
+                expected_rows,
+                detail,
+                _monotonic() - started,
+            )
+            return False
+
         while True:
+            elapsed = _monotonic() - started
             try:
-                row = await self.fetchrow(
-                    f"SELECT count(*) FROM {ADDRESS_CLUSTERS_STAGING_TABLE}"
+                rows = await self.fetch(
+                    'SELECT suspended, "writerTxn", "sequencerTxn", "errorTag", '
+                    '"errorMessage" FROM wal_tables() WHERE name = $1',
+                    ADDRESS_CLUSTERS_STAGING_TABLE,
                 )
-                observed = int(row[0]) if row is not None else 0
             except Exception as e:
-                logger.warning("Staging count poll failed: %s", e)
-            now = _monotonic()
-            elapsed = now - started
-            if observed == expected_rows:
+                logger.warning("wal_tables() poll failed: %s", e)
+                rows = []
+            if rows:
+                wal = rows[0]
+                writer, seq = int(wal["writerTxn"]), int(wal["sequencerTxn"])
                 logger.info(
-                    "address_clusters staging complete: %d rows after %.1f s",
-                    observed,
+                    "address_clusters staging WAL: writerTxn=%d sequencerTxn=%d "
+                    "suspended=%s after %.1f s",
+                    writer,
+                    seq,
+                    bool(wal["suspended"]),
                     elapsed,
                 )
-                return True
-            if observed > best:
-                best = observed
-                last_growth = now
-            reason = None
-            if now - last_growth >= stall_timeout_s:
-                reason = f"no progress for {now - last_growth:.1f} s"
-            elif elapsed >= max_wait_s:
-                reason = f"absolute cap of {max_wait_s:.0f} s reached"
-            if reason:
-                logger.error(
-                    "address_clusters staging incomplete: expected %d rows, observed %d "
-                    "after %.1f s (%s); live table left untouched",
-                    expected_rows,
-                    observed,
-                    elapsed,
-                    reason,
-                )
-                return False
-            if now - last_log >= ADDRESS_CLUSTERS_PROGRESS_LOG_S:
-                last_log = now
-                logger.info(
-                    "address_clusters staging progress: %d / %d rows after %.1f s",
-                    observed,
-                    expected_rows,
-                    elapsed,
-                )
+                if wal["suspended"]:
+                    return fail(
+                        "suspended",
+                        f"errorTag={wal['errorTag']!r} errorMessage={wal['errorMessage']!r}",
+                    )
+                if writer == seq:
+                    count_row = await self.fetchrow(
+                        f"SELECT count(*) FROM {ADDRESS_CLUSTERS_STAGING_TABLE}"
+                    )
+                    observed = int(count_row[0]) if count_row is not None else 0
+                    if observed == expected_rows:
+                        logger.info(
+                            "address_clusters staging complete: %d rows after %.1f s",
+                            observed,
+                            elapsed,
+                        )
+                        return True
+                    # The ILP flush can return before the sequencer saw the rows: a
+                    # mismatch is final only if the aligned WAL did not move since the
+                    # previous poll.
+                    if mismatch_at == seq:
+                        return fail("count_mismatch", f"observed {observed}")
+                    mismatch_at = seq
+                else:
+                    mismatch_at = None
+            if elapsed >= max_wait_s:
+                return fail("ceiling", f"ceiling {max_wait_s:.0f} s reached")
             await _sleep(poll_s)
 
     async def commit_address_clusters_refresh(
         self,
         expected_rows: int,
         *,
-        stall_timeout_s: float = 60.0,
-        max_wait_s: float = ADDRESS_CLUSTERS_MAX_WAIT_S,
-        poll_s: float = 1.0,
+        max_wait_s: Optional[float] = None,
+        poll_s: float = ADDRESS_CLUSTERS_POLL_S,
     ) -> bool:
         """
         Publish a staged address_clusters snapshot after the ILP load completes.
 
         `expected_rows` is the number of rows the caller sent to staging: the flush
-        returns before WAL has applied them all (F-424), so the cutover waits for
-        count(staging) to match and aborts, leaving the live table untouched, if the count
-        stalls for `stall_timeout_s` or `max_wait_s` is exceeded.
+        returns before WAL has applied them all (F-424), so the cutover waits on
+        wal_tables() and aborts, leaving the live table untouched, if the WAL is
+        suspended, the final count differs, or `max_wait_s` (default scaled on
+        `expected_rows`, see ADDRESS_CLUSTERS_MIN_APPLY_ROWS_PER_S) is exceeded.
         """
         if not await self.async_flush_ingestion():
             logger.error("Failed to flush staged address_clusters rows before cutover.")
@@ -1602,8 +1616,12 @@ class QuestDBRepository:
 
         if not await self._wait_for_staged_rows(
             expected_rows,
-            stall_timeout_s=stall_timeout_s,
-            max_wait_s=max_wait_s,
+            max_wait_s=max_wait_s
+            if max_wait_s is not None
+            else max(
+                ADDRESS_CLUSTERS_MIN_WAIT_S,
+                expected_rows / ADDRESS_CLUSTERS_MIN_APPLY_ROWS_PER_S,
+            ),
             poll_s=poll_s,
         ):
             await self.abort_address_clusters_refresh()

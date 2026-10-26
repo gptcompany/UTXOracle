@@ -1,9 +1,10 @@
 import csv
 import asyncio
+import sys
 from api.questdb_repository import QuestDBRepository
 
 
-async def ingest():
+async def ingest() -> bool:
     repo = QuestDBRepository()
     await repo.initialize()
 
@@ -21,9 +22,10 @@ async def ingest():
 
     if await repo.save_address_clusters_bulk(rows):
         print("✅ Ingested to DB")
-    else:
-        print("❌ Ingestion failed")
+        return True
+    print("❌ Ingestion failed")
+    return False
 
 
 if __name__ == "__main__":
-    asyncio.run(ingest())
+    sys.exit(0 if asyncio.run(ingest()) else 1)

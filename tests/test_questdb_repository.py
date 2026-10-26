@@ -131,49 +131,6 @@ _LIVE_COLUMNS = [
 ]
 
 
-def _repo_with_staging_count(counts, execute=None, live_columns=None):
-    repo = QuestDBRepository()
-    repo.fetch = AsyncMock(return_value=live_columns or _LIVE_COLUMNS)
-    repo.async_flush_ingestion = AsyncMock(return_value=True)
-    repo.fetchrow = AsyncMock(side_effect=[(c,) for c in counts] + [(counts[-1],)] * 50)
-    repo.execute = execute or AsyncMock(return_value="OK")
-    return repo
-
-
-def test_commit_address_clusters_refresh_runs_cutover_after_flush():
-    repo = _repo_with_staging_count([2, 5])
-
-    assert asyncio.run(repo.commit_address_clusters_refresh(5, poll_s=0)) is True
-
-    calls = [call.args[0] for call in repo.execute.await_args_list]
-    assert calls[0] == "TRUNCATE TABLE address_clusters"
-    insert = " ".join(calls[1].split())
-    assert insert.startswith(
-        "INSERT INTO address_clusters (address, cluster_id, ts, last_seen, "
-        "is_exchange_likely, label, confidence) SELECT address, cluster_id, ts, "
-        "last_seen, is_exchange_likely, label, confidence FROM address_clusters_staging"
-    )
-    assert calls[2] == "TRUNCATE TABLE address_clusters_staging"
-
-
-def test_commit_address_clusters_refresh_aborts_without_touching_live_when_staging_short(
-    caplog,
-):
-    repo = _repo_with_staging_count([3])
-
-    with caplog.at_level("ERROR"):
-        ok = asyncio.run(
-            repo.commit_address_clusters_refresh(5, stall_timeout_s=0.05, poll_s=0.01)
-        )
-
-    assert ok is False
-    calls = [call.args[0] for call in repo.execute.await_args_list]
-    assert calls == ["TRUNCATE TABLE address_clusters_staging"]
-    assert not any("INSERT" in q for q in calls)
-    errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
-    assert any("expected 5" in m and "observed 3" in m for m in errors)
-
-
 class _FakeClock:
     def __init__(self):
         self.now = 0.0
@@ -185,92 +142,158 @@ class _FakeClock:
         self.now += seconds
 
 
-def _fake_clock(monkeypatch):
+def _wal(writer, seq, suspended=False, tag="", message=""):
+    return {
+        "suspended": suspended,
+        "writerTxn": writer,
+        "sequencerTxn": seq,
+        "errorTag": tag,
+        "errorMessage": message,
+    }
+
+
+def _repo(monkeypatch, wal=None, count=5, live_columns=None, execute=None):
+    """Repo with fake clock, wal_tables() and count(staging); both may be callables of
+    the fake time."""
     import api.questdb_repository as qr
 
     clock = _FakeClock()
     monkeypatch.setattr(qr, "_monotonic", clock.monotonic)
     monkeypatch.setattr(qr, "_sleep", clock.sleep)
-    return clock
+    wal = wal or _wal(8, 8)
+
+    def at(value):
+        return value(clock.now) if callable(value) else value
+
+    async def fetch(query, *args):
+        if "wal_tables" in query:
+            return [at(wal)]
+        return live_columns or _LIVE_COLUMNS
+
+    repo = QuestDBRepository()
+    repo.clock = clock
+    repo.fetch = fetch
+    repo.async_flush_ingestion = AsyncMock(return_value=True)
+    repo.fetchrow = AsyncMock(side_effect=lambda q, *a: (at(count),))
+    repo.execute = execute or AsyncMock(return_value="OK")
+    return repo
 
 
-def _growing(step, expected, clock, stop_at=None):
-    """count(staging) growing by `step` rows per poll, optionally frozen at stop_at."""
-
-    async def fetchrow(query, *args):
-        n = int(clock.now) * step
-        return (min(n, stop_at) if stop_at is not None else min(n, expected),)
-
-    return fetchrow
+def _executed(repo):
+    return [call.args[0] for call in repo.execute.await_args_list]
 
 
-def test_commit_waits_past_stall_timeout_while_count_keeps_growing(monkeypatch):
-    clock = _fake_clock(monkeypatch)
-    repo = _repo_with_staging_count([0])
-    repo.fetchrow = _growing(1, 200, clock)  # 200 s total, never idle for 60 s
-
-    assert asyncio.run(repo.commit_address_clusters_refresh(200)) is True
-    assert clock.now > 60
+def _errors(caplog):
+    return [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
 
 
-def test_commit_aborts_on_stall_even_below_absolute_cap(monkeypatch, caplog):
-    clock = _fake_clock(monkeypatch)
-    repo = _repo_with_staging_count([0])
-    repo.fetchrow = _growing(1, 200, clock, stop_at=30)  # stalls at 30 rows
+def test_commit_address_clusters_refresh_runs_cutover_after_flush(monkeypatch):
+    repo = _repo(monkeypatch)
 
-    with caplog.at_level("ERROR"):
-        ok = asyncio.run(repo.commit_address_clusters_refresh(200))
+    assert asyncio.run(repo.commit_address_clusters_refresh(5)) is True
 
-    assert ok is False
-    assert [c.args[0] for c in repo.execute.await_args_list] == [
-        "TRUNCATE TABLE address_clusters_staging"
-    ]
-    msg = next(r.getMessage() for r in caplog.records if r.levelname == "ERROR")
-    assert "expected 200" in msg and "observed 30" in msg and "no progress" in msg
-    assert 85 <= clock.now <= 95  # 30 s of growth + 60 s stall
-
-
-def test_commit_aborts_at_absolute_cap_even_if_still_growing(monkeypatch, caplog):
-    clock = _fake_clock(monkeypatch)
-    repo = _repo_with_staging_count([0])
-    repo.fetchrow = _growing(1, 10_000, clock)
-
-    with caplog.at_level("ERROR"):
-        ok = asyncio.run(repo.commit_address_clusters_refresh(10_000, max_wait_s=120))
-
-    assert ok is False
-    assert [c.args[0] for c in repo.execute.await_args_list] == [
-        "TRUNCATE TABLE address_clusters_staging"
-    ]
-    msg = next(r.getMessage() for r in caplog.records if r.levelname == "ERROR")
-    assert "absolute cap" in msg
-    assert 120 <= clock.now < 125
+    calls = _executed(repo)
+    assert calls[0] == "TRUNCATE TABLE address_clusters"
+    insert = " ".join(calls[1].split())
+    assert insert.startswith(
+        "INSERT INTO address_clusters (address, cluster_id, ts, last_seen, "
+        "is_exchange_likely, label, confidence) SELECT address, cluster_id, ts, "
+        "last_seen, is_exchange_likely, label, confidence FROM address_clusters_staging"
+    )
+    assert calls[2] == "TRUNCATE TABLE address_clusters_staging"
 
 
-def test_commit_address_clusters_refresh_aborts_when_live_lacks_a_column(caplog):
-    repo = _repo_with_staging_count([5], live_columns=_LIVE_COLUMNS[:-1])
+def test_commit_aborts_at_once_when_wal_is_suspended(monkeypatch, caplog):
+    repo = _repo(
+        monkeypatch,
+        wal=lambda t: _wal(3, 8)
+        if t < 10
+        else _wal(3, 8, True, "DISK_FULL", "no space"),
+        count=2,
+    )
 
     with caplog.at_level("ERROR"):
-        ok = asyncio.run(repo.commit_address_clusters_refresh(5, poll_s=0))
+        ok = asyncio.run(repo.commit_address_clusters_refresh(5))
 
     assert ok is False
-    calls = [call.args[0] for call in repo.execute.await_args_list]
-    assert calls == ["TRUNCATE TABLE address_clusters_staging"]
-    errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
-    assert any("confidence" in m for m in errors)
+    assert _executed(repo) == ["TRUNCATE TABLE address_clusters_staging"]
+    msg = _errors(caplog)[0]
+    assert "suspended" in msg and "DISK_FULL" in msg and "no space" in msg
+    assert repo.clock.now < 20  # immediate, not at a ceiling
 
 
-def test_commit_address_clusters_refresh_clears_tables_on_cutover_failure():
-    repo = _repo_with_staging_count(
-        [5],
-        AsyncMock(
+def test_commit_survives_one_big_transaction_without_progress(monkeypatch):
+    # writerTxn stuck for 300 s (> the old 60 s stall), then the transaction lands.
+    repo = _repo(
+        monkeypatch,
+        wal=lambda t: _wal(8, 9) if t < 300 else _wal(9, 9),
+        count=lambda t: 5 if t >= 300 else 0,
+    )
+
+    assert asyncio.run(repo.commit_address_clusters_refresh(5, max_wait_s=900)) is True
+    assert repo.clock.now >= 300
+    assert _executed(repo)[0] == "TRUNCATE TABLE address_clusters"
+
+
+def test_commit_aborts_at_ceiling(monkeypatch, caplog):
+    repo = _repo(monkeypatch, wal=lambda t: _wal(8, 9), count=0)
+
+    with caplog.at_level("ERROR"):
+        ok = asyncio.run(repo.commit_address_clusters_refresh(5, max_wait_s=120))
+
+    assert ok is False
+    assert _executed(repo) == ["TRUNCATE TABLE address_clusters_staging"]
+    assert "ceiling" in _errors(caplog)[0]
+    assert 120 <= repo.clock.now < 130
+
+
+def test_commit_aborts_on_count_mismatch_with_aligned_wal(monkeypatch, caplog):
+    repo = _repo(monkeypatch, wal=_wal(9, 9), count=3)
+
+    with caplog.at_level("ERROR"):
+        ok = asyncio.run(repo.commit_address_clusters_refresh(5))
+
+    assert ok is False
+    assert _executed(repo) == ["TRUNCATE TABLE address_clusters_staging"]
+    msg = _errors(caplog)[0]
+    assert "count_mismatch" in msg and "expected 5" in msg and "observed 3" in msg
+
+
+def test_commit_tolerates_aligned_wal_before_sequencer_sees_the_rows(monkeypatch):
+    # Flush returned, WAL still aligned at the old txn with 0 rows, then the rows land.
+    repo = _repo(
+        monkeypatch,
+        wal=lambda t: _wal(8, 8) if t < 5 else _wal(9, 9),
+        count=lambda t: 0 if t < 5 else 5,
+    )
+
+    assert asyncio.run(repo.commit_address_clusters_refresh(5)) is True
+
+
+def test_commit_address_clusters_refresh_aborts_when_live_lacks_a_column(
+    monkeypatch, caplog
+):
+    repo = _repo(monkeypatch, live_columns=_LIVE_COLUMNS[:-1])
+
+    with caplog.at_level("ERROR"):
+        ok = asyncio.run(repo.commit_address_clusters_refresh(5))
+
+    assert ok is False
+    assert _executed(repo) == ["TRUNCATE TABLE address_clusters_staging"]
+    assert any("confidence" in m for m in _errors(caplog))
+
+
+def test_commit_address_clusters_refresh_clears_tables_on_cutover_failure(monkeypatch):
+    repo = _repo(
+        monkeypatch,
+        execute=AsyncMock(
             side_effect=["TRUNCATE", RuntimeError("boom"), "TRUNCATE", "TRUNCATE"]
         ),
     )
 
-    assert asyncio.run(repo.commit_address_clusters_refresh(5, poll_s=0)) is False
+    assert asyncio.run(repo.commit_address_clusters_refresh(5)) is False
 
-    calls = [call.args[0] for call in repo.execute.await_args_list]
+    calls = _executed(repo)
     assert calls[0] == "TRUNCATE TABLE address_clusters"
     assert "INSERT INTO address_clusters" in calls[1]
     assert calls[2] == "TRUNCATE TABLE address_clusters_staging"

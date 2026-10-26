@@ -138,7 +138,7 @@ async def sync_clusters(
     return True
 
 
-async def main():
+async def main() -> int:
     parser = argparse.ArgumentParser(description="Sync Address Clusters to QuestDB")
     parser.add_argument(
         "--batch-size",
@@ -153,16 +153,17 @@ async def main():
 
     if not os.path.exists(DUCKDB_PATH):
         logger.error(f"DuckDB database not found at {DUCKDB_PATH}")
-        return
+        return 1
 
     conn = duckdb.connect(DUCKDB_PATH, read_only=True)
 
     try:
-        await sync_clusters(repo, conn, args.batch_size)
+        ok = await sync_clusters(repo, conn, args.batch_size)
+        return 0 if ok else 1
     finally:
         conn.close()
         await repo.close()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    sys.exit(asyncio.run(main()))

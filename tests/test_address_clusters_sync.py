@@ -98,3 +98,48 @@ async def test_sync_clusters_returns_false_on_ilp_failure(mock_repo, test_db):
     mock_repo.prepare_address_clusters_refresh.assert_awaited_once()
     mock_repo.commit_address_clusters_refresh.assert_not_awaited()
     mock_repo.abort_address_clusters_refresh.assert_awaited_once()
+
+
+def test_ingest_to_db_exits_nonzero_when_the_bulk_save_fails(monkeypatch):
+    import runpy
+
+    class _Repo:
+        async def initialize(self):
+            return None
+
+        async def save_address_clusters_bulk(self, rows):
+            return False
+
+    monkeypatch.setattr("api.questdb_repository.QuestDBRepository", _Repo)
+    with pytest.raises(SystemExit) as exc:
+        runpy.run_path("scripts/bootstrap/ingest_to_db.py", run_name="__main__")
+    assert exc.value.code == 1
+
+
+def test_sync_main_exits_nonzero_when_the_sync_fails(monkeypatch, tmp_path):
+    import runpy
+    import sys
+
+    import duckdb as _duckdb
+
+    db = tmp_path / "x.duckdb"
+    _duckdb.connect(str(db)).close()
+
+    class _Repo:
+        async def initialize(self):
+            return None
+
+        async def close(self):
+            return None
+
+        async def prepare_address_clusters_refresh(self):
+            return False
+
+    monkeypatch.setattr("api.questdb_repository.QuestDBRepository", _Repo)
+    monkeypatch.setattr("api.config.DUCKDB_PATH", str(db))
+    monkeypatch.setattr(sys, "argv", ["sync"])
+    with pytest.raises(SystemExit) as exc:
+        runpy.run_path(
+            "scripts/bootstrap/sync_clusters_to_questdb.py", run_name="__main__"
+        )
+    assert exc.value.code == 1
