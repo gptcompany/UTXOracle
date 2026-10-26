@@ -10,13 +10,15 @@ Usage:
   python3 scripts/bootstrap/sync_clusters_to_questdb.py [--batch-size 100000]
 
 The whole refresh runs under the host-local address_clusters lock (see
-QuestDBRepository.refresh_lock); if another refresh holds it the script exits non-zero.
+QuestDBRepository.refresh_address_clusters, the only place that takes it); if another
+refresh holds it the script exits non-zero.
 """
 
 import argparse
 import asyncio
 import os
 import sys
+from typing import Optional
 
 import duckdb
 
@@ -25,14 +27,17 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 
 from api.config import DUCKDB_PATH, setup_logging
 from api.questdb_repository import (
+    AddressClustersLostError,
     ConcurrentRefreshError,
     OldCopyCleanupError,
     QuestDBRepository,
 )
 
 # Exit codes: 0 synced; 1 failed, DuckDB missing or concurrent refresh; 2 usage error
-# (argparse); 5 swap ok but cleanup of an older _old copy failed (see the ERROR).
+# (argparse); 5 swap ok but cleanup of an older _old copy failed (see the ERROR);
+# 6 neither address_clusters nor an _old copy exists after a failed cutover.
 EXIT_CLEANUP_FAILED = 5
+EXIT_CLUSTERS_LOST = 6
 
 logger = setup_logging("sync_clusters")
 
@@ -103,49 +108,47 @@ async def sync_clusters(
         logger.error(f"Failed to read DuckDB address_clusters: {e}")
         return False
 
-    # 3. Prepare QuestDB staging table
-    if not await repo.prepare_address_clusters_refresh():
-        return False
+    # 3. Stage the rows and publish them; the refresh lock is taken inside the repository
+    async def producer() -> Optional[int]:
+        total_synced = 0
+        while True:
+            batch = cursor.fetchmany(batch_size)
+            if not batch:
+                return total_synced
 
-    total_synced = 0
-    while True:
-        batch = cursor.fetchmany(batch_size)
-        if not batch:
-            break
-
-        rows_to_insert = []
-        for row in batch:
-            rows_to_insert.append(
-                {
-                    "address": row[0],
-                    "cluster_id": row[1],
-                    "first_seen": row[2],
-                    "last_seen": row[3],
-                    "is_exchange_likely": bool(row[4]) if row[4] is not None else False,
-                    "label": row[5],
-                    # Default confidence based on spec-047 guidelines: 0.8 if labeled, 0.6 otherwise
-                    "confidence": 0.8 if row[5] else 0.6,
-                }
-            )
-
-        for r in rows_to_insert:
-            row_success = repo.stage_address_cluster(r)
-            if not row_success:
-                logger.error(
-                    "Failed to ingest address cluster for address=%s cluster_id=%s",
-                    r["address"],
-                    r["cluster_id"],
+            rows_to_insert = []
+            for row in batch:
+                rows_to_insert.append(
+                    {
+                        "address": row[0],
+                        "cluster_id": row[1],
+                        "first_seen": row[2],
+                        "last_seen": row[3],
+                        "is_exchange_likely": bool(row[4])
+                        if row[4] is not None
+                        else False,
+                        "label": row[5],
+                        # Default confidence based on spec-047 guidelines: 0.8 if labeled, 0.6 otherwise
+                        "confidence": 0.8 if row[5] else 0.6,
+                    }
                 )
-                await repo.abort_address_clusters_refresh()
-                return False
 
-        total_synced += len(rows_to_insert)
-        logger.info(f"Synced {total_synced:,} / {total_rows:,} clusters...")
+            for r in rows_to_insert:
+                if not repo.stage_address_cluster(r):
+                    logger.error(
+                        "Failed to ingest address cluster for address=%s cluster_id=%s",
+                        r["address"],
+                        r["cluster_id"],
+                    )
+                    return None
 
-    if not await repo.commit_address_clusters_refresh(total_synced):
+            total_synced += len(rows_to_insert)
+            logger.info(f"Synced {total_synced:,} / {total_rows:,} clusters...")
+
+    if not await repo.refresh_address_clusters(producer):
         return False
 
-    logger.info(f"✅ Successfully synchronized {total_synced:,} clusters to QuestDB.")
+    logger.info(f"✅ Successfully synchronized {total_rows:,} clusters to QuestDB.")
     return True
 
 
@@ -169,14 +172,16 @@ async def main() -> int:
     conn = duckdb.connect(DUCKDB_PATH, read_only=True)
 
     try:
-        with repo.refresh_lock():
-            ok = await sync_clusters(repo, conn, args.batch_size)
+        ok = await sync_clusters(repo, conn, args.batch_size)
         return 0 if ok else 1
     except ConcurrentRefreshError:
         return 1  # already logged as concurrent_refresh
     except OldCopyCleanupError as e:
         logger.error("%s", e)
         return EXIT_CLEANUP_FAILED
+    except AddressClustersLostError as e:
+        logger.error("%s", e)
+        return EXIT_CLUSTERS_LOST
     finally:
         conn.close()
         await repo.close()

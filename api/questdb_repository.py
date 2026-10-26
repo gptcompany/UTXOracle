@@ -3,7 +3,6 @@ Repository for interacting with QuestDB.
 """
 
 import asyncio
-import contextvars
 import fcntl
 import logging
 import weakref
@@ -12,7 +11,6 @@ import time
 import json
 import os
 import re
-from contextlib import contextmanager
 from pathlib import Path
 from api.models.data import WhaleTransaction, NetFlowMetrics, Alert
 from scripts.models.metrics_models import (
@@ -146,9 +144,72 @@ class CutoverSwapError(RuntimeError):
         self.restored = restored
 
 
-_LOCK_HELD: contextvars.ContextVar[bool] = contextvars.ContextVar(
-    "address_clusters_lock_held", default=False
-)
+class RefreshLockError(RuntimeError):
+    """A refresh mutation was called without the live lock token."""
+
+
+class AddressClustersLostError(RuntimeError):
+    """No live table and no _old copy after a failed cutover (exit code 6)."""
+
+
+class RefreshLock:
+    """Token of the host-local flock that serialises address_clusters refreshes.
+
+    Acquired in ONE place, QuestDBRepository.refresh_address_clusters (which every
+    caller, sync_clusters and save_address_clusters_bulk included, goes through), and held
+    from before the first mutation to commit or abort. prepare, commit and abort require
+    the live token. No reentrancy: a second acquire, in this process or another, is
+    refused with ERROR `concurrent_refresh`.
+
+    Path: $ADDRESS_CLUSTERS_LOCK_DIR/address_clusters.lock, default
+    <project>/data/locks/address_clusters.lock. `data/` is the directory the compose
+    services (data-updater included) bind-mount at /app/data, so host and containers
+    lock the same inode.
+    """
+
+    def __init__(self, fd: int, path: Path):
+        self._fd: Optional[int] = fd
+        self.path = path
+
+    @classmethod
+    def acquire(cls) -> "RefreshLock":
+        lock_dir = Path(
+            os.getenv("ADDRESS_CLUSTERS_LOCK_DIR")
+            or Path(__file__).resolve().parent.parent / "data" / "locks"
+        )
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        path = lock_dir / "address_clusters.lock"
+        fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            os.close(fd)
+            logger.error(
+                "address_clusters refresh refused (concurrent_refresh): %s is locked "
+                "by another holder",
+                path,
+            )
+            raise ConcurrentRefreshError(str(path))
+        return cls(fd, path)
+
+    @property
+    def alive(self) -> bool:
+        return self._fd is not None
+
+    def release(self) -> None:
+        if self._fd is not None:
+            os.close(self._fd)  # closing the descriptor releases the flock
+            self._fd = None
+
+
+def _require_lock(token: Any) -> None:
+    if not isinstance(token, RefreshLock) or not token.alive:
+        raise RefreshLockError(
+            "address_clusters refresh mutations need the live RefreshLock "
+            "(go through QuestDBRepository.refresh_address_clusters)"
+        )
+
+
 _OLD_COPY_RE = re.compile(r"^address_clusters_old_[0-9]{8}T[0-9]{6}Z$")
 
 
@@ -1567,46 +1628,6 @@ class QuestDBRepository:
             logger.error(f"Failed to stage address_clusters row over ILP/HTTP: {e}")
             return False
 
-    @contextmanager
-    def refresh_lock(self):
-        """Host-local flock serialising address_clusters refreshes (one lock file).
-
-        Path: $ADDRESS_CLUSTERS_LOCK_DIR/address_clusters.lock, default
-        <project>/data/locks/address_clusters.lock. `data/` is the directory the compose
-        services (data-updater included) bind-mount at /app/data, so host and containers
-        lock the same inode. Re-entrancy is per TASK (a ContextVar, inherited by tasks the
-        owner spawns), not per repository: the entry points hold it for the whole
-        prepare..commit while prepare and commit also take it, but a second coroutine on
-        the same repository has no marker, tries a new non-reentrant flock and is refused.
-        Already held: ERROR `concurrent_refresh` and ConcurrentRefreshError.
-        """
-        if _LOCK_HELD.get():
-            yield  # this task (or one it spawned) already owns the lock
-            return
-        lock_dir = Path(
-            os.getenv("ADDRESS_CLUSTERS_LOCK_DIR")
-            or Path(__file__).resolve().parent.parent / "data" / "locks"
-        )
-        lock_dir.mkdir(parents=True, exist_ok=True)
-        path = lock_dir / "address_clusters.lock"
-        fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            os.close(fd)
-            logger.error(
-                "address_clusters refresh refused (concurrent_refresh): %s is locked "
-                "by another process",
-                path,
-            )
-            raise ConcurrentRefreshError(str(path))
-        token = _LOCK_HELD.set(True)
-        try:
-            yield
-        finally:
-            _LOCK_HELD.reset(token)
-            os.close(fd)  # closing the descriptor releases the flock
-
     async def _run_ddl(self, *statements: str) -> None:
         """Run DDL on a dedicated connection (never the pool); a failure raises."""
         conn = await self._open_dedicated_connection()
@@ -1622,24 +1643,26 @@ class QuestDBRepository:
         finally:
             await conn.close()
 
-    async def prepare_address_clusters_refresh(self) -> bool:
+    async def prepare_address_clusters_refresh(self, token: RefreshLock) -> bool:
         """
         Make sure the staging table exists and is empty before loading a snapshot.
 
-        The live table is left untouched until the cutover. A failure raises.
+        Needs the live lock token. The live table is left untouched until the cutover. A
+        failure raises.
         """
-        with self.refresh_lock():
-            self._close_refresh_sender()
-            await self._run_ddl(
-                ADDRESS_CLUSTERS_STAGING_DDL,
-                f"TRUNCATE TABLE {ADDRESS_CLUSTERS_STAGING_TABLE}",
-            )
+        _require_lock(token)
+        self._close_refresh_sender()
+        await self._run_ddl(
+            ADDRESS_CLUSTERS_STAGING_DDL,
+            f"TRUNCATE TABLE {ADDRESS_CLUSTERS_STAGING_TABLE}",
+        )
         logger.info("Prepared QuestDB address_clusters staging table.")
         return True
 
-    async def abort_address_clusters_refresh(self) -> None:
-        """Abort a staged refresh before the cutover: the staged rows are dropped. A
-        failing TRUNCATE raises."""
+    async def abort_address_clusters_refresh(self, token: RefreshLock) -> None:
+        """Abort a staged refresh before the cutover: the staged rows are dropped. Needs
+        the live lock token; a failing TRUNCATE raises."""
+        _require_lock(token)
         self._close_refresh_sender()
         await self._run_ddl(f"TRUNCATE TABLE {ADDRESS_CLUSTERS_STAGING_TABLE}")
 
@@ -1813,6 +1836,60 @@ class QuestDBRepository:
             ) from e
         return (_monotonic() - absent_since) * 1000.0
 
+    async def _guarded_swap(self, conn, live: str, staging: str, old: str) -> float:
+        """_swap_tables (both RENAMEs and the undo) in a shielded task: a cancellation
+        while the second RENAME is in flight waits for the swap to finish, then
+        propagates. What was left is judged from the observed tables (_reconcile_tables),
+        never from the exception branch."""
+        task = asyncio.ensure_future(self._swap_tables(conn, live, staging, old))
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            await asyncio.gather(task, return_exceptions=True)
+            raise
+
+    async def _reconcile_tables(
+        self, live: str, prefix: str, *, after_failure: bool = False
+    ) -> None:
+        """Idempotent repair from the observed state (covers SIGKILL between the RENAMEs).
+
+        live absent + `<prefix>_old_*` present -> RENAME the newest _old to live (ERROR);
+        live present -> nothing (a published swap; its _old is the rollback copy and is
+        dropped only by the next successful refresh); neither -> first install at the
+        start of a refresh, AddressClustersLostError (exit 6) after a failure.
+        """
+        old_re = re.compile(rf"^{re.escape(prefix)}_old_[0-9]{{8}}T[0-9]{{6}}Z$")
+        if await self.fetch(
+            f"SELECT table_name FROM tables() WHERE table_name = '{live}'"
+        ):
+            return
+        olds = sorted(
+            row[0]
+            for row in await self.fetch(
+                f"SELECT table_name FROM tables() WHERE table_name LIKE '{prefix}_old_%'"
+            )
+            if old_re.match(row[0])
+        )
+        if not olds:
+            if after_failure:
+                raise AddressClustersLostError(
+                    f"no {live} and no {prefix}_old_* copy after a failed cutover: "
+                    "restore from a backup or rebuild it with "
+                    "`uv run python -m scripts.bootstrap.sync_clusters_to_questdb`"
+                )
+            logger.info("No %s and no _old copy: first install", live)
+            return
+        await self._run_ddl(f"RENAME TABLE {olds[-1]} TO {live}")
+        logger.error("%s was missing: restored from %s", live, olds[-1])
+
+    async def reconcile_address_clusters(
+        self, token: RefreshLock, *, after_failure: bool = False
+    ) -> None:
+        _require_lock(token)
+        await self._reconcile_tables(
+            ADDRESS_CLUSTERS_TABLE, ADDRESS_CLUSTERS_TABLE, after_failure=after_failure
+        )
+
     async def _cutover(self) -> bool:
         """Swap the verified staging table in as the live table (RENAME, not INSERT).
 
@@ -1835,7 +1912,7 @@ class QuestDBRepository:
         try:
             if live_exists:
                 try:
-                    window_ms = await self._swap_tables(
+                    window_ms = await self._guarded_swap(
                         conn,
                         ADDRESS_CLUSTERS_TABLE,
                         ADDRESS_CLUSTERS_STAGING_TABLE,
@@ -1843,9 +1920,20 @@ class QuestDBRepository:
                     )
                 except CutoverSwapError as e:
                     logger.error("address_clusters cutover failed: %s", e)
-                    if not e.restored:
-                        raise
+                    if not e.restored:  # retry the restore from the observed state
+                        await self._reconcile_tables(
+                            ADDRESS_CLUSTERS_TABLE,
+                            ADDRESS_CLUSTERS_TABLE,
+                            after_failure=True,
+                        )
                     return False
+                except BaseException:  # cancellation, KeyboardInterrupt ...
+                    await self._reconcile_tables(
+                        ADDRESS_CLUSTERS_TABLE,
+                        ADDRESS_CLUSTERS_TABLE,
+                        after_failure=True,
+                    )
+                    raise
                 logger.info(
                     "address_clusters swapped in; %s absent for %.1f ms; previous "
                     "kept as %s",
@@ -1901,6 +1989,7 @@ class QuestDBRepository:
 
     async def commit_address_clusters_refresh(
         self,
+        token: RefreshLock,
         expected_rows: int,
         *,
         max_wait_s: Optional[float] = None,
@@ -1909,44 +1998,73 @@ class QuestDBRepository:
         """
         Publish a staged address_clusters snapshot after the ILP load completes.
 
-        `expected_rows` is the number of rows sent to staging. The staging table is
-        verified (see _publish_staging) and swapped in with RENAME (see _cutover). Any
-        failed check aborts, leaving the live table untouched; an unexpected exception
-        is logged with its traceback and re-raised so the job exits non-zero.
+        Needs the live lock token. `expected_rows` is the number of rows sent to
+        staging. The staging table is verified (see _publish_staging) and swapped in with
+        RENAME (see _cutover). Any failed check aborts, leaving the live table untouched;
+        an unexpected exception is logged with its traceback and re-raised so the job
+        exits non-zero.
         """
-        with self.refresh_lock():
+        _require_lock(token)
+        try:
+            published = await self._publish_staging(
+                expected_rows,
+                max_wait_s=max_wait_s
+                if max_wait_s is not None
+                else self._default_max_wait_s(expected_rows),
+                poll_s=poll_s,
+            )
+        except Exception:
+            logger.exception("address_clusters staging failed before cutover")
+            await self.abort_address_clusters_refresh(token)
+            raise
+        if not published:
+            await self.abort_address_clusters_refresh(token)
+            return False
+        return await self._cutover()
+
+    async def refresh_address_clusters(
+        self,
+        producer,
+        *,
+        max_wait_s: Optional[float] = None,
+        poll_s: float = ADDRESS_CLUSTERS_POLL_S,
+    ) -> bool:
+        """The ONLY place that takes the refresh lock; every refresh goes through here.
+
+        Under the lock, from before the first mutation to commit or abort: reconcile the
+        tables, prepare the staging table, run `producer` (an async callable that stages
+        the rows and returns how many, or None on failure), commit or abort.
+        """
+        token = RefreshLock.acquire()
+        try:
+            await self.reconcile_address_clusters(token)
+            await self.prepare_address_clusters_refresh(token)
             try:
-                published = await self._publish_staging(
-                    expected_rows,
-                    max_wait_s=max_wait_s
-                    if max_wait_s is not None
-                    else self._default_max_wait_s(expected_rows),
-                    poll_s=poll_s,
-                )
+                expected_rows = await producer()
             except Exception:
-                logger.exception("address_clusters staging failed before cutover")
-                await self.abort_address_clusters_refresh()
+                await self.abort_address_clusters_refresh(token)
                 raise
-            if not published:
-                await self.abort_address_clusters_refresh()
+            if expected_rows is None:
+                await self.abort_address_clusters_refresh(token)
                 return False
-            return await self._cutover()
+            return await self.commit_address_clusters_refresh(
+                token, expected_rows, max_wait_s=max_wait_s, poll_s=poll_s
+            )
+        finally:
+            token.release()
 
     async def save_address_clusters_bulk(self, rows: List[Dict[str, Any]]) -> bool:
         """
         Stage and publish a full address_clusters refresh via ILP/HTTP and RENAME.
         """
-        with self.refresh_lock():
-            if not await self.prepare_address_clusters_refresh():
-                return False
 
+        async def producer() -> Optional[int]:
             for row in rows:
-                row_success = self.stage_address_cluster(row)
-                if not row_success:
-                    await self.abort_address_clusters_refresh()
-                    return False
+                if not self.stage_address_cluster(row):
+                    return None
+            return len(rows)
 
-            return await self.commit_address_clusters_refresh(len(rows))
+        return await self.refresh_address_clusters(producer)
 
     async def get_cluster_for_address(self, address: str) -> Optional[Dict[str, Any]]:
         """Fetch fine-grained cluster info from QuestDB."""

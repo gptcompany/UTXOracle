@@ -2,13 +2,16 @@ import csv
 import asyncio
 import sys
 from api.questdb_repository import (
+    AddressClustersLostError,
     ConcurrentRefreshError,
     OldCopyCleanupError,
     QuestDBRepository,
 )
 
-# Exit codes: 0 ingested; 1 failed or concurrent refresh; 5 swap ok, cleanup failed.
+# Exit codes: 0 ingested; 1 failed or concurrent refresh; 5 swap ok, cleanup failed;
+# 6 neither address_clusters nor an _old copy exists after a failed cutover.
 EXIT_CLEANUP_FAILED = 5
+EXIT_CLUSTERS_LOST = 6
 
 
 async def ingest() -> int:
@@ -32,6 +35,9 @@ async def ingest() -> int:
     except ConcurrentRefreshError:
         print("❌ Another address_clusters refresh is running")
         return 1
+    except AddressClustersLostError as e:
+        print(f"❌ {e}")
+        return EXIT_CLUSTERS_LOST
     except OldCopyCleanupError as e:
         print(f"⚠️ Ingested to DB, but {e}")
         return EXIT_CLEANUP_FAILED

@@ -1,5 +1,3 @@
-import contextlib
-
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 import duckdb
@@ -13,6 +11,20 @@ def _lock_dir(monkeypatch, tmp_path):
     monkeypatch.setenv("ADDRESS_CLUSTERS_LOCK_DIR", str(tmp_path / "locks"))
 
 
+def _db_with_one_cluster(path):
+    import duckdb as _duckdb
+
+    conn = _duckdb.connect(str(path))
+    conn.execute(
+        "CREATE TABLE address_clusters (address VARCHAR, cluster_id VARCHAR, "
+        "first_seen TIMESTAMP, last_seen TIMESTAMP)"
+    )
+    conn.execute(
+        "INSERT INTO address_clusters VALUES ('a', 'c', '2024-01-01', '2024-01-02')"
+    )
+    conn.close()
+
+
 @pytest.fixture
 def mock_repo():
     repo = QuestDBRepository()
@@ -20,6 +32,7 @@ def mock_repo():
     repo.stage_address_cluster = MagicMock(return_value=True)
     repo.commit_address_clusters_refresh = AsyncMock(return_value=True)
     repo.abort_address_clusters_refresh = AsyncMock()
+    repo.reconcile_address_clusters = AsyncMock()
     return repo
 
 
@@ -107,6 +120,49 @@ async def test_sync_clusters_returns_false_on_ilp_failure(mock_repo, test_db):
     mock_repo.abort_address_clusters_refresh.assert_awaited_once()
 
 
+@pytest.mark.asyncio
+async def test_sync_clusters_is_refused_while_another_process_holds_the_lock(
+    mock_repo, test_db, tmp_path
+):
+    """The bootstraps call sync_clusters directly: the lock must be inside it (R2)."""
+    import fcntl
+    import os
+
+    from api.questdb_repository import ConcurrentRefreshError
+
+    lock_dir = tmp_path / "locks"
+    lock_dir.mkdir()
+    fd = os.open(lock_dir / "address_clusters.lock", os.O_CREAT | os.O_RDWR, 0o644)
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    try:
+        with pytest.raises(ConcurrentRefreshError):
+            await sync_clusters(mock_repo, test_db, batch_size=2)
+    finally:
+        os.close(fd)
+
+    mock_repo.prepare_address_clusters_refresh.assert_not_awaited()
+    mock_repo.abort_address_clusters_refresh.assert_not_awaited()
+    assert mock_repo.stage_address_cluster.call_count == 0  # staging untouched
+
+
+def test_ingest_to_db_exits_6_when_live_and_old_copies_are_both_gone(monkeypatch):
+    import runpy
+
+    from api.questdb_repository import AddressClustersLostError
+
+    class _Repo:
+        async def initialize(self):
+            return None
+
+        async def save_address_clusters_bulk(self, rows):
+            raise AddressClustersLostError("restore address_clusters ...")
+
+    monkeypatch.setattr("api.questdb_repository.QuestDBRepository", _Repo)
+    with pytest.raises(SystemExit) as exc:
+        runpy.run_path("scripts/bootstrap/ingest_to_db.py", run_name="__main__")
+    assert exc.value.code == 6
+
+
 def test_ingest_to_db_exits_5_when_the_swap_is_ok_but_cleanup_failed(monkeypatch):
     import runpy
 
@@ -131,12 +187,10 @@ def test_sync_main_exits_5_when_the_swap_is_ok_but_cleanup_failed(
     import runpy
     import sys
 
-    import duckdb as _duckdb
-
     from api.questdb_repository import OldCopyCleanupError
 
     db = tmp_path / "x.duckdb"
-    _duckdb.connect(str(db)).close()
+    _db_with_one_cluster(db)
 
     class _Repo:
         async def initialize(self):
@@ -145,7 +199,7 @@ def test_sync_main_exits_5_when_the_swap_is_ok_but_cleanup_failed(
         async def close(self):
             return None
 
-        def refresh_lock(self):
+        async def refresh_address_clusters(self, producer):
             raise OldCopyCleanupError(["address_clusters_old_20260101T000000Z"])
 
     monkeypatch.setattr("api.questdb_repository.QuestDBRepository", _Repo)
@@ -193,8 +247,8 @@ def test_sync_main_exits_nonzero_when_the_sync_fails(monkeypatch, tmp_path):
         async def prepare_address_clusters_refresh(self):
             return False
 
-        def refresh_lock(self):
-            return contextlib.nullcontext()
+        async def refresh_address_clusters(self, producer):
+            return False
 
     monkeypatch.setattr("api.questdb_repository.QuestDBRepository", _Repo)
     monkeypatch.setattr("api.config.DUCKDB_PATH", str(db))
@@ -211,14 +265,11 @@ def test_sync_main_exits_nonzero_when_another_refresh_holds_the_lock(
 ):
     import runpy
     import sys
-    from contextlib import contextmanager
-
-    import duckdb as _duckdb
 
     from api.questdb_repository import ConcurrentRefreshError
 
     db = tmp_path / "x.duckdb"
-    _duckdb.connect(str(db)).close()
+    _db_with_one_cluster(db)
 
     class _Repo:
         async def initialize(self):
@@ -227,10 +278,8 @@ def test_sync_main_exits_nonzero_when_another_refresh_holds_the_lock(
         async def close(self):
             return None
 
-        @contextmanager
-        def refresh_lock(self):
+        async def refresh_address_clusters(self, producer):
             raise ConcurrentRefreshError("locked")
-            yield
 
     monkeypatch.setattr("api.questdb_repository.QuestDBRepository", _Repo)
     monkeypatch.setattr("api.config.DUCKDB_PATH", str(db))
@@ -240,3 +289,34 @@ def test_sync_main_exits_nonzero_when_another_refresh_holds_the_lock(
             "scripts/bootstrap/sync_clusters_to_questdb.py", run_name="__main__"
         )
     assert exc.value.code == 1
+
+
+def test_sync_main_exits_6_when_live_and_old_copies_are_both_gone(
+    monkeypatch, tmp_path
+):
+    import runpy
+    import sys
+
+    from api.questdb_repository import AddressClustersLostError
+
+    db = tmp_path / "x.duckdb"
+    _db_with_one_cluster(db)
+
+    class _Repo:
+        async def initialize(self):
+            return None
+
+        async def close(self):
+            return None
+
+        async def refresh_address_clusters(self, producer):
+            raise AddressClustersLostError("restore address_clusters ...")
+
+    monkeypatch.setattr("api.questdb_repository.QuestDBRepository", _Repo)
+    monkeypatch.setattr("api.config.DUCKDB_PATH", str(db))
+    monkeypatch.setattr(sys, "argv", ["sync"])
+    with pytest.raises(SystemExit) as exc:
+        runpy.run_path(
+            "scripts/bootstrap/sync_clusters_to_questdb.py", run_name="__main__"
+        )
+    assert exc.value.code == 6
