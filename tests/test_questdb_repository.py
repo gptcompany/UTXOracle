@@ -976,6 +976,11 @@ def _patch_create_tables(monkeypatch, catalog):
             elif q.startswith("CREATE TABLE IF NOT EXISTS address_clusters ("):
                 catalog.setdefault("address_clusters", "empty")
 
+        async def fetchrow(self, query, *args):
+            return (
+                None  # tables() state read by the daily-dedup step: nothing to migrate
+            )
+
         async def close(self):
             return None
 
