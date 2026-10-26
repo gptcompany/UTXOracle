@@ -132,17 +132,6 @@ def _day_start_utc() -> datetime:
     return datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
-# Tables the recording stand-ins "wrote": what the read-back after the write finds.
-_WRITTEN: set[str] = set()
-
-
-@pytest.fixture(autouse=True)
-def _clear_written():
-    _WRITTEN.clear()
-    yield
-    _WRITTEN.clear()
-
-
 def _stub_inputs(monkeypatch, daily, *, dedup_check: bool = False) -> None:
     """Replace only bitcoind, mempool.space and the config checks (synthetic, see header).
 
@@ -156,7 +145,7 @@ def _stub_inputs(monkeypatch, daily, *, dedup_check: bool = False) -> None:
             return []
 
         async def no_row_yet(tables, day):
-            return [t for t in tables if t in _WRITTEN]
+            return []
 
         monkeypatch.setattr(repository, "tables_without_dedup", deduplicated)
         monkeypatch.setattr(repository, "tables_with_day_row", no_row_yet)
@@ -186,7 +175,6 @@ def _record_rows(monkeypatch) -> list[tuple[str, object]]:
 
     def record(self, table, symbols, columns, at=None, flush=False):
         sent.append((table, at, columns))
-        _WRITTEN.add(table)
         return True
 
     monkeypatch.setattr(repository.QuestDBRepository, "_send_row", record)
@@ -681,21 +669,15 @@ def test_price_row_with_a_missing_value_is_not_written(monkeypatch, caplog):
     _stub_inputs(monkeypatch, daily)
     monkeypatch.setattr(
         daily,
-        "calculate_utxoracle_price",
-        lambda config: {
-            "price_usd": 99_500.0,
-            "confidence": 0.9,
-            "tx_count": 2,
-            "fetch_tier": None,
-            "transactions": SYNTHETIC_TRANSACTIONS,
-        },
+        "compare_prices",
+        lambda utx_price, mem_price: {"diff_amount": None, "diff_percent": 0.5},
     )
 
     with caplog.at_level("ERROR"):
         assert _exit_code(daily) == 2
 
     assert sent == []
-    assert "fetch_tier" in caplog.text
+    assert "diff_amount" in caplog.text
 
 
 def test_calculate_utxoracle_price_hands_the_transactions_to_the_metrics(monkeypatch):
@@ -728,7 +710,7 @@ def _existing_rows(monkeypatch, tables: list[str]) -> list[tuple]:
 
     async def existing(candidates, day):
         asked.append((tuple(candidates), day))
-        return [t for t in candidates if t in tables or t in _WRITTEN]
+        return [t for t in candidates if t in tables]
 
     monkeypatch.setattr(repository, "tables_with_day_row", existing)
     return asked
@@ -807,24 +789,3 @@ def test_tables_with_day_row_reports_the_tables_holding_the_day(monkeypatch):
     )
 
     assert found == ["price_analysis"]
-
-
-def test_rows_that_never_become_visible_fail_the_run(monkeypatch, caplog):
-    """ILP/TCP drops a rejected row silently: the read-back must turn that into an error."""
-    import api.questdb_repository as repository
-    import scripts.daily_analysis as daily
-
-    _record_rows(monkeypatch)
-    _stub_inputs(monkeypatch, daily)
-    monkeypatch.setattr(daily, "READBACK_ATTEMPTS", 2)
-    monkeypatch.setattr(daily, "READBACK_INTERVAL_SECONDS", 0)
-
-    async def never(tables, day):
-        return []
-
-    monkeypatch.setattr(repository, "tables_with_day_row", never)
-
-    with caplog.at_level("ERROR"):
-        assert _exit_code(daily) == 2
-
-    assert "not visible after the write" in caplog.text

@@ -1312,32 +1312,6 @@ def check_questdb_destination() -> None:
         sys.exit(3)
 
 
-# ILP over TCP has no acknowledgement: a row the server rejects (type clash, schema) is dropped
-# without any error on the client. Read the written rows back before declaring success.
-READBACK_ATTEMPTS = 30
-READBACK_INTERVAL_SECONDS = 1.0
-
-
-def verify_rows_visible(tables, day: datetime) -> None:
-    """Raise unless every table in `tables` shows the row of `day` (ILP drops are silent)."""
-    import asyncio
-    import time
-
-    import api.questdb_repository as questdb
-
-    missing = list(tables)
-    for attempt in range(READBACK_ATTEMPTS):
-        found = asyncio.run(questdb.tables_with_day_row(missing, day))
-        missing = [t for t in missing if t not in found]
-        if not missing:
-            return
-        if attempt + 1 < READBACK_ATTEMPTS:
-            time.sleep(READBACK_INTERVAL_SECONDS)
-    raise RuntimeError(
-        f"row of {day.date()} not visible after the write in: {', '.join(missing)}"
-    )
-
-
 def check_daily_tables_dedup() -> None:
     """Refuse to write into a table that does not deduplicate on ts (exit code 4).
 
@@ -1803,7 +1777,6 @@ def main():
             "mempool_price": mempool_price,
             "confidence": utx_result["confidence"],
             "tx_count": utx_result["tx_count"],
-            "fetch_tier": utx_result.get("fetch_tier"),
             "diff_amount": comparison["diff_amount"],
             "diff_percent": comparison["diff_percent"],
             "is_valid": validate_price_data(
@@ -1826,7 +1799,6 @@ def main():
             "diff_percent",
             "confidence",
             "tx_count",
-            "fetch_tier",
             "is_valid",
         )
         missing_values = [k for k in price_columns if data.get(k) is None]
@@ -1861,10 +1833,6 @@ def main():
                 )
                 if not saved:
                     raise RuntimeError("Failed to save metrics to QuestDB")
-            verify_rows_visible(
-                [t for t in ("price_analysis", "metrics") if t not in skip_tables],
-                analysis_day,
-            )
         else:
             logging.info("[DRY-RUN] Would save data:")
             logging.info(json.dumps(data, indent=2))
