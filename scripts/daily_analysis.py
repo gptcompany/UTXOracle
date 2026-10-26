@@ -19,7 +19,7 @@ import json
 import argparse
 import logging
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional, List
 from pathlib import Path
 
@@ -1047,8 +1047,8 @@ def save_to_questdb(data: Dict) -> None:
     """
     Save price comparison data to QuestDB.
 
-    The row key is data["timestamp"]: for the daily run it is the UTC day of execution at
-    00:00Z, the last snapshot of that day counts, and a rerun on the same day replaces the
+    The row key is data["timestamp"]: for the daily run it is the analysed day, the UTC day
+    before the run, at 00:00Z (see analysis_day_for); a write with the same key replaces the
     row (DEDUP UPSERT KEYS(ts)).
 
     Args:
@@ -1332,6 +1332,64 @@ def check_daily_tables_dedup() -> None:
         sys.exit(4)
 
 
+def utc_now() -> datetime:
+    """The clock of the run (a function, so tests can inject a time)."""
+    return datetime.now(timezone.utc)
+
+
+def analysis_day_for(now: datetime) -> datetime:
+    """Row key of both tables: the analysed day, the UTC day before `now`, at 00:00Z.
+
+    The timer runs at 01:30Z and UTXOracle produces the price of "yesterday": the price is
+    computed from the recent transactions at run time, i.e. mostly the day D-1. Any run on
+    the same UTC date gets the same key, so the first successful run of the day wins and a
+    rerun replaces nothing unless --overwrite is given (DEDUP UPSERT KEYS(ts) is the net).
+    """
+    return (now.astimezone(timezone.utc) - timedelta(days=1)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+
+
+def preflight(args) -> tuple[datetime, set[str], bool]:
+    """Destination, dedup and already-written-day checks, before any computation or write.
+
+    Returns (analysis_day, tables to skip, nothing_to_do). Runs inside main()'s try so every
+    non-zero exit (3, 4 through sys.exit; 2 through any exception) is logged the same way.
+    """
+    check_questdb_destination()
+    analysis_day = analysis_day_for(utc_now())
+    skip_tables: set[str] = set()
+    if args.dry_run:
+        return analysis_day, skip_tables, False
+
+    import asyncio
+
+    import api.questdb_repository as questdb
+
+    check_daily_tables_dedup()
+    existing = asyncio.run(
+        questdb.tables_with_day_row(("price_analysis", "metrics"), analysis_day)
+    )
+    if existing and args.overwrite:
+        logging.warning(
+            "--overwrite: replacing the %s row of %s already written (DEDUP upsert)",
+            ", ".join(existing),
+            analysis_day.date(),
+        )
+    elif existing:
+        skip_tables = set(existing)
+        logging.info(
+            "Row of %s already written in %s: the first successful run wins, "
+            "not writing it again (--overwrite replaces it)",
+            analysis_day.date(),
+            ", ".join(existing),
+        )
+        if len(existing) == 2:
+            logging.info("Nothing to do for %s", analysis_day.date())
+            return analysis_day, skip_tables, True
+    return analysis_day, skip_tables, False
+
+
 def main():
     """
     Main execution flow for daily analysis.
@@ -1366,40 +1424,6 @@ def main():
         logging.error(f"Configuration error: {e}")
         sys.exit(1)
 
-    check_questdb_destination()
-    # Row key of both tables: the UTC day of the run at 00:00Z. The price is computed from the
-    # recent transactions at run time (timer: 01:30Z); the first successful run of the day wins.
-    analysis_day = datetime.now(timezone.utc).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    )
-    skip_tables: set[str] = set()
-    if not args.dry_run:
-        check_daily_tables_dedup()
-        import asyncio
-
-        import api.questdb_repository as questdb
-
-        existing = asyncio.run(
-            questdb.tables_with_day_row(("price_analysis", "metrics"), analysis_day)
-        )
-        if existing and args.overwrite:
-            logging.warning(
-                "--overwrite: replacing the %s row of %s already written (DEDUP upsert)",
-                ", ".join(existing),
-                analysis_day.date(),
-            )
-        elif existing:
-            skip_tables = set(existing)
-            logging.info(
-                "Row of %s already written in %s: the first successful run wins, "
-                "not writing it again (--overwrite replaces it)",
-                analysis_day.date(),
-                ", ".join(existing),
-            )
-            if len(existing) == 2:
-                logging.info("Nothing to do for %s", analysis_day.date())
-                return
-
     # Initialize Whale Flow Detector (T042 - spec-004)
     whale_detector = None
     try:
@@ -1427,6 +1451,10 @@ def main():
     try:
         logging.info("=" * 60)
         logging.info("Starting daily analysis")
+
+        analysis_day, skip_tables, nothing_to_do = preflight(args)
+        if nothing_to_do:
+            return
 
         # Step 1: Fetch mempool.space price (T039)
         mempool_price = retry_with_backoff(

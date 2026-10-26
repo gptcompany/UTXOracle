@@ -14,7 +14,7 @@ save_metrics_to_db, the ILP sender and the QuestDB itself) is real.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import os
 import sys
 import types
@@ -129,7 +129,10 @@ async def _wait_for_count(target: dict, table: str, where: str, expected: int) -
 
 
 def _day_start_utc() -> datetime:
-    return datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    """Row key of a run now: the analysed day, i.e. yesterday (UTC) at 00:00Z."""
+    return (datetime.now(timezone.utc) - timedelta(days=1)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
 
 
 def _stub_inputs(monkeypatch, daily, *, dedup_check: bool = False) -> None:
@@ -789,3 +792,109 @@ def test_tables_with_day_row_reports_the_tables_holding_the_day(monkeypatch):
     )
 
     assert found == ["price_analysis"]
+
+
+# --- Row key = the analysed day (D-1 for the 01:30Z timer), clock injectable -------------
+
+
+def test_analysis_day_is_yesterday_at_midnight_utc_for_any_time_of_the_run_day():
+    import scripts.daily_analysis as daily
+
+    expected = datetime(2026, 10, 26, tzinfo=timezone.utc)
+    for run in (
+        datetime(2026, 10, 27, 0, 0, 30, tzinfo=timezone.utc),  # just after midnight
+        datetime(2026, 10, 27, 1, 30, tzinfo=timezone.utc),  # the timer
+        datetime(2026, 10, 27, 23, 59, tzinfo=timezone.utc),  # just before midnight
+        datetime(2026, 10, 27, 8, 30, tzinfo=timezone(timedelta(hours=7))),  # = 01:30Z
+    ):
+        assert daily.analysis_day_for(run) == expected, run
+    assert daily.analysis_day_for(
+        datetime(2026, 10, 28, 0, 0, 0, tzinfo=timezone.utc)
+    ) == datetime(2026, 10, 27, tzinfo=timezone.utc)
+
+
+def test_main_keys_both_rows_with_the_day_before_the_injected_run_time(monkeypatch):
+    import scripts.daily_analysis as daily
+
+    sent = _record_rows(monkeypatch)
+    _stub_inputs(monkeypatch, daily)
+    monkeypatch.setattr(
+        daily, "utc_now", lambda: datetime(2026, 10, 27, 1, 30, tzinfo=timezone.utc)
+    )
+
+    daily.main()
+
+    day = datetime(2026, 10, 26, tzinfo=timezone.utc)
+    assert {(table, at) for table, at, _ in sent} == {
+        ("price_analysis", day),
+        ("metrics", day),
+    }
+
+
+# --- Every non-zero exit goes through the same path (log ERROR, then the code) -----------
+
+
+def test_unreachable_questdb_in_the_dedup_check_is_an_error_exit_not_a_traceback(
+    monkeypatch, caplog
+):
+    import api.questdb_repository as repository
+    import scripts.daily_analysis as daily
+
+    sent = _record_rows(monkeypatch)
+    _stub_inputs(monkeypatch, daily, dedup_check=True)
+
+    async def down(tables):
+        raise ConnectionRefusedError("questdb down (test)")
+
+    monkeypatch.setattr(repository, "tables_without_dedup", down)
+
+    with caplog.at_level("ERROR"):
+        assert _exit_code(daily) == 2
+
+    assert sent == []
+    assert "questdb down (test)" in caplog.text
+
+
+def test_unreachable_questdb_in_the_day_row_check_is_an_error_exit(monkeypatch, caplog):
+    import api.questdb_repository as repository
+    import scripts.daily_analysis as daily
+
+    sent = _record_rows(monkeypatch)
+    _stub_inputs(monkeypatch, daily)
+
+    async def down(tables, day):
+        raise ConnectionRefusedError("questdb down (test)")
+
+    monkeypatch.setattr(repository, "tables_with_day_row", down)
+
+    with caplog.at_level("ERROR"):
+        assert _exit_code(daily) == 2
+
+    assert sent == []
+    assert "questdb down (test)" in caplog.text
+
+
+def test_destination_and_dedup_exits_keep_their_codes_and_log_the_cause(
+    monkeypatch, caplog
+):
+    import api.questdb_repository as repository
+    import scripts.daily_analysis as daily
+
+    _record_rows(monkeypatch)
+    _stub_inputs(monkeypatch, daily, dedup_check=True)
+    _set_destination(monkeypatch, ilp=("127.0.0.1", 9009))
+    _expect_destination(monkeypatch)
+    with caplog.at_level("ERROR"):
+        assert _exit_code(daily) == 3
+    assert "QuestDB destination mismatch" in caplog.text
+
+    caplog.clear()
+    _set_destination(monkeypatch)
+
+    async def without_dedup(tables):
+        return ["metrics"]
+
+    monkeypatch.setattr(repository, "tables_without_dedup", without_dedup)
+    with caplog.at_level("ERROR"):
+        assert _exit_code(daily) == 4
+    assert "without dedup" in caplog.text
