@@ -30,8 +30,6 @@ DEFAULT_DUCKDB_PATH = os.getenv("DUCKDB_PATH", "data/utxoracle.duckdb")
 def _configure_live_questdb_defaults() -> None:
     os.environ.setdefault("QUESTDB_PG_HOST", "127.0.0.1")
     os.environ.setdefault("QUESTDB_PG_PORT", "9912")
-    os.environ.setdefault("QUESTDB_ILP_HOST", "127.0.0.1")
-    os.environ.setdefault("QUESTDB_ILP_PORT", "9909")
     os.environ.setdefault("QUESTDB_HTTP_HOST", "127.0.0.1")
     os.environ.setdefault("QUESTDB_HTTP_PORT", "9900")
 

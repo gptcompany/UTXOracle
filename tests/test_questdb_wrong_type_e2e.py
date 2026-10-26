@@ -19,7 +19,6 @@ import pytest
 _TARGET_ENV = (
     "QUESTDB_TEST_HOST",
     "QUESTDB_TEST_PORT",
-    "QUESTDB_TEST_ILP_PORT",
     "QUESTDB_TEST_HTTP_PORT",
     "QUESTDB_TEST_USER",
     "QUESTDB_TEST_PASSWORD",
@@ -36,13 +35,12 @@ def _target() -> dict:
     target = {
         "host": os.environ["QUESTDB_TEST_HOST"],
         "port": int(os.environ["QUESTDB_TEST_PORT"]),
-        "ilp_port": int(os.environ["QUESTDB_TEST_ILP_PORT"]),
         "http_port": int(os.environ["QUESTDB_TEST_HTTP_PORT"]),
         "user": os.environ["QUESTDB_TEST_USER"],
         "password": os.environ["QUESTDB_TEST_PASSWORD"],
         "database": os.getenv("QUESTDB_TEST_DATABASE", "qdb"),
     }
-    forbidden = {target["port"], target["ilp_port"], target["http_port"]} & _LIVE_PORTS
+    forbidden = {target["port"], target["http_port"]} & _LIVE_PORTS
     assert not forbidden, f"QUESTDB_TEST_* points at a live QuestDB port: {forbidden}"
     # 9000 is the host QuestDB of a developer machine: accepted only on the CI service.
     if 9000 in (target["port"], target["http_port"]):
@@ -83,15 +81,8 @@ def probe(monkeypatch):
 
     target = _target()
     table = f"f434_probe_{uuid.uuid4().hex[:8]}"
-    for name, value in (
-        ("QUESTDB_ILP_HOST", target["host"]),
-        ("QUESTDB_ILP_PORT", target["ilp_port"]),
-        ("QUESTDB_HTTP_HOST", target["host"]),
-        ("QUESTDB_HTTP_PORT", target["http_port"]),
-    ):
-        # The ILP names disappear with the correction: raising=False keeps this file valid
-        # both before and after it.
-        monkeypatch.setattr(repository, name, value, raising=False)
+    monkeypatch.setattr(repository, "QUESTDB_HTTP_HOST", target["host"])
+    monkeypatch.setattr(repository, "QUESTDB_HTTP_PORT", target["http_port"])
     asyncio.run(
         _pg(
             target,
@@ -99,10 +90,7 @@ def probe(monkeypatch):
             "TIMESTAMP(ts) PARTITION BY DAY WAL",
         )
     )
-    repo = repository.QuestDBRepository()
-    monkeypatch.setattr(repo, "ilp_host", target["host"], raising=False)
-    monkeypatch.setattr(repo, "ilp_port", target["ilp_port"], raising=False)
-    yield target, table, repo
+    yield target, table, repository.QuestDBRepository()
     asyncio.run(_pg(target, f"DROP TABLE IF EXISTS {table}"))
 
 

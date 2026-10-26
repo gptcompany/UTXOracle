@@ -64,7 +64,6 @@ services:
       HYPERLIQUID_FILTERED_STREAM: ${HYPERLIQUID_FILTERED_STREAM:-hip3_oracle_updates_by_block}
       HYPERLIQUID_MAX_AGE_SECONDS: ${HYPERLIQUID_MAX_AGE_SECONDS:-900}
       QUESTDB_PG_HOST: utxoracle-live-questdb
-      QUESTDB_ILP_HOST: utxoracle-live-questdb
       QUESTDB_HTTP_HOST: utxoracle-live-questdb
     volumes:
     - ./data:/app/data
@@ -86,7 +85,6 @@ services:
       DUCKDB_PATH: /app/data/utxoracle.duckdb
       UTXORACLE_DB_PATH: /app/data/utxoracle.duckdb
       QUESTDB_PG_HOST: utxoracle-live-questdb
-      QUESTDB_ILP_HOST: utxoracle-live-questdb
       QUESTDB_HTTP_HOST: utxoracle-live-questdb
     healthcheck:
       test:
@@ -160,7 +158,6 @@ services:
       HYPERLIQUID_FILTERED_STREAM: ${HYPERLIQUID_FILTERED_STREAM:-hip3_oracle_updates_by_block}
       HYPERLIQUID_MAX_AGE_SECONDS: ${HYPERLIQUID_MAX_AGE_SECONDS:-900}
       QUESTDB_PG_HOST: utxoracle-live-questdb
-      QUESTDB_ILP_HOST: utxoracle-live-questdb
       QUESTDB_HTTP_HOST: utxoracle-live-questdb
     volumes:
     - ./data:/app/data

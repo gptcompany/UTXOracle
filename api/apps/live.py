@@ -126,7 +126,7 @@ QUESTDB_STARTUP_TIMEOUT_SECONDS = 15.0
 def _discard_failed_repo(questdb_repo: QuestDBRepository) -> None:
     """Close what a failed initialize() left open.
 
-    initialize() opens the ILP sender (:9009) before the PG pool, so a failure after that leaves
+    initialize() opens the ILP/HTTP sender before the PG pool, so a failure after that leaves
     a socket behind on every retry. Only the sender is closed: repository.close() would also
     close the class-level PG pool shared with other repository instances (e.g. the whale monitor's).
     """

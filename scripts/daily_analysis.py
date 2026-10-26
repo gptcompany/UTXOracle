@@ -36,7 +36,6 @@ from pathlib import Path
 # 7 the day to analyse is not complete yet (IncompleteWindowError, nothing written).
 FORBIDDEN_ENV_PREFIXES = ("UTXORACLE_EXPECTED_", "QUESTDB_")
 NUMERIC_QUESTDB_ENV = (  # int() at import in api/questdb_repository.py (test-checked), + below
-    "QUESTDB_ILP_PORT",
     "QUESTDB_PG_PORT",
     "QUESTDB_HTTP_PORT",
     "QUESTDB_POOL_MIN_SIZE",
@@ -1470,21 +1469,21 @@ def check_questdb_destination() -> None:
     The effective target is what the repository module holds, which is what every writer
     uses; it is read here, after load_config()/load_secrets() (override=True), so an
     override from .env cannot silently move the writes. The expectation comes from
-    UTXORACLE_EXPECTED_QUESTDB_{ILP,PG}_{HOST,PORT}, declared in the systemd unit. Without
+    UTXORACLE_EXPECTED_QUESTDB_{HTTP,PG}_{HOST,PORT}, declared in the systemd unit. Without
     any of them (manual run, tests) the target is only logged.
     """
     import api.questdb_repository as questdb
 
     effective = {
-        "ILP_HOST": str(questdb.QUESTDB_ILP_HOST),
-        "ILP_PORT": str(questdb.QUESTDB_ILP_PORT),
+        "HTTP_HOST": str(questdb.QUESTDB_HTTP_HOST),
+        "HTTP_PORT": str(questdb.QUESTDB_HTTP_PORT),
         "PG_HOST": str(questdb.QUESTDB_PG_HOST),
         "PG_PORT": str(questdb.QUESTDB_PG_PORT),
     }
     logging.info(
-        "QuestDB destination: ILP %s:%s, PG %s:%s",
-        effective["ILP_HOST"],
-        effective["ILP_PORT"],
+        "QuestDB destination: ILP/HTTP %s:%s, PG %s:%s",
+        effective["HTTP_HOST"],
+        effective["HTTP_PORT"],
         effective["PG_HOST"],
         effective["PG_PORT"],
     )

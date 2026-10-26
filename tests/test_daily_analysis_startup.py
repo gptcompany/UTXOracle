@@ -43,12 +43,12 @@ def test_env_file_with_a_non_numeric_destination_port_exits_3_before_the_import(
 ):
     result = _run(
         tmp_path,
-        f"QUESTDB_ILP_PORT={BAD}\n",
-        QUESTDB_ILP_PORT=BAD,  # what systemd's EnvironmentFile= would have loaded
+        f"QUESTDB_HTTP_PORT={BAD}\n",
+        QUESTDB_HTTP_PORT=BAD,  # what systemd's EnvironmentFile= would have loaded
     )
 
     assert result.returncode == 3, result.stderr
-    assert "QUESTDB_ILP_PORT" in result.stderr
+    assert "QUESTDB_HTTP_PORT" in result.stderr
     assert BAD not in result.stdout + result.stderr
     assert "Traceback" not in result.stderr
 
