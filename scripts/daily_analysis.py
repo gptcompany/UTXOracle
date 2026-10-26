@@ -23,21 +23,118 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional, List
 from pathlib import Path
 
+# --- Startup guards -----------------------------------------------------------------------
+# They run BEFORE the imports below: api.questdb_repository converts QUESTDB_* with int() at
+# import time, so a bad value there ended in a traceback that printed the value. Here every
+# problem is reported by variable NAME only and the process exits with a dedicated code.
+# Exit codes of the script: 0 done (or both rows of the day already present); 1 invalid
+# configuration; 2 any failure (exception, incomplete row, failed metrics block, failed
+# write); 3 QuestDB destination mismatch or a .env defining it; 4 table without dedup on ts;
+# 5 run outside its window; 6 non-numeric value in a QUESTDB_* variable read at import.
+FORBIDDEN_ENV_PREFIXES = ("UTXORACLE_EXPECTED_", "QUESTDB_")
+NUMERIC_QUESTDB_ENV = (  # int() at import time in api/questdb_repository.py (test-checked)
+    "QUESTDB_ILP_PORT",
+    "QUESTDB_PG_PORT",
+    "QUESTDB_HTTP_PORT",
+    "QUESTDB_POOL_MIN_SIZE",
+    "QUESTDB_POOL_MAX_SIZE",
+    "QUESTDB_COMMAND_TIMEOUT",
+    "QUESTDB_MAX_INACTIVE_LIFETIME",
+)
+EXIT_BAD_ENV_VALUE = 6
+
+
+def env_file_path() -> Path:
+    """The .env that load_config()/load_secrets() read (the unit's EnvironmentFile= is the
+    same file when WorkingDirectory is the repository). UTXORACLE_ENV_FILE overrides the
+    path (tests); the unit does not set it."""
+    override = os.environ.get("UTXORACLE_ENV_FILE")
+    return Path(override) if override else Path(__file__).parent.parent / ".env"
+
+
+def check_env_file_guard(log=logging) -> None:
+    """Exit 3 if the .env defines the QuestDB destination or its expectation.
+
+    The destination belongs to the systemd unit (Environment=); a .env that redefines it
+    would override the unit (EnvironmentFile= wins over Environment=) or load_secrets()
+    would. The file is read with a real parser (dotenv_values) and only the NAMES of the
+    offending keys are logged, never a value. A missing file is not an error. `log` is the
+    logging module or a logger; at startup it is a private one, so the root logger is left
+    unconfigured for setup_logging().
+    """
+    from dotenv import dotenv_values
+
+    path = env_file_path()
+    if not path.exists():
+        log.info(".env not found at %s: nothing to check", path)
+        return
+    offending = sorted(
+        key for key in dotenv_values(path) if key.startswith(FORBIDDEN_ENV_PREFIXES)
+    )
+    if offending:
+        log.error(
+            "%s defines keys reserved to the systemd unit: %s (exit 3)",
+            path,
+            ", ".join(offending),
+        )
+        sys.exit(3)
+    log.info(".env checked: no %s keys", " / ".join(FORBIDDEN_ENV_PREFIXES))
+
+
+def check_numeric_env(log=logging) -> None:
+    """Exit 6 if a QUESTDB_* variable that is converted with int() at import is not an int.
+
+    Only the variable NAMES are logged, never the value.
+    """
+    bad = []
+    for name in NUMERIC_QUESTDB_ENV:
+        value = os.environ.get(name)
+        if value is None:
+            continue
+        try:
+            int(value)
+        except ValueError:
+            bad.append(name)
+    if bad:
+        log.error(
+            "non-numeric value in: %s (values are never logged; exit %d)",
+            ", ".join(bad),
+            EXIT_BAD_ENV_VALUE,
+        )
+        sys.exit(EXIT_BAD_ENV_VALUE)
+
+
+def _startup_logger() -> logging.Logger:
+    logger = logging.getLogger("daily_analysis.startup")
+    logger.propagate = False
+    logger.setLevel(logging.INFO)
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+    logger.addHandler(handler)
+    return logger
+
+
+if __name__ == "__main__":
+    _startup = _startup_logger()
+    check_env_file_guard(_startup)
+    check_numeric_env(_startup)
+
+
 # Add parent directory and scripts directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 
 # Third-party imports
-import requests
+import requests  # noqa: E402 - after the startup guards
 
 # Use SOPS-encrypted secrets
 sys.path.insert(0, "/media/sam/1TB/claude-hooks-shared/scripts")
-from secrets_loader import load_secrets
+from secrets_loader import load_secrets  # noqa: E402 - after the startup guards
 
 # Local imports
-from UTXOracle_library import UTXOracleCalculator
-from scripts.config import UTXORACLE_DB_PATH
-from scripts.utils.rpc_cookie import RpcClient, clean_env_value, resolve_target
+from UTXOracle_library import UTXOracleCalculator  # noqa: E402 - after the startup guards
+from scripts.config import UTXORACLE_DB_PATH  # noqa: E402 - after the startup guards
+from scripts.utils.rpc_cookie import RpcClient, clean_env_value, resolve_target  # noqa: E402 - after the startup guards
 from api.questdb_repository import QuestDBRepository  # noqa: E402
 
 # Whale Flow Detector (spec-004) - import after scripts/ is in path
@@ -185,12 +282,6 @@ def _get_env_str(key: str, default: str) -> str:
     if val is None or val.startswith("ENC["):
         return default
     return val
-
-
-def env_file_path() -> Path:
-    """The .env that load_config()/load_secrets() read (the unit's EnvironmentFile= is the
-    same file when WorkingDirectory is the repository)."""
-    return Path(__file__).parent.parent / ".env"
 
 
 def load_config() -> Dict[str, str]:
@@ -1356,36 +1447,6 @@ def analysis_day_for(now: datetime) -> datetime:
     )
 
 
-FORBIDDEN_ENV_PREFIXES = ("UTXORACLE_EXPECTED_", "QUESTDB_")
-
-
-def check_env_file_guard() -> None:
-    """Exit 3 if the .env defines the QuestDB destination or its expectation.
-
-    The destination belongs to the systemd unit (Environment=); a .env that redefines it
-    would override the unit (EnvironmentFile= wins over Environment=) or load_secrets()
-    would. The file is read with a real parser (dotenv_values) and only the NAMES of the
-    offending keys are logged, never a value. A missing file is not an error.
-    """
-    from dotenv import dotenv_values
-
-    path = env_file_path()
-    if not path.exists():
-        logging.info(".env not found at %s: nothing to check", path)
-        return
-    offending = sorted(
-        key for key in dotenv_values(path) if key.startswith(FORBIDDEN_ENV_PREFIXES)
-    )
-    if offending:
-        logging.error(
-            "%s defines keys reserved to the systemd unit: %s (exit 3)",
-            path,
-            ", ".join(offending),
-        )
-        sys.exit(3)
-    logging.info(".env checked: no %s keys", " / ".join(FORBIDDEN_ENV_PREFIXES))
-
-
 SCHEDULE_ENV = "UTXORACLE_DAILY_SCHEDULE_UTC"
 EXIT_OUTSIDE_WINDOW = 5
 
@@ -1432,7 +1493,8 @@ def preflight(args) -> tuple[datetime, set[str], bool]:
     non-zero exit is logged the same way. Exit codes of the script: 0 done or both rows of
     the day already present; 1 invalid configuration; 2 any failure (exception, incomplete
     row, failed metrics block, failed write); 3 QuestDB destination mismatch or the .env defining the destination; 4 a table
-    without dedup on ts; 5 run outside its window (check_run_window).
+    without dedup on ts; 5 run outside its window (check_run_window); 6 non-numeric
+    QUESTDB_* value (startup guard, see the top of the module).
 
     The skip needs BOTH rows of the day: with only one present the run was incomplete and
     both are rewritten, as with --overwrite, after a WARNING.
