@@ -368,3 +368,67 @@ def test_get_recent_signal_sequence_pages_newest_first():
     assert "WHERE schema_version = 'v1'" in query
     assert "ORDER BY sequence_id DESC, produced_at DESC" in query
     assert "LIMIT 2" in query
+
+
+class _FakePool:
+    """Stands in for an asyncpg pool; `closed` counts close() calls per pool."""
+
+    def __init__(self) -> None:
+        self.closed = 0
+
+    async def close(self) -> None:
+        self.closed += 1
+
+
+def _stub_pool_creation(monkeypatch, pools: list[_FakePool]) -> None:
+    """Replace everything initialize() would send to a real QuestDB; create_pool yields once."""
+    import types
+
+    import api.questdb_repository as repository
+
+    async def no_tables() -> None:
+        return None
+
+    async def create_pool(**_kwargs) -> _FakePool:
+        await asyncio.sleep(0)  # the await between the None check and the assignment
+        pool = _FakePool()
+        pools.append(pool)
+        return pool
+
+    monkeypatch.setattr(repository, "create_tables_if_not_exist", no_tables)
+    monkeypatch.setattr(
+        repository, "asyncpg", types.SimpleNamespace(create_pool=create_pool)
+    )
+    monkeypatch.setattr(QuestDBRepository, "_ensure_sender", lambda self: None)
+    monkeypatch.setattr(QuestDBRepository, "_pool", None, raising=False)
+    monkeypatch.setattr(QuestDBRepository, "_pool_lock", None, raising=False)
+    monkeypatch.setattr(QuestDBRepository, "_pool_lock_loop", None, raising=False)
+
+
+def test_concurrent_initialize_creates_a_single_pool(monkeypatch):
+    """F-399 M2: the None check and the assignment of the class pool are separated by an await."""
+    pools: list[_FakePool] = []
+    _stub_pool_creation(monkeypatch, pools)
+    first, second = QuestDBRepository(), QuestDBRepository()
+
+    async def scenario() -> None:
+        await asyncio.gather(first.initialize(), second.initialize())
+
+    asyncio.run(scenario())
+
+    assert len(pools) == 1
+    assert QuestDBRepository._pool is pools[0]
+
+
+def test_initialize_from_two_event_loops_in_sequence_does_not_raise(monkeypatch):
+    """The pool lock is bound to the running loop: a later loop (sync store callers) gets its own."""
+    pools: list[_FakePool] = []
+    _stub_pool_creation(monkeypatch, pools)
+
+    asyncio.run(QuestDBRepository().initialize())
+    monkeypatch.setattr(
+        QuestDBRepository, "_pool", None, raising=False
+    )  # as after a close()
+    asyncio.run(QuestDBRepository().initialize())
+
+    assert len(pools) == 2

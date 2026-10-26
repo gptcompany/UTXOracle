@@ -2,6 +2,7 @@
 Repository for interacting with QuestDB.
 """
 
+import asyncio
 import logging
 import json
 import os
@@ -1012,6 +1013,20 @@ class QuestDBRepository:
         sender.establish()
         return sender
 
+    # Guards the creation of the shared class-level pool. Created lazily and bound to the
+    # running event loop (an asyncio.Lock is tied to one loop): the synchronous
+    # LiveSnapshotStore API runs its coroutines on a loop of its own.
+    _pool_lock: "asyncio.Lock | None" = None
+    _pool_lock_loop: "asyncio.AbstractEventLoop | None" = None
+
+    @classmethod
+    def _get_pool_lock(cls) -> "asyncio.Lock":
+        loop = asyncio.get_running_loop()
+        if cls._pool_lock is None or cls._pool_lock_loop is not loop:
+            cls._pool_lock = asyncio.Lock()
+            cls._pool_lock_loop = loop
+        return cls._pool_lock
+
     def _ensure_sender(self) -> Sender:
         if self.sender is None:
             self.sender = self._build_sender()
@@ -1030,25 +1045,32 @@ class QuestDBRepository:
             )
 
         if QuestDBRepository._pool is None:
-            try:
-                QuestDBRepository._pool = await asyncpg.create_pool(
-                    host=QUESTDB_PG_HOST,
-                    port=QUESTDB_PG_PORT,
-                    user=QUESTDB_PG_USER,
-                    password=QUESTDB_PG_PASSWORD,
-                    database=QUESTDB_PG_DATABASE,
-                    min_size=QUESTDB_POOL_MIN_SIZE,
-                    max_size=QUESTDB_POOL_MAX_SIZE,
-                    command_timeout=QUESTDB_COMMAND_TIMEOUT,
-                    max_inactive_connection_lifetime=QUESTDB_MAX_INACTIVE_LIFETIME,
-                )
-                logger.info(
-                    f"QuestDB PG pool initialized (min={QUESTDB_POOL_MIN_SIZE}, max={QUESTDB_POOL_MAX_SIZE}, "
-                    f"timeout={QUESTDB_COMMAND_TIMEOUT}s)"
-                )
-            except Exception as e:
-                logger.critical(f"Failed to create QuestDB PG connection pool: {e}")
-                raise
+            # The None check and the assignment are separated by an await: without the lock
+            # every concurrent caller (app retry, snapshot store, whale monitor) would build a
+            # pool and the last assignment would orphan the others (F-399).
+            async with QuestDBRepository._get_pool_lock():
+                if QuestDBRepository._pool is None:
+                    try:
+                        QuestDBRepository._pool = await asyncpg.create_pool(
+                            host=QUESTDB_PG_HOST,
+                            port=QUESTDB_PG_PORT,
+                            user=QUESTDB_PG_USER,
+                            password=QUESTDB_PG_PASSWORD,
+                            database=QUESTDB_PG_DATABASE,
+                            min_size=QUESTDB_POOL_MIN_SIZE,
+                            max_size=QUESTDB_POOL_MAX_SIZE,
+                            command_timeout=QUESTDB_COMMAND_TIMEOUT,
+                            max_inactive_connection_lifetime=QUESTDB_MAX_INACTIVE_LIFETIME,
+                        )
+                        logger.info(
+                            f"QuestDB PG pool initialized (min={QUESTDB_POOL_MIN_SIZE}, max={QUESTDB_POOL_MAX_SIZE}, "
+                            f"timeout={QUESTDB_COMMAND_TIMEOUT}s)"
+                        )
+                    except Exception as e:
+                        logger.critical(
+                            f"Failed to create QuestDB PG connection pool: {e}"
+                        )
+                        raise
 
     async def close(self):
         """Closes the connection pool and flushes pending data."""

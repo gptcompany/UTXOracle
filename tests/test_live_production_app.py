@@ -714,3 +714,60 @@ def test_start_schedules_the_registry_reload_and_stop_cancels_it(monkeypatch):
         assert task.cancelled()
 
     asyncio.run(scenario())
+
+
+def test_app_retry_and_the_real_snapshot_store_share_one_pool(monkeypatch):
+    """F-399 M2: the retry and LiveSnapshotStore.ainitialize reach create_pool concurrently."""
+    import types
+
+    import api.questdb_repository as repository
+    from api.questdb_repository import QuestDBRepository
+    from scripts.live.storage import LiveSnapshotStore
+
+    class _Pool:
+        def __init__(self) -> None:
+            self.closed = 0
+
+        async def close(self) -> None:
+            self.closed += 1
+
+    pools: list[_Pool] = []
+
+    async def no_tables() -> None:
+        return None
+
+    async def create_pool(**_kwargs) -> _Pool:
+        await asyncio.sleep(0)
+        pool = _Pool()
+        pools.append(pool)
+        return pool
+
+    monkeypatch.setattr(repository, "create_tables_if_not_exist", no_tables)
+    monkeypatch.setattr(
+        repository, "asyncpg", types.SimpleNamespace(create_pool=create_pool)
+    )
+    monkeypatch.setattr(QuestDBRepository, "_ensure_sender", lambda self: None)
+    monkeypatch.setattr(QuestDBRepository, "_pool", None, raising=False)
+    monkeypatch.setattr(QuestDBRepository, "_pool_lock", None, raising=False)
+    monkeypatch.setattr(QuestDBRepository, "_pool_lock_loop", None, raising=False)
+
+    from api.apps import live as live_app
+
+    monkeypatch.setattr(live_app, "QuestDBRepository", QuestDBRepository)
+
+    async def scenario() -> None:
+        app = _bare_app()
+        store = LiveSnapshotStore()
+        connected, _ = await asyncio.gather(
+            live_app._connect_questdb_repo(app, attempt=2, retry_in=0.0),
+            store.ainitialize(),
+        )
+        assert connected is True
+        # Cleanup in the order of the real lifespan: the store first, then the app repository.
+        await store.aclose()
+        await app.state.questdb_repo.close()
+
+    asyncio.run(scenario())
+
+    assert len(pools) == 1
+    assert [pool.closed for pool in pools] == [1]

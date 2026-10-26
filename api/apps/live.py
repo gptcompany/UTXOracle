@@ -154,10 +154,11 @@ def _init_questdb_state(app: FastAPI) -> None:
 async def _connect_questdb_repo(app: FastAPI, *, attempt: int, retry_in: float) -> bool:
     """One initialization attempt under the app lock; on success the repository is published.
 
-    The lock makes repository and pool creation single-owner: the PG pool is a class-level
-    attribute that initialize() creates when missing, so two concurrent initialize() calls
-    would each build one and orphan the first. The whale monitor does not create its own: it
-    waits for `app.state.questdb_ready` and uses this repository.
+    The app lock only makes the publication of `app.state.questdb_repo` happen once. That the
+    PG pool is created once is guaranteed by QuestDBRepository itself (a class-level lock around
+    the pool creation), which also covers the other callers: LiveSnapshotStore.ainitialize()
+    from /health and /live. The whale monitor does not initialize anything: it waits for
+    `app.state.questdb_ready` and uses this repository.
     """
     async with app.state.questdb_lock:
         if app.state.questdb_repo is not None:
