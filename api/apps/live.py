@@ -232,11 +232,14 @@ async def lifespan(app: FastAPI):
         app.state.questdb_retry_task.add_done_callback(_log_background_task_failure)
 
     # Initialize Unified Mempool Whale Monitor
+    from scripts.config.mempool_config import get_config
     from scripts.mempool_whale_monitor import MempoolWhaleMonitor
     from api.routes.execution import stream_manager
 
     try:
-        monitor = MempoolWhaleMonitor()
+        # MEMPOOL_WS_URL (set by docker-compose.live.yml) replaces the localhost default,
+        # which the container cannot reach.
+        monitor = MempoolWhaleMonitor(mempool_ws_url=get_config().mempool_ws_url)
         # The monitor waits for the app's repository instead of opening a pool of its own.
         monitor.attach_app_repo(app.state.questdb_ready, lambda: app.state.questdb_repo)
 
