@@ -136,14 +136,6 @@ class OldCopyCleanupError(RuntimeError):
         self.names = names
 
 
-class CutoverSwapError(RuntimeError):
-    """The RENAME swap failed; `restored` says whether the live table is back."""
-
-    def __init__(self, message: str, restored: bool):
-        super().__init__(message)
-        self.restored = restored
-
-
 class RefreshLockError(RuntimeError):
     """A refresh mutation was called without the live lock token."""
 
@@ -956,20 +948,9 @@ async def create_tables_if_not_exist():
         )
 
         # Entity Clustering
-        await conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS address_clusters (
-                address STRING,
-                cluster_id STRING,
-                ts TIMESTAMP,
-                last_seen TIMESTAMP,
-                is_exchange_likely BOOLEAN,
-                label SYMBOL,
-                confidence DOUBLE
-            ) timestamp(ts) PARTITION BY YEAR WAL;
-            """
-        )
-
+        # The live address_clusters table is NOT created here: it is born only from a
+        # refresh (RENAME of the staging table, under the refresh lock), so a restart
+        # can never recreate an empty live table over a pending recovery (F-424).
         await conn.execute(ADDRESS_CLUSTERS_STAGING_DDL)
 
         await conn.execute(
@@ -1809,31 +1790,11 @@ class QuestDBRepository:
 
     async def _swap_tables(self, conn, live: str, staging: str, old: str) -> float:
         """RENAME live -> old, then staging -> live; returns the ms the live name was
-        absent. If the second RENAME fails the first is undone at once; if that fails
-        too the ERROR carries the exact names and the manual command."""
-        try:
-            await conn.execute(f"RENAME TABLE {live} TO {old}")
-        except Exception as e:
-            raise CutoverSwapError(
-                f"RENAME {live} TO {old} failed: {e}; nothing changed", True
-            ) from e
+        absent. No rollback here: whatever raises, the caller decides from the observed
+        tables (a lost acknowledgement does not prove the statement was not applied)."""
+        await conn.execute(f"RENAME TABLE {live} TO {old}")
         absent_since = _monotonic()
-        try:
-            await conn.execute(f"RENAME TABLE {staging} TO {live}")
-        except Exception as e:
-            try:
-                await conn.execute(f"RENAME TABLE {old} TO {live}")
-            except Exception as undo_error:
-                raise CutoverSwapError(
-                    f"RENAME {staging} TO {live} failed ({e}) and so did the undo "
-                    f"({undo_error}); {live} is ABSENT, the data is in {old}: run "
-                    f"RENAME TABLE {old} TO {live}",
-                    False,
-                ) from e
-            raise CutoverSwapError(
-                f"RENAME {staging} TO {live} failed: {e}; {live} restored from {old}",
-                True,
-            ) from e
+        await conn.execute(f"RENAME TABLE {staging} TO {live}")
         return (_monotonic() - absent_since) * 1000.0
 
     async def _guarded_swap(self, conn, live: str, staging: str, old: str) -> float:
@@ -1848,6 +1809,24 @@ class QuestDBRepository:
             await asyncio.gather(task, return_exceptions=True)
             raise
 
+    async def _swap_or_reconcile(
+        self, conn, live: str, staging: str, old: str
+    ) -> Optional[float]:
+        """Guarded swap; after ANY failure, at any step, the decision is taken by
+        _reconcile_tables on the observed tables (never from the exception branch).
+        Returns the absent window in ms, or None when the swap failed (the previous live
+        table is back); BaseException (cancellation) is re-raised after reconciling."""
+        try:
+            return await self._guarded_swap(conn, live, staging, old)
+        except BaseException as e:
+            logger.error(
+                "%s swap failed (%r); deciding from the observed tables", live, e
+            )
+            await self._reconcile_tables(live, live, after_failure=True)
+            if not isinstance(e, Exception):
+                raise
+            return None
+
     async def _reconcile_tables(
         self, live: str, prefix: str, *, after_failure: bool = False
     ) -> None:
@@ -1859,28 +1838,38 @@ class QuestDBRepository:
         start of a refresh, AddressClustersLostError (exit 6) after a failure.
         """
         old_re = re.compile(rf"^{re.escape(prefix)}_old_[0-9]{{8}}T[0-9]{{6}}Z$")
-        if await self.fetch(
-            f"SELECT table_name FROM tables() WHERE table_name = '{live}'"
-        ):
-            return
-        olds = sorted(
-            row[0]
-            for row in await self.fetch(
-                f"SELECT table_name FROM tables() WHERE table_name LIKE '{prefix}_old_%'"
-            )
-            if old_re.match(row[0])
-        )
-        if not olds:
-            if after_failure:
-                raise AddressClustersLostError(
-                    f"no {live} and no {prefix}_old_* copy after a failed cutover: "
-                    "restore from a backup or rebuild it with "
-                    "`uv run python -m scripts.bootstrap.sync_clusters_to_questdb`"
+        manual = "rebuild it with `uv run python -m scripts.bootstrap.sync_clusters_to_questdb`"
+        olds: list[str] = []
+        try:
+            if await self.fetch(
+                f"SELECT table_name FROM tables() WHERE table_name = '{live}'"
+            ):
+                return
+            olds = sorted(
+                row[0]
+                for row in await self.fetch(
+                    "SELECT table_name FROM tables() WHERE table_name LIKE "
+                    f"'{prefix}_old_%'"
                 )
-            logger.info("No %s and no _old copy: first install", live)
-            return
-        await self._run_ddl(f"RENAME TABLE {olds[-1]} TO {live}")
-        logger.error("%s was missing: restored from %s", live, olds[-1])
+                if old_re.match(row[0])
+            )
+            if olds:
+                await self._run_ddl(f"RENAME TABLE {olds[-1]} TO {live}")
+                logger.error("%s was missing: restored from %s", live, olds[-1])
+                return
+        except Exception as e:
+            if not after_failure:
+                raise
+            hint = f"RENAME TABLE {olds[-1]} TO {live}" if olds else "inspect tables()"
+            raise AddressClustersLostError(
+                f"could not observe or restore {live} ({e}): run `{hint}`, or {manual}"
+            ) from e
+        if after_failure:
+            raise AddressClustersLostError(
+                f"no {live} and no {prefix}_old_* copy after a failed cutover: restore "
+                f"from a backup or {manual}"
+            )
+        logger.info("No %s and no _old copy: first install", live)
 
     async def reconcile_address_clusters(
         self, token: RefreshLock, *, after_failure: bool = False
@@ -1911,29 +1900,14 @@ class QuestDBRepository:
         conn = await self._open_dedicated_connection()
         try:
             if live_exists:
-                try:
-                    window_ms = await self._guarded_swap(
-                        conn,
-                        ADDRESS_CLUSTERS_TABLE,
-                        ADDRESS_CLUSTERS_STAGING_TABLE,
-                        old,
-                    )
-                except CutoverSwapError as e:
-                    logger.error("address_clusters cutover failed: %s", e)
-                    if not e.restored:  # retry the restore from the observed state
-                        await self._reconcile_tables(
-                            ADDRESS_CLUSTERS_TABLE,
-                            ADDRESS_CLUSTERS_TABLE,
-                            after_failure=True,
-                        )
+                window_ms = await self._swap_or_reconcile(
+                    conn,
+                    ADDRESS_CLUSTERS_TABLE,
+                    ADDRESS_CLUSTERS_STAGING_TABLE,
+                    old,
+                )
+                if window_ms is None:
                     return False
-                except BaseException:  # cancellation, KeyboardInterrupt ...
-                    await self._reconcile_tables(
-                        ADDRESS_CLUSTERS_TABLE,
-                        ADDRESS_CLUSTERS_TABLE,
-                        after_failure=True,
-                    )
-                    raise
                 logger.info(
                     "address_clusters swapped in; %s absent for %.1f ms; previous "
                     "kept as %s",

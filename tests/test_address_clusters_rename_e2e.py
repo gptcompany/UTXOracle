@@ -20,7 +20,7 @@ import uuid
 
 import pytest
 
-from api.questdb_repository import CutoverSwapError, QuestDBRepository
+from api.questdb_repository import QuestDBRepository, fetch_address_clusters
 
 pytestmark = pytest.mark.asyncio
 
@@ -93,11 +93,14 @@ async def test_rename_swap_of_wal_tables_with_a_live_reader():
     target = _target()
     suffix = uuid.uuid4().hex[:8]
     live, staging = f"f424_live_{suffix}", f"f424_staging_{suffix}"
-    old, old2 = f"f424_old_{suffix}", f"f424_old2_{suffix}"
+    old = f"{live}_old_20260101T000000Z"
+    old2 = f"{live}_old_20260102T000000Z"
     ddl = await asyncpg.connect(**target)  # DDL connection: execute only
     reader = await asyncpg.connect(**target)  # reads only
     watcher = await asyncpg.connect(**target)  # the parallel reader under test
     repo = QuestDBRepository()
+    repo.fetch = reader.fetch  # tables() listing on a read-only connection
+    repo._open_dedicated_connection = lambda: _async_value(_KeepOpen(ddl))
     try:
         await ddl.execute(_DDL.format(live))
         await ddl.execute(_DDL.format(staging))
@@ -150,10 +153,10 @@ async def test_rename_swap_of_wal_tables_with_a_live_reader():
         # (4) the previous live table is still readable as the rollback copy
         assert (await reader.fetch(f"SELECT count(*) FROM {old}"))[0][0] == 3
 
-        # (3) rollback: the second RENAME fails by construction (no such staging table)
-        with pytest.raises(CutoverSwapError) as exc:
-            await repo._swap_tables(ddl, live, f"f424_missing_{suffix}", old2)
-        assert exc.value.restored is True
+        # (3) rollback: the second RENAME fails by construction (no such staging table);
+        # the live table is put back by the reconcile of the OBSERVED tables
+        missing = f"f424_missing_{suffix}"
+        assert await repo._swap_or_reconcile(ddl, live, missing, old2) is None
         assert (await reader.fetch(f"SELECT count(*) FROM {live}"))[0][0] == 6
     finally:
         for name in (live, staging, old, old2):
@@ -266,3 +269,166 @@ async def test_reconcile_restores_the_live_table_from_the_old_copy():
 
 async def _async_value(value):
     return value
+
+
+class _AckLostConn:
+    """Client-side injection: the statement is applied, then the answer is lost."""
+
+    def __init__(self, conn, prefix: str):
+        self.conn, self.prefix, self.fired = conn, prefix, False
+
+    async def execute(self, query, *args):
+        result = await self.conn.execute(query, *args)
+        if query.startswith(self.prefix) and not self.fired:
+            self.fired = True
+            raise ConnectionError("connection lost before the acknowledgement")
+        return result
+
+
+async def _two_tables(ddl, reader, live: str, staging: str):
+    await ddl.execute(_DDL.format(live))
+    await ddl.execute(_DDL.format(staging))
+    _ingest(3, live)
+    _ingest(5, staging)
+    await _wait_applied(reader, live, 3)
+    await _wait_applied(reader, staging, 5)
+
+
+async def _drop(ddl, *names: str):
+    for name in names:
+        try:
+            await ddl.execute(f"DROP TABLE IF EXISTS {name}")
+        except Exception:  # noqa: BLE001 - best-effort cleanup of test-owned tables
+            pass
+
+
+async def test_lost_ack_of_the_first_rename_is_recovered_on_an_independent_connection():
+    import asyncpg
+
+    target = _target()
+    suffix = uuid.uuid4().hex[:8]
+    live, staging = f"f424_live_{suffix}", f"f424_staging_{suffix}"
+    old = f"{live}_old_20260101T000000Z"
+    ddl = await asyncpg.connect(**target)
+    reader = await asyncpg.connect(**target)  # the independent observer
+    repo = QuestDBRepository()
+    repo.fetch = reader.fetch
+    repo._open_dedicated_connection = lambda: _async_value(_KeepOpen(ddl))
+    try:
+        await _two_tables(ddl, reader, live, staging)
+        lossy = _AckLostConn(ddl, f"RENAME TABLE {live} TO")
+
+        assert await repo._swap_or_reconcile(lossy, live, staging, old) is None
+
+        assert lossy.fired
+        assert (await reader.fetch(f"SELECT count(*) FROM {live}"))[0][0] == 3
+    finally:
+        await _drop(ddl, live, staging, old)
+        for conn in (ddl, reader):
+            await conn.close()
+
+
+async def test_sigkill_between_the_renames_is_recovered_by_the_next_process():
+    """A separate process runs the production swap and is SIGKILLed between the RENAMEs."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    import asyncpg
+
+    target = _target()
+    suffix = uuid.uuid4().hex[:8]
+    live, staging = f"f424_live_{suffix}", f"f424_staging_{suffix}"
+    old = f"{live}_old_20260101T000000Z"
+    ddl = await asyncpg.connect(**target)
+    reader = await asyncpg.connect(**target)
+    repo = QuestDBRepository()
+    repo.fetch = reader.fetch
+    repo._open_dedicated_connection = lambda: _async_value(_KeepOpen(ddl))
+    script = (
+        "import asyncio, os, asyncpg\n"
+        "from api.questdb_repository import QuestDBRepository\n"
+        "live, staging, old = os.environ['F424_NAMES'].split(',')\n"
+        "class Hold:\n"
+        "    def __init__(self, conn): self.conn = conn\n"
+        "    async def execute(self, q, *a):\n"
+        "        r = await self.conn.execute(q, *a)\n"
+        "        if q.startswith('RENAME TABLE ' + live + ' TO'):\n"
+        "            print('READY', flush=True)\n"
+        "            await asyncio.sleep(3600)\n"
+        "        return r\n"
+        "async def main():\n"
+        "    conn = await asyncpg.connect(host=os.environ['QUESTDB_TEST_HOST'],\n"
+        "        port=int(os.environ['QUESTDB_TEST_PORT']), user=os.environ['QUESTDB_TEST_USER'],\n"
+        "        password=os.environ['QUESTDB_TEST_PASSWORD'],\n"
+        "        database=os.getenv('QUESTDB_TEST_DATABASE', 'qdb'))\n"
+        "    await QuestDBRepository()._swap_tables(Hold(conn), live, staging, old)\n"
+        "asyncio.run(main())\n"
+    )
+    try:
+        await _two_tables(ddl, reader, live, staging)
+        proc = subprocess.Popen(
+            [sys.executable, "-c", script],
+            cwd=Path(__file__).resolve().parents[1],
+            env={**os.environ, "F424_NAMES": f"{live},{staging},{old}"},
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            line = await asyncio.wait_for(asyncio.to_thread(proc.stdout.readline), 60)
+            assert line.strip() == "READY"  # first RENAME applied, second never sent
+            proc.kill()  # SIGKILL
+        finally:
+            proc.kill()
+            proc.wait(timeout=30)
+        assert not await reader.fetch(
+            f"SELECT 1 FROM tables() WHERE table_name = '{live}'"
+        )
+
+        await repo._reconcile_tables(live, live)  # what the next refresh does first
+
+        assert (await reader.fetch(f"SELECT count(*) FROM {live}"))[0][0] == 3
+    finally:
+        await _drop(ddl, live, staging, old)
+        for conn in (ddl, reader):
+            await conn.close()
+
+
+class _Fetcher:
+    def __init__(self, conn):
+        self.fetch = conn.fetch
+
+
+async def test_production_read_helper_rides_out_a_transient_absence_and_exposes_a_persistent_one():
+    import asyncpg
+
+    target = _target()
+    suffix = uuid.uuid4().hex[:8]
+    live, staging = f"f424_live_{suffix}", f"f424_staging_{suffix}"
+    old = f"{live}_old_20260101T000000Z"
+    ddl = await asyncpg.connect(**target)
+    reader = await asyncpg.connect(**target)
+    watcher = await asyncpg.connect(**target)
+    repo = QuestDBRepository()
+    query = f"SELECT count(*) FROM {live}"
+    try:
+        await _two_tables(ddl, reader, live, staging)
+
+        # transient: the live name is back before the helper's retry (300 ms) fires
+        gated = _GatedConn(ddl, staging)
+        swap = asyncio.create_task(repo._swap_tables(gated, live, staging, old))
+        await asyncio.wait_for(gated.started.wait(), 10)
+        read = asyncio.create_task(fetch_address_clusters(_Fetcher(watcher), query))
+        await asyncio.sleep(0.1)
+        gated.gate.set()
+        await swap
+        assert (await read)[0][0] == 5
+
+        # persistent: still absent after the three attempts of the helper
+        await ddl.execute(f"RENAME TABLE {live} TO {staging}")  # live absent again
+        with pytest.raises(Exception, match="does not exist"):
+            await fetch_address_clusters(_Fetcher(watcher), query)
+    finally:
+        await _drop(ddl, live, staging, old)
+        for conn in (ddl, reader, watcher):
+            await conn.close()

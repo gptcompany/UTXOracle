@@ -213,10 +213,11 @@ class _StatefulConn(_DedicatedConn):
     """DDL connection over a fake catalog {table: data label}; the RENAME of staging can be
     held at `gate` to model a cancellation between the two RENAMEs."""
 
-    def __init__(self, catalog, gate=None, fail_on=()):
+    def __init__(self, catalog, gate=None, fail_on=(), ack_lost_on=()):
         super().__init__(fail_on)
         self.catalog = catalog
         self.gate = gate
+        self.ack_lost_on = ack_lost_on
         self.started = asyncio.Event()
 
     async def execute(self, query, *args):
@@ -230,11 +231,17 @@ class _StatefulConn(_DedicatedConn):
                 await self.gate.wait()
             if src not in self.catalog:
                 raise RuntimeError(f"table does not exist [table={src}]")
+            if dst in self.catalog:
+                raise RuntimeError(f"table already exists [table={dst}]")
             self.catalog[dst] = self.catalog.pop(src)
         elif q.startswith("CREATE TABLE IF NOT EXISTS address_clusters_staging"):
             self.catalog.setdefault("address_clusters_staging", "empty")
         elif q.startswith("DROP TABLE"):
             self.catalog.pop(q.split()[-1], None)
+        if any(q.startswith(prefix) for prefix in self.ack_lost_on):
+            # the server applied the statement, the answer never arrived
+            self.ack_lost_on = tuple(x for x in self.ack_lost_on if not q.startswith(x))
+            raise ConnectionError("connection lost before the acknowledgement")
 
 
 def _repo(
@@ -248,6 +255,7 @@ def _repo(
     live_exists=True,
     catalog=None,
     gate=None,
+    ack_lost_on=(),
 ):
     """Repo with fake clock, ILP/HTTP sender, wal_tables(), staging schema and count;
     wal and count may be callables of the fake time (wal "absent" = not a WAL table)."""
@@ -290,7 +298,7 @@ def _repo(
     repo.fetchrow = AsyncMock(side_effect=lambda q, *a: (at(count),))
     repo.execute = AsyncMock(side_effect=AssertionError("write on the pool"))
     repo.dedicated = (
-        _StatefulConn(catalog, gate, fail_on)
+        _StatefulConn(catalog, gate, fail_on, ack_lost_on)
         if catalog is not None
         else _DedicatedConn(fail_on)
     )
@@ -432,23 +440,57 @@ def test_without_a_live_table_a_failed_rename_is_an_error(monkeypatch, caplog):
     assert "does not exist and RENAME" in " ".join(_errors(caplog))
 
 
-def test_second_rename_failure_restores_the_live_table_at_once(monkeypatch, caplog):
-    repo = _repo(monkeypatch, fail_on=("RENAME TABLE address_clusters_staging",))
+def test_second_rename_failure_restores_the_live_table_from_the_observed_state(
+    monkeypatch, caplog
+):
+    catalog = {"address_clusters": "old data", "address_clusters_staging": "new data"}
+    repo = _repo(
+        monkeypatch,
+        catalog=catalog,
+        fail_on=("RENAME TABLE address_clusters_staging",),
+    )
 
     with caplog.at_level("ERROR"):
         ok = asyncio.run(repo.commit_address_clusters_refresh(_tok(repo), 5))
 
     assert ok is False
-    ddl = _ddl(repo)
-    assert len(ddl) == 3 and ddl[0].startswith("RENAME TABLE address_clusters TO ")
-    old = ddl[0].split(" TO ")[1]
-    assert ddl[2] == f"RENAME TABLE {old} TO address_clusters"  # undo, immediately
+    assert catalog["address_clusters"] == "old data"  # the previous snapshot is back
+    assert catalog["address_clusters_staging"] == "new data"  # kept: prepare empties it
     assert any("restored" in m for m in _errors(caplog))
 
 
-def test_failed_undo_is_retried_from_the_observed_state_and_then_raises(
-    monkeypatch, caplog
+def test_a_lost_ack_of_the_first_rename_is_recovered_from_the_observed_state(
+    monkeypatch,
 ):
+    catalog = {"address_clusters": "old data", "address_clusters_staging": "new data"}
+    repo = _repo(
+        monkeypatch,
+        catalog=catalog,
+        ack_lost_on=("RENAME TABLE address_clusters TO",),  # applied, then raised
+    )
+
+    ok = asyncio.run(repo.commit_address_clusters_refresh(_tok(repo), 5))
+
+    assert ok is False
+    assert catalog["address_clusters"] == "old data"  # live present, not absent
+
+
+def test_a_lost_ack_of_the_second_rename_leaves_a_valid_published_state(monkeypatch):
+    catalog = {"address_clusters": "old data", "address_clusters_staging": "new data"}
+    repo = _repo(
+        monkeypatch,
+        catalog=catalog,
+        ack_lost_on=("RENAME TABLE address_clusters_staging TO",),
+    )
+
+    asyncio.run(repo.commit_address_clusters_refresh(_tok(repo), 5))
+
+    assert catalog["address_clusters"] == "new data"  # live and _old: a valid state
+
+
+def test_a_failed_restore_is_exit_6_with_the_manual_command(monkeypatch, caplog):
+    import api.questdb_repository as qr
+
     catalog = {"address_clusters": "old data", "address_clusters_staging": "new data"}
     repo = _repo(
         monkeypatch,
@@ -459,13 +501,55 @@ def test_failed_undo_is_retried_from_the_observed_state_and_then_raises(
         ),
     )
 
-    with caplog.at_level("ERROR"), pytest.raises(RuntimeError, match="boom"):
+    with caplog.at_level("ERROR"), pytest.raises(qr.AddressClustersLostError) as exc:
         asyncio.run(repo.commit_address_clusters_refresh(_tok(repo), 5))
 
     old = _ddl(repo)[0].split(" TO ")[1]
-    assert f"RENAME TABLE {old} TO address_clusters" in " ".join(_errors(caplog))
-    assert any("ABSENT" in m for m in _errors(caplog))
-    assert _ddl(repo)[-1] == f"RENAME TABLE {old} TO address_clusters"  # retried
+    assert f"RENAME TABLE {old} TO address_clusters" in str(exc.value)  # manual command
+    assert "sync_clusters_to_questdb" in str(exc.value)
+
+
+def test_restart_with_only_an_old_copy_restores_it_before_the_first_refresh(
+    monkeypatch,
+):
+    """R4: initialize (create_tables_if_not_exist) must not recreate an empty live."""
+    import api.questdb_repository as qr
+
+    catalog = {"address_clusters_old_20260101T000000Z": "A"}
+    _patch_create_tables(monkeypatch, catalog)
+    asyncio.run(qr.create_tables_if_not_exist())  # what initialize() runs at restart
+    repo = _repo(monkeypatch, catalog=catalog)
+
+    async def producer():
+        catalog["address_clusters_staging"] = "B"
+        return 5
+
+    assert asyncio.run(repo.refresh_address_clusters(producer)) is True
+
+    assert catalog["address_clusters"] == "B"
+    olds = [catalog[n] for n in catalog if n.startswith("address_clusters_old_")]
+    assert olds == ["A"]  # the populated rollback copy survives, not an empty one
+
+
+def test_initialize_during_the_cutover_does_not_create_the_live_table(monkeypatch):
+    """R4 race: another initializer runs while the live name is absent between RENAMEs."""
+    import api.questdb_repository as qr
+
+    catalog = {"address_clusters": "old data", "address_clusters_staging": "new data"}
+    gate = asyncio.Event()
+    repo = _repo(monkeypatch, catalog=catalog, gate=gate)
+    _patch_create_tables(monkeypatch, catalog)
+
+    async def scenario():
+        task = asyncio.create_task(repo.commit_address_clusters_refresh(_tok(repo), 5))
+        while not repo.dedicated.started.is_set():
+            await asyncio.sleep(0)
+        await qr.create_tables_if_not_exist()  # live name absent right now
+        gate.set()
+        return await task
+
+    assert asyncio.run(scenario()) is True
+    assert catalog["address_clusters"] == "new data"
 
 
 def test_first_rename_failure_changes_nothing(monkeypatch):
@@ -845,14 +929,19 @@ def test_refresh_reconciles_before_touching_anything(monkeypatch):
     asyncio.run(repo.refresh_address_clusters(producer))
 
 
-def test_create_tables_declares_the_staging_table_as_wal(monkeypatch):
+def _patch_create_tables(monkeypatch, catalog):
+    """Fake asyncpg for create_tables_if_not_exist: records the DDL and applies the CREATEs
+    of the address_clusters tables to `catalog`."""
     import api.questdb_repository as qr
-
-    statements = []
 
     class _Conn:
         async def execute(self, query, *args):
-            statements.append(" ".join(query.split()))
+            q = " ".join(query.split())
+            catalog.setdefault("_ddl", []).append(q)
+            if q.startswith("CREATE TABLE IF NOT EXISTS address_clusters_staging"):
+                catalog.setdefault("address_clusters_staging", "empty")
+            elif q.startswith("CREATE TABLE IF NOT EXISTS address_clusters ("):
+                catalog.setdefault("address_clusters", "empty")
 
         async def close(self):
             return None
@@ -861,20 +950,30 @@ def test_create_tables_declares_the_staging_table_as_wal(monkeypatch):
         return _Conn()
 
     monkeypatch.setattr(qr.asyncpg, "connect", connect)
+
+
+def test_create_tables_declares_staging_as_wal_and_never_creates_the_live_table(
+    monkeypatch,
+):
+    import api.questdb_repository as qr
+
+    catalog = {}
+    _patch_create_tables(monkeypatch, catalog)
     asyncio.run(qr.create_tables_if_not_exist())
 
+    statements = catalog["_ddl"]
     staging = [
         q
         for q in statements
         if q.startswith("CREATE TABLE IF NOT EXISTS address_clusters_staging")
     ]
     assert len(staging) == 1 and staging[0].endswith("PARTITION BY YEAR WAL")
-    live = [
-        q
+    # the live table is born only from a refresh (RENAME of the staging table)
+    assert "address_clusters" not in catalog
+    assert not any(
+        q.startswith("CREATE TABLE IF NOT EXISTS address_clusters (")
         for q in statements
-        if q.startswith("CREATE TABLE IF NOT EXISTS address_clusters (")
-    ]
-    assert len(live) == 1 and live[0].rstrip("; ").endswith("PARTITION BY YEAR WAL")
+    )
 
 
 def test_save_cost_basis_passes_empty_symbols():
