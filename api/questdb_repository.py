@@ -377,7 +377,8 @@ async def create_tables_if_not_exist():
                 fetch_tier LONG,
                 is_valid BOOLEAN,
                 created_at TIMESTAMP
-            ) timestamp(ts) PARTITION BY DAY;
+            ) timestamp(ts) PARTITION BY DAY WAL
+              DEDUP UPSERT KEYS(ts);
             """
         )
 
@@ -654,9 +655,22 @@ async def create_tables_if_not_exist():
                 wasserstein_vote DOUBLE,
                 wasserstein_is_valid BOOLEAN,
                 created_at TIMESTAMP
-            ) timestamp(ts) PARTITION BY DAY;
+            ) timestamp(ts) PARTITION BY DAY WAL
+              DEDUP UPSERT KEYS(ts);
             """
         )
+
+        # F-419: one row per analysed day. Tables created before this change are neither WAL
+        # nor deduplicating; the conversion takes effect on the next QuestDB restart.
+        for table_name in ("price_analysis", "metrics"):
+            for ddl in (
+                f"ALTER TABLE {table_name} SET TYPE WAL",
+                f"ALTER TABLE {table_name} DEDUP ENABLE UPSERT KEYS(ts)",
+            ):
+                try:
+                    await conn.execute(ddl)
+                except Exception:
+                    pass
 
         await conn.execute(
             """

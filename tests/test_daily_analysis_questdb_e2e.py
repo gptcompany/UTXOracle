@@ -14,6 +14,7 @@ save_metrics_to_db, the ILP sender and the QuestDB itself) is real.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 import os
 import sys
 import types
@@ -76,33 +77,44 @@ def _target() -> dict:
     return target
 
 
-async def _count(target: dict, table: str) -> int:
+def _connect_kwargs(target: dict) -> dict:
+    return {
+        "host": target["host"],
+        "port": target["port"],
+        "user": target["user"],
+        "password": target["password"],
+        "database": target["database"],
+    }
+
+
+async def _count(target: dict, table: str, where: str = "") -> int:
+    """Row count; only "table does not exist" counts as 0, every other error is raised."""
     import asyncpg
 
-    conn = await asyncpg.connect(
-        host=target["host"],
-        port=target["port"],
-        user=target["user"],
-        password=target["password"],
-        database=target["database"],
-    )
+    conn = await asyncpg.connect(**_connect_kwargs(target))
     try:
-        return await conn.fetchval(f"SELECT count() FROM {table}")
-    except Exception:  # table not created yet: ILP creates it on first row
-        return 0
+        return await conn.fetchval(f"SELECT count() FROM {table} {where}")
+    except Exception as exc:
+        if "does not exist" in str(exc).lower():  # ILP creates the table on first row
+            return 0
+        raise
     finally:
         await conn.close()
 
 
-async def _wait_for_growth(target: dict, table: str, before: int) -> int:
+async def _wait_for_count(target: dict, table: str, where: str, expected: int) -> int:
     """ILP into a WAL table becomes visible asynchronously: poll briefly."""
-    after = before
+    seen = -1
     for _ in range(30):
-        after = await _count(target, table)
-        if after > before:
+        seen = await _count(target, table, where)
+        if seen == expected:
             break
         await asyncio.sleep(1)
-    return after
+    return seen
+
+
+def _day_start_utc() -> datetime:
+    return datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 def _stub_inputs(monkeypatch, daily) -> None:
@@ -126,54 +138,231 @@ def _stub_inputs(monkeypatch, daily) -> None:
     monkeypatch.setattr(sys, "argv", ["daily_analysis.py"])
 
 
-def test_daily_analysis_sends_rows_for_both_tables_without_a_database(monkeypatch):
-    """Always runs: the ILP rows main() queues, with no QuestDB involved."""
+def _record_rows(monkeypatch) -> list[tuple[str, object]]:
     import api.questdb_repository as repository
-    import scripts.daily_analysis as daily
 
-    sent: list[tuple[str, dict]] = []
+    sent: list[tuple[str, object]] = []
 
     def record(self, table, symbols, columns, at=None, flush=False):
-        sent.append((table, columns))
+        sent.append((table, at, columns))
         return True
 
     monkeypatch.setattr(repository.QuestDBRepository, "_send_row", record)
+    return sent
+
+
+def test_daily_analysis_sends_rows_for_both_tables_without_a_database(monkeypatch):
+    """Always runs: the ILP rows main() queues, with no QuestDB involved."""
+    import scripts.daily_analysis as daily
+
+    sent = _record_rows(monkeypatch)
     _stub_inputs(monkeypatch, daily)
 
     daily.main()
 
-    tables = [table for table, _ in sent]
+    tables = [row[0] for row in sent]
     assert "price_analysis" in tables
     assert "metrics" in tables
-    metrics_columns = next(c for t, c in sent if t == "metrics")
+    metrics_columns = next(row[2] for row in sent if row[0] == "metrics")
     assert metrics_columns["active_addresses_block"] == 5
     assert metrics_columns["tx_count"] == 2
 
 
-def test_daily_analysis_writes_price_analysis_and_metrics(monkeypatch, tmp_path):
-    target = _target()
-    try:
-        before = {
-            t: asyncio.run(_count(target, t)) for t in ("price_analysis", "metrics")
-        }
-    except OSError:
-        pytest.skip("QuestDB test target not reachable")
+def test_both_tables_are_keyed_by_the_analysed_day_not_the_run_time(monkeypatch):
+    """M1: ts is the analysed day at 00:00Z in both tables, so a rerun upserts the same row."""
+    import scripts.daily_analysis as daily
+
+    sent = _record_rows(monkeypatch)
+    _stub_inputs(monkeypatch, daily)
+    day = _day_start_utc()
+
+    daily.main()
+    daily.main()
+
+    stamps = {(table, at) for table, at, _ in sent}
+    assert stamps == {("price_analysis", day), ("metrics", day)}
+
+
+class _RecordingConnection:
+    def __init__(self) -> None:
+        self.statements: list[str] = []
+
+    async def execute(self, statement: str, *args) -> None:
+        self.statements.append(" ".join(statement.split()))
+
+    async def close(self) -> None:
+        return None
+
+
+def test_ddl_dedups_price_analysis_and_metrics_on_ts(monkeypatch):
+    """M1: the schema makes the daily rerun idempotent (WAL table + DEDUP UPSERT KEYS(ts))."""
+    import types as _types
+
+    import api.questdb_repository as repository
+
+    conn = _RecordingConnection()
+
+    async def connect(**kwargs):
+        return conn
+
+    monkeypatch.setattr(repository, "asyncpg", _types.SimpleNamespace(connect=connect))
+    asyncio.run(repository.create_tables_if_not_exist())
+
+    for table in ("price_analysis", "metrics"):
+        create = next(
+            s for s in conn.statements if f"CREATE TABLE IF NOT EXISTS {table} (" in s
+        )
+        assert "WAL" in create and "DEDUP UPSERT KEYS(ts)" in create, table
+        # Existing (non-WAL, non-dedup) tables are migrated by the same function.
+        assert f"ALTER TABLE {table} SET TYPE WAL" in conn.statements
+        assert f"ALTER TABLE {table} DEDUP ENABLE UPSERT KEYS(ts)" in conn.statements
+
+
+def test_count_treats_only_a_missing_table_as_zero(monkeypatch):
+    """M3: a connection or any other error must surface, not read as an empty table."""
+    import asyncpg
+
+    class _Conn:
+        def __init__(self, error: Exception) -> None:
+            self.error = error
+
+        async def fetchval(self, query):
+            raise self.error
+
+        async def close(self) -> None:
+            return None
+
+    target = {"host": "h", "port": 1, "user": "u", "password": "p", "database": "d"}
+
+    def fake(error: Exception):
+        async def connect(**kwargs):
+            return _Conn(error)
+
+        return connect
+
+    monkeypatch.setattr(
+        asyncpg, "connect", fake(RuntimeError("table does not exist [name=t]"))
+    )
+    assert asyncio.run(_count(target, "t")) == 0
+
+    monkeypatch.setattr(asyncpg, "connect", fake(RuntimeError("permission denied")))
+    with pytest.raises(RuntimeError, match="permission denied"):
+        asyncio.run(_count(target, "t"))
+
+    async def refused(**kwargs):
+        raise ConnectionRefusedError("down")
+
+    monkeypatch.setattr(asyncpg, "connect", refused)
+    with pytest.raises(ConnectionRefusedError):
+        asyncio.run(_count(target, "t"))
+
+
+def test_daily_analysis_is_idempotent_on_a_real_questdb(monkeypatch):
+    """M1 + M3: two runs on the same day leave ONE row per table; an unreachable target fails."""
+    target = _target()  # skips only when QUESTDB_TEST_* are not set
 
     import api.questdb_repository as repository
     import scripts.daily_analysis as daily
     import scripts.metrics as metrics
 
     # Point both ILP writers (price_analysis via a new repository, metrics via the module
-    # singleton) at the test target.
+    # singleton) and the schema creation at the test target.
     monkeypatch.setattr(repository, "QUESTDB_ILP_HOST", target["host"])
     monkeypatch.setattr(repository, "QUESTDB_ILP_PORT", target["ilp_port"])
+    for name, key in (
+        ("QUESTDB_PG_HOST", "host"),
+        ("QUESTDB_PG_PORT", "port"),
+        ("QUESTDB_PG_USER", "user"),
+        ("QUESTDB_PG_PASSWORD", "password"),
+        ("QUESTDB_PG_DATABASE", "database"),
+    ):
+        monkeypatch.setattr(repository, name, target[key])
     monkeypatch.setattr(metrics._repo, "ilp_host", target["host"])
     monkeypatch.setattr(metrics._repo, "ilp_port", target["ilp_port"])
 
-    _stub_inputs(monkeypatch, daily)
+    # Fails (not skips) when the target is configured but down: an unreachable QuestDB must
+    # not turn the gate green.
+    asyncio.run(repository.create_tables_if_not_exist())
 
+    _stub_inputs(monkeypatch, daily)
+    daily.main()
     daily.main()
 
+    where = f"WHERE ts = '{_day_start_utc().strftime('%Y-%m-%dT%H:%M:%S.%fZ')}'"
     for table in ("price_analysis", "metrics"):
-        after = asyncio.run(_wait_for_growth(target, table, before[table]))
-        assert after > before[table], f"{table}: no new row after daily_analysis"
+        rows = asyncio.run(_wait_for_count(target, table, where, expected=1))
+        assert rows == 1, f"{table}: {rows} rows for the analysed day after two runs"
+
+
+def _set_destination(monkeypatch, *, ilp=("127.0.0.1", 9909), pg=("127.0.0.1", 9912)):
+    import api.questdb_repository as repository
+
+    monkeypatch.setattr(repository, "QUESTDB_ILP_HOST", ilp[0])
+    monkeypatch.setattr(repository, "QUESTDB_ILP_PORT", ilp[1])
+    monkeypatch.setattr(repository, "QUESTDB_PG_HOST", pg[0])
+    monkeypatch.setattr(repository, "QUESTDB_PG_PORT", pg[1])
+
+
+def _expect_destination(monkeypatch, *, ilp_port="9909", pg_port="9912"):
+    monkeypatch.setenv("UTXORACLE_EXPECTED_QUESTDB_ILP_HOST", "127.0.0.1")
+    monkeypatch.setenv("UTXORACLE_EXPECTED_QUESTDB_ILP_PORT", ilp_port)
+    monkeypatch.setenv("UTXORACLE_EXPECTED_QUESTDB_PG_HOST", "127.0.0.1")
+    monkeypatch.setenv("UTXORACLE_EXPECTED_QUESTDB_PG_PORT", pg_port)
+
+
+def test_destination_mismatch_exits_before_any_write(monkeypatch, caplog):
+    """M2: a wrong QuestDB (e.g. an override after load_secrets) must not receive rows."""
+    import scripts.daily_analysis as daily
+
+    sent = _record_rows(monkeypatch)
+    _stub_inputs(monkeypatch, daily)
+    _set_destination(
+        monkeypatch, ilp=("127.0.0.1", 9009)
+    )  # the host QuestDB, not the live
+    _expect_destination(monkeypatch)
+
+    with caplog.at_level("ERROR"), pytest.raises(SystemExit) as stop:
+        daily.main()
+
+    assert stop.value.code == 3
+    assert sent == []
+    assert "QuestDB destination mismatch" in caplog.text
+    assert "9009" in caplog.text and "9909" in caplog.text
+
+
+def test_destination_match_proceeds_and_logs_the_effective_target(monkeypatch, caplog):
+    import scripts.daily_analysis as daily
+
+    sent = _record_rows(monkeypatch)
+    _stub_inputs(monkeypatch, daily)
+    _set_destination(monkeypatch)
+    _expect_destination(monkeypatch)
+
+    with caplog.at_level("INFO"):
+        daily.main()
+
+    assert {row[0] for row in sent} == {"price_analysis", "metrics"}
+    assert "QuestDB destination: ILP 127.0.0.1:9909, PG 127.0.0.1:9912" in caplog.text
+
+
+def test_destination_without_expectation_logs_and_does_not_fail(monkeypatch, caplog):
+    """Manual use and tests set no expectation: log the target, do not block."""
+    import scripts.daily_analysis as daily
+
+    sent = _record_rows(monkeypatch)
+    _stub_inputs(monkeypatch, daily)
+    _set_destination(monkeypatch, ilp=("db.invalid", 1111), pg=("db.invalid", 2222))
+    for name in (
+        "UTXORACLE_EXPECTED_QUESTDB_ILP_HOST",
+        "UTXORACLE_EXPECTED_QUESTDB_ILP_PORT",
+        "UTXORACLE_EXPECTED_QUESTDB_PG_HOST",
+        "UTXORACLE_EXPECTED_QUESTDB_PG_PORT",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    with caplog.at_level("INFO"):
+        daily.main()
+
+    assert sent
+    assert "no expected destination set" in caplog.text
+    assert "ILP db.invalid:1111" in caplog.text

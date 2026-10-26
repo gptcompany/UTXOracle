@@ -19,7 +19,7 @@ import json
 import argparse
 import logging
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Optional, List
 from pathlib import Path
 
@@ -1258,6 +1258,47 @@ def _determine_action(combined_signal: float) -> str:
         return "HOLD"
 
 
+def check_questdb_destination() -> None:
+    """Fail before any write when the QuestDB in use is not the one the unit expects (F-419).
+
+    The effective target is what the repository module holds, which is what every writer
+    uses; it is read here, after load_config()/load_secrets() (override=True), so an
+    override from .env cannot silently move the writes. The expectation comes from
+    UTXORACLE_EXPECTED_QUESTDB_{ILP,PG}_{HOST,PORT}, declared in the systemd unit. Without
+    any of them (manual run, tests) the target is only logged.
+    """
+    import api.questdb_repository as questdb
+
+    effective = {
+        "ILP_HOST": str(questdb.QUESTDB_ILP_HOST),
+        "ILP_PORT": str(questdb.QUESTDB_ILP_PORT),
+        "PG_HOST": str(questdb.QUESTDB_PG_HOST),
+        "PG_PORT": str(questdb.QUESTDB_PG_PORT),
+    }
+    logging.info(
+        "QuestDB destination: ILP %s:%s, PG %s:%s",
+        effective["ILP_HOST"],
+        effective["ILP_PORT"],
+        effective["PG_HOST"],
+        effective["PG_PORT"],
+    )
+    expected = {
+        key: os.environ[f"UTXORACLE_EXPECTED_QUESTDB_{key}"]
+        for key in effective
+        if os.environ.get(f"UTXORACLE_EXPECTED_QUESTDB_{key}")
+    }
+    if not expected:
+        logging.info("QuestDB destination: no expected destination set, not checked")
+        return
+    wrong = {k: (effective[k], v) for k, v in expected.items() if effective[k] != v}
+    if wrong:
+        detail = ", ".join(
+            f"{k} is {got} (expected {want})" for k, (got, want) in wrong.items()
+        )
+        logging.error("QuestDB destination mismatch: %s", detail)
+        sys.exit(3)
+
+
 def main():
     """
     Main execution flow for daily analysis.
@@ -1286,6 +1327,8 @@ def main():
     except EnvironmentError as e:
         logging.error(f"Configuration error: {e}")
         sys.exit(1)
+
+    check_questdb_destination()
 
     # Initialize Whale Flow Detector (T042 - spec-004)
     whale_detector = None
@@ -1380,6 +1423,9 @@ def main():
         active_addr_result = None
         tx_vol_result = None
         current_time = datetime.now()
+        analysis_day = current_time.astimezone(timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
 
         if METRICS_ENABLED:
             try:
@@ -1644,7 +1690,9 @@ def main():
 
         # Step 4: Validate data quality (T042a)
         data = {
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            # The row key is the analysed UTC day at 00:00Z (not the run time): with DEDUP
+            # UPSERT KEYS(ts) a rerun on the same day replaces the row instead of adding one.
+            "timestamp": analysis_day.isoformat(),
             "utxoracle_price": utx_result["price_usd"],
             "mempool_price": mempool_price,
             "confidence": utx_result["confidence"],
@@ -1668,7 +1716,7 @@ def main():
             # F-419: the metrics were computed and then dropped; persist them with the price row.
             if METRICS_ENABLED and (mc_result or active_addr_result or tx_vol_result):
                 saved = save_metrics_to_db(
-                    timestamp=current_time,
+                    timestamp=analysis_day,
                     monte_carlo=mc_result.to_dict() if mc_result else None,
                     active_addresses=active_addr_result.to_dict()
                     if active_addr_result
