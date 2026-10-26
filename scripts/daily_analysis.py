@@ -1025,6 +1025,11 @@ def select_day_blocks(rpc, date_str: str) -> tuple[int, list[str]]:
         )
     hashes = [rpc.call("getblockhash", [height]) for height in range(first, stop)]
     confirmations = rpc.call("getblockheader", [hashes[-1]])["confirmations"]
+    if confirmations < 0:  # first: a block that left the best chain is not "too recent"
+        raise StaleBlockError(
+            f"last block {hashes[-1]} of {date_str} has confirmations {confirmations}: "
+            "it left the best chain after the selection"
+        )
     if confirmations < min_confirmations:
         raise IncompleteWindowError(
             f"last block of {date_str} has {confirmations} confirmations "

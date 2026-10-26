@@ -46,6 +46,9 @@ class FakeChain:
         self.reorg_from: int | None = (
             None  # heights >= this are replaced by "alt" blocks
         )
+        self.stale_header_height: int | None = (
+            None  # that block's header: confirmations -1
+        )
 
     def mediantime(self, h):
         return START + self.offset(h - FIRST)
@@ -78,6 +81,8 @@ class FakeChain:
         h = int(params[0][4:] if params[0].startswith("hash") else params[0][3:])
         confirmations = self.tip - h + 1
         if method == "getblockheader":
+            if h == self.stale_header_height:
+                confirmations = -1
             if h in self.fail_header:
                 raise RuntimeError("rpc header down (test)")
             return {
@@ -412,3 +417,73 @@ def test_the_wired_main_writes_both_tables_for_a_healthy_day(monkeypatch):
 
     assert code == 0
     assert set(sent) == {"price_analysis", "metrics"}
+
+
+# --- review r1 of #65 --------------------------------------------------------------------
+# These tests use NO stub of the calculator. The tests above that replace
+# UTXOracleCalculator with a stub are: _main_with_historical_day (and every test built on
+# it) and test_backfill_records_the_dedicated_historical_tier_and_streams.
+
+
+def _plain_transactions(count: int) -> list[dict]:
+    return [
+        {
+            "txid": f"t{i}",
+            "vin": [{"txid": f"p{i}"}],
+            "vout": [
+                {"value": 0.01 + (i % 50) / 1000},
+                {"value": 0.02 + (i % 70) / 1000},
+            ],
+        }
+        for i in range(count)
+    ]
+
+
+def test_the_real_calculator_consumes_a_one_shot_generator_like_a_list():
+    from UTXOracle_library import UTXOracleCalculator
+
+    transactions = _plain_transactions(1500)
+    from_list = UTXOracleCalculator().calculate_price_for_transactions(transactions)
+
+    pulled = []
+
+    def one_shot():
+        for tx in transactions:
+            pulled.append(tx["txid"])
+            yield tx
+
+    from_stream = UTXOracleCalculator().calculate_price_for_transactions(one_shot())
+
+    assert len(pulled) == 1500  # consumed once, element by element
+    assert from_stream["diagnostics"]["total_txs"] == 1500
+    assert from_stream == from_list  # same answer as with the list
+
+
+def test_the_real_calculator_on_an_empty_stream_answers_without_an_exception():
+    from UTXOracle_library import UTXOracleCalculator
+
+    result = UTXOracleCalculator().calculate_price_for_transactions(iter(()))
+
+    assert result["tx_count"] == 0 and result["price_usd"] is None
+
+
+def test_a_stale_last_header_is_stale_block_error_exit_2_not_an_incomplete_window(
+    monkeypatch,
+):
+    import scripts.daily_analysis as daily
+
+    last = FIRST + 143
+
+    def stale_final_header():
+        chain = FakeChain(tip=700)
+        chain.stale_header_height = (
+            last  # hashes are fixed, then the last header says -1
+        )
+        return chain
+
+    with pytest.raises(daily.StaleBlockError, match="confirmations"):
+        _fetch(monkeypatch, stale_final_header())
+
+    code, sent = _main_with_historical_day(monkeypatch, stale_final_header())
+    assert code == 2
+    assert sent == []
