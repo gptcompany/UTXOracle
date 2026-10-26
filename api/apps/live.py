@@ -140,32 +140,51 @@ def _discard_failed_repo(questdb_repo: QuestDBRepository) -> None:
         questdb_repo.sender = None
 
 
-async def _connect_questdb_repo(app: FastAPI, *, attempt: int, retry_in: float) -> bool:
-    """One initialization attempt; on success the repository is set on app.state.
+def _init_questdb_state(app: FastAPI) -> None:
+    """The app is the single owner of the QuestDB repository and of its connection pool."""
+    app.state.questdb_repo = None
+    app.state.questdb_retry_task = None
+    app.state.questdb_lock = asyncio.Lock()
+    app.state.questdb_ready = asyncio.Event()
 
-    The whale monitor keeps the repository it created itself: it initializes it on every
-    connect (_on_connect), so it recovers by itself, and swapping it would either orphan its
-    buffered ILP rows or, if the old one were closed, close the shared PG pool this one uses.
+
+async def _connect_questdb_repo(app: FastAPI, *, attempt: int, retry_in: float) -> bool:
+    """One initialization attempt under the app lock; on success the repository is published.
+
+    The lock makes repository and pool creation single-owner: the PG pool is a class-level
+    attribute that initialize() creates when missing, so two concurrent initialize() calls
+    would each build one and orphan the first. The whale monitor does not create its own: it
+    waits for `app.state.questdb_ready` and uses this repository.
     """
-    questdb_repo = None
-    try:
-        questdb_repo = QuestDBRepository()
-        await questdb_repo.initialize()
-    except Exception as exc:
-        if questdb_repo is not None:
-            _discard_failed_repo(questdb_repo)
-        logging.warning(
-            "QuestDB repository unavailable (attempt %d); derived routes answer 503, retrying in %.0fs: %s",
+    async with app.state.questdb_lock:
+        if app.state.questdb_repo is not None:
+            return True
+        questdb_repo = None
+        published = False
+        try:
+            questdb_repo = QuestDBRepository()
+            await questdb_repo.initialize()
+            app.state.questdb_repo = questdb_repo
+            app.state.questdb_ready.set()
+            published = True
+        except Exception as exc:
+            logging.warning(
+                "QuestDB repository unavailable (attempt %d); derived routes answer 503, retrying in %.0fs: %s",
+                attempt,
+                retry_in,
+                exc,
+            )
+            return False
+        finally:
+            # finally, not except Exception: a cancelled attempt (CancelledError is a
+            # BaseException) must close the sender initialize() already opened too.
+            if not published and questdb_repo is not None:
+                _discard_failed_repo(questdb_repo)
+        logging.info(
+            "QuestDB repository initialized for live production app (attempt %d).",
             attempt,
-            retry_in,
-            exc,
         )
-        return False
-    app.state.questdb_repo = questdb_repo
-    logging.info(
-        "QuestDB repository initialized for live production app (attempt %d).", attempt
-    )
-    return True
+        return True
 
 
 async def _retry_questdb_repo(app: FastAPI) -> None:
@@ -187,8 +206,7 @@ async def lifespan(app: FastAPI):
     # Keep live snapshot surfaces available even if QuestDB startup is unavailable. The
     # repository is retried in the background (F-399): containers start together and QuestDB
     # may accept connections only seconds after the API, which used to leave it None for good.
-    app.state.questdb_repo = None
-    app.state.questdb_retry_task = None
+    _init_questdb_state(app)
     if not await _connect_questdb_repo(
         app, attempt=1, retry_in=QUESTDB_RETRY_INITIAL_SECONDS
     ):
@@ -204,8 +222,8 @@ async def lifespan(app: FastAPI):
 
     try:
         monitor = MempoolWhaleMonitor()
-        if app.state.questdb_repo is not None:
-            monitor.repo = app.state.questdb_repo
+        # The monitor waits for the app's repository instead of opening a pool of its own.
+        monitor.attach_app_repo(app.state.questdb_ready, lambda: app.state.questdb_repo)
 
         # Set our new FastAPI-native stream manager as the broadcaster
         class BroadcasterAdapter:

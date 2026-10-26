@@ -80,6 +80,10 @@ class MempoolWhaleMonitor:
 
         # Initialize QuestDB repository
         self.repo = QuestDBRepository()
+        # Set by attach_app_repo(): when the hosting app owns the repository and its pool,
+        # this monitor waits for it instead of initializing a pool of its own.
+        self._repo_ready: asyncio.Event | None = None
+        self._repo_getter = None
 
         # Transaction cache (prevents duplicate processing)
         self.tx_cache = TransactionCache(maxlen=10000)
@@ -120,12 +124,24 @@ class MempoolWhaleMonitor:
         logger.info(f"Whale threshold: {whale_threshold_btc} BTC")
         logger.info("Using QuestDB for persistence")
 
+    def attach_app_repo(self, ready: asyncio.Event, getter) -> None:
+        """Use the repository owned by the hosting app once `ready` is set (F-399)."""
+        self._repo_ready = ready
+        self._repo_getter = getter
+
+    async def _ensure_repo(self) -> None:
+        if self._repo_ready is None:
+            await self.repo.initialize()
+            return
+        await self._repo_ready.wait()
+        self.repo = self._repo_getter()
+
     async def _on_connect(self, websocket):
         """Handle WebSocket connection established"""
         logger.info("🔗 Connected to mempool.space transaction stream")
 
         # Initialize repository on first connect if needed
-        await self.repo.initialize()
+        await self._ensure_repo()
 
         # Listen for incoming messages
         async for message in websocket:
@@ -507,6 +523,12 @@ class MempoolWhaleMonitor:
         logger.info("Loading active exchange registry into memory...")
         self.registry_cache = {}
         try:
+            if self._repo_ready is not None:
+                if not self._repo_ready.is_set():
+                    # fetch() would lazily open a pool of its own: use the CSV registry until
+                    # the app's repository is up.
+                    raise RuntimeError("app QuestDB repository not ready yet")
+                self.repo = self._repo_getter()
             # Query all known clusters from QuestDB
             query = "SELECT address, cluster_id FROM active_exchange_registry"
             rows = await self.repo.fetch(query)

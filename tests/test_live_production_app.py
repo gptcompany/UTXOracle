@@ -296,6 +296,10 @@ class _IdleWhaleMonitor:
     repo = None
     broadcaster = None
 
+    def attach_app_repo(self, ready, getter) -> None:
+        self.ready = ready
+        self.getter = getter
+
     async def start(self) -> None:
         await asyncio.Event().wait()
 
@@ -389,6 +393,19 @@ def test_startup_does_not_start_a_retry_task_when_questdb_is_up(monkeypatch):
         assert client.app.state.questdb_retry_task is None
 
 
+def _bare_app(**state):
+    """App stand-in with the single-owner state the lifespan sets up (lock and ready event)."""
+    from types import SimpleNamespace
+
+    from api.apps import live as live_app
+
+    app = SimpleNamespace(state=SimpleNamespace(**state))
+    live_app._init_questdb_state(app)
+    for key, value in state.items():
+        setattr(app.state, key, value)
+    return app
+
+
 class _FakeSender:
     def __init__(self) -> None:
         self.closed = False
@@ -415,7 +432,7 @@ def test_failed_initialize_closes_the_ilp_sender_it_opened(monkeypatch):
             raise ConnectionError("pool unavailable (test)")
 
     monkeypatch.setattr(live_app, "QuestDBRepository", _OpensSenderThenFails)
-    app = SimpleNamespace(state=SimpleNamespace(questdb_repo=None))
+    app = _bare_app()
 
     for attempt in (1, 2, 3):
         assert (
@@ -448,9 +465,7 @@ def test_retry_success_leaves_the_whale_monitor_repository_alone(monkeypatch):
 
     own_repo = _MonitorRepo()
     monitor = SimpleNamespace(repo=own_repo)
-    app = SimpleNamespace(
-        state=SimpleNamespace(questdb_repo=None, whale_monitor=monitor)
-    )
+    app = _bare_app(whale_monitor=monitor)
     monkeypatch.setattr(live_app, "QuestDBRepository", _Repo)
 
     assert (
@@ -488,3 +503,97 @@ def test_retry_task_failures_are_logged_by_the_shared_callback(monkeypatch):
     assert any(
         "live-questdb-repo-retry" in m and "retry crashed (test)" in m for m in messages
     )
+
+
+def test_cancelled_initialize_closes_the_sender_it_already_opened(monkeypatch):
+    """Cancellation (a BaseException) during initialize() must not leak the ILP sender (M1)."""
+    from api.apps import live as live_app
+
+    senders: list[_FakeSender] = []
+
+    class _OpensSenderThenHangs:
+        def __init__(self) -> None:
+            self.sender = None
+
+        async def initialize(self) -> None:
+            self.sender = _FakeSender()
+            senders.append(self.sender)
+            await asyncio.Event().wait()  # suspended in create_pool
+
+    monkeypatch.setattr(live_app, "QuestDBRepository", _OpensSenderThenHangs)
+
+    async def scenario() -> None:
+        app = _bare_app()
+        task = asyncio.create_task(
+            live_app._connect_questdb_repo(app, attempt=2, retry_in=0.0)
+        )
+        while not senders:
+            await asyncio.sleep(0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert app.state.questdb_repo is None
+        assert not app.state.questdb_ready.is_set()
+        # The lock is released: a later attempt is not blocked by the cancelled one.
+        assert not app.state.questdb_lock.locked()
+
+    asyncio.run(scenario())
+
+    assert len(senders) == 1
+    assert senders[0].closed
+
+
+def test_retry_and_whale_monitor_create_a_single_pool(monkeypatch):
+    """The app retry and the monitor reach the pool concurrently: only one pool exists (M2)."""
+    from api.apps import live as live_app
+    from scripts import mempool_whale_monitor
+
+    class _PoolRepository:
+        _pool = None
+        pools_created = 0
+
+        def __init__(self) -> None:
+            self.sender = None
+
+        async def initialize(self) -> None:
+            if type(self)._pool is None:
+                # create_pool in flight: like the real initialize(), the pool is assigned
+                # after the await, so a concurrent caller still sees None.
+                await asyncio.sleep(0.05)
+                type(self).pools_created += 1
+                type(self)._pool = object()
+
+    monkeypatch.setattr(live_app, "QuestDBRepository", _PoolRepository)
+    monkeypatch.setattr(mempool_whale_monitor, "QuestDBRepository", _PoolRepository)
+
+    async def scenario() -> None:
+        app = _bare_app()
+        monitor = mempool_whale_monitor.MempoolWhaleMonitor()
+        monitor.attach_app_repo(app.state.questdb_ready, lambda: app.state.questdb_repo)
+        await asyncio.gather(
+            live_app._connect_questdb_repo(app, attempt=2, retry_in=0.0),
+            monitor._ensure_repo(),
+        )
+        assert monitor.repo is app.state.questdb_repo
+
+    asyncio.run(scenario())
+
+    assert _PoolRepository.pools_created == 1
+
+
+def test_shutdown_during_the_backoff_cancels_the_retry_cleanly(monkeypatch):
+    from api.apps import live as live_app
+
+    _flaky_repository(monkeypatch, failures=10**6)
+    monkeypatch.setattr(live_app, "QUESTDB_RETRY_INITIAL_SECONDS", 30.0)
+    monkeypatch.setattr(live_app, "QUESTDB_RETRY_MAX_SECONDS", 60.0)
+
+    started = time.monotonic()
+    with _build_client(_empty_store()) as client:
+        retry_task = client.app.state.questdb_retry_task
+        assert not retry_task.done()  # sleeping in the 30 s backoff
+        assert not client.app.state.questdb_ready.is_set()
+        assert not client.app.state.questdb_lock.locked()
+
+    assert retry_task.cancelled()
+    assert time.monotonic() - started < 10
