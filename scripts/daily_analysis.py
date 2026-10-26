@@ -688,6 +688,11 @@ def fetch_bitcoin_transactions(config: Dict[str, any]) -> tuple[List[dict], int]
         raise
 
 
+def _is_coinbase(tx: dict) -> bool:
+    """True for a coinbase in the mempool.space shape (vin.is_coinbase) or Core's ("coinbase")."""
+    return any(vin.get("is_coinbase") or "coinbase" in vin for vin in tx.get("vin", []))
+
+
 def calculate_utxoracle_price(config: Dict, day: Optional[datetime] = None) -> Dict:
     """
     T040: Calculate BTC/USD price using UTXOracle algorithm.
@@ -719,12 +724,16 @@ def calculate_utxoracle_price(config: Dict, day: Optional[datetime] = None) -> D
             stream = iter(
                 fetch_historical_transactions(day.strftime("%Y-%m-%d"), config)
             )
-            format_sample = next(stream, None)
-            transactions = (
-                itertools.chain([format_sample], stream)
-                if format_sample is not None
-                else iter(())
-            )
+            # The sample is the first NON-coinbase transaction (a coinbase has no prevout in
+            # the mempool.space shape): the transactions read to find it are kept in `head`
+            # and put back in front, so nothing is lost and the stream is not consumed further.
+            head, format_sample = [], None
+            for candidate in stream:
+                head.append(candidate)
+                if not _is_coinbase(candidate):
+                    format_sample = candidate
+                    break
+            transactions = itertools.chain(head, stream)
             tier = FETCH_TIER_RPC_HISTORICAL
 
         # Calculate price using library
@@ -739,6 +748,7 @@ def calculate_utxoracle_price(config: Dict, day: Optional[datetime] = None) -> D
         result["transactions"] = transactions if day is None else []
         if day is not None:
             result["format_sample"] = format_sample
+            result["transactions_streamed"] = True
 
         # Validate result quality
         price = result.get("price_usd")
@@ -778,9 +788,13 @@ def calculate_utxoracle_price(config: Dict, day: Optional[datetime] = None) -> D
 
         return result
 
-    except IncompleteWindowError:
-        raise  # the window of the day is open: main() ends with exit 7, nothing is written
+    except (IncompleteWindowError, BadEnvValueError):
+        raise  # they carry their own exit code (7 and 6): main() must see them
     except Exception as e:
+        if day is not None and not isinstance(e, ValueError):
+            # RPC and stream errors of a historical day (StaleBlockError, ImplausibleDayError,
+            # a failing node...) are not "no price": they keep their cause and exit code.
+            raise
         logging.error(f"Failed to calculate UTXOracle price: {e}")
         return {
             "price_usd": None,
@@ -1869,6 +1883,13 @@ def main():
                     )
 
             run_metrics_block("input_format", input_format_block)
+            if utx_result.get("transactions_streamed"):
+                # Fail closed (B3, F-438): the day is a stream the price library has already
+                # consumed, the metrics need the same pass (F-432). No price row without
+                # metrics, no partial write: nothing has been written at this point.
+                raise RuntimeError(
+                    "metriche non calcolabili dallo stream fino a F-432: nessuna scrittura"
+                )
 
             # Monte Carlo needs a whale signal: without one it does not apply.
             if whale_signal:

@@ -27,6 +27,12 @@ def _secrets_loader_stub(monkeypatch):
     stub = types.ModuleType("secrets_loader")
     stub.load_secrets = lambda _path=None: False
     monkeypatch.setitem(sys.modules, "secrets_loader", stub)
+    # If scripts.daily_analysis was imported earlier (collection, another module) it already
+    # holds the REAL load_secrets on a machine that has the loader (the Dell): that one reads
+    # the machine's encrypted secrets into os.environ. Replace the bound name too.
+    already_imported = sys.modules.get("scripts.daily_analysis")
+    if already_imported is not None:
+        monkeypatch.setattr(already_imported, "load_secrets", stub.load_secrets)
 
 
 class _Tx(dict):
@@ -160,7 +166,9 @@ def _main_with_historical_day(monkeypatch, chain, tmp_path=None, expect_exit=Tru
     monkeypatch.setattr(daily, "validate_config", lambda config: None)
     monkeypatch.setattr(daily, "WhaleFlowDetector", None)
     monkeypatch.setattr(daily, "ADVANCED_METRICS_ENABLED", False)
-    monkeypatch.setattr(daily, "fetch_mempool_price", lambda url: 100_000.0)
+    monkeypatch.setattr(
+        daily, "fetch_mempool_price_at", lambda timestamp, url: 100_000.0
+    )
     monkeypatch.setattr(daily, "rpc_client", lambda config=None, timeout=60: chain)
     monkeypatch.setattr(sys, "argv", ["daily_analysis.py"])
 
@@ -487,3 +495,19 @@ def test_a_stale_last_header_is_stale_block_error_exit_2_not_an_incomplete_windo
     code, sent = _main_with_historical_day(monkeypatch, stale_final_header())
     assert code == 2
     assert sent == []
+
+
+def test_a_real_mempool_call_in_these_tests_fails_loudly():
+    """The conftest guard (F-446): before it, the Dell's local mempool answered, CI's did not."""
+    import socket
+
+    import scripts.daily_analysis as daily
+
+    with pytest.raises(AssertionError, match="real network call"):
+        daily.fetch_mempool_price_at(1, "http://localhost:8999")
+    with pytest.raises(AssertionError, match="real network call"):
+        daily.fetch_mempool_price("http://localhost:8999")  # requests -> socket
+    with pytest.raises(AssertionError, match="real network call"):
+        socket.socket().connect(("127.0.0.1", 3002))  # electrs default
+    with pytest.raises(AssertionError, match="real network call"):
+        socket.socket().connect(("93.184.216.34", 80))  # any non-loopback host
