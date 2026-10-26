@@ -30,9 +30,11 @@ from pathlib import Path
 # Exit codes of the script: 0 done (or both rows of the day already present); 1 invalid
 # configuration; 2 any failure (exception, incomplete row, failed metrics block, failed
 # write); 3 QuestDB destination mismatch or a .env defining it; 4 table without dedup on ts;
-# 5 run outside its window; 6 non-numeric value in a QUESTDB_* variable read at import.
+# 5 run outside its window; 6 non-numeric value in an integer variable read at import
+# (QUESTDB_*) or for the day selection (MIN_CONFIRMATIONS, which must also be >= 1);
+# 7 the day to analyse is not complete yet (IncompleteWindowError, nothing written).
 FORBIDDEN_ENV_PREFIXES = ("UTXORACLE_EXPECTED_", "QUESTDB_")
-NUMERIC_QUESTDB_ENV = (  # int() at import time in api/questdb_repository.py (test-checked)
+NUMERIC_QUESTDB_ENV = (  # int() at import in api/questdb_repository.py (test-checked), + below
     "QUESTDB_ILP_PORT",
     "QUESTDB_PG_PORT",
     "QUESTDB_HTTP_PORT",
@@ -40,6 +42,7 @@ NUMERIC_QUESTDB_ENV = (  # int() at import time in api/questdb_repository.py (te
     "QUESTDB_POOL_MAX_SIZE",
     "QUESTDB_COMMAND_TIMEOUT",
     "QUESTDB_MAX_INACTIVE_LIFETIME",
+    "MIN_CONFIRMATIONS",  # read by select_day_blocks (_min_confirmations adds the >= 1 rule)
 )
 EXIT_BAD_ENV_VALUE = 6
 
@@ -730,6 +733,8 @@ def calculate_utxoracle_price(config: Dict) -> Dict:
 
         return result
 
+    except IncompleteWindowError:
+        raise  # the window of the day is open: main() ends with exit 7, nothing is written
     except Exception as e:
         logging.error(f"Failed to calculate UTXOracle price: {e}")
         return {
@@ -911,148 +916,168 @@ def detect_gaps(conn, max_days_back: int = None) -> List[str]:
     return gaps
 
 
-def fetch_historical_transactions(date_str: str, config: Dict) -> List[dict]:
+# Tier recorded in price_analysis.fetch_tier for blocks of a past day read through Bitcoin Core
+# RPC (tiers 1-3 are the live fetchers of the latest block).
+FETCH_TIER_RPC_HISTORICAL = 4
+# Plausibility only: a day has ~144 blocks on average. More than this is an error, not a cap.
+MAX_BLOCKS_PER_DAY = 400
+# Exit code of main() when the window of the requested day is not complete yet.
+EXIT_INCOMPLETE_WINDOW = 7
+# The last block of the day needs this many confirmations (env MIN_CONFIRMATIONS overrides).
+DEFAULT_MIN_CONFIRMATIONS = 6
+
+
+class IncompleteWindowError(Exception):
+    """The chain tip is not past the end of the requested day (mediantime < D+1 00:00Z)."""
+
+
+class BadEnvValueError(ValueError):
+    """An environment variable has an invalid value; the message names the variable only."""
+
+
+class StaleBlockError(RuntimeError):
+    """A block selected for the day is no longer in the best chain (confirmations == -1)."""
+
+
+class ImplausibleDayError(Exception):
+    """The blocks found for the day are zero or more than MAX_BLOCKS_PER_DAY."""
+
+
+def _median_time(rpc, height: int) -> int:
+    """BIP113 median-time-past of the block at `height`: non-decreasing with the height."""
+    return rpc.call("getblockheader", [rpc.call("getblockhash", [height])])[
+        "mediantime"
+    ]
+
+
+def _first_height_with_mediantime_at_least(rpc, tip: int, timestamp: int) -> int:
+    """Exact binary search on [0, tip + 1): the lowest height whose mediantime >= timestamp."""
+    low, high = 0, tip + 1
+    while low < high:
+        mid = (low + high) // 2
+        if _median_time(rpc, mid) >= timestamp:
+            high = mid
+        else:
+            low = mid + 1
+    return low
+
+
+def _min_confirmations() -> int:
+    """MIN_CONFIRMATIONS from the environment: an integer >= 1, default 6.
+
+    Anything else (not an integer, 0, negative) raises BadEnvValueError (main: exit 6) naming
+    only the variable, never the value.
     """
-    Fetch Bitcoin transactions for a specific historical date.
+    raw = os.environ.get("MIN_CONFIRMATIONS")
+    if not raw:
+        return DEFAULT_MIN_CONFIRMATIONS
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    if value < 1:
+        raise BadEnvValueError(
+            "MIN_CONFIRMATIONS must be an integer >= 1 (value not logged)"
+        ) from None
+    return value
 
-    This function finds all blocks mined on the target date (00:00-23:59 UTC)
-    and fetches all transactions from those blocks.
 
-    Architecture:
-    - Tier 1: Bitcoin Core RPC (primary - has full historical blockchain)
-    - Tier 2: electrs (fallback - if available and faster)
-    - Tier 3: Fail (no mempool.space for old historical data)
+def select_day_blocks(rpc, date_str: str) -> tuple[int, list[str]]:
+    """(first height, block hashes) of the UTC day `date_str`, fixed once, by mediantime.
 
-    Args:
-        date_str: Target date (YYYY-MM-DD format)
-        config: Configuration dict with BITCOIN_DATADIR
-
-    Returns:
-        list: Transaction dictionaries with vout/vin data
+    Convention: day D = the blocks whose MEDIAN-TIME-PAST is in [D 00:00:00Z, D+1 00:00:00Z),
+    which lags the header `time` by about an hour; the gap from the reference price is
+    measured by F-438 over several days. The mediantime never decreases with the height
+    (BIP113), so the boundaries come from an exact binary search over [0, tip], with no
+    estimate of the height and no margin.
 
     Raises:
-        ValueError: If date is invalid or no blocks found
-        subprocess.CalledProcessError: If Bitcoin Core RPC fails
+        ValueError: invalid date. BadEnvValueError: MIN_CONFIRMATIONS is not an integer >= 1.
+        IncompleteWindowError: the tip's mediantime is before D+1 00:00Z (day still open),
+            or the last block of D has fewer than MIN_CONFIRMATIONS confirmations.
+        ImplausibleDayError: zero blocks, or more than MAX_BLOCKS_PER_DAY.
+        Any RPC error is propagated unchanged: nothing is swallowed.
     """
-    from datetime import datetime, timezone
-
-    # Parse target date
     try:
-        target_date = datetime.strptime(date_str, "%Y-%m-%d").replace(
-            tzinfo=timezone.utc
+        start = int(
+            datetime.strptime(date_str, "%Y-%m-%d")
+            .replace(tzinfo=timezone.utc)
+            .timestamp()
         )
     except ValueError as e:
         raise ValueError(f"Invalid date format '{date_str}' (expected YYYY-MM-DD): {e}")
+    end = start + 86400
+    min_confirmations = _min_confirmations()
 
-    # Calculate Unix timestamp range for target date
-    start_timestamp = int(target_date.timestamp())  # 00:00:00 UTC
-    end_timestamp = start_timestamp + 86400  # +24 hours
-
-    logging.info(
-        f"[Historical] Fetching transactions for {date_str} "
-        f"(timestamps: {start_timestamp}-{end_timestamp})"
-    )
-
-    rpc = rpc_client(config)
-
-    def rpc_call(method: str, params: list) -> any:
-        """Helper to make Bitcoin Core RPC calls."""
-        return rpc.call(method, params)
-
-    # Step 1: Get current block height to estimate target height
-    current_height = rpc_call("getblockcount", [])
-    logging.info(f"[Historical] Current block height: {current_height}")
-
-    # Step 2: Estimate target block height (144 blocks per day)
-    # Calculate days between target date and now
-    now = datetime.now(timezone.utc)
-    days_ago = (now - target_date).days
-    estimated_height = current_height - (days_ago * 144)
-
-    logging.info(
-        f"[Historical] Estimated height for {date_str}: ~{estimated_height} "
-        f"({days_ago} days ago)"
-    )
-
-    # Step 3: Binary search to find first block of target date
-    def get_block_timestamp(height: int) -> int:
-        """Get block timestamp for given height."""
-        block_hash = rpc_call("getblockhash", [height])
-        block_header = rpc_call("getblockheader", [block_hash])
-        return block_header["time"]
-
-    # Binary search for first block >= start_timestamp
-    search_range = 300  # Search ±300 blocks (~2 days) around estimate
-    left = max(0, estimated_height - search_range)
-    right = min(current_height, estimated_height + search_range)
-
-    first_block_height = None
-    while left <= right:
-        mid = (left + right) // 2
-        mid_timestamp = get_block_timestamp(mid)
-
-        if mid_timestamp < start_timestamp:
-            left = mid + 1
-        elif mid_timestamp >= end_timestamp:
-            right = mid - 1
-        else:
-            # Found a block within target date
-            # Search backward to find first block of the day
-            first_block_height = mid
-            right = mid - 1
-
-    if first_block_height is None:
-        raise ValueError(
-            f"No blocks found for {date_str} "
-            f"(searched heights {estimated_height - search_range} to {estimated_height + search_range})"
+    tip = rpc.call("getblockcount", [])
+    tip_mediantime = _median_time(rpc, tip)
+    if tip_mediantime < end:
+        raise IncompleteWindowError(
+            f"{date_str} is not complete: tip {tip} has mediantime {tip_mediantime} < {end}"
         )
 
-    # Step 4: Find last block of target date
-    last_block_height = first_block_height
-    for h in range(
-        first_block_height + 1, first_block_height + 200
-    ):  # Max 200 blocks per day
-        try:
-            ts = get_block_timestamp(h)
-            if ts < end_timestamp:
-                last_block_height = h
-            else:
-                break
-        except Exception:
-            break  # Reached current tip or error
+    first = _first_height_with_mediantime_at_least(rpc, tip, start)
+    stop = _first_height_with_mediantime_at_least(rpc, tip, end)
+    count = stop - first
+    if count < 1 or count > MAX_BLOCKS_PER_DAY:
+        raise ImplausibleDayError(
+            f"{count} blocks with mediantime in {date_str} (expected 1..{MAX_BLOCKS_PER_DAY})"
+        )
+    hashes = [rpc.call("getblockhash", [height]) for height in range(first, stop)]
+    confirmations = rpc.call("getblockheader", [hashes[-1]])["confirmations"]
+    if confirmations < 0:  # first: a block that left the best chain is not "too recent"
+        raise StaleBlockError(
+            f"last block {hashes[-1]} of {date_str} has confirmations {confirmations}: "
+            "it left the best chain after the selection"
+        )
+    if confirmations < min_confirmations:
+        raise IncompleteWindowError(
+            f"last block of {date_str} has {confirmations} confirmations "
+            f"(< {min_confirmations}): too close to the tip to be final"
+        )
+    logging.info(f"[Historical] {date_str}: {count} blocks, heights {first}-{stop - 1}")
+    return first, hashes
 
-    block_count = last_block_height - first_block_height + 1
-    logging.info(
-        f"[Historical] Found {block_count} blocks for {date_str} "
-        f"(heights {first_block_height}-{last_block_height})"
-    )
 
-    # Step 5: Fetch all transactions from blocks in range
-    all_transactions = []
-    for height in range(first_block_height, last_block_height + 1):
-        if (height - first_block_height) % 50 == 0:
-            logging.info(
-                f"[Historical] Fetching block {height - first_block_height + 1}/{block_count}..."
+def _stream_transactions(rpc, hashes: list[str]):
+    """Yield the transactions of the blocks `hashes`, one block in memory at a time.
+
+    Blocks are read BY HASH, the ones fixed at selection: a block that left the best chain
+    meanwhile (confirmations == -1) is an explicit error, never silently replaced by the
+    block now at that height.
+    """
+    total = 0
+    for index, block_hash in enumerate(hashes):
+        if index % 50 == 0:
+            logging.info(f"[Historical] Fetching block {index + 1}/{len(hashes)}...")
+        block = rpc.call("getblock", [block_hash, 2])
+        if block.get("confirmations", 0) < 0:
+            raise StaleBlockError(
+                f"block {block_hash} has confirmations {block['confirmations']}: "
+                "it left the best chain while the day was being read"
             )
-
-        block_hash = rpc_call("getblockhash", [height])
-        block_data = rpc_call(
-            "getblock", [block_hash, 2]
-        )  # verbosity=2 for full tx data
-        transactions = block_data["tx"]
-        all_transactions.extend(transactions)
-
+        total += len(block["tx"])
+        yield from block["tx"]
     logging.info(
-        f"[Historical] ✅ Fetched {len(all_transactions)} transactions from {block_count} blocks"
+        f"[Historical] Streamed {total} transactions from {len(hashes)} blocks"
     )
 
-    if len(all_transactions) < 1000:
-        logging.warning(
-            f"[Historical] Only {len(all_transactions)} transactions found "
-            f"(expected >=1000 for normal day)"
-        )
 
-    return all_transactions
+def fetch_historical_transactions(date_str: str, config: Dict):
+    """
+    Transactions of the blocks that belong to the UTC day `date_str`, as a stream.
+
+    The selection (select_day_blocks, mediantime, exact) runs at call time, so its errors
+    are raised here, not during iteration; the returned generator then fetches one block at
+    a time by hash (getblock verbosity 2, values in BTC) and keeps none of them: the day is
+    never held in memory. Callers that need the transactions twice (price library AND
+    metrics) must compute both in the same pass.
+
+    Raises: what select_day_blocks raises; StaleBlockError during iteration.
+    """
+    rpc = rpc_client(config)
+    _, hashes = select_day_blocks(rpc, date_str)
+    return _stream_transactions(rpc, hashes)
 
 
 def backfill_gap(date_str: str, config: Dict) -> bool:
@@ -1087,11 +1112,7 @@ def backfill_gap(date_str: str, config: Dict) -> bool:
 
         # Fetch Bitcoin transactions for this date (HISTORICAL!)
         logging.info(f"[Backfill] Fetching historical transactions for {date_str}...")
-        transactions = fetch_historical_transactions(date_str, config)
-
-        if not transactions:
-            logging.error(f"[Backfill] No transactions found for {date_str}")
-            return False
+        transactions = fetch_historical_transactions(date_str, config)  # a stream
 
         # Calculate UTXOracle price using library (NO subprocess!)
         calc = UTXOracleCalculator()
@@ -1101,6 +1122,9 @@ def backfill_gap(date_str: str, config: Dict) -> bool:
         confidence = result.get("confidence", 0)
         tx_count = result.get("tx_count", 0)
 
+        if not tx_count:
+            logging.error(f"[Backfill] No transactions found for {date_str}")
+            return False
         if price is None:
             logging.error(f"[Backfill] UTXOracle returned None price for {date_str}")
             return False
@@ -1122,6 +1146,7 @@ def backfill_gap(date_str: str, config: Dict) -> bool:
             ),
             "confidence": confidence,
             "tx_count": tx_count,
+            "fetch_tier": FETCH_TIER_RPC_HISTORICAL,
             "is_valid": confidence >= 0.3 and tx_count >= 1000,
             "whale_net_flow": 0.0,  # No whale data for historical backfill
             "whale_direction": "NEUTRAL",
@@ -1135,6 +1160,8 @@ def backfill_gap(date_str: str, config: Dict) -> bool:
         logging.info(f"[Backfill] ✅ Successfully backfilled {date_str}")
         return True
 
+    except IncompleteWindowError:
+        raise  # the day is not over: not a backfill failure, the caller must know (exit 7)
     except Exception as e:
         logging.error(f"[Backfill] Failed to backfill {date_str}: {e}")
         return False
@@ -1437,7 +1464,7 @@ def utc_now() -> datetime:
 def analysis_day_for(now: datetime) -> datetime:
     """Row key of both tables: the analysed day, the UTC day before `now`, at 00:00Z.
 
-    The timer runs at 01:30Z and UTXOracle produces the price of "yesterday": the price is
+    The timer runs at 03:00Z and UTXOracle produces the price of "yesterday": the price is
     computed from the recent transactions at run time, i.e. mostly the day D-1. Any run on
     the same UTC date gets the same key, so the first successful run of the day wins and a
     rerun replaces nothing unless --overwrite is given (DEDUP UPSERT KEYS(ts) is the net).
@@ -1493,8 +1520,9 @@ def preflight(args) -> tuple[datetime, set[str], bool]:
     non-zero exit is logged the same way. Exit codes of the script: 0 done or both rows of
     the day already present; 1 invalid configuration; 2 any failure (exception, incomplete
     row, failed metrics block, failed write); 3 QuestDB destination mismatch or the .env defining the destination; 4 a table
-    without dedup on ts; 5 run outside its window (check_run_window); 6 non-numeric
-    QUESTDB_* value (startup guard, see the top of the module).
+    without dedup on ts; 5 run outside its window (check_run_window); 6 invalid integer
+    variable (startup guard or MIN_CONFIRMATIONS); 7 day not complete yet
+    (IncompleteWindowError). The full list is at the top of the module.
 
     The skip needs BOTH rows of the day: with only one present the run was incomplete and
     both are rewritten, as with --overwrite, after a WARNING.
@@ -1544,6 +1572,12 @@ def main():
     Main execution flow for daily analysis.
 
     T046: Support CLI flags --init-db, --dry-run, --verbose
+
+    Exit codes (full list at the top of the module): 0 done or both rows of the day already
+    present; 1 invalid configuration; 2 any failure (no row is written); 3 destination
+    mismatch or a .env defining it; 4 table without dedup on ts; 5 run outside its window;
+    6 invalid integer variable (BadEnvValueError, name only); 7 the day to analyse is not
+    complete yet (IncompleteWindowError, nothing written).
     """
     parser = argparse.ArgumentParser(description="UTXOracle Daily Analysis")
 
@@ -2031,7 +2065,13 @@ def main():
     except Exception as e:
         logging.error(f"Daily analysis failed: {e}", exc_info=True)
         send_alert_webhook("ERROR", f"Daily analysis failed: {e}")
-        sys.exit(2)
+        sys.exit(
+            EXIT_INCOMPLETE_WINDOW
+            if isinstance(e, IncompleteWindowError)
+            else EXIT_BAD_ENV_VALUE
+            if isinstance(e, BadEnvValueError)
+            else 2
+        )
 
 
 if __name__ == "__main__":
