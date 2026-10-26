@@ -16,7 +16,7 @@ from scripts.models.metrics_models import (
     AddressCohortsResult,
 )
 from typing import TYPE_CHECKING, Optional, List, Dict, Any, Union
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 if TYPE_CHECKING:
     from scripts.models.metrics_models import CostBasisResult, URPDFeaturesResult
@@ -339,6 +339,37 @@ async def tables_without_dedup(tables) -> list[str]:
             if row is None or not row["dedup"]:
                 missing.append(table)
         return missing
+    finally:
+        await conn.close()
+
+
+async def tables_with_day_row(tables, day: datetime) -> list[str]:
+    """Names among `tables` that already hold a row whose ts is exactly `day` (read-only).
+
+    `day` is a UTC midnight built by the caller, so it is rendered into the query as a
+    literal: the connection stays on one-shot reads and takes no bind parameters.
+    """
+    if asyncpg is None:
+        raise ModuleNotFoundError(
+            "asyncpg package is required to read QuestDB; install project dependencies"
+        )
+    literal = day.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    conn = await asyncpg.connect(
+        host=QUESTDB_PG_HOST,
+        port=QUESTDB_PG_PORT,
+        user=QUESTDB_PG_USER,
+        password=QUESTDB_PG_PASSWORD,
+        database=QUESTDB_PG_DATABASE,
+    )
+    try:
+        found = []
+        for table in tables:
+            count = await conn.fetchval(
+                f"SELECT count() FROM {table} WHERE ts = '{literal}'"
+            )
+            if count:
+                found.append(table)
+        return found
     finally:
         await conn.close()
 

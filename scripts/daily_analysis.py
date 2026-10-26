@@ -592,6 +592,8 @@ def calculate_utxoracle_price(config: Dict) -> Dict:
 
         # Add tier to result
         result["fetch_tier"] = tier
+        # The spec-007 metrics (active addresses, tx volume) are computed from these.
+        result["transactions"] = transactions
 
         # Validate result quality
         price = result.get("price_usd")
@@ -1310,6 +1312,32 @@ def check_questdb_destination() -> None:
         sys.exit(3)
 
 
+# ILP over TCP has no acknowledgement: a row the server rejects (type clash, schema) is dropped
+# without any error on the client. Read the written rows back before declaring success.
+READBACK_ATTEMPTS = 30
+READBACK_INTERVAL_SECONDS = 1.0
+
+
+def verify_rows_visible(tables, day: datetime) -> None:
+    """Raise unless every table in `tables` shows the row of `day` (ILP drops are silent)."""
+    import asyncio
+    import time
+
+    import api.questdb_repository as questdb
+
+    missing = list(tables)
+    for attempt in range(READBACK_ATTEMPTS):
+        found = asyncio.run(questdb.tables_with_day_row(missing, day))
+        missing = [t for t in missing if t not in found]
+        if not missing:
+            return
+        if attempt + 1 < READBACK_ATTEMPTS:
+            time.sleep(READBACK_INTERVAL_SECONDS)
+    raise RuntimeError(
+        f"row of {day.date()} not visible after the write in: {', '.join(missing)}"
+    )
+
+
 def check_daily_tables_dedup() -> None:
     """Refuse to write into a table that does not deduplicate on ts (exit code 4).
 
@@ -1342,6 +1370,11 @@ def main():
         "--dry-run", action="store_true", help="Run without saving to DB"
     )
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace the rows of today (UTC) already written; default: first run wins",
+    )
 
     args = parser.parse_args()
 
@@ -1360,8 +1393,38 @@ def main():
         sys.exit(1)
 
     check_questdb_destination()
+    # Row key of both tables: the UTC day of the run at 00:00Z. The price is computed from the
+    # recent transactions at run time (timer: 01:30Z); the first successful run of the day wins.
+    analysis_day = datetime.now(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    skip_tables: set[str] = set()
     if not args.dry_run:
         check_daily_tables_dedup()
+        import asyncio
+
+        import api.questdb_repository as questdb
+
+        existing = asyncio.run(
+            questdb.tables_with_day_row(("price_analysis", "metrics"), analysis_day)
+        )
+        if existing and args.overwrite:
+            logging.warning(
+                "--overwrite: replacing the %s row of %s already written (DEDUP upsert)",
+                ", ".join(existing),
+                analysis_day.date(),
+            )
+        elif existing:
+            skip_tables = set(existing)
+            logging.info(
+                "Row of %s already written in %s: the first successful run wins, "
+                "not writing it again (--overwrite replaces it)",
+                analysis_day.date(),
+                ", ".join(existing),
+            )
+            if len(existing) == 2:
+                logging.info("Nothing to do for %s", analysis_day.date())
+                return
 
     # Initialize Whale Flow Detector (T042 - spec-004)
     whale_detector = None
@@ -1456,75 +1519,85 @@ def main():
         active_addr_result = None
         tx_vol_result = None
         current_time = datetime.now()
-        analysis_day = current_time.astimezone(timezone.utc).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
+
+        metrics_failed: list[str] = []
+
+        def run_metrics_block(name: str, block) -> None:
+            """A failing block is recorded, never skipped: no half-filled metrics row."""
+            try:
+                block()
+            except Exception as e:
+                metrics_failed.append(name)
+                logging.error(f"Metrics block {name} failed: {e}", exc_info=True)
 
         if METRICS_ENABLED:
-            try:
-                # Get transactions for metrics calculation
-                transactions = utx_result.get("transactions", [])
+            transactions = utx_result.get("transactions") or []
 
-                # Monte Carlo Signal Fusion (replaces linear fusion when whale data available)
-                if whale_signal:
-                    whale_vote = _calculate_whale_vote(
-                        net_flow_btc=whale_signal.net_flow_btc,
-                        direction=whale_signal.direction,
-                    )
-                    utxo_vote = _calculate_utxo_vote(
-                        confidence=utx_result["confidence"]
-                    )
+            def monte_carlo_block() -> None:
+                nonlocal mc_result, action, combined_signal
+                whale_vote = _calculate_whale_vote(
+                    net_flow_btc=whale_signal.net_flow_btc,
+                    direction=whale_signal.direction,
+                )
+                utxo_vote = _calculate_utxo_vote(confidence=utx_result["confidence"])
 
-                    mc_result = monte_carlo_fusion(
-                        whale_vote=whale_vote,
-                        whale_confidence=whale_signal.confidence,
-                        utxo_vote=utxo_vote,
-                        utxo_confidence=utx_result["confidence"],
-                        n_samples=1000,
-                    )
+                mc_result = monte_carlo_fusion(
+                    whale_vote=whale_vote,
+                    whale_confidence=whale_signal.confidence,
+                    utxo_vote=utxo_vote,
+                    utxo_confidence=utx_result["confidence"],
+                    n_samples=1000,
+                )
 
-                    # Override action with Monte Carlo result
-                    action = mc_result.action
-                    combined_signal = mc_result.signal_mean
+                # Override action with Monte Carlo result
+                action = mc_result.action
+                combined_signal = mc_result.signal_mean
 
-                    logging.info(
-                        f"📈 Monte Carlo Fusion: "
-                        f"signal={mc_result.signal_mean:+.3f} "
-                        f"(95% CI: [{mc_result.ci_lower:+.3f}, {mc_result.ci_upper:+.3f}]), "
-                        f"action={mc_result.action} "
-                        f"(conf: {mc_result.action_confidence:.1%}), "
-                        f"distribution: {mc_result.distribution_type}"
-                    )
+                logging.info(
+                    f"📈 Monte Carlo Fusion: "
+                    f"signal={mc_result.signal_mean:+.3f} "
+                    f"(95% CI: [{mc_result.ci_lower:+.3f}, {mc_result.ci_upper:+.3f}]), "
+                    f"action={mc_result.action} "
+                    f"(conf: {mc_result.action_confidence:.1%}), "
+                    f"distribution: {mc_result.distribution_type}"
+                )
 
-                # Active Addresses
-                if transactions:
-                    active_addr_result = count_active_addresses(
-                        transactions=transactions,
-                        block_height=utx_result.get("block_height", 0),
-                        timestamp=current_time,
-                    )
-                    logging.info(
-                        f"👥 Active Addresses: {active_addr_result.active_addresses_block} "
-                        f"(senders: {active_addr_result.unique_senders}, "
-                        f"receivers: {active_addr_result.unique_receivers})"
-                    )
+            def active_addresses_block() -> None:
+                nonlocal active_addr_result
+                if not transactions:
+                    raise ValueError("no transactions available")
+                active_addr_result = count_active_addresses(
+                    transactions=transactions,
+                    block_height=utx_result.get("block_height", 0),
+                    timestamp=current_time,
+                )
+                logging.info(
+                    f"👥 Active Addresses: {active_addr_result.active_addresses_block} "
+                    f"(senders: {active_addr_result.unique_senders}, "
+                    f"receivers: {active_addr_result.unique_receivers})"
+                )
 
-                # TX Volume USD
-                if transactions and utx_result["price_usd"]:
-                    tx_vol_result = calculate_tx_volume(
-                        transactions=transactions,
-                        utxoracle_price=utx_result["price_usd"],
-                        confidence=utx_result["confidence"],
-                        timestamp=current_time,
-                    )
-                    logging.info(
-                        f"💰 TX Volume: {tx_vol_result.tx_volume_btc:.2f} BTC "
-                        f"(${tx_vol_result.tx_volume_usd:,.0f} USD), "
-                        f"{tx_vol_result.tx_count} transactions"
-                    )
+            def tx_volume_block() -> None:
+                nonlocal tx_vol_result
+                if not transactions or not utx_result["price_usd"]:
+                    raise ValueError("no transactions or no price available")
+                tx_vol_result = calculate_tx_volume(
+                    transactions=transactions,
+                    utxoracle_price=utx_result["price_usd"],
+                    confidence=utx_result["confidence"],
+                    timestamp=current_time,
+                )
+                logging.info(
+                    f"💰 TX Volume: {tx_vol_result.tx_volume_btc:.2f} BTC "
+                    f"(${tx_vol_result.tx_volume_usd:,.0f} USD), "
+                    f"{tx_vol_result.tx_count} transactions"
+                )
 
-            except Exception as e:
-                logging.warning(f"Spec-007 metrics calculation failed: {e}")
+            # Monte Carlo needs a whale signal: without one it does not apply.
+            if whale_signal:
+                run_metrics_block("monte_carlo", monte_carlo_block)
+            run_metrics_block("active_addresses", active_addresses_block)
+            run_metrics_block("tx_volume", tx_volume_block)
 
         # Step 2.8: Spec-009 Advanced On-Chain Analytics
         power_law_result = None
@@ -1730,6 +1803,7 @@ def main():
             "mempool_price": mempool_price,
             "confidence": utx_result["confidence"],
             "tx_count": utx_result["tx_count"],
+            "fetch_tier": utx_result.get("fetch_tier"),
             "diff_amount": comparison["diff_amount"],
             "diff_percent": comparison["diff_percent"],
             "is_valid": validate_price_data(
@@ -1743,11 +1817,37 @@ def main():
             "combined_signal": combined_signal,
         }
 
+        # Step 4b: only complete rows are written (F-419): a missing value or a failed metrics
+        # block ends the run with an error and writes nothing, never a row with NULL columns.
+        price_columns = (
+            "mempool_price",
+            "utxoracle_price",
+            "diff_amount",
+            "diff_percent",
+            "confidence",
+            "tx_count",
+            "fetch_tier",
+            "is_valid",
+        )
+        missing_values = [k for k in price_columns if data.get(k) is None]
+        if missing_values:
+            logging.error(
+                "price_analysis row incomplete, missing: %s", ", ".join(missing_values)
+            )
+            raise RuntimeError(
+                f"price_analysis row incomplete: {', '.join(missing_values)}"
+            )
+        if not METRICS_ENABLED and not args.dry_run:
+            raise RuntimeError("spec-007 metrics modules are not available")
+        if metrics_failed:
+            raise RuntimeError(f"metrics blocks failed: {', '.join(metrics_failed)}")
+
         # Step 5: Save to database
         if not args.dry_run:
-            save_to_questdb(data)
+            if "price_analysis" not in skip_tables:
+                save_to_questdb(data)
             # F-419: the metrics were computed and then dropped; persist them with the price row.
-            if METRICS_ENABLED and (mc_result or active_addr_result or tx_vol_result):
+            if "metrics" not in skip_tables:
                 saved = save_metrics_to_db(
                     timestamp=analysis_day,
                     monte_carlo=mc_result.to_dict() if mc_result else None,
@@ -1761,6 +1861,10 @@ def main():
                 )
                 if not saved:
                     raise RuntimeError("Failed to save metrics to QuestDB")
+            verify_rows_visible(
+                [t for t in ("price_analysis", "metrics") if t not in skip_tables],
+                analysis_day,
+            )
         else:
             logging.info("[DRY-RUN] Would save data:")
             logging.info(json.dumps(data, indent=2))
