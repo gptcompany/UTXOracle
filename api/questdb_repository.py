@@ -1317,8 +1317,37 @@ async def create_tables_if_not_exist():
             await conn.close()
 
 
+# Unsent bytes at which a writer flushes on its own. The client refuses a flush above its
+# 100 MiB buffer limit and auto_flush is off, so the bound has to live in the writer.
+ILP_FLUSH_BYTES = 8 * 1024 * 1024
+
+
+class _BoundedSender:
+    """The questdb Sender with a flush as soon as the unsent buffer reaches ILP_FLUSH_BYTES.
+
+    Every other attribute (flush, close, establish, ...) is the wrapped sender's own, so a
+    caller keeps its explicit flushes; this only stops a long run of rows from growing the
+    buffer past what the client accepts (rev-utx71-r1). The flush is the confirmed HTTP one:
+    a rejected batch raises IngressError from row().
+    """
+
+    def __init__(self, inner):
+        self._inner = inner
+
+    def row(self, *args, **kwargs):
+        self._inner.row(*args, **kwargs)
+        if len(self._inner) >= ILP_FLUSH_BYTES:
+            self._inner.flush()
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    def __len__(self):
+        return len(self._inner)
+
+
 def build_http_sender():
-    """The one ILP sender of the project: ILP over HTTP, auto_flush off.
+    """The one ILP sender of the project: ILP over HTTP, auto_flush off, batch bounded.
 
     Over TCP QuestDB drops a row it cannot ingest (e.g. a wrong column type) without telling
     the client (F-434). Over HTTP flush() returns only once the server committed the rows and
@@ -1331,7 +1360,7 @@ def build_http_sender():
         )
     sender = Sender("http", QUESTDB_HTTP_HOST, QUESTDB_HTTP_PORT, auto_flush=False)
     sender.establish()
-    return sender
+    return _BoundedSender(sender)
 
 
 class QuestDBRepository:

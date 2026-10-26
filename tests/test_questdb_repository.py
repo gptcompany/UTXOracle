@@ -81,7 +81,7 @@ def test_build_sender_establishes_transport(monkeypatch):
 
     assert repo.sender is None
     repo._ensure_sender()
-    assert repo.sender is sender
+    assert repo.sender._inner is sender
     assert sender.established == 1
     assert seen == {
         "protocol": "http",
