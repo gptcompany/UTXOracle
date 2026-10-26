@@ -9,6 +9,10 @@
 # NON presenti di proposito: i 3 hit su due segreti JWT nella storia pubblica
 # (PRODUCTION_READINESS_FINAL_REPORT.md:150 e utxoracle-api.service:54). Si aggiungono
 # solo dopo la rotazione (gbg-agents F-215, #743). Fino ad allora Security Scan resta rosso.
+# - tests/test_daily_analysis_questdb_e2e.py (4, commit 1a9fb584 e 8bbb4dae): indirizzi Bitcoin di prova in scriptpubkey_address, valori presenti solo nel test.
+# - tests/test_power_law_recalibrate_auth.py:21 @fbb6f3b4: stesso JWT sintetico di c4fd3bba, su main.
+# - i 4 curl-auth-user restano: con gitleaks 8.30.1 scattano ancora, sono obsoleti solo per 8.18.4 (usato dalla CI).
+# Non sono ignorati di proposito i 3 finding di F-215 (JWT_SECRET: utxoracle-api.service:54 e PRODUCTION_READINESS_FINAL_REPORT.md:150).
 28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:101
 28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:114
 28a762f27078c20e8f571fe501cc2c7baa5d4d77:tests/fixtures/whale_transactions_sample.json:generic-api-key:121
@@ -129,3 +133,8 @@
 64c317aafb39aef4cf626ba3e5d82f75482b226d:docs/WHALE_FLOW_DETECTOR.md:curl-auth-user:465
 c4fd3bbaa9e37925d4a7ee354bda42aa4ea74813:tests/test_power_law_recalibrate_auth.py:generic-api-key:21
 e6e2b0fa3e22b0dd81851bcd0132a26e6b997a55:docs/WHALE_FLOW_DETECTOR.md:curl-auth-user:465
+1a9fb58430b467bac1de89cfc9176d8e495a0077:tests/test_daily_analysis_questdb_e2e.py:generic-api-key:38
+1a9fb58430b467bac1de89cfc9176d8e495a0077:tests/test_daily_analysis_questdb_e2e.py:generic-api-key:44
+8bbb4daeaf5ffbc9bf59d5c03d20f219deed7ac5:tests/test_daily_analysis_questdb_e2e.py:generic-api-key:35
+8bbb4daeaf5ffbc9bf59d5c03d20f219deed7ac5:tests/test_daily_analysis_questdb_e2e.py:generic-api-key:41
+fbb6f3b4eb44fae3810665edf2299857c287f317:tests/test_power_law_recalibrate_auth.py:generic-api-key:21
