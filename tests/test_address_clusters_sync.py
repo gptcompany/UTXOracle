@@ -107,6 +107,57 @@ async def test_sync_clusters_returns_false_on_ilp_failure(mock_repo, test_db):
     mock_repo.abort_address_clusters_refresh.assert_awaited_once()
 
 
+def test_ingest_to_db_exits_5_when_the_swap_is_ok_but_cleanup_failed(monkeypatch):
+    import runpy
+
+    from api.questdb_repository import OldCopyCleanupError
+
+    class _Repo:
+        async def initialize(self):
+            return None
+
+        async def save_address_clusters_bulk(self, rows):
+            raise OldCopyCleanupError(["address_clusters_old_20260101T000000Z"])
+
+    monkeypatch.setattr("api.questdb_repository.QuestDBRepository", _Repo)
+    with pytest.raises(SystemExit) as exc:
+        runpy.run_path("scripts/bootstrap/ingest_to_db.py", run_name="__main__")
+    assert exc.value.code == 5
+
+
+def test_sync_main_exits_5_when_the_swap_is_ok_but_cleanup_failed(
+    monkeypatch, tmp_path
+):
+    import runpy
+    import sys
+
+    import duckdb as _duckdb
+
+    from api.questdb_repository import OldCopyCleanupError
+
+    db = tmp_path / "x.duckdb"
+    _duckdb.connect(str(db)).close()
+
+    class _Repo:
+        async def initialize(self):
+            return None
+
+        async def close(self):
+            return None
+
+        def refresh_lock(self):
+            raise OldCopyCleanupError(["address_clusters_old_20260101T000000Z"])
+
+    monkeypatch.setattr("api.questdb_repository.QuestDBRepository", _Repo)
+    monkeypatch.setattr("api.config.DUCKDB_PATH", str(db))
+    monkeypatch.setattr(sys, "argv", ["sync"])
+    with pytest.raises(SystemExit) as exc:
+        runpy.run_path(
+            "scripts/bootstrap/sync_clusters_to_questdb.py", run_name="__main__"
+        )
+    assert exc.value.code == 5
+
+
 def test_ingest_to_db_exits_nonzero_when_the_bulk_save_fails(monkeypatch):
     import runpy
 

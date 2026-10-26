@@ -24,7 +24,15 @@ import duckdb
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 from api.config import DUCKDB_PATH, setup_logging
-from api.questdb_repository import ConcurrentRefreshError, QuestDBRepository
+from api.questdb_repository import (
+    ConcurrentRefreshError,
+    OldCopyCleanupError,
+    QuestDBRepository,
+)
+
+# Exit codes: 0 synced; 1 failed, DuckDB missing or concurrent refresh; 2 usage error
+# (argparse); 5 swap ok but cleanup of an older _old copy failed (see the ERROR).
+EXIT_CLEANUP_FAILED = 5
 
 logger = setup_logging("sync_clusters")
 
@@ -166,6 +174,9 @@ async def main() -> int:
         return 0 if ok else 1
     except ConcurrentRefreshError:
         return 1  # already logged as concurrent_refresh
+    except OldCopyCleanupError as e:
+        logger.error("%s", e)
+        return EXIT_CLEANUP_FAILED
     finally:
         conn.close()
         await repo.close()

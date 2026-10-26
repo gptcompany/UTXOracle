@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import fcntl
+import os
 import re
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
@@ -11,6 +14,7 @@ from api.questdb_repository import (
     ADDRESS_CLUSTERS_SCHEMA,
     ConcurrentRefreshError,
     CutoverSwapError,
+    OldCopyCleanupError,
     QuestDBRepository,
 )
 from scripts.models.metrics_models import CostBasisResult, URPDFeaturesResult
@@ -194,6 +198,7 @@ def _repo(
     old_copies=(),
     sender=None,
     fail_on=(),
+    live_exists=True,
 ):
     """Repo with fake clock, ILP/HTTP sender, wal_tables(), staging schema and count;
     wal and count may be callables of the fake time (wal "absent" = not a WAL table)."""
@@ -214,8 +219,10 @@ def _repo(
             return [] if current == "absent" else [current]
         if "table_columns" in query:
             return list(columns)
-        if "tables()" in query:
+        if "tables()" in query and "LIKE" in query:
             return [(name,) for name in old_copies]
+        if "tables()" in query:
+            return [("address_clusters",)] if live_exists else []
         raise AssertionError(query)
 
     repo = QuestDBRepository()
@@ -318,16 +325,50 @@ def test_cutover_drops_only_the_older_old_copies(monkeypatch):
     assert not any(new_old in q for q in drops)  # the copy just made is never dropped
 
 
-def test_a_failing_drop_of_an_old_copy_raises(monkeypatch, caplog):
-    repo = _repo(
-        monkeypatch,
-        old_copies=("address_clusters_old_20260101T000000Z",),
-        fail_on=("DROP",),
+def test_a_failing_cleanup_after_the_swap_keeps_the_new_live_and_is_retried_next_time(
+    monkeypatch, caplog
+):
+    stale = "address_clusters_old_20260101T000000Z"
+    first = _repo(monkeypatch, old_copies=(stale,), fail_on=("DROP",))
+
+    with caplog.at_level("ERROR"), pytest.raises(OldCopyCleanupError) as exc:
+        asyncio.run(first.commit_address_clusters_refresh(5))
+
+    assert exc.value.names == [stale] and stale in str(exc.value)
+    ddl = _ddl(first)
+    assert (
+        ddl[1] == "RENAME TABLE address_clusters_staging TO address_clusters"
+    )  # swapped
+    assert any(stale in m for m in _errors(caplog)) or any(
+        stale in r.getMessage() for r in caplog.records
     )
 
-    with caplog.at_level("ERROR"), pytest.raises(RuntimeError, match="boom"):
-        asyncio.run(repo.commit_address_clusters_refresh(5))
-    assert any("older copy" in m for m in _errors(caplog))
+    # next refresh: the leftover and the previous run's copy are dropped, the new one kept
+    previous = "address_clusters_old_20260102T000000Z"
+    second = _repo(monkeypatch, old_copies=(stale, previous))
+    assert asyncio.run(second.commit_address_clusters_refresh(5)) is True
+    drops = [q for q in _ddl(second) if q.startswith("DROP")]
+    assert drops == [f"DROP TABLE {stale}", f"DROP TABLE {previous}"]
+
+
+def test_without_a_live_table_the_staging_table_is_renamed_once(monkeypatch):
+    repo = _repo(monkeypatch, live_exists=False)
+
+    assert asyncio.run(repo.commit_address_clusters_refresh(5)) is True
+
+    ddl = _ddl(repo)
+    assert ddl[0] == "RENAME TABLE address_clusters_staging TO address_clusters"
+    assert not any("_old_" in q and q.startswith("RENAME") for q in ddl)
+
+
+def test_without_a_live_table_a_failed_rename_is_an_error(monkeypatch, caplog):
+    repo = _repo(monkeypatch, live_exists=False, fail_on=("RENAME",))
+
+    with caplog.at_level("ERROR"):
+        assert asyncio.run(repo.commit_address_clusters_refresh(5)) is False
+
+    assert len(_ddl(repo)) == 1
+    assert "does not exist and RENAME" in " ".join(_errors(caplog))
 
 
 def test_second_rename_failure_restores_the_live_table_at_once(monkeypatch, caplog):
@@ -501,25 +542,76 @@ def test_prepare_recreates_and_empties_staging_on_the_dedicated_connection(monke
     assert ddl[1] == TRUNCATE_STAGING
 
 
-def test_refresh_lock_refuses_a_second_holder(monkeypatch, tmp_path, caplog):
-    monkeypatch.setenv("ADDRESS_CLUSTERS_LOCK_DIR", str(tmp_path))
-    first, second = QuestDBRepository(), QuestDBRepository()
+@contextlib.contextmanager
+def _foreign_holder(lock_dir):
+    """Hold the lock file the way another process would (own descriptor)."""
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    fd = os.open(lock_dir / "address_clusters.lock", os.O_CREAT | os.O_RDWR, 0o644)
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    try:
+        yield
+    finally:
+        os.close(fd)
 
-    with first.refresh_lock(), first.refresh_lock():  # re-entrant for its owner
+
+def test_refresh_lock_refuses_another_process_and_is_reentrant_for_its_owner(
+    monkeypatch, tmp_path, caplog
+):
+    monkeypatch.setenv("ADDRESS_CLUSTERS_LOCK_DIR", str(tmp_path))
+    repo = QuestDBRepository()
+
+    with repo.refresh_lock(), repo.refresh_lock():  # re-entrant in the same task
+        pass
+    with _foreign_holder(tmp_path):
         with caplog.at_level("ERROR"), pytest.raises(ConcurrentRefreshError):
-            with second.refresh_lock():
+            with repo.refresh_lock():
                 pytest.fail("the lock must be refused")
         assert any("concurrent_refresh" in m for m in _errors(caplog))
 
-    with second.refresh_lock():  # released once the owner leaves
+    with repo.refresh_lock():  # free again once the other holder leaves
         pass
+
+
+def test_a_second_coroutine_on_the_same_repository_is_refused(
+    monkeypatch, tmp_path, caplog
+):
+    monkeypatch.setenv("ADDRESS_CLUSTERS_LOCK_DIR", str(tmp_path))
+    repo = QuestDBRepository()
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    outcomes = {}
+
+    async def owner():
+        with repo.refresh_lock():
+            with repo.refresh_lock():  # same task: re-entrant
+                entered.set()
+                await release.wait()
+        outcomes["owner"] = "done"
+
+    async def intruder():
+        await entered.wait()
+        try:
+            with repo.refresh_lock():
+                outcomes["intruder"] = "got the lock"
+        except ConcurrentRefreshError:
+            outcomes["intruder"] = "refused"
+        release.set()
+
+    async def run():
+        await asyncio.gather(owner(), intruder())
+
+    with caplog.at_level("ERROR"):
+        asyncio.run(run())
+
+    assert outcomes == {"owner": "done", "intruder": "refused"}
+    assert any("concurrent_refresh" in m for m in _errors(caplog))
 
 
 def test_refresh_is_refused_while_another_process_holds_the_lock(monkeypatch, tmp_path):
     monkeypatch.setenv("ADDRESS_CLUSTERS_LOCK_DIR", str(tmp_path))
     repo = _repo(monkeypatch)
 
-    with QuestDBRepository().refresh_lock():
+    with _foreign_holder(tmp_path):
         with pytest.raises(ConcurrentRefreshError):
             asyncio.run(repo.commit_address_clusters_refresh(5))
         with pytest.raises(ConcurrentRefreshError):

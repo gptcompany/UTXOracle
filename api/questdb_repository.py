@@ -3,6 +3,7 @@ Repository for interacting with QuestDB.
 """
 
 import asyncio
+import contextvars
 import fcntl
 import logging
 import weakref
@@ -101,6 +102,16 @@ class ConcurrentRefreshError(RuntimeError):
     """Another process holds the address_clusters refresh lock."""
 
 
+class OldCopyCleanupError(RuntimeError):
+    """The swap succeeded but dropping older _old copies failed (exit code 5)."""
+
+    def __init__(self, names: list[str]):
+        super().__init__(
+            f"swap ok, cleanup failed; _old copies left: {', '.join(names)}"
+        )
+        self.names = names
+
+
 class CutoverSwapError(RuntimeError):
     """The RENAME swap failed; `restored` says whether the live table is back."""
 
@@ -109,6 +120,9 @@ class CutoverSwapError(RuntimeError):
         self.restored = restored
 
 
+_LOCK_HELD: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "address_clusters_lock_held", default=False
+)
 _OLD_COPY_RE = re.compile(r"^address_clusters_old_[0-9]{8}T[0-9]{6}Z$")
 
 
@@ -1057,7 +1071,6 @@ class QuestDBRepository:
         # only once the server committed the rows and raises if it rejects them (F-424).
         self._refresh_sender: Sender | None = None
         self._refresh_buffered = 0
-        self._lock_depth = 0
 
     def _build_refresh_sender(self):
         if Sender is None:
@@ -1535,16 +1548,14 @@ class QuestDBRepository:
         Path: $ADDRESS_CLUSTERS_LOCK_DIR/address_clusters.lock, default
         <project>/data/locks/address_clusters.lock. `data/` is the directory the compose
         services (data-updater included) bind-mount at /app/data, so host and containers
-        lock the same inode. Re-entrant within one repository, so the entry points hold
-        it for the whole prepare..commit while prepare and commit also take it. Already
-        held elsewhere: ERROR `concurrent_refresh` and ConcurrentRefreshError.
+        lock the same inode. Re-entrancy is per TASK (a ContextVar, inherited by tasks the
+        owner spawns), not per repository: the entry points hold it for the whole
+        prepare..commit while prepare and commit also take it, but a second coroutine on
+        the same repository has no marker, tries a new non-reentrant flock and is refused.
+        Already held: ERROR `concurrent_refresh` and ConcurrentRefreshError.
         """
-        if self._lock_depth:
-            self._lock_depth += 1
-            try:
-                yield
-            finally:
-                self._lock_depth -= 1
+        if _LOCK_HELD.get():
+            yield  # this task (or one it spawned) already owns the lock
             return
         lock_dir = Path(
             os.getenv("ADDRESS_CLUSTERS_LOCK_DIR")
@@ -1563,11 +1574,11 @@ class QuestDBRepository:
                 path,
             )
             raise ConcurrentRefreshError(str(path))
-        self._lock_depth = 1
+        token = _LOCK_HELD.set(True)
         try:
             yield
         finally:
-            self._lock_depth = 0
+            _LOCK_HELD.reset(token)
             os.close(fd)  # closing the descriptor releases the flock
 
     async def _run_ddl(self, *statements: str) -> None:
@@ -1783,27 +1794,55 @@ class QuestDBRepository:
         rollback. It is deleted only by the NEXT successful refresh, never by the run
         that created it; after a successful cutover at most one _old exists (the one just
         made), older ones are dropped. Staging is recreated empty (WAL). A failing swap
-        returns False with the live table restored; a failing DROP raises.
+        returns False with the live table restored. A DROP failing AFTER the swap does
+        not undo it: OldCopyCleanupError (exit code 5) names the copies left and the next
+        refresh retries the cleanup. Without a live table it is a single RENAME.
         """
         old = f"{ADDRESS_CLUSTERS_TABLE}_old_{datetime.utcnow():%Y%m%dT%H%M%SZ}"
+        live_exists = bool(
+            await self.fetch(
+                "SELECT table_name FROM tables() WHERE table_name = "
+                f"'{ADDRESS_CLUSTERS_TABLE}'"
+            )
+        )
         conn = await self._open_dedicated_connection()
         try:
-            try:
-                window_ms = await self._swap_tables(
-                    conn, ADDRESS_CLUSTERS_TABLE, ADDRESS_CLUSTERS_STAGING_TABLE, old
+            if live_exists:
+                try:
+                    window_ms = await self._swap_tables(
+                        conn,
+                        ADDRESS_CLUSTERS_TABLE,
+                        ADDRESS_CLUSTERS_STAGING_TABLE,
+                        old,
+                    )
+                except CutoverSwapError as e:
+                    logger.error("address_clusters cutover failed: %s", e)
+                    if not e.restored:
+                        raise
+                    return False
+                logger.info(
+                    "address_clusters swapped in; %s absent for %.1f ms; previous "
+                    "kept as %s",
+                    ADDRESS_CLUSTERS_TABLE,
+                    window_ms,
+                    old,
                 )
-            except CutoverSwapError as e:
-                logger.error("address_clusters cutover failed: %s", e)
-                if not e.restored:
-                    raise
-                return False
-            logger.info(
-                "address_clusters swapped in; %s absent for %.1f ms; previous kept "
-                "as %s",
-                ADDRESS_CLUSTERS_TABLE,
-                window_ms,
-                old,
-            )
+            else:  # first install: nothing to swap out, a single RENAME
+                try:
+                    await conn.execute(
+                        f"RENAME TABLE {ADDRESS_CLUSTERS_STAGING_TABLE} "
+                        f"TO {ADDRESS_CLUSTERS_TABLE}"
+                    )
+                except Exception as e:
+                    logger.error(
+                        "address_clusters cutover failed: %s does not exist and "
+                        "RENAME of %s failed: %s",
+                        ADDRESS_CLUSTERS_TABLE,
+                        ADDRESS_CLUSTERS_STAGING_TABLE,
+                        e,
+                    )
+                    return False
+                logger.info("address_clusters created from staging (no live table)")
             try:
                 await conn.execute(ADDRESS_CLUSTERS_STAGING_DDL)
             except Exception as e:
@@ -1812,6 +1851,7 @@ class QuestDBRepository:
                     "recreates it): %s",
                     e,
                 )
+            left = []
             for row in await self.fetch(
                 "SELECT table_name FROM tables() WHERE table_name LIKE "
                 "'address_clusters_old_%'"
@@ -1821,8 +1861,14 @@ class QuestDBRepository:
                     try:
                         await conn.execute(f"DROP TABLE {name}")
                     except Exception:
-                        logger.exception("Could not drop the older copy %s", name)
-                        raise
+                        logger.exception(
+                            "Swap ok but could not drop the older copy %s; the next "
+                            "refresh retries",
+                            name,
+                        )
+                        left.append(name)
+            if left:
+                raise OldCopyCleanupError(left)
             return True
         finally:
             await conn.close()
