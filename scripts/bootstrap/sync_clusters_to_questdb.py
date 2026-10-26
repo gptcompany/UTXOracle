@@ -39,9 +39,6 @@ from api.questdb_repository import (
 
 logger = setup_logging("sync_clusters")
 
-EXIT_CLEANUP_FAILED = 5
-EXIT_CLUSTERS_LOST = 6
-
 
 def _build_duckdb_cluster_query(conn: duckdb.DuckDBPyConnection) -> str:
     """Build a schema-tolerant SELECT for DuckDB address_clusters."""
@@ -192,28 +189,6 @@ async def run_sync(duckdb_path: str, batch_size: int) -> int:
     if errors and status == 0:
         status = 1
     return status
-
-
-def run_optional_sync(duckdb_path: str, batch_size: int = 100000) -> int:
-    """The optional QuestDB step of the clustering bootstraps. Returns the exit code the
-    bootstrap must end with after its own summary: 5 or 6 when the sync classified a
-    problem to act on, else 0 (a plain failure is a warning: DuckDB stays the source of
-    truth)."""
-    print("\n" + "=" * 70)
-    print("SYNCING CLUSTERS TO QUESTDB SERVING PLANE")
-    print("=" * 70)
-    code = asyncio.run(run_sync(duckdb_path, batch_size))
-    if code == 0:
-        print("  ✅ QuestDB sync completed successfully.")
-    elif code in (EXIT_CLEANUP_FAILED, EXIT_CLUSTERS_LOST):
-        print(
-            f"  ❌ QuestDB sync ended with exit code {code}: see the ERROR log above for the recovery command."
-        )
-        return code
-    else:
-        print("  ❌ QuestDB sync failed (see the log above).")
-        print("  ⚠️  DuckDB analytical plane remains the source of truth.")
-    return 0
 
 
 async def main() -> int:

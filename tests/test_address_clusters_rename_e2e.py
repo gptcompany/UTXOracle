@@ -48,6 +48,80 @@ def _target() -> dict:
     }
 
 
+def _bind_refresh_sender_to_the_test_target(monkeypatch):
+    """R14: the repository's refresh sender reads QUESTDB_HTTP_HOST/PORT (bound at import),
+    not the test target. Point it, in process and for subprocesses, at QUESTDB_TEST_HOST /
+    QUESTDB_TEST_HTTP_PORT, then verify fail-closed what it would really connect to."""
+    import api.questdb_repository as qr
+
+    host, port = os.getenv("QUESTDB_TEST_HOST"), os.getenv("QUESTDB_TEST_HTTP_PORT")
+    if not host or not port:
+        return  # the tests skip themselves: nothing to bind
+    monkeypatch.setenv("QUESTDB_HTTP_HOST", host)
+    monkeypatch.setenv("QUESTDB_HTTP_PORT", port)
+    monkeypatch.setattr(qr, "QUESTDB_HTTP_HOST", host)
+    monkeypatch.setattr(qr, "QUESTDB_HTTP_PORT", int(port))
+    seen = []
+
+    class _Recorder:
+        def __init__(self, protocol, sender_host, sender_port, **kwargs):
+            seen.append((sender_host, sender_port))
+
+        def establish(self):
+            pass
+
+    with monkeypatch.context() as m:
+        m.setattr(qr, "Sender", _Recorder)
+        qr.QuestDBRepository()._build_refresh_sender()
+    if seen != [(host, int(port))]:
+        pytest.fail(
+            f"the refresh sender would connect to {seen}, not to the test target "
+            f"{(host, int(port))}"
+        )
+
+
+@pytest.fixture(autouse=True)
+def _refresh_sender_targets_the_test_db(monkeypatch):
+    _bind_refresh_sender_to_the_test_target(monkeypatch)
+
+
+async def test_the_sender_binding_points_the_refresh_sender_at_the_test_target(
+    monkeypatch,
+):
+    import api.questdb_repository as qr
+
+    monkeypatch.setenv("QUESTDB_TEST_HOST", "test-db.invalid")
+    monkeypatch.setenv("QUESTDB_TEST_HTTP_PORT", "19000")
+    monkeypatch.setattr(qr, "QUESTDB_HTTP_HOST", "serving-db.invalid")
+    monkeypatch.setattr(qr, "QUESTDB_HTTP_PORT", 9000)
+
+    _bind_refresh_sender_to_the_test_target(monkeypatch)
+
+    assert (qr.QUESTDB_HTTP_HOST, qr.QUESTDB_HTTP_PORT) == ("test-db.invalid", 19000)
+
+
+async def test_the_sender_binding_fails_closed_if_the_sender_ignores_the_binding(
+    monkeypatch,
+):
+    import api.questdb_repository as qr
+
+    monkeypatch.setenv("QUESTDB_TEST_HOST", "test-db.invalid")
+    monkeypatch.setenv("QUESTDB_TEST_HTTP_PORT", "19000")
+
+    def ignoring_the_binding(self):
+        return qr.Sender("http", "serving-db.invalid", 9000, auto_flush=False)
+
+    monkeypatch.setattr(
+        qr.QuestDBRepository, "_build_refresh_sender", ignoring_the_binding
+    )
+    monkeypatch.setattr(
+        qr, "Sender", lambda *a, **k: None
+    )  # never reached: the recorder replaces it inside the guard
+
+    with pytest.raises(pytest.fail.Exception, match="test target"):
+        _bind_refresh_sender_to_the_test_target(monkeypatch)
+
+
 _DDL = "CREATE TABLE {} (n LONG, ts TIMESTAMP) timestamp(ts) PARTITION BY DAY WAL"
 
 

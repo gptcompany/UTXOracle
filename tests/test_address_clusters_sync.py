@@ -830,3 +830,67 @@ def test_cli_a_cancelled_error_without_lost_is_raised_after_the_closes(
     assert (
         "duckdb_close" in events and "repo_close" in events
     )  # closed BEFORE re-raising
+
+
+# --- R13: the optional sync must survive a sync module that cannot even be imported
+
+
+def _failing_import_of_the_sync_module(monkeypatch):
+    """Importing the sync module raises ValueError, as api.config does without JWT_SECRET."""
+    import builtins
+    import sys
+
+    real_import = builtins.__import__
+
+    def guarded(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "scripts.bootstrap.sync_clusters_to_questdb":
+            raise ValueError(
+                "SECURITY ERROR: JWT_SECRET environment variable is required"
+            )
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.delitem(
+        sys.modules, "scripts.bootstrap.sync_clusters_to_questdb", raising=False
+    )
+    monkeypatch.setattr(builtins, "__import__", guarded)
+
+
+@pytest.mark.parametrize("which", BOOTSTRAPS)
+def test_bootstrap_survives_a_sync_module_that_cannot_be_imported(
+    monkeypatch, tmp_path, capsys, caplog, which
+):
+    import importlib
+
+    # the bootstrap itself is imported BEFORE the import guard is armed
+    importlib.import_module(f"scripts.bootstrap.{which}")
+    _failing_import_of_the_sync_module(monkeypatch)
+
+    with caplog.at_level("WARNING"):
+        code = _bootstrap_run(monkeypatch, tmp_path, which, capsys)
+
+    out = capsys.readouterr().out
+    assert not code  # warning, exit 0
+    assert "COMPLETE" in out  # the summary was still printed
+    assert "DuckDB analytical plane remains the source of truth" in out
+    assert any("JWT_SECRET" in r.getMessage() for r in caplog.records)
+
+
+def test_optional_sync_does_not_import_api_at_module_level(monkeypatch):
+    import ast
+    import importlib
+    import sys
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[1] / "scripts/bootstrap/optional_sync.py"
+    tree = ast.parse(path.read_text())
+    top_level = [n for n in tree.body if isinstance(n, (ast.Import, ast.ImportFrom))]
+    modules = [
+        a.name for n in top_level if isinstance(n, ast.Import) for a in n.names
+    ] + [n.module or "" for n in top_level if isinstance(n, ast.ImportFrom)]
+    assert not [m for m in modules if m.split(".")[0] in {"api", "duckdb"}]
+
+    # and it really imports with api.config unimportable
+    monkeypatch.setitem(sys.modules, "api.config", None)
+    monkeypatch.delitem(sys.modules, "scripts.bootstrap.optional_sync", raising=False)
+    module = importlib.import_module("scripts.bootstrap.optional_sync")
+    assert callable(module.run_optional_sync)

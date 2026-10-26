@@ -683,7 +683,7 @@ def main():
     # Phase 4: Sync to QuestDB (Optional Operationalization)
     sync_exit = 0
     if args.sync_questdb:
-        from scripts.bootstrap.sync_clusters_to_questdb import run_optional_sync
+        from scripts.bootstrap.optional_sync import run_optional_sync
 
         sync_exit = run_optional_sync(str(UTXO_DB_PATH))
 
