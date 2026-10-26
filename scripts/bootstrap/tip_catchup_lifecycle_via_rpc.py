@@ -177,13 +177,11 @@ def _iter_block_outputs(
 
 
 def _ilp_sender():
-    """Open a QuestDB ILP Sender using the project's existing config."""
-    from questdb.ingress import Sender
+    """Open the project's ILP/HTTP sender (already established)."""
+    from api.questdb_repository import build_http_sender
 
-    host = os.getenv("QUESTDB_ILP_HOST", "localhost")
-    port = int(os.getenv("QUESTDB_ILP_PORT", "9009"))
-    # Project pattern: TCP without auth on localhost.
-    return Sender.from_conf(f"tcp::addr={host}:{port};")
+    # ILP over HTTP (QUESTDB_HTTP_HOST/PORT): the flush is confirmed, a rejected row raises.
+    return build_http_sender()
 
 
 def catchup(start_block: int, end_block: int, workers: int = 8) -> int:
@@ -192,7 +190,6 @@ def catchup(start_block: int, end_block: int, workers: int = 8) -> int:
     last_log = time.monotonic()
     sender = _ilp_sender()
     try:
-        sender.establish()
         for height, block_time, block in _iter_block_outputs(
             start_block, end_block, workers=workers
         ):

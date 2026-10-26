@@ -9,12 +9,10 @@ from datetime import date, datetime, timezone
 class FakeSender:
     def __init__(self):
         self.rows = []
-        self.established = False
+        # build_http_sender() establishes the connection, the scripts no longer do (F-434).
+        self.established = True
         self.flushes = 0
         self.closed = False
-
-    def establish(self):
-        self.established = True
 
     def row(self, table, symbols, columns, at):
         self.rows.append(

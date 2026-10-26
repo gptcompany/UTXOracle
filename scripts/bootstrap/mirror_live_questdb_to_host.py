@@ -13,7 +13,7 @@ This script is idempotent and resilient:
 - Empty source table -> no-op (logged at DEBUG).
 - Source unreachable -> log and skip; the next cycle retries.
 - Target unreachable -> abort with non-zero exit (systemd records failure).
-- Uses ILP (Sender) to the host QuestDB on :9009 because the daily/live
+- Uses ILP over HTTP (Sender, QUESTDB_HTTP_HOST/PORT, host :9000) because the daily/live
   tables either have DEDUP UPSERT KEYS(ts) or carry a unique primary key
   (snapshot_ts on live_snapshots) — duplicates are absorbed at the WAL.
 
@@ -174,9 +174,9 @@ def _source_connection() -> psycopg.Connection:
 
 
 def _target_sender() -> Sender:
-    host = os.getenv("QUESTDB_ILP_HOST", "127.0.0.1")
-    port = int(os.getenv("QUESTDB_ILP_PORT", "9009"))
-    return Sender.from_conf(f"tcp::addr={host}:{port};")
+    from api.questdb_repository import build_http_sender
+
+    return build_http_sender()
 
 
 def _stream_rows(
@@ -271,7 +271,6 @@ def main() -> int:
 
     try:
         sender = _target_sender()
-        sender.establish()
     except Exception as exc:
         logger.error("Target QuestDB unreachable: %s", exc)
         source.close()
