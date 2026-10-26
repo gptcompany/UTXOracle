@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import types
 
 import pytest
 
@@ -41,6 +42,17 @@ SYNTHETIC_TRANSACTIONS = [
         "vout": [{"scriptpubkey_address": "bc1qsynthreceiver002", "value": 10_000_000}],
     },
 ]
+
+
+@pytest.fixture(autouse=True)
+def _secrets_loader_stub(monkeypatch):
+    """daily_analysis imports secrets_loader from a path that exists only on the Dell.
+
+    Stubbed here, scoped to each test, so the result does not depend on test order.
+    """
+    stub = types.ModuleType("secrets_loader")
+    stub.load_secrets = lambda _path=None: False
+    monkeypatch.setitem(sys.modules, "secrets_loader", stub)
 
 
 def _target() -> dict:
