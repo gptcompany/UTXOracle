@@ -6,9 +6,16 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - '**/*.py'
+      - '.github/workflows/ai-review.yml'
 
 jobs:
   review:
+    # The reusable workflow posts the review as a PR comment; a job-level block replaces the
+    # defaults, so contents: read (checkout) is stated explicitly.
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
     uses: gptcompany/.github/.github/workflows/_reusable-ai-review.yml@main
     with:
       review-focus: "security,data-integrity,bitcoin-patterns"
