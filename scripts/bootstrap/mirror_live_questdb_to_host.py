@@ -13,7 +13,7 @@ This script is idempotent and resilient:
 - Empty source table -> no-op (logged at DEBUG).
 - Source unreachable -> log and skip; the next cycle retries.
 - Target unreachable -> abort with non-zero exit (systemd records failure).
-- Uses ILP (Sender) to the host QuestDB on :9009 because the daily/live
+- Uses ILP over HTTP (Sender, QUESTDB_HTTP_HOST/PORT, host :9000) because the daily/live
   tables either have DEDUP UPSERT KEYS(ts) or carry a unique primary key
   (snapshot_ts on live_snapshots) — duplicates are absorbed at the WAL.
 
@@ -43,7 +43,7 @@ from pathlib import Path
 from typing import Iterable
 
 import psycopg
-from questdb.ingress import Sender, IngressError
+from questdb.ingress import Sender
 
 # Strict ISO-8601 timestamp shape; what `datetime.isoformat()` emits.
 _ISO_TIMESTAMP_RE = re.compile(
@@ -174,9 +174,9 @@ def _source_connection() -> psycopg.Connection:
 
 
 def _target_sender() -> Sender:
-    host = os.getenv("QUESTDB_ILP_HOST", "127.0.0.1")
-    port = int(os.getenv("QUESTDB_ILP_PORT", "9009"))
-    return Sender.from_conf(f"tcp::addr={host}:{port};")
+    from api.questdb_repository import build_http_sender
+
+    return build_http_sender()
 
 
 def _stream_rows(
@@ -208,6 +208,15 @@ def _stream_rows(
             yield dict(zip(cols, row))
 
 
+class MirrorWriteError(Exception):
+    """A write of the target was rejected; carries how far the stream is CONFIRMED."""
+
+    def __init__(self, copied: int, watermark: str | None, cause: Exception):
+        super().__init__(str(cause))
+        self.copied = copied
+        self.watermark = watermark
+
+
 def mirror_stream(
     conn: psycopg.Connection,
     sender: Sender,
@@ -215,34 +224,47 @@ def mirror_stream(
     last_ts: str | None,
     batch_limit: int = 5000,
 ) -> tuple[int, str | None]:
-    """Mirror one stream. Returns (rows_copied, new_watermark)."""
-    copied = 0
-    new_watermark = last_ts
-    for row in _stream_rows(conn, spec, last_ts, batch_limit):
-        ts_value = row[spec.at_column]
-        symbols = {k: str(row[k]) for k in spec.symbol_cols if row.get(k) is not None}
-        columns = {}
-        for k in spec.column_cols:
-            v = row.get(k)
-            if v is None:
-                continue
-            # ILP accepts datetime objects natively for TIMESTAMP columns;
-            # do NOT convert to ISO string here or QuestDB rejects the row.
-            columns[k] = v
-        try:
-            sender.row(spec.target_table, symbols=symbols, columns=columns, at=ts_value)
-        except IngressError as exc:
-            logger.error(
-                "ILP write failed for %s @ ts=%s: %s", spec.target_table, ts_value, exc
+    """Mirror one stream. Returns (rows_copied, new_watermark), both CONFIRMED by a flush.
+
+    The sender flushes on its own from inside row(), and a rejected flush empties its buffer,
+    so the watermark may only move past rows `sender.confirmed_rows` counted. A rejection
+    raises MirrorWriteError with the confirmed progress; nothing is swallowed (F-434).
+    """
+    base = sender.confirmed_rows
+    sent_ts: list[str] = []
+    try:
+        for row in _stream_rows(conn, spec, last_ts, batch_limit):
+            ts_value = row[spec.at_column]
+            symbols = {
+                k: str(row[k]) for k in spec.symbol_cols if row.get(k) is not None
+            }
+            columns = {}
+            for k in spec.column_cols:
+                v = row.get(k)
+                if v is None:
+                    continue
+                # ILP accepts datetime objects natively for TIMESTAMP columns;
+                # do NOT convert to ISO string here or QuestDB rejects the row.
+                columns[k] = v
+            sent_ts.append(
+                ts_value.isoformat()
+                if isinstance(ts_value, datetime)
+                else str(ts_value)
             )
-            break
-        copied += 1
-        new_watermark = (
-            ts_value.isoformat() if isinstance(ts_value, datetime) else str(ts_value)
-        )
-    if copied:
+            sender.row(spec.target_table, symbols=symbols, columns=columns, at=ts_value)
         sender.flush()
-    return copied, new_watermark
+    except Exception as exc:
+        confirmed = sender.confirmed_rows - base
+        logger.error(
+            "Mirror of %s failed after %d confirmed rows: %s",
+            spec.target_table,
+            confirmed,
+            exc,
+        )
+        raise MirrorWriteError(
+            confirmed, sent_ts[confirmed - 1] if confirmed else last_ts, exc
+        ) from exc
+    return len(sent_ts), (sent_ts[-1] if sent_ts else last_ts)
 
 
 def main() -> int:
@@ -271,7 +293,6 @@ def main() -> int:
 
     try:
         sender = _target_sender()
-        sender.establish()
     except Exception as exc:
         logger.error("Target QuestDB unreachable: %s", exc)
         source.close()
@@ -279,6 +300,7 @@ def main() -> int:
 
     state = _load_checkpoint()
     total = 0
+    failed = False
     t0 = time.monotonic()
     try:
         for name, spec in streams.items():
@@ -291,8 +313,19 @@ def main() -> int:
                     last_ts,
                     args.batch_limit,
                 )
+            except MirrorWriteError as exc:
+                # The buffer may still hold unconfirmed rows of this stream: end the cycle
+                # (they would be flushed, and counted, under the next stream). The
+                # watermark keeps only the confirmed progress; the next run resumes there.
+                logger.error("Stream %s failed, cycle aborted: %s", name, exc)
+                if exc.copied:
+                    state[name] = exc.watermark or last_ts or ""
+                    total += exc.copied
+                failed = True
+                break
             except Exception as exc:
                 logger.error("Stream %s failed: %s", name, exc)
+                failed = True
                 continue
             if copied:
                 state[name] = new_watermark or last_ts or ""
@@ -307,15 +340,17 @@ def main() -> int:
             total += copied
     finally:
         try:
-            sender.close()
+            sender.close(
+                flush=False
+            )  # a normal cycle flushed already; never send unconfirmed rows
         except Exception:
-            pass
+            logger.warning("Closing the target sender failed", exc_info=True)
         source.close()
 
     _save_checkpoint(state)
     elapsed = time.monotonic() - t0
     logger.info("Mirror cycle complete: %d rows total in %.2fs", total, elapsed)
-    return 0
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

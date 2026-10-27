@@ -17,7 +17,7 @@ from typing import Optional
 
 import aiohttp
 
-from api.questdb_repository import _open_pg_sync
+from api.questdb_repository import _open_pg_sync, build_http_sender
 
 logger = logging.getLogger(__name__)
 DEFAULT_MEMPOOL_URL = "http://localhost:8999"
@@ -38,11 +38,7 @@ def _resolve_log_level(raw_level: str | None) -> int:
 
 
 def _open_sender():
-    from questdb.ingress import Sender
-
-    host = os.getenv("QUESTDB_ILP_HOST", "localhost")
-    port = int(os.getenv("QUESTDB_ILP_PORT", "9009"))
-    return Sender.from_conf(f"tcp::addr={host}:{port};")
+    return build_http_sender()
 
 
 def _normalize_questdb_date(value) -> Optional[date]:
@@ -167,7 +163,6 @@ async def build_price_table(
     timeout = aiohttp.ClientTimeout(total=30)
 
     try:
-        sender.establish()
         async with aiohttp.ClientSession(
             connector=connector, timeout=timeout
         ) as session:

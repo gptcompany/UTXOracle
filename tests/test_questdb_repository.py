@@ -81,7 +81,7 @@ def test_build_sender_establishes_transport(monkeypatch):
 
     assert repo.sender is None
     repo._ensure_sender()
-    assert repo.sender is sender
+    assert repo.sender._inner is sender
     assert sender.established == 1
     assert seen == {
         "protocol": "http",
@@ -1797,3 +1797,54 @@ def test_close_safely_and_close_all_treat_cancelled_error_like_any_cleanup_error
 
     errors = asyncio.run(qr.close_all([(cancelled, "A"), (lambda: None, "B")]))
     assert len(errors) == 1 and isinstance(errors[0], asyncio.CancelledError)
+
+
+class _SizedSender:
+    """Stand-in for the questdb Sender that tracks the size of its unsent buffer."""
+
+    batches: list[tuple[int, int]]  # (bytes, rows) of every flush
+
+    def __init__(self, *_args, **_kwargs):
+        self.size = 0
+        self.rows = 0
+        self.batches = []
+
+    def establish(self):
+        pass
+
+    def __len__(self):
+        return self.size
+
+    def row(self, table, *, symbols=None, columns=None, at=None):
+        self.size += len(columns["payload"])
+        self.rows += 1
+
+    def flush(self):
+        self.batches.append((self.size, self.rows))
+        self.size = self.rows = 0
+
+    def close(self, flush=True):
+        if flush and self.rows:
+            self.flush()
+
+
+def test_senders_flush_before_the_client_buffer_limit(monkeypatch):
+    """F-434 (rev-utx71-r1): auto_flush is off, so the writer itself bounds the batch.
+
+    The client refuses a flush above 100 MiB. 100 rows of 1 MiB must reach the server in
+    several confirmed flushes, each far below that limit, with no row lost.
+    """
+    from api.questdb_repository import build_http_sender
+
+    monkeypatch.setattr("api.questdb_repository.Sender", _SizedSender)
+    sender = build_http_sender()
+    mebibyte = "x" * (1024 * 1024)
+    for _ in range(100):
+        sender.row("t", columns={"payload": mebibyte})
+    sender.close()
+
+    inner = getattr(sender, "_inner", sender)
+    sizes = [size for size, _ in inner.batches]
+    assert sum(rows for _, rows in inner.batches) == 100
+    assert len(sizes) >= 10
+    assert max(sizes) <= 10 * 1024 * 1024
