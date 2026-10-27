@@ -1333,11 +1333,26 @@ class _BoundedSender:
 
     def __init__(self, inner):
         self._inner = inner
+        self._pending = 0
+        # Rows a flush has confirmed, counted only after a flush that raised nothing. A
+        # rejected flush empties the client buffer, so its rows are neither pending nor
+        # confirmed: a writer that keeps a watermark advances it by this number only.
+        self.confirmed_rows = 0
 
     def row(self, *args, **kwargs):
         self._inner.row(*args, **kwargs)
+        self._pending += 1
         if len(self._inner) >= ILP_FLUSH_BYTES:
-            self._inner.flush()
+            self.flush()
+
+    def flush(self, *args, **kwargs):
+        try:
+            self._inner.flush(*args, **kwargs)
+        except BaseException:
+            self._pending = 0
+            raise
+        self.confirmed_rows += self._pending
+        self._pending = 0
 
     def __getattr__(self, name):
         return getattr(self._inner, name)
