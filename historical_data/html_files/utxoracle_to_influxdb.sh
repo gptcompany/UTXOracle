@@ -103,7 +103,7 @@ HTTP_CODE=$(curl -w "%{http_code}" -s -o /dev/null \
 
 if [ "$HTTP_CODE" = "204" ]; then
     echo "✅ SUCCESS: $PROTOCOL_LINES records imported for date $DATE_INPUT"
-    echo "📊 Grafana: Data ready for visualization"
+    echo "📊 Data ready for visualization"
 else
     echo "❌ ERROR: HTTP $HTTP_CODE - Import failed"
     exit 1

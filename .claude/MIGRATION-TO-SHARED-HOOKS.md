@@ -164,7 +164,7 @@ GROUP BY project_name;
 # Check post-tool-use logs to database with project_name="UTXOracle"
 
 # 3. Verify session tracking
-# Complete a session and check Discord notification
+# Complete a session and check the session notification
 
 # 4. Database verification
 psql -h localhost -p 5433 -U n8n -d claude_sessions -c \

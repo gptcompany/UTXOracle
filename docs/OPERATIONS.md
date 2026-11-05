@@ -1706,7 +1706,7 @@ services:
     network_mode: host  # CRITICAL: Allows 127.0.0.1 Bitcoin Core access
     command:
       - --http-addr
-      - 127.0.0.1:3001  # Esplora HTTP API (port 3001 to avoid Grafana conflict)
+      - 127.0.0.1:3001  # Esplora HTTP API (port 3001, not 3000)
       - --electrum-rpc-addr
       - 127.0.0.1:50001  # Electrum RPC (for wallets)
 
@@ -1916,7 +1916,7 @@ crontab -l
 | Bitcoin Core ZMQ | 28332 | TCP | Transaction stream |
 | Bitcoin Core ZMQ | 28333 | TCP | Block stream |
 | electrs Electrum | 50001 | TCP | Electrum wallet RPC |
-| electrs Esplora | 3001 | HTTP | REST API (changed from 3000 to avoid Grafana) |
+| electrs Esplora | 3001 | HTTP | REST API (changed from 3000) |
 | electrs Monitoring | 4224 | HTTP | Health check |
 | MariaDB | 3306 | TCP | MySQL (internal Docker network) |
 | mempool Backend | 8999 | HTTP | JSON API |
