@@ -39,4 +39,4 @@ ls UTXOracle_*.html | sed 's/UTXOracle_\(.*\)\.html/\1/' | xargs -I {} -P "$WORK
 ' _ {} "$MODE"
 
 echo "🎯 Batch processing completed!"
-echo "📊 All data ready for Grafana visualization"
+echo "📊 All data ready for visualization"

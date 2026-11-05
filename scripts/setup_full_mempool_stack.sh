@@ -119,7 +119,7 @@ services:
       CORE_RPC_PASSWORD: "$$(openssl rand -hex 32)"  # Literal string from bitcoin.conf
 
       # electrs connection via esplora REST API (direct host IP since electrs uses host network mode)
-      # Port 3001 instead of 3000 to avoid conflict with Grafana
+      # Port 3001 instead of 3000
       ESPLORA_REST_API_URL: "http://$HOST_IP:3001"
 
       # Database
@@ -228,7 +228,7 @@ echo "   docker compose ps"
 echo
 echo "4. Verify APIs:"
 echo "   curl http://localhost:8080          # Frontend"
-echo "   curl http://localhost:3001          # electrs HTTP API (port 3001 to avoid Grafana conflict)"
+echo "   curl http://localhost:3001          # electrs HTTP API (port 3001, not 3000)"
 echo "   curl http://localhost:8999/api/blocks/tip/height  # Backend API"
 echo
 echo "5. Access mempool.space UI:"
@@ -241,7 +241,7 @@ echo
 echo "🔧 Configuration Notes:"
 echo "   - electrs uses network_mode: host to access Bitcoin Core on 127.0.0.1"
 echo "   - API connects to electrs via esplora REST API at http://$HOST_IP:3001"
-echo "   - Port 3001 used instead of 3000 to avoid Grafana conflict"
+echo "   - Port 3001 used instead of 3000"
 echo "   - Backend mode: esplora (HTTP REST) instead of electrum (JSON-RPC)"
 echo "   - Verbose logging enabled (-vvv) for troubleshooting"
 echo

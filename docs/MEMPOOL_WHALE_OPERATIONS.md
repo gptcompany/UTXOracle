@@ -652,7 +652,7 @@ ANALYZE;
 
 **Documentation**: See `/docs/` directory for additional guides
 **Issues**: https://github.com/yourusername/UTXOracle/issues
-**Slack/Discord**: #utxoracle-support channel
+**Support channel**: #utxoracle-support
 
 ---
 
