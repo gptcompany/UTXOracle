@@ -13,7 +13,9 @@ def _runs_on(name: str) -> dict[str, object]:
 
 
 def test_notify_pepers_uses_the_operator_approved_sg_ci_fallback():
-    assert _runs_on("notify-pepers-integration.yml") == {"notify": "${{ vars.CI_RUNS_ON || 'sg-ci' }}"}
+    assert _runs_on("notify-pepers-integration.yml") == {
+        "notify": "${{ vars.CI_RUNS_ON || 'sg-ci' }}"
+    }
 
 
 def test_no_workflow_uses_a_self_hosted_runner():
