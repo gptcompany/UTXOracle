@@ -1,4 +1,4 @@
-"""Fuori dal Dell: il repo e' pubblico, quindi nessun workflow usa un runner self-hosted."""
+"""Routing CI durante la sospensione hosted; nessuna label generica self-hosted."""
 
 from pathlib import Path
 
@@ -12,12 +12,12 @@ def _runs_on(name: str) -> dict[str, object]:
     return {job: spec.get("runs-on") for job, spec in jobs.items() if "runs-on" in spec}
 
 
-def test_notify_pepers_runs_on_github_hosted():
-    assert _runs_on("notify-pepers-integration.yml") == {"notify": "ubuntu-latest"}
+def test_notify_pepers_uses_the_operator_approved_sg_ci_fallback():
+    assert _runs_on("notify-pepers-integration.yml") == {"notify": "${{ vars.CI_RUNS_ON || 'sg-ci' }}"}
 
 
 def test_no_workflow_uses_a_self_hosted_runner():
-    # Repo pubblico: nessun job deve girare su un runner self-hosted (il Dell).
+    # Le label generiche non identificano il pool sg-ci e restano vietate.
     for path in sorted(WORKFLOWS.glob("*.yml")):
         for job, runner in _runs_on(path.name).items():
             labels = runner if isinstance(runner, list) else [runner]
