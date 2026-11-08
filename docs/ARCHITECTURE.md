@@ -429,7 +429,7 @@ Webhook-based alert system for real-time notifications:
 
 - **n8n Integration** (`examples/n8n/utxoracle-alerts.json`)
   * Ready-to-import n8n workflow
-  * Telegram/Discord/Email routing
+  * Telegram/Email routing
   * Alert deduplication logic
 
 - **API Endpoint** (`/api/alerts/history`)

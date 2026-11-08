@@ -452,8 +452,8 @@ WantedBy=multi-user.target
   - per-stream `utxoracle_stream_stale_seconds`
   - `utxoracle_streams_health_overall{status=OK|DEGRADED}` (counter)
   - producer-side `utxoracle_producer_runs_total{name, status}`
-- **Grafana dashboard** (one panel per stream + overall rollup + per-producer
-  cadence). Imported as JSON in `docs/grafana/utxoracle-spec061.json`.
+- **Dashboard** on OpenObserve (one panel per stream + overall rollup + per-producer
+  cadence). Grafana is retired (gbg-agents `docs/decisions/dismissione-discord-e-grafana.md`).
 - **Alertmanager rules**:
   - Stream STALE > 2 × SLA for > 10 min → page.
   - Producer service entered `failed` state → page.
@@ -461,8 +461,8 @@ WantedBy=multi-user.target
 
 ### 3b. Log aggregation
 
-- journald → Loki (or Promtail → existing log infra). One file in
-  `docs/grafana/` for the log query templates.
+- journald → Loki (or Promtail → existing log infra). Log query templates live
+  with the dashboard definition.
 
 ### 3c. Backup strategy — DEFERRED
 
@@ -521,7 +521,7 @@ Document in `docs/RUNBOOK_SPEC061.md`:
 
 ### Success criteria
 
-- Grafana shows all 13 streams green over a 24 h window.
+- The dashboard shows all 13 streams green over a 24 h window.
 - Alert tripping on simulated outage (manually stop one producer) →
   alert fires within 10 min.
 - Backup restore test: restore yesterday's QuestDB snapshot to a scratch
@@ -669,7 +669,7 @@ separately.
 | 1. Stabilize + unit audit | 1–2 d | Code + Operator | none |
 | 1.5. Source freshness (block_heights + daily_prices) | 1 d | Code + Operator | identify daily_prices producer |
 | 2. Producers (4 NEW writers + 3 packaging) | ~2 wk | Code | mempool stack stability, address_clusters seed |
-| 3. Hardening (Prometheus, Grafana, backups, DR) | 1 wk | Code + Operator | Grafana access, backup destination |
+| 3. Hardening (Prometheus, dashboard, backups, DR) | 1 wk | Code + Operator | dashboard access, backup destination |
 | 4. WS perf | 1 d measure → 1 d Option A → up to 4 wk Option C | Code | numbers from §4a measurement |
 
 Total to "everything green in production": **3–4 weeks** assuming the
