@@ -30,7 +30,7 @@ on:
 jobs:
   validate:
     name: Run Validation Suite
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNS_ON || 'sg-ci' }}
 
     steps:
       - name: Checkout repository
