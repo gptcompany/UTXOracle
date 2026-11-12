@@ -1,4 +1,5 @@
 """Deployment contract for the existing Dell brk container; run in CI only."""
+
 import unittest
 from pathlib import Path
 
@@ -27,11 +28,20 @@ class BrkComposeContract(unittest.TestCase):
                         "${BRK_DATA_DIR:-/data/4TB/brk-v0.3.6-data}:/home/brk/.brk",
                     ],
                     "command": [
-                        "--bitcoindir", "/bitcoin", "--blocksdir", "/bitcoin/blocks",
-                        "--brkdir", "/home/brk/.brk", "--brkport", "7070",
-                        "--rpcconnect", "127.0.0.1",
-                        "--rpcuser", "${BTC_RPC_USER:?external env required}",
-                        "--rpcpassword", "${BTC_RPC_PASSWORD:?external env required}",
+                        "--bitcoindir",
+                        "/bitcoin",
+                        "--blocksdir",
+                        "/bitcoin/blocks",
+                        "--brkdir",
+                        "/home/brk/.brk",
+                        "--brkport",
+                        "7070",
+                        "--rpcconnect",
+                        "127.0.0.1",
+                        "--rpcuser",
+                        "${BTC_RPC_USER:?external env required}",
+                        "--rpcpassword",
+                        "${BTC_RPC_PASSWORD:?external env required}",
                     ],
                 }
             },

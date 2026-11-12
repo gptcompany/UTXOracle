@@ -1,0 +1,17 @@
+[Unit]
+Description=BRK pinned compose stack
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Host inventory defaults; changes belong in this versioned unit, not drop-ins.
+Environment=BRK_COMPOSE_FILE=/data/sata/1TB/UTXOracle/docker-compose.brk.yml
+Environment=BRK_ENV_FILE=/data/sata/1TB/brk-v0.3.6/.env
+ExecStart=/usr/bin/docker compose --project-name brk --env-file ${BRK_ENV_FILE} -f ${BRK_COMPOSE_FILE} up -d
+ExecStop=/usr/bin/docker compose --project-name brk --env-file ${BRK_ENV_FILE} -f ${BRK_COMPOSE_FILE} down
+
+[Install]
+WantedBy=multi-user.target
