@@ -54,7 +54,43 @@ versionati uguali ai mount osservati. Nessuna copia plaintext nel repo.
 
 ## Apply dopo merge: B5, con autorizzazione dell’operatore
 
-1. Checkout pulito del merge SHA in `/data/sata/1TB/UTXOracle`; registrare SHA.
+### Checkout dedicata: proposta, nessun apply
+
+La checkout `/data/sata/1TB/UTXOracle` sul Dell contiene modifiche locali:
+non ripulirla, aggiornarla o usarla per il deploy. Preparare invece una clone
+Git indipendente in `/data/sata/1TB/utxoracle-brk-approved`, in detached HEAD
+allo SHA completo approvato dopo merge. Il default inventario `BRK_COMPOSE_FILE`
+nell’unità punta direttamente al suo `docker-compose.brk.yml`; `BRK_ENV_FILE`
+resta il file esterno 0600 già previsto. Nessuna copia generata del compose,
+nessun symlink verso la checkout operativa, nessun override locale dell’unità.
+
+La preparazione usa Git (`clone --no-checkout`, poi `checkout --detach` dello
+SHA approvato) e non esegue hook di setup, build o test sull’host. Verificare
+`rev-parse HEAD` contro lo SHA approvato, `status --porcelain` vuoto e identità
+byte di compose e unità con `git show <SHA>:<percorso>`. Rendere la checkout
+in sola lettura tramite proprietà/permessi del filesystem: nessuna scrittura
+per gli account di sviluppo o di automazione, file non eseguibili 0444,
+eseguibili e directory 0555 (conservare i bit eseguibili tracciati da Git).
+I dati scrivibili di brk e i segreti restano fuori da questa checkout.
+Questo è un vincolo operativo da verificare prima dell’apply, non un controllo
+che questa PR dichiara già eseguito sul Dell.
+
+Un aggiornamento futuro cambia la checkout dedicata soltanto **dopo** aver
+fermato la vecchia unità: ExecStop deve usare lo stesso compose di ExecStart.
+Solo B5 può riaprire temporaneamente la scrittura, selezionare il nuovo SHA,
+verificarlo e ripristinare i permessi prima dello start. Conservare lo SHA
+precedente per rollback. Non aggiornare una checkout usata da un servizio attivo.
+
+L’unità conserva i valori installati comunicati da B5 il 13 novembre:
+`Requires` e `After` includono `bitcoind.service`, `RequiresMountsFor` elenca
+`/data/sata/1TB /data/cold/12TB /data/4TB`, `TimeoutStartSec=0` e
+`TimeoutStopSec=300`. Non sono nuove soglie misurate: ripristinano la parità
+con l’unità installata. Il test `BrkUnitContract` nel job CI BRK verifica
+queste cinque direttive con il parser stdlib `configparser`, senza regex.
+
+### Sequenza autorizzabile dopo merge
+
+1. Preparare la checkout dedicata del merge SHA come sopra; registrare SHA.
    Verificare esistenza del digest locale e modo 0600 del file esterno, senza
    emetterne contenuto. I default dell’inventario Dell sono nel compose e nelle
    variabili BRK_COMPOSE_FILE/BRK_ENV_FILE dell’unità: cambiare la sorgente
@@ -72,7 +108,8 @@ versionati uguali ai mount osservati. Nessuna copia plaintext nel repo.
    tip/indexed devono avanzare rispetto alla misura precedente; nessun timeout
    arbitrario. Se non avanzano o il servizio entra in loop OOM, rollback.
 5. Confrontare l’unità installata con la sorgente al merge SHA (diff vuoto),
-   compose in uso con la stessa sorgente (identità byte), mount effettivi
+   compose in uso nella checkout dedicata con la stessa sorgente (identità
+   byte), HEAD e permessi della checkout con lo SHA approvato, mount effettivi
    con inventario sopra; registrare esito e SHA. Nessun file brk è riscritto
    dal servizio. Il confronto schedulato è coperto dall’inventario di convergenza
    gptcompany/gbg-agents#1247: il coordinatore vi registra brk con questa
