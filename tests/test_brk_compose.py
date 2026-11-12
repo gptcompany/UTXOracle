@@ -22,6 +22,7 @@ class BrkComposeContract(unittest.TestCase):
                     "container_name": "brk",
                     "network_mode": "host",
                     "restart": "unless-stopped",
+                    "stop_grace_period": "300s",
                     "mem_limit": "15g",
                     "memswap_limit": "15g",
                     "volumes": [

@@ -7,6 +7,8 @@ services:
     container_name: brk
     network_mode: host
     restart: unless-stopped
+    # Match brk-stack.service TimeoutStopSec so recreation can flush the index.
+    stop_grace_period: 300s
     mem_limit: 15g
     memswap_limit: 15g
     volumes:
