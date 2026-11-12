@@ -69,7 +69,8 @@ SHA approvato) e non esegue hook di setup, build o test sull’host. Verificare
 `rev-parse HEAD` contro lo SHA approvato, `status --porcelain` vuoto e identità
 byte di compose e unità con `git show <SHA>:<percorso>`. Rendere la checkout
 in sola lettura tramite proprietà/permessi del filesystem: nessuna scrittura
-per gli account di sviluppo o di automazione, file 0444 e directory 0555.
+per gli account di sviluppo o di automazione, file non eseguibili 0444,
+eseguibili e directory 0555 (conservare i bit eseguibili tracciati da Git).
 I dati scrivibili di brk e i segreti restano fuori da questa checkout.
 Questo è un vincolo operativo da verificare prima dell’apply, non un controllo
 che questa PR dichiara già eseguito sul Dell.
