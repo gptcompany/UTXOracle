@@ -1,5 +1,6 @@
 """Deployment contract for the existing Dell brk container; run in CI only."""
 
+import configparser
 import unittest
 from pathlib import Path
 
@@ -50,6 +51,27 @@ class BrkComposeContract(unittest.TestCase):
             document = yaml.safe_load(stream)
         # A closed constant schema rejects unknown fields and credential literals too.
         jsonschema.validate(document, {"const": expected})
+
+
+class BrkUnitContract(unittest.TestCase):
+    def test_installed_boot_and_shutdown_guarantees(self):
+        # Reuse the stdlib parser used by test_daily_analysis_timer.py.
+        # Repeated Environment= is legal; these contract keys occur once.
+        unit = configparser.ConfigParser(interpolation=None, strict=False)
+        unit.optionxform = str
+        unit.read_string((ROOT / "brk-stack.service").read_text())
+        expected = {
+            "Unit": {
+                "Requires": "docker.service bitcoind.service",
+                "After": "docker.service network-online.target bitcoind.service",
+                "RequiresMountsFor": "/data/sata/1TB /data/cold/12TB /data/4TB",
+            },
+            "Service": {"TimeoutStartSec": "0", "TimeoutStopSec": "300"},
+        }
+        for section, directives in expected.items():
+            for key, value in directives.items():
+                with self.subTest(section=section, directive=key):
+                    self.assertEqual(unit.get(section, key, fallback=None), value)
 
 
 if __name__ == "__main__":
