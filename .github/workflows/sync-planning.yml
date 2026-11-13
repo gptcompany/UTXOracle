@@ -8,7 +8,7 @@ on:
 
 jobs:
   sync:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNS_ON || 'sg-ci' }}
     permissions:
       issues: write
       contents: read
