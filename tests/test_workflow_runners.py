@@ -1,10 +1,25 @@
-"""Fuori dal Dell: il repo e' pubblico, quindi nessun workflow usa un runner self-hosted."""
+"""Regola operatore del 13/11/2026: nessun job dipende dai runner GitHub hosted.
+
+Repo pubblico: i job raggiungibili da una PR usano la guardia che lascia le PR da fork su
+ubuntu-latest, cosi' il codice da fork non arriva mai ai runner self-hosted.
+"""
 
 from pathlib import Path
 
 import yaml
 
 WORKFLOWS = Path(__file__).resolve().parent.parent / ".github" / "workflows"
+FORK_PR = (
+    "(github.event_name == 'pull_request' || github.event_name == 'pull_request_review')"
+    " && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest'"
+)
+PR_EVENTS = {"pull_request", "pull_request_target", "pull_request_review"}
+TRUSTED = "${{ vars.CI_RUNS_ON || 'sg-ci' }}"
+GUARDED = {
+    "${{ " + FORK_PR + " || vars.CI_RUNS_ON || 'sg-ci' }}",
+    # Docker jobs (services) on the trusted Docker-capable runner.
+    "${{ " + FORK_PR + " || 'sg-priv' }}",
+}
 
 
 def _runs_on(name: str) -> dict[str, object]:
@@ -12,16 +27,24 @@ def _runs_on(name: str) -> dict[str, object]:
     return {job: spec.get("runs-on") for job, spec in jobs.items() if "runs-on" in spec}
 
 
-def test_notify_pepers_runs_on_github_hosted():
-    assert _runs_on("notify-pepers-integration.yml") == {"notify": "ubuntu-latest"}
+def _triggers(name: str) -> dict:
+    data = yaml.safe_load((WORKFLOWS / name).read_text(encoding="utf-8"))
+    on = data.get("on", data.get(True))  # PyYAML reads a bare `on` key as True.
+    if isinstance(on, dict):
+        return on
+    return {key: None for key in ([on] if isinstance(on, str) else on)}
 
 
-def test_no_workflow_uses_a_self_hosted_runner():
-    # Repo pubblico: nessun job deve girare su un runner self-hosted (il Dell).
+def test_notify_pepers_runs_on_self_hosted():
+    assert _runs_on("notify-pepers-integration.yml") == {"notify": TRUSTED}
+
+
+def test_every_job_uses_a_self_hosted_selector():
     for path in sorted(WORKFLOWS.glob("*.yml")):
+        pr = bool(PR_EVENTS & set(_triggers(path.name)))
+        allowed = GUARDED if pr else GUARDED | {TRUSTED}
         for job, runner in _runs_on(path.name).items():
-            labels = runner if isinstance(runner, list) else [runner]
-            assert "self-hosted" not in labels, f"{path.name}:{job} usa {runner}"
+            assert runner in allowed, f"{path.name}:{job} usa {runner}"
 
 
 def _notify_steps() -> list[dict]:
