@@ -98,6 +98,13 @@ queste cinque direttive con il parser stdlib `configparser`, senza regex.
 2. Registrare `/health` e tip iniziale. Conservare fuori repo il vecchio
    `/etc/systemd/system/brk-stack.service` per rollback. Fermare brk tramite
    la vecchia unità, che usa `/data/sata/1TB/brk-v0.3.6/docker/docker-compose.yml`.
+   Se la **vecchia unità è inattiva**, `systemctl stop` non ferma il container
+   rimasto attivo grazie alla restart policy Docker: prima dello start usare
+   `docker compose --project-name brk --env-file /data/sata/1TB/brk-v0.3.6/.env -f /data/sata/1TB/brk-v0.3.6/docker/docker-compose.yml stop --timeout 300 brk`.
+   Il timeout deriva da `TimeoutStopSec=300`; il vecchio compose può non avere
+   `stop_grace_period`. Verificare che il container sia fermo prima del passo 3.
+   Il nuovo compose dichiara `stop_grace_period: 300s` anche per ricreazioni e
+   `down`, per consentire la scrittura dell'indice senza il default di 10 s.
    Nessun `down -v`, nessuna cancellazione di dati.
 3. Installare byte per byte `brk-stack.service` dalla checkout al percorso
    systemd esistente, poi daemon-reload e start della stessa unità.

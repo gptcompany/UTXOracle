@@ -22,6 +22,7 @@ class BrkComposeContract(unittest.TestCase):
                     "container_name": "brk",
                     "network_mode": "host",
                     "restart": "unless-stopped",
+                    "stop_grace_period": "300s",
                     "mem_limit": "15g",
                     "memswap_limit": "15g",
                     "volumes": [
@@ -54,6 +55,16 @@ class BrkComposeContract(unittest.TestCase):
 
 
 class BrkUnitContract(unittest.TestCase):
+    def test_compose_stop_grace_matches_unit_timeout(self):
+        unit = configparser.ConfigParser(interpolation=None, strict=False)
+        unit.read_string((ROOT / "brk-stack.service").read_text())
+        with (ROOT / "docker-compose.brk.yml").open() as stream:
+            document = yaml.safe_load(stream)
+        self.assertEqual(
+            document["services"]["brk"].get("stop_grace_period"),
+            f"{unit.getint('Service', 'TimeoutStopSec')}s",
+        )
+
     def test_installed_boot_and_shutdown_guarantees(self):
         # Reuse the stdlib parser used by test_daily_analysis_timer.py.
         # Repeated Environment= is legal; these contract keys occur once.
