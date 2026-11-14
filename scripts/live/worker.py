@@ -292,10 +292,11 @@ class LiveWorker:
             self._process_lock.acquire()
 
         try:
-            await self._hydrate_from_store()
             produced: list[LiveSnapshot] = []
             last_market_run_at: float | None = None
             cycles = 0
+            next_hydration_at = 0.0
+            hydration_backoff = min(block_poll_interval_seconds, market_interval_seconds)
 
             while True:
                 if stop_event is not None and stop_event.is_set():
@@ -305,6 +306,13 @@ class LiveWorker:
 
                 electrs_read = await self.electrs_client.fetch_tip_height()
                 now = monotonic()
+                if self._last_snapshot is None and now >= next_hydration_at:
+                    await self._hydrate_from_store()
+                    next_hydration_at = now + hydration_backoff
+                    # Bound retries by the configured polling and market cadences.
+                    hydration_backoff = min(
+                        hydration_backoff * 2, market_interval_seconds
+                    )
                 block_changed = (
                     electrs_read.value is not None
                     and electrs_read.value != self._last_observed_block_height

@@ -31,6 +31,13 @@ History rejects and logs invalid rows too; no corrupt fields are used. At startu
 hydrates from that state; existing carry-forward logic marks missing oracle data
 stale and excludes it from comparisons. Without any valid state or a fresh oracle
 price the worker still declines to publish a fabricated price.
+If the initial store read fails, the worker retries while it has no snapshot.
+The retry delay starts at the smaller of the configured block-poll and market
+intervals, doubles after each attempt, and is capped at the market interval.
+There are no additional timing settings. Health remains unavailable without a
+snapshot, and stale/degraded for recovered prices while sources remain down.
+Malformed timestamp objects and source timestamp arrays are schema errors;
+latest/history discard them with the same timestamp-only warning.
 
 ## Operator recovery (B5 only, after review)
 
