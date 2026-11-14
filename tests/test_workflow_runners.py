@@ -25,15 +25,40 @@ def test_every_job_runs_on_the_self_hosted_pool():
 
 def test_ci_is_local_and_rejects_fork_code_on_self_hosted_runners():
     jobs = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]
-    assert set(jobs) == {"checks"}
-    job = jobs["checks"]
-    assert "uses" not in job
-    assert job["if"] == (
-        "github.event_name != 'pull_request' || "
-        "github.event.pull_request.head.repo.full_name == github.repository"
+    assert set(jobs) == {"checks", "security"}
+    for job in jobs.values():
+        assert "uses" not in job
+        assert job["if"] == (
+            "github.event_name != 'pull_request' || "
+            "github.event.pull_request.head.repo.full_name == github.repository"
+        )
+        checkout = job["steps"][0]
+        assert checkout["with"]["persist-credentials"] is False
+
+
+def test_ci_preserves_blocking_gates():
+    jobs = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]
+    commands = {
+        entry["command"] for entry in jobs["checks"]["strategy"]["matrix"]["include"]
+    }
+    assert "uv run ruff check ." in commands
+    assert "uv run ruff format --check ." in commands
+    assert (
+        "uv run pytest tests/ --ignore=tests/e2e --cov=. --cov-fail-under=68 --tb=short"
+        in commands
     )
-    checkout = job["steps"][0]
-    assert checkout["with"]["persist-credentials"] is False
+    security = jobs["security"]
+    assert security["steps"][0]["with"]["fetch-depth"] == 0
+    bandit, gitleaks = security["steps"][-2:]
+    assert bandit["run"] == "uv tool run bandit -r . -lll -ii -q"
+    assert gitleaks["if"] == "${{ !cancelled() }}"
+    assert '"gitleaks_8.18.4_linux_x64.tar.gz"' in gitleaks["run"]
+    assert '"detect", "--source", ".", "--redact"' in gitleaks["run"]
+    assert "raise SystemExit(result.returncode)" in gitleaks["run"]
+    for job in jobs.values():
+        assert not job.get("continue-on-error", False)
+        for step in job["steps"]:
+            assert not step.get("continue-on-error", False)
 
 
 def _notify_steps() -> list[dict]:
