@@ -42,7 +42,9 @@ mai spostare la build su GitHub-hosted. Nessuna build su Dell o Mac fuori CI.
    provengono dall'inventario e i segreti dal deposito esterno già adottato, senza
    stampare environment o `compose config`, senza generare .env nel repository.
 3. Impostare `UTXORACLE_LIVE_IMAGE` a `ghcr.io/gptcompany/utxoracle-live@sha256:...`
-   nella configurazione esterna approvata, riusata anche ai successivi avvii.
+   nell’inventario versionato della release, riusato anche ai successivi avvii.
+   Il rendering deve coincidere con il file in uso (#572); configurazione solo
+   host è deriva. Il deposito esterno contiene solo segreti o relativi riferimenti.
    Pull di quel riferimento esatto, verifica label e digest; aggiornare soltanto
    API/worker/updater con compose `up -d --no-build --wait`. Niente mount di codice
    sotto /app; i soli dati persistenti conservano i bind già versionati.
