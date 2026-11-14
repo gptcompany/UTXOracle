@@ -29,7 +29,9 @@ The store walks backward from the latest row until a payload passes JSON and
 LiveSnapshot schema validation, logging each rejected timestamp without payloads.
 History rejects and logs invalid rows too; no corrupt fields are used. At startup the worker
 hydrates from that state; existing carry-forward logic marks missing oracle data
-stale and excludes it from comparisons. Without any valid state or a fresh oracle
+stale and excludes it from comparisons. An unverifiable Electrs tip does the same for a price
+read at the last known block: it is never healthy and never compared with the current market.
+Without any valid state or a fresh oracle
 price the worker still declines to publish a fabricated price.
 If the initial store read fails, the worker retries while it has no snapshot.
 The retry delay starts at the smaller of the configured block-poll and market

@@ -140,6 +140,7 @@ class LiveWorker:
         electrs_read = electrs_read or await self.electrs_client.fetch_tip_height()
 
         effective_height = electrs_read.value
+        tip_verified = electrs_read.value is not None
         if effective_height is None and self._last_snapshot is not None:
             effective_height = self._last_snapshot.block_height
 
@@ -190,11 +191,15 @@ class LiveWorker:
             "electrs": electrs_read.health,
             "utxoracle": _mark_stale_if_carried(
                 utxo_read.health,
-                is_current=utxo_read.value is not None
+                # Without a verified tip the readable block is only the last known one.
+                is_current=tip_verified
+                and utxo_read.value is not None
                 and utxo_read.value.price is not None,
                 had_previous=previous is not None
                 and previous.utxoracle_price is not None,
-                stale_message="using previous UTXOracle value",
+                stale_message="using previous UTXOracle value"
+                if tip_verified
+                else "Electrs tip unverifiable: price of the last known block",
             ),
             "mempool_api": _mark_stale_if_carried(
                 mempool_read.health,
