@@ -30,10 +30,13 @@ def test_ci_is_local_and_rejects_fork_code_on_self_hosted_runners():
     assert set(jobs) == {"checks", "security"}
     for job in jobs.values():
         assert "uses" not in job
-        assert job["if"] == (
+        expected_guard = (
             "github.event_name != 'pull_request' || "
             "github.event.pull_request.head.repo.full_name == github.repository"
         )
+        if job is jobs["checks"]:
+            expected_guard = f"github.event_name != 'schedule' && ({expected_guard})"
+        assert job["if"] == expected_guard
         checkout = job["steps"][0]
         assert checkout["with"]["persist-credentials"] is False
 
@@ -57,6 +60,16 @@ def test_ci_preserves_blocking_gates():
     assert '"gitleaks_8.18.4_linux_x64.tar.gz"' in gitleaks["run"]
     assert '"detect", "--source", ".", "--redact"' in gitleaks["run"]
     assert "raise SystemExit(result.returncode)" in gitleaks["run"]
+    assert '"--log-opts", f"{base}..{head}"' in gitleaks["run"]
+    assert 'if os.environ["GITHUB_EVENT_NAME"] == "pull_request":' in gitleaks["run"]
+    assert gitleaks["env"]["PR_BASE_SHA"] == "${{ github.event.pull_request.base.sha }}"
+    assert gitleaks["env"]["PR_HEAD_SHA"] == "${{ github.event.pull_request.head.sha }}"
+    workflow = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())
+    events = workflow.get("on", workflow.get(True))
+    assert events["schedule"] == [{"cron": "0 2 * * *"}]
+    assert "main" in events["push"]["branches"]
+    assert "github.event_name != 'schedule'" in jobs["checks"]["if"]
+    assert security["timeout-minutes"] == 10
     for job in jobs.values():
         assert not job.get("continue-on-error", False)
         for step in job["steps"]:
