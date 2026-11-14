@@ -51,7 +51,7 @@ permissions:
 jobs:
   contract:
     name: GET /v1/streams/health acceptance gate
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNS_ON || 'sg-priv' }}
 
     services:
       questdb:
@@ -142,7 +142,7 @@ jobs:
   # The assertion is unchanged: non-blocking on pull requests, a hard failure on main (FR-012).
   streams-acceptance-T036:
     name: Streams acceptance gate (T036 data required)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNS_ON || 'sg-priv' }}
     continue-on-error: ${{ github.ref != 'refs/heads/main' }}
 
     services:

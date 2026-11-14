@@ -1,4 +1,4 @@
-"""Fuori dal Dell: il repo e' pubblico, quindi nessun workflow usa un runner self-hosted."""
+"""All jobs use the approved self-hosted pools; hosted minutes are unavailable."""
 
 from pathlib import Path
 
@@ -12,16 +12,19 @@ def _runs_on(name: str) -> dict[str, object]:
     return {job: spec.get("runs-on") for job, spec in jobs.items() if "runs-on" in spec}
 
 
-def test_notify_pepers_runs_on_github_hosted():
-    assert _runs_on("notify-pepers-integration.yml") == {"notify": "ubuntu-latest"}
-
-
-def test_no_workflow_uses_a_self_hosted_runner():
-    # Repo pubblico: nessun job deve girare su un runner self-hosted (il Dell).
+def test_every_job_runs_on_the_self_hosted_pool():
     for path in sorted(WORKFLOWS.glob("*.yml")):
         for job, runner in _runs_on(path.name).items():
-            labels = runner if isinstance(runner, list) else [runner]
-            assert "self-hosted" not in labels, f"{path.name}:{job} usa {runner}"
+            assert runner in {
+                "${{ vars.CI_RUNS_ON || 'sg-ci' }}",
+                "${{ vars.CI_RUNS_ON || 'sg-priv' }}",
+            }, f"{path.name}:{job} uses non-approved runner {runner}"
+
+
+def test_ci_reuses_local_workflows_with_the_same_runner_policy():
+    jobs = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]
+    for job in ("security", "lint", "test"):
+        assert jobs[job]["uses"].startswith("./.github/workflows/_reusable-")
 
 
 def _notify_steps() -> list[dict]:

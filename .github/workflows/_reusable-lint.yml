@@ -1,0 +1,124 @@
+# Reusable Lint & Type Check Workflow
+# Call from any repo: uses: gptcompany/claude-hooks-shared/.github/workflows/_reusable-lint.yml@main
+
+name: Lint & Types
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: 'Python version to use'
+        required: false
+        type: string
+        default: '3.12'
+      ruff-args:
+        description: 'Additional ruff arguments'
+        required: false
+        type: string
+        default: ''
+      mypy-paths:
+        description: 'Paths to type check with mypy'
+        required: false
+        type: string
+        default: 'src/'
+      fail-on-type-errors:
+        description: 'Fail workflow on type errors'
+        required: false
+        type: boolean
+        default: false
+    outputs:
+      lint_errors:
+        description: 'Number of lint errors found'
+        value: ${{ jobs.lint.outputs.lint_errors }}
+      type_errors:
+        description: 'Number of type errors found'
+        value: ${{ jobs.lint.outputs.type_errors }}
+
+jobs:
+  lint:
+    name: "Lint & Type Check"
+    runs-on: ${{ vars.CI_RUNS_ON || 'sg-ci' }}
+    timeout-minutes: 10
+
+    outputs:
+      lint_errors: ${{ steps.lint.outputs.error_count }}
+      type_errors: ${{ steps.types.outputs.error_count }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: "**/pyproject.toml"
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run ruff check
+        id: lint
+        run: |
+          set +e
+          uv run ruff check . ${{ inputs.ruff-args }} --output-format=json > lint_results.json 2>&1
+          EXIT_CODE=$?
+          set -e
+
+          ERROR_COUNT=$(jq 'length' lint_results.json 2>/dev/null || echo 0)
+          echo "error_count=$ERROR_COUNT" >> $GITHUB_OUTPUT
+
+          if [ "$ERROR_COUNT" -gt 0 ]; then
+            echo "::warning::Found $ERROR_COUNT lint issues"
+            uv run ruff check . --output-format=concise | head -50
+            exit 1
+          fi
+
+          echo "Lint check passed"
+
+      - name: Run ruff format check
+        run: |
+          uv run ruff format --check . || {
+            echo "::error::Code formatting issues detected. Run 'ruff format .' to fix."
+            exit 1
+          }
+
+      - name: Run mypy type check
+        id: types
+        run: |
+          set +e
+          uv run mypy ${{ inputs.mypy-paths }} \
+            --ignore-missing-imports \
+            --no-error-summary \
+            2>&1 | tee mypy_output.txt
+          EXIT_CODE=$?
+          set -e
+
+          ERROR_COUNT=$(grep -c "error:" mypy_output.txt || echo 0)
+          echo "error_count=$ERROR_COUNT" >> $GITHUB_OUTPUT
+
+          if [ "$ERROR_COUNT" -gt 0 ]; then
+            echo "::warning::Found $ERROR_COUNT type errors"
+            head -30 mypy_output.txt
+            if [ "${{ inputs.fail-on-type-errors }}" = "true" ]; then
+              exit 1
+            fi
+          else
+            echo "Type check passed"
+          fi
+          exit 0
+
+      - name: Upload lint artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-results
+          path: |
+            lint_results.json
+            mypy_output.txt
+          retention-days: 7

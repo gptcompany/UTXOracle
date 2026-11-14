@@ -20,7 +20,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNS_ON || 'sg-ci' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -48,7 +48,7 @@ jobs:
   # deploy:
   #   needs: build
   #   if: github.ref == 'refs/heads/main'
-  #   runs-on: ubuntu-latest
+  #   runs-on: ${{ vars.CI_RUNS_ON || 'sg-ci' }}
   #   permissions:
   #     pages: write
   #     id-token: write
