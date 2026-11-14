@@ -1,4 +1,4 @@
-"""Fuori dal Dell: il repo e' pubblico, quindi nessun workflow usa un runner self-hosted."""
+"""All jobs use the approved self-hosted pools; hosted minutes are unavailable."""
 
 from pathlib import Path
 
@@ -12,16 +12,68 @@ def _runs_on(name: str) -> dict[str, object]:
     return {job: spec.get("runs-on") for job, spec in jobs.items() if "runs-on" in spec}
 
 
-def test_notify_pepers_runs_on_github_hosted():
-    assert _runs_on("notify-pepers-integration.yml") == {"notify": "ubuntu-latest"}
-
-
-def test_no_workflow_uses_a_self_hosted_runner():
-    # Repo pubblico: nessun job deve girare su un runner self-hosted (il Dell).
+def test_every_job_runs_on_the_self_hosted_pool():
     for path in sorted(WORKFLOWS.glob("*.yml")):
         for job, runner in _runs_on(path.name).items():
-            labels = runner if isinstance(runner, list) else [runner]
-            assert "self-hosted" not in labels, f"{path.name}:{job} usa {runner}"
+            approved = (
+                "${{ vars.CI_RUNS_ON || 'sg-ci' }}",
+                "${{ vars.CI_RUNS_ON || 'sg-priv' }}",
+                ["self-hosted", "Linux", "X64", "gbg-ci"],
+            )
+            assert runner in approved, (
+                f"{path.name}:{job} uses non-approved runner {runner}"
+            )
+
+
+def test_ci_is_local_and_rejects_fork_code_on_self_hosted_runners():
+    jobs = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]
+    assert set(jobs) == {"checks", "security"}
+    for job in jobs.values():
+        assert "uses" not in job
+        expected_guard = (
+            "github.event_name != 'pull_request' || "
+            "github.event.pull_request.head.repo.full_name == github.repository"
+        )
+        if job is jobs["checks"]:
+            expected_guard = f"github.event_name != 'schedule' && ({expected_guard})"
+        assert job["if"] == expected_guard
+        checkout = job["steps"][0]
+        assert checkout["with"]["persist-credentials"] is False
+
+
+def test_ci_preserves_blocking_gates():
+    jobs = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]
+    commands = {
+        entry["command"] for entry in jobs["checks"]["strategy"]["matrix"]["include"]
+    }
+    assert "uv run ruff check ." in commands
+    assert "uv run ruff format --check ." in commands
+    assert (
+        "uv run pytest tests/ --ignore=tests/e2e --cov=. --cov-fail-under=68 --tb=short"
+        in commands
+    )
+    security = jobs["security"]
+    assert security["steps"][0]["with"]["fetch-depth"] == 0
+    bandit, gitleaks = security["steps"][-2:]
+    assert bandit["run"] == "uv tool run bandit -r . -lll -ii -q"
+    assert gitleaks["if"] == "${{ !cancelled() }}"
+    assert '"gitleaks_8.18.4_linux_x64.tar.gz"' in gitleaks["run"]
+    assert '"detect", "--source", ".", "--redact"' in gitleaks["run"]
+    assert "raise SystemExit(result.returncode)" in gitleaks["run"]
+    assert '"--log-opts", f"{base}..{head}"' in gitleaks["run"]
+    assert 'if os.environ["GITHUB_EVENT_NAME"] == "pull_request":' in gitleaks["run"]
+    assert gitleaks["env"]["PR_BASE_SHA"] == "${{ github.event.pull_request.base.sha }}"
+    assert gitleaks["env"]["PR_HEAD_SHA"] == "${{ github.event.pull_request.head.sha }}"
+    workflow = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())
+    events = workflow.get("on", workflow.get(True))
+    assert events["schedule"] == [{"cron": "0 2 * * *"}]
+    assert "main" in events["push"]["branches"]
+    assert "github.event_name != 'schedule'" in jobs["checks"]["if"]
+    assert security["timeout-minutes"] == 10
+    for job in jobs.values():
+        assert not job.get("continue-on-error", False)
+        for step in job["steps"]:
+            assert not step.get("continue-on-error", False)
 
 
 def _notify_steps() -> list[dict]:
