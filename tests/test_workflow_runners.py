@@ -15,16 +15,25 @@ def _runs_on(name: str) -> dict[str, object]:
 def test_every_job_runs_on_the_self_hosted_pool():
     for path in sorted(WORKFLOWS.glob("*.yml")):
         for job, runner in _runs_on(path.name).items():
-            assert runner in {
+            approved = (
                 "${{ vars.CI_RUNS_ON || 'sg-ci' }}",
                 "${{ vars.CI_RUNS_ON || 'sg-priv' }}",
-            }, f"{path.name}:{job} uses non-approved runner {runner}"
+                ["self-hosted", "Linux", "X64", "gbg-ci"],
+            )
+            assert runner in approved, f"{path.name}:{job} uses non-approved runner {runner}"
 
 
-def test_ci_pins_the_shared_workflows_with_self_hosted_scheduling():
+def test_ci_is_local_and_rejects_fork_code_on_self_hosted_runners():
     jobs = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]
-    for job in ("security", "lint", "test"):
-        assert jobs[job]["uses"].endswith("@6ff270e89908aa2b6dd0dccc45db8ce55630e907")
+    assert set(jobs) == {"checks"}
+    job = jobs["checks"]
+    assert "uses" not in job
+    assert job["if"] == (
+        "github.event_name != 'pull_request' || "
+        "github.event.pull_request.head.repo.full_name == github.repository"
+    )
+    checkout = job["steps"][0]
+    assert checkout["with"]["persist-credentials"] is False
 
 
 def _notify_steps() -> list[dict]:
