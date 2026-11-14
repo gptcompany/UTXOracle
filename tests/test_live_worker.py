@@ -1119,3 +1119,203 @@ async def test_worker_run_releases_process_lock_after_completion(tmp_path):
     reacquired.acquire()
     reacquired.release()
     assert lock_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_run_recovers_persisted_price_when_electrs_is_unavailable(tmp_path):
+    timestamp = datetime(2026, 9, 16, 5, 33, 53, tzinfo=timezone.utc)
+    previous = LiveSnapshot(
+        timestamp=timestamp, block_height=963338, utxoracle_price=62836.17
+    )
+
+    class Store:
+        def __init__(self):
+            self.written = []
+
+        async def aget_latest(self):
+            return previous
+
+        async def awrite_snapshot(self, snapshot):
+            self.written.append(snapshot)
+
+    unavailable = SourceRead(value=None, health=SourceHealth(status="unavailable"))
+    store = Store()
+    resolver = RecordingResolver([OracleObservation(price=None)])
+    worker = LiveWorker(
+        electrs_client=QueueClient("fetch_tip_height", [unavailable]),
+        mempool_client=QueueClient("fetch_exchange_price", [unavailable]),
+        brk_client=QueueClient("fetch_curated_features", [unavailable]),
+        hyperliquid_client=QueueClient("fetch_snapshot", [unavailable]),
+        oracle_resolver=resolver,
+        snapshot_store=store,
+        process_lock_path=tmp_path / "worker.lock",
+        clock=lambda: datetime(2026, 11, 14, tzinfo=timezone.utc),
+    )
+    snapshots = await worker.run(
+        market_interval_seconds=5, block_poll_interval_seconds=2, max_cycles=1
+    )
+    assert len(snapshots) == 1
+    assert store.written == snapshots
+    assert snapshots[0].utxoracle_price == previous.utxoracle_price
+    assert snapshots[0].source_health["utxoracle"].status == "stale"
+    assert snapshots[0].source_health["electrs"].status == "unavailable"
+    assert snapshots[0].comparison.utxo_vs_mempool_bps is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failures,read_times", [(1, [0, 2]), (3, [0, 2, 6, 12])])
+async def test_run_retries_bootstrap_with_cadence_backoff(
+    tmp_path, monkeypatch, failures, read_times
+):
+    from api.routes import live as live_routes
+
+    timestamp = datetime(2026, 11, 14, tzinfo=timezone.utc)
+    monkeypatch.setattr(live_routes, "utc_now", lambda: timestamp)
+    previous = LiveSnapshot(
+        timestamp=timestamp, block_height=963338, utxoracle_price=62836.17
+    )
+    elapsed = 0
+    health = []
+
+    class Store:
+        def __init__(self):
+            self.reads = []
+            self.written = []
+
+        async def aget_latest(self):
+            self.reads.append(elapsed)
+            if len(self.reads) <= failures:
+                raise ConnectionError("temporary QuestDB outage")
+            return previous
+
+        async def awrite_snapshot(self, snapshot):
+            self.written.append(snapshot)
+
+    async def sleep(seconds):
+        nonlocal elapsed
+        health.append(
+            live_routes._build_live_health_summary_from_snapshot(worker.last_snapshot)
+        )
+        elapsed += seconds
+
+    unavailable = SourceRead(value=None, health=SourceHealth(status="unavailable"))
+    store = Store()
+    worker = LiveWorker(
+        electrs_client=QueueClient("fetch_tip_height", [unavailable] * 9),
+        mempool_client=QueueClient("fetch_exchange_price", [unavailable] * 9),
+        brk_client=QueueClient("fetch_curated_features", [unavailable] * 9),
+        hyperliquid_client=QueueClient("fetch_snapshot", [unavailable] * 9),
+        oracle_resolver=RecordingResolver([OracleObservation(price=None)] * 9),
+        snapshot_store=store,
+        process_lock_path=tmp_path / "worker.lock",
+        clock=lambda: timestamp,
+    )
+    snapshots = await worker.run(
+        market_interval_seconds=5,
+        block_poll_interval_seconds=2,
+        max_cycles=9,
+        monotonic=lambda: elapsed,
+        sleep=sleep,
+    )
+
+    assert store.reads == read_times
+    assert snapshots and store.written == snapshots
+    assert health[0]["status"] == "unavailable"
+    assert all(summary["status"] != "healthy" for summary in health)
+    assert snapshots[-1].source_health["electrs"].status == "unavailable"
+    assert snapshots[-1].source_health["utxoracle"].status == "stale"
+    assert snapshots[-1].comparison.utxo_vs_mempool_bps is None
+
+
+def _market_reads():
+    mempool = SourceRead(
+        value=62900.0,
+        health=SourceHealth(status="healthy"),
+        source_timestamp="2026-11-14T00:00:00Z",
+    )
+    hyperliquid = SourceRead(
+        value=HyperliquidPriceSnapshot(
+            source="api",
+            timestamp="2026-11-14T00:00:00Z",
+            oracle_price=62910.0,
+            mark_price=62915.0,
+        ),
+        health=SourceHealth(status="healthy"),
+        source_timestamp="2026-11-14T00:00:00Z",
+    )
+    return mempool, hyperliquid
+
+
+def _assert_historical_price_is_not_compared(snapshot):
+    assert snapshot.utxoracle_price == 62836.17
+    assert snapshot.source_health["electrs"].status == "unavailable"
+    assert snapshot.source_health["utxoracle"].status != "healthy"
+    assert snapshot.comparison.utxo_vs_mempool_bps is None
+    assert snapshot.comparison.utxo_vs_hl_oracle_bps is None
+    assert snapshot.comparison.utxo_vs_hl_mark_bps is None
+
+
+@pytest.mark.asyncio
+async def test_run_with_unverifiable_tip_never_compares_a_readable_stored_block(
+    tmp_path,
+):
+    """Tip failure plus a readable stored block: the price is stale, never healthy."""
+    previous = LiveSnapshot(
+        timestamp=datetime(2026, 9, 16, 5, 33, 53, tzinfo=timezone.utc),
+        block_height=963338,
+        utxoracle_price=62836.17,
+    )
+
+    class Store:
+        async def aget_latest(self):
+            return previous
+
+        async def awrite_snapshot(self, snapshot):
+            return None
+
+    unavailable = SourceRead(value=None, health=SourceHealth(status="unavailable"))
+    mempool, hyperliquid = _market_reads()
+    worker = LiveWorker(
+        electrs_client=QueueClient("fetch_tip_height", [unavailable]),
+        mempool_client=QueueClient("fetch_exchange_price", [mempool]),
+        brk_client=QueueClient("fetch_curated_features", [unavailable]),
+        hyperliquid_client=QueueClient("fetch_snapshot", [hyperliquid]),
+        oracle_resolver=RecordingResolver(
+            [OracleObservation(price=62836.17, confidence=0.82)]
+        ),
+        snapshot_store=Store(),
+        process_lock_path=tmp_path / "worker.lock",
+        clock=lambda: datetime(2026, 11, 14, tzinfo=timezone.utc),
+    )
+    snapshots = await worker.run(
+        market_interval_seconds=5, block_poll_interval_seconds=2, max_cycles=1
+    )
+    _assert_historical_price_is_not_compared(snapshots[0])
+
+
+@pytest.mark.asyncio
+async def test_collect_once_with_unverifiable_tip_never_compares_the_last_block():
+    """Same rule without a store: a tip failure after a healthy cycle turns the price stale."""
+    healthy = SourceRead(
+        value=963338,
+        health=SourceHealth(status="healthy"),
+        source_timestamp="2026-11-14T00:00:00Z",
+    )
+    unavailable = SourceRead(value=None, health=SourceHealth(status="unavailable"))
+    mempool, hyperliquid = _market_reads()
+    worker = LiveWorker(
+        electrs_client=QueueClient("fetch_tip_height", [healthy, unavailable]),
+        mempool_client=QueueClient("fetch_exchange_price", [mempool, mempool]),
+        brk_client=QueueClient("fetch_curated_features", [unavailable, unavailable]),
+        hyperliquid_client=QueueClient("fetch_snapshot", [hyperliquid, hyperliquid]),
+        oracle_resolver=RecordingResolver(
+            [
+                OracleObservation(price=62836.17, confidence=0.82),
+                OracleObservation(price=62836.17, confidence=0.82),
+            ]
+        ),
+        clock=lambda: datetime(2026, 11, 14, tzinfo=timezone.utc),
+    )
+    first = await worker.collect_once()
+    assert first.source_health["utxoracle"].status == "healthy"
+    _assert_historical_price_is_not_compared(await worker.collect_once())

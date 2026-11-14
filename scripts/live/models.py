@@ -27,6 +27,8 @@ def coerce_utc_datetime(value: datetime | str | int | float | None) -> datetime 
         normalized = _ISO_FRACTION_TRIM_RE.sub(r"\1", normalized)
         parsed = datetime.fromisoformat(normalized)
         return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    if not isinstance(value, datetime):
+        raise ValueError("expected a datetime, ISO timestamp or numeric epoch")
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
@@ -146,6 +148,8 @@ class LiveSnapshot(BaseModel):
     ) -> dict[str, datetime | None]:
         if value is None:
             return {}
+        if not isinstance(value, dict):
+            raise ValueError("source_timestamps must be an object")
         return {key: coerce_utc_datetime(item) for key, item in value.items()}
 
 

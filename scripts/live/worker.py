@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import fcntl
+import logging
 import os
 import time
 from collections.abc import Awaitable, Callable
@@ -19,6 +20,8 @@ from scripts.live.models import (
     utc_now,
 )
 from scripts.live.source_clients import SourceRead
+
+logger = logging.getLogger(__name__)
 
 OracleResolver = Callable[[int, bool], Awaitable[OracleObservation]]
 
@@ -110,6 +113,25 @@ class LiveWorker:
     def last_snapshot(self) -> LiveSnapshot | None:
         return self._last_snapshot
 
+    async def _hydrate_from_store(self) -> None:
+        if self.snapshot_store is None or self._last_snapshot is not None:
+            return
+        async_get_latest = getattr(self.snapshot_store, "aget_latest", None)
+        get_latest = getattr(self.snapshot_store, "get_latest", None)
+        try:
+            if async_get_latest is not None:
+                snapshot = await async_get_latest()
+            elif get_latest is not None:
+                snapshot = await asyncio.to_thread(get_latest)
+            else:
+                return
+        except Exception:
+            logger.exception("Failed to hydrate live worker from snapshot store")
+            return
+        if snapshot is not None:
+            self._last_snapshot = snapshot
+            self._last_observed_block_height = snapshot.block_height
+
     async def collect_once(
         self,
         *,
@@ -118,6 +140,7 @@ class LiveWorker:
         electrs_read = electrs_read or await self.electrs_client.fetch_tip_height()
 
         effective_height = electrs_read.value
+        tip_verified = electrs_read.value is not None
         if effective_height is None and self._last_snapshot is not None:
             effective_height = self._last_snapshot.block_height
 
@@ -168,11 +191,15 @@ class LiveWorker:
             "electrs": electrs_read.health,
             "utxoracle": _mark_stale_if_carried(
                 utxo_read.health,
-                is_current=utxo_read.value is not None
+                # Without a verified tip the readable block is only the last known one.
+                is_current=tip_verified
+                and utxo_read.value is not None
                 and utxo_read.value.price is not None,
                 had_previous=previous is not None
                 and previous.utxoracle_price is not None,
-                stale_message="using previous UTXOracle value",
+                stale_message="using previous UTXOracle value"
+                if tip_verified
+                else "Electrs tip unverifiable: price of the last known block",
             ),
             "mempool_api": _mark_stale_if_carried(
                 mempool_read.health,
@@ -273,6 +300,10 @@ class LiveWorker:
             produced: list[LiveSnapshot] = []
             last_market_run_at: float | None = None
             cycles = 0
+            next_hydration_at = 0.0
+            hydration_backoff = min(
+                block_poll_interval_seconds, market_interval_seconds
+            )
 
             while True:
                 if stop_event is not None and stop_event.is_set():
@@ -282,6 +313,13 @@ class LiveWorker:
 
                 electrs_read = await self.electrs_client.fetch_tip_height()
                 now = monotonic()
+                if self._last_snapshot is None and now >= next_hydration_at:
+                    await self._hydrate_from_store()
+                    next_hydration_at = now + hydration_backoff
+                    # Bound retries by the configured polling and market cadences.
+                    hydration_backoff = min(
+                        hydration_backoff * 2, market_interval_seconds
+                    )
                 block_changed = (
                     electrs_read.value is not None
                     and electrs_read.value != self._last_observed_block_height
