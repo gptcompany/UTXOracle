@@ -52,7 +52,7 @@ jobs:
   contract:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     name: GET /v1/streams/health acceptance gate
-    runs-on: ${{ vars.CI_RUNS_ON || 'sg-priv' }}
+    runs-on: ${{ vars.CI_RUNS_ON || 'sg-ci' }}
 
     services:
       questdb:
@@ -144,7 +144,7 @@ jobs:
   streams-acceptance-T036:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     name: Streams acceptance gate (T036 data required)
-    runs-on: ${{ vars.CI_RUNS_ON || 'sg-priv' }}
+    runs-on: ${{ vars.CI_RUNS_ON || 'sg-ci' }}
     continue-on-error: ${{ github.ref != 'refs/heads/main' }}
 
     services:
