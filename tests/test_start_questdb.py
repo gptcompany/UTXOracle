@@ -60,3 +60,34 @@ def test_wait_ready_fails_visibly_when_questdb_never_starts():
 
     with pytest.raises(SystemExit, match="never became ready"):
         start_questdb.wait_ready(opener, attempts=3, interval=0, sleep=lambda _: None)
+
+
+def test_a_questdb_that_never_starts_reports_every_server_log(
+    tmp_path, monkeypatch, capsys
+):
+    """The failure path must show stdout-*.txt as well as the *.log files (rv-utxo97)."""
+    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+    monkeypatch.setattr(start_questdb, "download", lambda url, destination: None)
+    monkeypatch.setattr(start_questdb, "verify", lambda archive, expected: None)
+    monkeypatch.setattr(start_questdb, "extract", lambda archive, destination: tmp_path)
+
+    def start(argv, **kwargs):
+        log = tmp_path / "questdb-native" / "data" / "log"
+        log.mkdir(parents=True)
+        (log / "questdb-2026-11-14.log").write_text("server log: bind failed\n")
+        (log / "stdout-2026-11-14T14-00-00.txt").write_text(
+            "jvm stdout: cannot allocate\n"
+        )
+
+    def never_ready(opener):
+        raise SystemExit("QuestDB never became ready")
+
+    monkeypatch.setattr(start_questdb.subprocess, "run", start)
+    monkeypatch.setattr(start_questdb, "wait_ready", never_ready)
+
+    with pytest.raises(SystemExit, match="never became ready"):
+        start_questdb.main()
+
+    err = capsys.readouterr().err
+    assert "server log: bind failed" in err
+    assert "jvm stdout: cannot allocate" in err
