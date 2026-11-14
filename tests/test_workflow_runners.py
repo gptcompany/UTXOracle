@@ -21,10 +21,10 @@ def test_every_job_runs_on_the_self_hosted_pool():
             }, f"{path.name}:{job} uses non-approved runner {runner}"
 
 
-def test_ci_reuses_local_workflows_with_the_same_runner_policy():
+def test_ci_pins_the_shared_workflows_with_self_hosted_scheduling():
     jobs = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]
     for job in ("security", "lint", "test"):
-        assert jobs[job]["uses"].startswith("./.github/workflows/_reusable-")
+        assert jobs[job]["uses"].endswith("@6ff270e89908aa2b6dd0dccc45db8ce55630e907")
 
 
 def _notify_steps() -> list[dict]:

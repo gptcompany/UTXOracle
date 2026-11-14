@@ -13,14 +13,14 @@ on:
 jobs:
   security:
     name: Security Scan
-    uses: ./.github/workflows/_reusable-security.yml
+    uses: gptcompany/claude-hooks-shared/.github/workflows/_reusable-security.yml@6ff270e89908aa2b6dd0dccc45db8ce55630e907
     with:
       bandit-paths: '.'
       fail-on-high-severity: true
 
   lint:
     name: Lint & Types
-    uses: ./.github/workflows/_reusable-lint.yml
+    uses: gptcompany/claude-hooks-shared/.github/workflows/_reusable-lint.yml@6ff270e89908aa2b6dd0dccc45db8ce55630e907
     with:
       python-version: '3.12'
       mypy-paths: '.'
@@ -30,7 +30,7 @@ jobs:
     name: Tests
     # Security Scan is red until the leaked JWT secrets are rotated (F-215); it must not hide the tests.
     needs: [lint]
-    uses: ./.github/workflows/_reusable-tests.yml
+    uses: gptcompany/claude-hooks-shared/.github/workflows/_reusable-tests.yml@6ff270e89908aa2b6dd0dccc45db8ce55630e907
     with:
       python-version: '3.12'
       test-paths: 'tests/'
