@@ -1,0 +1,55 @@
+name: Live image publish
+"on":
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  publish:
+    if: github.repository == 'gptcompany/UTXOracle'
+    # Dell runner with the Docker daemon (label deploy): only a push to main reaches this workflow.
+    runs-on: [self-hosted, Linux, X64, deploy]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+      - run: uv run --with pyyaml --with pytest pytest -q tests/test_live_image_provenance.py
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GH_PROJECT_PAT }}
+      - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302
+        id: meta
+        with:
+          images: ghcr.io/gptcompany/utxoracle-live
+          tags: type=sha,format=long
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
+        id: build
+        with:
+          context: .
+          file: Dockerfile.live
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            COMMIT_SHA=${{ github.sha }}
+            VERSION=${{ github.sha }}
+            BUILD_AT=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
+      - name: Record immutable release reference
+        shell: python
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          import os
+          from pathlib import Path
+          Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text(
+              f"SHA: {os.environ['RELEASE_SHA']}\n\n"
+              f"Image: ghcr.io/gptcompany/utxoracle-live@{os.environ['IMAGE_DIGEST']}\n"
+          )
