@@ -24,7 +24,7 @@ def test_live_services_accept_one_digest_without_code_overlays():
 def test_live_image_publish_is_self_hosted_and_has_no_deploy():
     workflow = yaml.safe_load((ROOT / ".github/workflows/live-image.yml").read_text())
     build = workflow["jobs"]["publish"]
-    assert build["runs-on"] == "${{ vars.CI_RUNS_ON || 'sg-priv' }}"
+    assert build["runs-on"] == "${{ vars.CI_RUNS_ON || 'sg-ci' }}"
     assert "refs/heads/main" in build["if"]
     assert set(workflow["jobs"]) == {"contract", "publish"}
     push = next(step for step in build["steps"] if step.get("id") == "build")
