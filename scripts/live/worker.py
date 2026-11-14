@@ -296,7 +296,9 @@ class LiveWorker:
             last_market_run_at: float | None = None
             cycles = 0
             next_hydration_at = 0.0
-            hydration_backoff = min(block_poll_interval_seconds, market_interval_seconds)
+            hydration_backoff = min(
+                block_poll_interval_seconds, market_interval_seconds
+            )
 
             while True:
                 if stop_event is not None and stop_event.is_set():
