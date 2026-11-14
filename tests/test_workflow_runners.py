@@ -20,7 +20,9 @@ def test_every_job_runs_on_the_self_hosted_pool():
                 "${{ vars.CI_RUNS_ON || 'sg-priv' }}",
                 ["self-hosted", "Linux", "X64", "gbg-ci"],
             )
-            assert runner in approved, f"{path.name}:{job} uses non-approved runner {runner}"
+            assert runner in approved, (
+                f"{path.name}:{job} uses non-approved runner {runner}"
+            )
 
 
 def test_ci_is_local_and_rejects_fork_code_on_self_hosted_runners():
