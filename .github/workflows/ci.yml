@@ -13,6 +13,17 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, Linux, X64, gbg-ci]
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Regression tests
+            command: uv run pytest tests/test_live_storage.py tests/test_live_worker.py tests/test_workflow_runners.py -q
+          - name: Full suite and existing coverage floor
+            command: uv run pytest tests/ --ignore=tests/e2e --cov=. --cov-fail-under=68 --tb=short
+          - name: Ruff
+            command: uv run ruff check .
+    name: ${{ matrix.name }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -21,11 +32,4 @@ jobs:
         with:
           python-version: '3.12'
       - run: uv sync --all-extras
-      - name: Regression tests
-        run: uv run pytest tests/test_live_storage.py tests/test_live_worker.py tests/test_workflow_runners.py -q
-      - name: Full suite and existing coverage floor
-        if: always() && !cancelled()
-        run: uv run pytest tests/ --ignore=tests/e2e --cov=. --cov-fail-under=68 --tb=short
-      - name: Ruff
-        if: always() && !cancelled()
-        run: uv run ruff check .
+      - run: ${{ matrix.command }}
