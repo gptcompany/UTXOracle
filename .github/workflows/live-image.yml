@@ -17,7 +17,7 @@ jobs:
   publish:
     needs: contract
     if: github.repository == 'gptcompany/UTXOracle' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    runs-on: [self-hosted, sg-priv]
+    runs-on: ${{ vars.CI_RUNS_ON || 'sg-priv' }}
     permissions:
       contents: read
       packages: write
