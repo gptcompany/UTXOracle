@@ -1,2 +1,2 @@
 self-hosted-runner:
-  labels: [gbg-ci]
+  labels: [gbg-ci, deploy]

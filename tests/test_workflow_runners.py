@@ -19,6 +19,8 @@ def test_every_job_runs_on_the_self_hosted_pool():
                 "${{ vars.CI_RUNS_ON || 'sg-ci' }}",
                 ["self-hosted", "Linux", "X64", "gbg-ci"],
             )
+            if path.name == "live-image-publish.yml":
+                approved += (["self-hosted", "Linux", "X64", "deploy"],)
             assert runner in approved, (
                 f"{path.name}:{job} uses non-approved runner {runner}"
             )
@@ -30,6 +32,14 @@ def test_no_job_selects_the_private_sg_priv_pool():
     for path in sorted(WORKFLOWS.glob("*.yml")):
         for job, runner in _runs_on(path.name).items():
             assert "sg-priv" not in str(runner), f"{path.name}:{job} selects sg-priv"
+
+
+def test_the_dell_deploy_runner_is_only_for_the_main_push_publish_workflow():
+    """Docker image publication needs the Dell daemon; nothing else may select that runner."""
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        for job, runner in _runs_on(path.name).items():
+            if path.name != "live-image-publish.yml":
+                assert "deploy" not in str(runner), f"{path.name}:{job} selects deploy"
 
 
 def test_ci_is_local_and_rejects_fork_code_on_self_hosted_runners():

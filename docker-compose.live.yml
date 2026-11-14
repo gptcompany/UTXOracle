@@ -22,7 +22,7 @@ services:
       retries: 12
       start_period: 20s
   utxoracle-live-worker:
-    image: utxoracle-live:local
+    image: ${UTXORACLE_LIVE_IMAGE:-utxoracle-live:local}
     user: 1000:1000
     command:
     - /app/.venv/bin/python
@@ -70,7 +70,7 @@ services:
     - ./logs:/app/logs
     - /media/sam/4TB-NVMe/docker-volumes/hyperliquid/hl/data:/app/external/hyperliquid/node-data:ro
   utxoracle-data-updater:
-    image: utxoracle-live:local
+    image: ${UTXORACLE_LIVE_IMAGE:-utxoracle-live:local}
     user: 1000:1000
     restart: always
     volumes:
@@ -98,7 +98,7 @@ services:
       retries: 3
       start_period: 40s
   utxoracle-live-api:
-    image: utxoracle-live:local
+    image: ${UTXORACLE_LIVE_IMAGE:-utxoracle-live:local}
     user: 1000:1000
     build:
       context: .
