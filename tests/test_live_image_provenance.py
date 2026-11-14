@@ -1,4 +1,5 @@
 """CI-only production image provenance contract, no services started."""
+
 from pathlib import Path
 import yaml
 
@@ -7,10 +8,16 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_live_services_accept_one_digest_without_code_overlays():
     compose = yaml.safe_load((ROOT / "docker-compose.live.yml").read_text())
-    for name in ("utxoracle-live-api", "utxoracle-live-worker", "utxoracle-data-updater"):
+    for name in (
+        "utxoracle-live-api",
+        "utxoracle-live-worker",
+        "utxoracle-data-updater",
+    ):
         service = compose["services"][name]
         assert service["image"] == "${UTXORACLE_LIVE_IMAGE:-utxoracle-live:local}"
-        assert not any(":/app/scripts" in v or ":/app/api" in v for v in service.get("volumes", []))
+        assert not any(
+            ":/app/scripts" in v or ":/app/api" in v for v in service.get("volumes", [])
+        )
     assert "org.opencontainers.image.revision" in (ROOT / "Dockerfile.live").read_text()
 
 
