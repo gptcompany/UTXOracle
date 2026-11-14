@@ -2,7 +2,7 @@
 
 The release tarball is verified against a pinned sha256 before it is unpacked, QuestDB runs with the
 defaults of the image the job used before (pg 8812, http 9000, ILP 9009, admin/quest) and the step
-fails visibly, with the server log, if the HTTP endpoint does not answer within the same 30 x 2 s
+fails visibly, with every server log, if the HTTP endpoint does not answer within the same 30 x 2 s
 window as the workflow's readiness step.
 """
 
@@ -31,6 +31,7 @@ ATTEMPTS = 30
 INTERVAL_SECONDS = 2
 REQUEST_TIMEOUT_SECONDS = 10
 CHUNK_BYTES = 1 << 20
+LOG_TAIL_CHARS = 4000
 
 
 def download(url: str, destination: Path) -> None:
@@ -74,6 +75,14 @@ def wait_ready(
     raise SystemExit("QuestDB never became ready")
 
 
+def report_logs(directory: Path) -> None:
+    """Tail of every file QuestDB wrote (questdb-*.log and stdout-*.txt): the only diagnosis."""
+    for log in sorted(path for path in directory.rglob("*") if path.is_file()):
+        sys.stderr.write(
+            f"--- {log.name}\n{log.read_text(errors='replace')[-LOG_TAIL_CHARS:]}\n"
+        )
+
+
 def main() -> int:
     work = Path(os.environ.get("RUNNER_TEMP", tempfile.gettempdir())) / "questdb-native"
     work.mkdir(parents=True, exist_ok=True)
@@ -88,8 +97,7 @@ def main() -> int:
     try:
         wait_ready(urllib.request.urlopen)
     except SystemExit:
-        for log in sorted((data / "log").glob("*.log")):
-            sys.stderr.write(log.read_text(errors="replace")[-4000:])
+        report_logs(data / "log")
         raise
     return 0
 
