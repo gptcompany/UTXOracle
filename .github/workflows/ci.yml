@@ -6,11 +6,14 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+  # Daily cadence requested by B5; reuse validation.yml's 02:00 UTC slot.
+  schedule:
+    - cron: '0 2 * * *'
 permissions:
   contents: read
 jobs:
   checks:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: [self-hosted, Linux, X64, gbg-ci]
     timeout-minutes: 15
     strategy:
@@ -51,8 +54,11 @@ jobs:
       # Same blocking threshold as shared security d64d5b2: HIGH, confidence >= MEDIUM.
       - name: Bandit HIGH severity gate
         run: uv tool run bandit -r . -lll -ii -q
-      - name: Gitleaks full-history gate
+      - name: Gitleaks PR range or full-history gate
         if: ${{ !cancelled() }}
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         shell: python
         run: |
           import os
@@ -62,7 +68,7 @@ jobs:
           import tempfile
           import urllib.request
 
-          # Same release and history scope as shared security d64d5b2.
+          # Same release as shared security d64d5b2; full history on main/daily.
           with tempfile.TemporaryDirectory(dir=os.environ["RUNNER_TEMP"]) as directory:
               root = Path(directory)
               archive = root / "gitleaks.tar.gz"
@@ -74,9 +80,15 @@ jobs:
                   binary = root / "gitleaks"
                   binary.write_bytes(package.extractfile("gitleaks").read())
               binary.chmod(0o700)
+              command = [str(binary), "detect", "--source", ".", "--redact", "--no-banner"]
+              if os.environ["GITHUB_EVENT_NAME"] == "pull_request":
+                  base, head = os.environ["PR_BASE_SHA"], os.environ["PR_HEAD_SHA"]
+                  if not base or not head:
+                      raise ValueError("PR security scan requires base and head SHA")
+                  command.extend(["--log-opts", f"{base}..{head}"])
               # Do not emit or upload credential values, including on scan failure.
               result = subprocess.run(
-                  [str(binary), "detect", "--source", ".", "--redact", "--no-banner"],
+                  command,
                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
               )
               print(f"Gitleaks exit status: {result.returncode} (1 = secrets detected)")
