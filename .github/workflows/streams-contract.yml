@@ -3,7 +3,7 @@ name: Streams Consumption Contract
 # spec-061 T038: the CI gate for closing Issue #8.
 #
 # Runs `pytest -m integration tests/integration/test_streams_health_contract.py`
-# against a live QuestDB service container. The test asserts:
+# against a live, natively started QuestDB (scripts/ci/start_questdb.py). The test asserts:
 #   - GET /v1/streams/health returns 13 stream readings,
 #   - each conforms to the OpenAPI schema,
 #   - the rollup `overall == "OK"`.
@@ -54,20 +54,6 @@ jobs:
     name: GET /v1/streams/health acceptance gate
     runs-on: ${{ vars.CI_RUNS_ON || 'sg-ci' }}
 
-    services:
-      questdb:
-        image: questdb/questdb:9.4.3@sha256:3fd139f9f16015afc1b064fe4591b271be26cdec10315415e5511e9d80a5919e
-        ports:
-          - 8812:8812
-          - 9000:9000
-          - 9009:9009
-        # No service-level --health-cmd: the QuestDB 7.4.0 image ships
-        # without `wget`, so the previous probe never reported healthy and
-        # Docker timed out the container on every CI run. The job's
-        # "Wait for QuestDB to be ready" step below performs the same
-        # SELECT 1 probe from the runner side and is the authoritative
-        # readiness gate (30 × 2s = 60 s window before the job fails).
-
     env:
       QUESTDB_PG_HOST: localhost
       QUESTDB_PG_PORT: 8812
@@ -100,6 +86,9 @@ jobs:
 
       - name: Install dependencies
         run: uv sync --frozen
+
+      - name: Start QuestDB natively (the sg-ci runners have no Docker daemon)
+        run: python3 scripts/ci/start_questdb.py
 
       - name: Wait for QuestDB to be ready
         run: |
@@ -147,14 +136,6 @@ jobs:
     runs-on: ${{ vars.CI_RUNS_ON || 'sg-ci' }}
     continue-on-error: ${{ github.ref != 'refs/heads/main' }}
 
-    services:
-      questdb:
-        image: questdb/questdb:9.4.3@sha256:3fd139f9f16015afc1b064fe4591b271be26cdec10315415e5511e9d80a5919e
-        ports:
-          - 8812:8812
-          - 9000:9000
-          - 9009:9009
-
     env:
       QUESTDB_PG_HOST: localhost
       QUESTDB_PG_PORT: 8812
@@ -179,6 +160,9 @@ jobs:
 
       - name: Install dependencies
         run: uv sync --frozen
+
+      - name: Start QuestDB natively (the sg-ci runners have no Docker daemon)
+        run: python3 scripts/ci/start_questdb.py
 
       - name: Wait for QuestDB to be ready
         run: |
