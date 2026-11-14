@@ -1124,8 +1124,9 @@ async def test_worker_run_releases_process_lock_after_completion(tmp_path):
 @pytest.mark.asyncio
 async def test_run_recovers_persisted_price_when_electrs_is_unavailable(tmp_path):
     timestamp = datetime(2026, 9, 16, 5, 33, 53, tzinfo=timezone.utc)
-    previous = LiveSnapshot(timestamp=timestamp, block_height=963338,
-                            utxoracle_price=62836.17)
+    previous = LiveSnapshot(
+        timestamp=timestamp, block_height=963338, utxoracle_price=62836.17
+    )
 
     class Store:
         def __init__(self):
@@ -1145,12 +1146,14 @@ async def test_run_recovers_persisted_price_when_electrs_is_unavailable(tmp_path
         mempool_client=QueueClient("fetch_exchange_price", [unavailable]),
         brk_client=QueueClient("fetch_curated_features", [unavailable]),
         hyperliquid_client=QueueClient("fetch_snapshot", [unavailable]),
-        oracle_resolver=resolver, snapshot_store=store,
+        oracle_resolver=resolver,
+        snapshot_store=store,
         process_lock_path=tmp_path / "worker.lock",
         clock=lambda: datetime(2026, 11, 14, tzinfo=timezone.utc),
     )
-    snapshots = await worker.run(market_interval_seconds=5,
-                                 block_poll_interval_seconds=2, max_cycles=1)
+    snapshots = await worker.run(
+        market_interval_seconds=5, block_poll_interval_seconds=2, max_cycles=1
+    )
     assert len(snapshots) == 1
     assert store.written == snapshots
     assert snapshots[0].utxoracle_price == previous.utxoracle_price

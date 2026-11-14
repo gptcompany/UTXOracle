@@ -17,7 +17,11 @@ The current live-first direction is:
 Current host runtime verified on 2026-03-31:
 - `UTXOracle Live API`: `127.0.0.1:8011` — canonical production API via `api.apps.live:app`
 - `UTXOracle API`: `127.0.0.1:8001` — explicit legacy surface via `api.apps.legacy:app`
-- `QuestDB Web Console`: `127.0.0.1:9000`
+- `QuestDB live`: host PostgreSQL `127.0.0.1:9912`, HTTP `127.0.0.1:9900`;
+  inside `docker-compose.live.yml`, PostgreSQL remains `utxoracle-live-questdb:8812`.
+- `QuestDB mirror`: host PostgreSQL `127.0.0.1:8812`, Web Console `127.0.0.1:9000`.
+  Query the live instance on `9912` when checking producer freshness (F-693).
+  See [live recovery](docs/LIVE_RECOVERY.md) for source and snapshot checks.
 - `BRK`: `127.0.0.1:7070`
 - `electrs`: `127.0.0.1:3002`
 - `mempool-api`: `127.0.0.1:8999`

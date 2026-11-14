@@ -391,11 +391,17 @@ async def test_latest_and_history_ignore_corrupt_payload_tail():
         price=62836.17,
     )
     await store.awrite_snapshot(snapshot)
-    for seconds, payload in [(12, '{"timestamp":' + "\0" * 1536),
-                             (24, ""), (36, None), (48, "{}")]:
+    for seconds, payload in [
+        (12, '{"timestamp":' + "\0" * 1536),
+        (24, ""),
+        (36, None),
+        (48, "{}"),
+    ]:
         repo.rows.append(
-            {"ts": snapshot.timestamp + timedelta(seconds=seconds),
-             "snapshot_json": payload}
+            {
+                "ts": snapshot.timestamp + timedelta(seconds=seconds),
+                "snapshot_json": payload,
+            }
         )
 
     assert await store.aget_latest() == snapshot

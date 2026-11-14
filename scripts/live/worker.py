@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import fcntl
+import logging
 import os
 import time
 from collections.abc import Awaitable, Callable
@@ -19,6 +20,8 @@ from scripts.live.models import (
     utc_now,
 )
 from scripts.live.source_clients import SourceRead
+
+logger = logging.getLogger(__name__)
 
 OracleResolver = Callable[[int, bool], Awaitable[OracleObservation]]
 
@@ -109,6 +112,25 @@ class LiveWorker:
     @property
     def last_snapshot(self) -> LiveSnapshot | None:
         return self._last_snapshot
+
+    async def _hydrate_from_store(self) -> None:
+        if self.snapshot_store is None or self._last_snapshot is not None:
+            return
+        async_get_latest = getattr(self.snapshot_store, "aget_latest", None)
+        get_latest = getattr(self.snapshot_store, "get_latest", None)
+        try:
+            if async_get_latest is not None:
+                snapshot = await async_get_latest()
+            elif get_latest is not None:
+                snapshot = await asyncio.to_thread(get_latest)
+            else:
+                return
+        except Exception:
+            logger.exception("Failed to hydrate live worker from snapshot store")
+            return
+        if snapshot is not None:
+            self._last_snapshot = snapshot
+            self._last_observed_block_height = snapshot.block_height
 
     async def collect_once(
         self,
@@ -270,6 +292,7 @@ class LiveWorker:
             self._process_lock.acquire()
 
         try:
+            await self._hydrate_from_store()
             produced: list[LiveSnapshot] = []
             last_market_run_at: float | None = None
             cycles = 0
