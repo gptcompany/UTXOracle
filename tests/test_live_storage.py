@@ -91,14 +91,16 @@ class FakeQuestDBRepo:
             rows = self.rows
             if "snapshot_json != ''" in sql:
                 rows = [row for row in rows if row["snapshot_json"]]
-            return {"snapshot_json": rows[-1]["snapshot_json"]} if rows else None
+            if "ts < $1" in sql:
+                rows = [row for row in rows if row["ts"] < args[0]]
+            return rows[-1] if rows else None
         raise AssertionError(f"unexpected fetchrow SQL: {sql}")
 
     async def fetch(self, sql, *args):
         self.fetch_calls.append((sql, args))
         cutoff = args[0]
         return [
-            {"snapshot_json": row["snapshot_json"]}
+            row
             for row in self.rows
             if row["ts"].replace(tzinfo=None) >= cutoff
             and ("snapshot_json != ''" not in sql or row["snapshot_json"])
@@ -380,21 +382,25 @@ async def test_store_retries_when_pool_is_closing_during_recovery():
 
 
 @pytest.mark.asyncio
-async def test_latest_and_history_ignore_empty_payload_tail():
+async def test_latest_and_history_ignore_corrupt_payload_tail():
     repo = FakeQuestDBRepo()
     store = LiveSnapshotStore(repo=repo, retention_hours=0)
     snapshot = _build_snapshot(
-        timestamp=datetime(2026, 9, 16, 5, 33, 53, tzinfo=timezone.utc),
+        timestamp=datetime(2026, 9, 16, 5, 33, 41, tzinfo=timezone.utc),
         block_height=963338,
         price=62836.17,
     )
     await store.awrite_snapshot(snapshot)
-    for seconds, payload in [(12, ""), (24, None)]:
-        repo.rows.append({"ts": snapshot.timestamp + timedelta(seconds=seconds),
-                          "snapshot_json": payload})
+    for seconds, payload in [(12, '{"timestamp":' + "\0" * 1536),
+                             (24, ""), (36, None), (48, "{}")]:
+        repo.rows.append(
+            {"ts": snapshot.timestamp + timedelta(seconds=seconds),
+             "snapshot_json": payload}
+        )
 
     assert await store.aget_latest() == snapshot
-    assert await store.aget_history(now=snapshot.timestamp + timedelta(minutes=1)) == [snapshot]
+    history = await store.aget_history(now=snapshot.timestamp + timedelta(minutes=1))
+    assert history == [snapshot]
 
 
 @pytest.mark.asyncio
