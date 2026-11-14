@@ -88,7 +88,10 @@ class FakeQuestDBRepo:
         if "ORDER BY ts DESC LIMIT 1" in sql:
             if not self.rows:
                 return None
-            return {"snapshot_json": self.rows[-1]["snapshot_json"]}
+            rows = self.rows
+            if "snapshot_json != ''" in sql:
+                rows = [row for row in rows if row["snapshot_json"]]
+            return {"snapshot_json": rows[-1]["snapshot_json"]} if rows else None
         raise AssertionError(f"unexpected fetchrow SQL: {sql}")
 
     async def fetch(self, sql, *args):
@@ -98,6 +101,7 @@ class FakeQuestDBRepo:
             {"snapshot_json": row["snapshot_json"]}
             for row in self.rows
             if row["ts"].replace(tzinfo=None) >= cutoff
+            and ("snapshot_json != ''" not in sql or row["snapshot_json"])
         ]
 
     async def execute(self, sql, *args):
@@ -373,3 +377,28 @@ async def test_store_retries_when_pool_is_closing_during_recovery():
     assert latest.block_height == 941456
     assert repo.reinitialized == 1
     assert repo.initialized == 1
+
+
+@pytest.mark.asyncio
+async def test_latest_and_history_ignore_empty_payload_tail():
+    repo = FakeQuestDBRepo()
+    store = LiveSnapshotStore(repo=repo, retention_hours=0)
+    snapshot = _build_snapshot(
+        timestamp=datetime(2026, 9, 16, 5, 33, 53, tzinfo=timezone.utc),
+        block_height=963338,
+        price=62836.17,
+    )
+    await store.awrite_snapshot(snapshot)
+    for seconds, payload in [(12, ""), (24, None)]:
+        repo.rows.append({"ts": snapshot.timestamp + timedelta(seconds=seconds),
+                          "snapshot_json": payload})
+
+    assert await store.aget_latest() == snapshot
+    assert await store.aget_history(now=snapshot.timestamp + timedelta(minutes=1)) == [snapshot]
+
+
+@pytest.mark.asyncio
+async def test_latest_returns_none_when_only_empty_payloads_exist():
+    repo = FakeQuestDBRepo()
+    repo.rows = [{"ts": datetime.now(timezone.utc), "snapshot_json": ""}]
+    assert await LiveSnapshotStore(repo=repo).aget_latest() is None
