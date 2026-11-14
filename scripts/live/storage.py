@@ -5,6 +5,8 @@ import json
 import logging
 from datetime import datetime, timedelta
 
+from pydantic import ValidationError
+
 from api.questdb_repository import QuestDBRepository
 from scripts.live.bundle_writer import BundleWriter
 from scripts.live.models import LiveHistoryQuery, LiveSnapshot, utc_now
@@ -128,9 +130,19 @@ class LiveSnapshotStore:
             await self.ainitialize()
         row = await self._retry_on_missing_live_snapshots(
             self.repo.fetchrow,
-            "SELECT snapshot_json FROM live_snapshots ORDER BY ts DESC LIMIT 1",
+            "SELECT ts, snapshot_json FROM live_snapshots ORDER BY ts DESC LIMIT 1",
         )
-        return self._deserialize_snapshot(row["snapshot_json"]) if row else None
+        while row:
+            snapshot = self._validated_stored_snapshot(row)
+            if snapshot is not None:
+                return snapshot
+            row = await self._retry_on_missing_live_snapshots(
+                self.repo.fetchrow,
+                "SELECT ts, snapshot_json FROM live_snapshots "
+                "WHERE ts < $1 ORDER BY ts DESC LIMIT 1",
+                row["ts"],
+            )
+        return None
 
     def get_history(
         self,
@@ -159,10 +171,15 @@ class LiveSnapshotStore:
         )
         rows = await self._retry_on_missing_live_snapshots(
             self.repo.fetch,
-            "SELECT snapshot_json FROM live_snapshots WHERE ts >= $1 ORDER BY ts ASC",
+            "SELECT ts, snapshot_json FROM live_snapshots "
+            "WHERE ts >= $1 ORDER BY ts ASC",
             start_time,
         )
-        return [self._deserialize_snapshot(row["snapshot_json"]) for row in rows]
+        return [
+            snapshot
+            for row in rows
+            if (snapshot := self._validated_stored_snapshot(row)) is not None
+        ]
 
     def prune(self, *, now: datetime | None = None) -> int:
         return self._run_async(self.aprune(now=now))
@@ -229,6 +246,13 @@ class LiveSnapshotStore:
             "LiveSnapshotStore sync methods cannot be called from an active event loop. "
             "Use the async store methods instead."
         )
+
+    def _validated_stored_snapshot(self, row) -> LiveSnapshot | None:
+        try:
+            return self._deserialize_snapshot(row["snapshot_json"])
+        except (json.JSONDecodeError, ValidationError, TypeError):
+            logger.warning("Ignoring invalid live snapshot at %s", row["ts"])
+            return None
 
     @staticmethod
     def _deserialize_snapshot(raw_payload: str) -> LiveSnapshot:

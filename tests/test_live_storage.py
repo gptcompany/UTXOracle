@@ -88,16 +88,22 @@ class FakeQuestDBRepo:
         if "ORDER BY ts DESC LIMIT 1" in sql:
             if not self.rows:
                 return None
-            return {"snapshot_json": self.rows[-1]["snapshot_json"]}
+            rows = self.rows
+            if "snapshot_json != ''" in sql:
+                rows = [row for row in rows if row["snapshot_json"]]
+            if "ts < $1" in sql:
+                rows = [row for row in rows if row["ts"] < args[0]]
+            return rows[-1] if rows else None
         raise AssertionError(f"unexpected fetchrow SQL: {sql}")
 
     async def fetch(self, sql, *args):
         self.fetch_calls.append((sql, args))
         cutoff = args[0]
         return [
-            {"snapshot_json": row["snapshot_json"]}
+            row
             for row in self.rows
             if row["ts"].replace(tzinfo=None) >= cutoff
+            and ("snapshot_json != ''" not in sql or row["snapshot_json"])
         ]
 
     async def execute(self, sql, *args):
@@ -297,7 +303,7 @@ async def test_store_questdb_history_uses_python_cutoff_timestamp():
     assert len(history) == 1
     assert calls == [
         (
-            "SELECT snapshot_json FROM live_snapshots WHERE ts >= $1 ORDER BY ts ASC",
+            "SELECT ts, snapshot_json FROM live_snapshots WHERE ts >= $1 ORDER BY ts ASC",
             (now - timedelta(minutes=15)).replace(tzinfo=None),
         )
     ]
@@ -373,3 +379,60 @@ async def test_store_retries_when_pool_is_closing_during_recovery():
     assert latest.block_height == 941456
     assert repo.reinitialized == 1
     assert repo.initialized == 1
+
+
+@pytest.mark.asyncio
+async def test_latest_and_history_ignore_corrupt_payload_tail():
+    repo = FakeQuestDBRepo()
+    store = LiveSnapshotStore(repo=repo, retention_hours=0)
+    snapshot = _build_snapshot(
+        timestamp=datetime(2026, 9, 16, 5, 33, 41, tzinfo=timezone.utc),
+        block_height=963338,
+        price=62836.17,
+    )
+    await store.awrite_snapshot(snapshot)
+    for seconds, payload in [
+        (12, '{"timestamp":' + "\0" * 1536),
+        (24, ""),
+        (36, None),
+        (48, '{"utxoracle_price": -1}'),
+    ]:
+        repo.rows.append(
+            {
+                "ts": snapshot.timestamp + timedelta(seconds=seconds),
+                "snapshot_json": payload,
+            }
+        )
+
+    assert await store.aget_latest() == snapshot
+    history = await store.aget_history(now=snapshot.timestamp + timedelta(minutes=1))
+    assert history == [snapshot]
+
+
+@pytest.mark.asyncio
+async def test_latest_returns_none_when_only_empty_payloads_exist():
+    repo = FakeQuestDBRepo()
+    repo.rows = [{"ts": datetime.now(timezone.utc), "snapshot_json": ""}]
+    assert await LiveSnapshotStore(repo=repo).aget_latest() is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", ['{"timestamp": {}}', '{"source_timestamps": []}'])
+async def test_latest_and_history_skip_malformed_validator_inputs(payload, caplog):
+    repo = FakeQuestDBRepo()
+    store = LiveSnapshotStore(repo=repo, retention_hours=0)
+    snapshot = _build_snapshot(
+        timestamp=datetime(2026, 9, 16, tzinfo=timezone.utc),
+        block_height=963338,
+        price=62836.17,
+    )
+    await store.awrite_snapshot(snapshot)
+    repo.rows.append(
+        {"ts": snapshot.timestamp + timedelta(seconds=1), "snapshot_json": payload}
+    )
+
+    assert await store.aget_latest() == snapshot
+    assert await store.aget_history(now=snapshot.timestamp + timedelta(minutes=1)) == [
+        snapshot
+    ]
+    assert "Ignoring invalid live snapshot" in caplog.text
