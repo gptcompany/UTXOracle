@@ -1,44 +1,95 @@
-# CI Pipeline using organization reusable workflows
-# Runs security, lint, and test checks on push/PR
-
+# TODO: return to reviewed shared workflows once their runner boundary is fixed.
 name: CI
-
 on:
   push:
     branches: [main, develop]
   pull_request:
     branches: [main]
   workflow_dispatch:
-
+  # Daily cadence requested by B5; reuse validation.yml's 02:00 UTC slot.
+  schedule:
+    - cron: '0 2 * * *'
+permissions:
+  contents: read
 jobs:
+  checks:
+    if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: [self-hosted, Linux, X64, gbg-ci]
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Regression tests
+            command: uv run pytest tests/test_live_storage.py tests/test_live_worker.py tests/test_workflow_runners.py -q
+          - name: Full suite and existing coverage floor
+            command: uv run pytest tests/ --ignore=tests/e2e --cov=. --cov-fail-under=68 --tb=short
+          - name: Ruff format
+            command: uv run ruff format --check .
+          - name: Ruff
+            command: uv run ruff check .
+    name: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.12'
+      - run: uv sync --all-extras
+      - run: ${{ matrix.command }}
   security:
     name: Security Scan
-    uses: gptcompany/claude-hooks-shared/.github/workflows/_reusable-security.yml@6ff270e89908aa2b6dd0dccc45db8ce55630e907
-    with:
-      bandit-paths: '.'
-      fail-on-high-severity: true
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, Linux, X64, gbg-ci]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.12'
+      # Same blocking threshold as shared security d64d5b2: HIGH, confidence >= MEDIUM.
+      - name: Bandit HIGH severity gate
+        run: uv tool run bandit -r . -lll -ii -q
+      - name: Gitleaks PR range or full-history gate
+        if: ${{ !cancelled() }}
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: python
+        run: |
+          import os
+          from pathlib import Path
+          import subprocess
+          import tarfile
+          import tempfile
+          import urllib.request
 
-  lint:
-    name: Lint & Types
-    uses: gptcompany/claude-hooks-shared/.github/workflows/_reusable-lint.yml@6ff270e89908aa2b6dd0dccc45db8ce55630e907
-    with:
-      python-version: '3.12'
-      mypy-paths: '.'
-      fail-on-type-errors: false
-
-  test:
-    name: Tests
-    # Security Scan is red until the leaked JWT secrets are rotated (F-215); it must not hide the tests.
-    needs: [lint]
-    uses: gptcompany/claude-hooks-shared/.github/workflows/_reusable-tests.yml@6ff270e89908aa2b6dd0dccc45db8ce55630e907
-    with:
-      python-version: '3.12'
-      test-paths: 'tests/'
-      coverage-paths: '.'
-      # Floor = measured baseline (68.4% on 2026-10-22, python 3.11, tests/e2e excluded).
-      # It only goes up: raise it when the baseline rises, never lower it.
-      coverage-threshold: 68
-      # tests/e2e drive a browser against a running dashboard on :8001: they need
-      # playwright's chromium and a live stack, neither exists on the hosted runner.
-      # Run them by hand (tests/e2e/README.md).
-      pytest-args: '--ignore=tests/e2e'
+          # Same release as shared security d64d5b2; full history on main/daily.
+          with tempfile.TemporaryDirectory(dir=os.environ["RUNNER_TEMP"]) as directory:
+              root = Path(directory)
+              archive = root / "gitleaks.tar.gz"
+              urllib.request.urlretrieve(
+                  "https://github.com/gitleaks/gitleaks/releases/download/v8.18.4/"
+                  "gitleaks_8.18.4_linux_x64.tar.gz", archive
+              )
+              with tarfile.open(archive) as package:
+                  binary = root / "gitleaks"
+                  binary.write_bytes(package.extractfile("gitleaks").read())
+              binary.chmod(0o700)
+              command = [str(binary), "detect", "--source", ".", "--redact", "--no-banner"]
+              if os.environ["GITHUB_EVENT_NAME"] == "pull_request":
+                  base, head = os.environ["PR_BASE_SHA"], os.environ["PR_HEAD_SHA"]
+                  if not base or not head:
+                      raise ValueError("PR security scan requires base and head SHA")
+                  command.extend(["--log-opts", f"{base}..{head}"])
+              # Do not emit or upload credential values, including on scan failure.
+              result = subprocess.run(
+                  command,
+                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+              )
+              print(f"Gitleaks exit status: {result.returncode} (1 = secrets detected)")
+              raise SystemExit(result.returncode)

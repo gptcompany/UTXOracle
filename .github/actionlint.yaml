@@ -1,2 +1,2 @@
 self-hosted-runner:
-  labels: [sg-priv]
+  labels: [gbg-ci]
