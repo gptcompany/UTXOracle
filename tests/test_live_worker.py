@@ -1160,3 +1160,68 @@ async def test_run_recovers_persisted_price_when_electrs_is_unavailable(tmp_path
     assert snapshots[0].source_health["utxoracle"].status == "stale"
     assert snapshots[0].source_health["electrs"].status == "unavailable"
     assert snapshots[0].comparison.utxo_vs_mempool_bps is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failures,read_times", [(1, [0, 2]), (3, [0, 2, 6, 12])])
+async def test_run_retries_bootstrap_with_cadence_backoff(
+    tmp_path, monkeypatch, failures, read_times
+):
+    from api.routes import live as live_routes
+
+    timestamp = datetime(2026, 11, 14, tzinfo=timezone.utc)
+    monkeypatch.setattr(live_routes, "utc_now", lambda: timestamp)
+    previous = LiveSnapshot(
+        timestamp=timestamp, block_height=963338, utxoracle_price=62836.17
+    )
+    elapsed = 0
+    health = []
+
+    class Store:
+        def __init__(self):
+            self.reads = []
+            self.written = []
+
+        async def aget_latest(self):
+            self.reads.append(elapsed)
+            if len(self.reads) <= failures:
+                raise ConnectionError("temporary QuestDB outage")
+            return previous
+
+        async def awrite_snapshot(self, snapshot):
+            self.written.append(snapshot)
+
+    async def sleep(seconds):
+        nonlocal elapsed
+        health.append(
+            live_routes._build_live_health_summary_from_snapshot(worker.last_snapshot)
+        )
+        elapsed += seconds
+
+    unavailable = SourceRead(value=None, health=SourceHealth(status="unavailable"))
+    store = Store()
+    worker = LiveWorker(
+        electrs_client=QueueClient("fetch_tip_height", [unavailable] * 9),
+        mempool_client=QueueClient("fetch_exchange_price", [unavailable] * 9),
+        brk_client=QueueClient("fetch_curated_features", [unavailable] * 9),
+        hyperliquid_client=QueueClient("fetch_snapshot", [unavailable] * 9),
+        oracle_resolver=RecordingResolver([OracleObservation(price=None)] * 9),
+        snapshot_store=store,
+        process_lock_path=tmp_path / "worker.lock",
+        clock=lambda: timestamp,
+    )
+    snapshots = await worker.run(
+        market_interval_seconds=5,
+        block_poll_interval_seconds=2,
+        max_cycles=9,
+        monotonic=lambda: elapsed,
+        sleep=sleep,
+    )
+
+    assert store.reads == read_times
+    assert snapshots and store.written == snapshots
+    assert health[0]["status"] == "unavailable"
+    assert all(summary["status"] != "healthy" for summary in health)
+    assert snapshots[-1].source_health["electrs"].status == "unavailable"
+    assert snapshots[-1].source_health["utxoracle"].status == "stale"
+    assert snapshots[-1].comparison.utxo_vs_mempool_bps is None

@@ -414,3 +414,25 @@ async def test_latest_returns_none_when_only_empty_payloads_exist():
     repo = FakeQuestDBRepo()
     repo.rows = [{"ts": datetime.now(timezone.utc), "snapshot_json": ""}]
     assert await LiveSnapshotStore(repo=repo).aget_latest() is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", ['{"timestamp": {}}', '{"source_timestamps": []}'])
+async def test_latest_and_history_skip_malformed_validator_inputs(payload, caplog):
+    repo = FakeQuestDBRepo()
+    store = LiveSnapshotStore(repo=repo, retention_hours=0)
+    snapshot = _build_snapshot(
+        timestamp=datetime(2026, 9, 16, tzinfo=timezone.utc),
+        block_height=963338,
+        price=62836.17,
+    )
+    await store.awrite_snapshot(snapshot)
+    repo.rows.append(
+        {"ts": snapshot.timestamp + timedelta(seconds=1), "snapshot_json": payload}
+    )
+
+    assert await store.aget_latest() == snapshot
+    assert await store.aget_history(now=snapshot.timestamp + timedelta(minutes=1)) == [
+        snapshot
+    ]
+    assert "Ignoring invalid live snapshot" in caplog.text
