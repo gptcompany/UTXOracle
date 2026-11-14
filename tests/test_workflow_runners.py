@@ -17,12 +17,19 @@ def test_every_job_runs_on_the_self_hosted_pool():
         for job, runner in _runs_on(path.name).items():
             approved = (
                 "${{ vars.CI_RUNS_ON || 'sg-ci' }}",
-                "${{ vars.CI_RUNS_ON || 'sg-priv' }}",
                 ["self-hosted", "Linux", "X64", "gbg-ci"],
             )
             assert runner in approved, (
                 f"{path.name}:{job} uses non-approved runner {runner}"
             )
+
+
+def test_no_job_selects_the_private_sg_priv_pool():
+    """The repository is public: the ci-priv runner group is closed to it, so a job that
+    selects sg-priv waits in the queue forever (B5, 14/11)."""
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        for job, runner in _runs_on(path.name).items():
+            assert "sg-priv" not in str(runner), f"{path.name}:{job} selects sg-priv"
 
 
 def test_ci_is_local_and_rejects_fork_code_on_self_hosted_runners():
