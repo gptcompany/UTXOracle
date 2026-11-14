@@ -303,7 +303,7 @@ async def test_store_questdb_history_uses_python_cutoff_timestamp():
     assert len(history) == 1
     assert calls == [
         (
-            "SELECT snapshot_json FROM live_snapshots WHERE ts >= $1 ORDER BY ts ASC",
+            "SELECT ts, snapshot_json FROM live_snapshots WHERE ts >= $1 ORDER BY ts ASC",
             (now - timedelta(minutes=15)).replace(tzinfo=None),
         )
     ]
@@ -395,7 +395,7 @@ async def test_latest_and_history_ignore_corrupt_payload_tail():
         (12, '{"timestamp":' + "\0" * 1536),
         (24, ""),
         (36, None),
-        (48, "{}"),
+        (48, '{"utxoracle_price": -1}'),
     ]:
         repo.rows.append(
             {
