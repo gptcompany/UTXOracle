@@ -194,9 +194,11 @@ async def run_materialization_pass(
     pass keeps the optional backfill retry path isolated.
     """
     repo = QuestDBRepository()
-    await repo.initialize()
 
+    # initialize() opens the ILP sender before the PG pool: it belongs inside the try so a
+    # pool failure still closes the sender (it leaked every pass in the live loop, #98).
     try:
+        await repo.initialize()
         success = await materialize_daily_snapshot(repo, conn, target_date)
         if not success:
             return False

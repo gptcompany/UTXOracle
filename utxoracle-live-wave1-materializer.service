@@ -12,11 +12,19 @@ WorkingDirectory=/media/sam/1TB/UTXOracle
 Environment=PYTHONUNBUFFERED=1
 Environment=DUCKDB_PATH=/media/sam/1TB/UTXOracle/data/utxoracle.duckdb
 Environment=LIVE_WAVE1_INTERVAL_SECONDS=3600
+Environment=LIVE_WAVE1_DUCKDB_MEMORY_LIMIT=3GB
+Environment=LIVE_WAVE1_DUCKDB_TEMP_DIR=/media/sam/1TB/UTXOracle/data/duckdb_tmp
 Environment=QUESTDB_PG_HOST=127.0.0.1
 Environment=QUESTDB_PG_PORT=9912
 Environment=QUESTDB_HTTP_HOST=127.0.0.1
 Environment=QUESTDB_HTTP_PORT=9900
 ExecStart=/media/sam/1TB/UTXOracle/.venv/bin/python -m scripts.live.wave1_materializer_runtime
+# Never spill to swap: 6.5G of swap was held by this unit on the Dell (issue #98).
+# MemoryHigh/MemoryMax are the values installed on the Dell; the DuckDB limit is half of
+# MemoryHigh, the rest is for Python, asyncpg and the QuestDB client.
+MemoryHigh=6G
+MemoryMax=8G
+MemorySwapMax=0
 Restart=always
 RestartSec=30
 
