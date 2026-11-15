@@ -34,6 +34,15 @@ def _configure_live_questdb_defaults() -> None:
     os.environ.setdefault("QUESTDB_HTTP_PORT", "9900")
 
 
+def _rss_mib() -> float:
+    """Resident set of this process in MiB, from /proc (the unit's cgroup limits count RSS)."""
+    with open("/proc/self/status", encoding="ascii") as status:
+        for line in status:
+            if line.startswith("VmRSS:"):
+                return int(line.split()[1]) / 1024
+    raise RuntimeError("VmRSS missing from /proc/self/status")
+
+
 async def _run_once() -> bool:
     started_at = datetime.now(timezone.utc)
     conn = duckdb.connect(DEFAULT_DUCKDB_PATH, read_only=True)
@@ -52,6 +61,8 @@ async def _run_once() -> bool:
         return ok
     finally:
         conn.close()
+        # One line per pass: the series that shows (and alerts on) growth across passes.
+        logger.info("Wave 1 live materializer rss_mib=%.1f", _rss_mib())
 
 
 async def main() -> None:

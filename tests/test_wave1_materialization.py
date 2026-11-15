@@ -16,6 +16,7 @@ from scripts.metrics.materialize_wave1 import (
     _resolve_current_price,
     main,
     materialize_daily_snapshot,
+    run_materialization_pass,
 )
 
 
