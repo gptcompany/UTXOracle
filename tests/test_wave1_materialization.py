@@ -225,3 +225,21 @@ async def test_main_uses_fresh_repo_for_backfill_retry(monkeypatch):
     second_repo.async_flush_ingestion.assert_awaited_once()
     second_repo.close.assert_awaited_once()
     fake_conn.close.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_run_materialization_pass_closes_repo_when_initialize_fails(monkeypatch):
+    """initialize() builds the ILP sender before the PG pool: a pool failure (QuestDB down)
+    left the sender open every hour in the long-lived live materializer (issue #98)."""
+    repo = MagicMock()
+    repo.initialize = AsyncMock(side_effect=OSError("QuestDB PG unreachable"))
+    repo.close = AsyncMock()
+    monkeypatch.setattr(
+        "scripts.metrics.materialize_wave1.QuestDBRepository",
+        MagicMock(return_value=repo),
+    )
+
+    with pytest.raises(OSError):
+        await run_materialization_pass(MagicMock(), datetime.now(timezone.utc))
+
+    repo.close.assert_awaited_once()
