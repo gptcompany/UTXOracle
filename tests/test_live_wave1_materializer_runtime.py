@@ -35,7 +35,7 @@ async def test_run_once_opens_duckdb_read_only_and_closes_connection(monkeypatch
     fake_conn = _FakeConnection()
     connect_calls: list[tuple[str, bool]] = []
 
-    def fake_connect(path: str, *, read_only: bool):
+    def fake_connect(path: str, *, read_only: bool, config: dict[str, str]):
         connect_calls.append((path, read_only))
         return fake_conn
 
