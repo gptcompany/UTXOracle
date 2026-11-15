@@ -25,6 +25,11 @@ logger = _setup_script_logging("live_wave1_materializer")
 
 DEFAULT_INTERVAL_SECONDS = int(os.getenv("LIVE_WAVE1_INTERVAL_SECONDS", "3600"))
 DEFAULT_DUCKDB_PATH = os.getenv("DUCKDB_PATH", "data/utxoracle.duckdb")
+# wallet_waves/address_cohorts GROUP BY address over all of utxo_lifecycle_full: without a limit
+# DuckDB takes up to 80% of the host RAM for the hash table (6.4 GB in ~40 min, issue #98).
+# Above the limit it spills to DUCKDB_TEMP_DIR (a disk path, never tmpfs).
+DUCKDB_MEMORY_LIMIT = os.getenv("LIVE_WAVE1_DUCKDB_MEMORY_LIMIT", "3GB")
+DUCKDB_TEMP_DIR = os.getenv("LIVE_WAVE1_DUCKDB_TEMP_DIR", "")
 
 
 def _configure_live_questdb_defaults() -> None:
@@ -32,6 +37,13 @@ def _configure_live_questdb_defaults() -> None:
     os.environ.setdefault("QUESTDB_PG_PORT", "9912")
     os.environ.setdefault("QUESTDB_HTTP_HOST", "127.0.0.1")
     os.environ.setdefault("QUESTDB_HTTP_PORT", "9900")
+
+
+def _connect_duckdb() -> duckdb.DuckDBPyConnection:
+    config = {"memory_limit": DUCKDB_MEMORY_LIMIT}
+    if DUCKDB_TEMP_DIR:
+        config["temp_directory"] = DUCKDB_TEMP_DIR
+    return duckdb.connect(DEFAULT_DUCKDB_PATH, read_only=True, config=config)
 
 
 def _rss_mib() -> float:
@@ -45,7 +57,7 @@ def _rss_mib() -> float:
 
 async def _run_once() -> bool:
     started_at = datetime.now(timezone.utc)
-    conn = duckdb.connect(DEFAULT_DUCKDB_PATH, read_only=True)
+    conn = _connect_duckdb()
     try:
         ok = await run_materialization_pass(conn, started_at)
         if ok:
