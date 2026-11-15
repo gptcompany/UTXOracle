@@ -8,8 +8,7 @@ from pathlib import Path
 from scripts.live import wave1_materializer_runtime as runtime
 
 UNIT = (
-    Path(__file__).resolve().parent.parent
-    / "utxoracle-live-wave1-materializer.service"
+    Path(__file__).resolve().parent.parent / "utxoracle-live-wave1-materializer.service"
 )
 
 

@@ -35,7 +35,7 @@ def _peak_rss_kib(config: dict[str, str]) -> int:
         text=True,
         check=True,
     )
-    return int(done.stdout.strip())
+    return int(done.stdout.split()[-1])  # DuckDB may print a progress bar first
 
 
 def test_connection_applies_the_declared_memory_limit(monkeypatch, tmp_path: Path):
@@ -57,8 +57,6 @@ def test_connection_applies_the_declared_memory_limit(monkeypatch, tmp_path: Pat
 
 def test_memory_limit_bounds_the_peak_rss(tmp_path: Path):
     unlimited = _peak_rss_kib({"temp_directory": str(tmp_path)})
-    limited = _peak_rss_kib(
-        {"memory_limit": "128MB", "temp_directory": str(tmp_path)}
-    )
+    limited = _peak_rss_kib({"memory_limit": "128MB", "temp_directory": str(tmp_path)})
     assert limited < 0.75 * unlimited, (limited, unlimited)
     assert duckdb.__version__
