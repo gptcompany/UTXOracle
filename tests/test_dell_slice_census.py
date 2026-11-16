@@ -12,7 +12,11 @@ SLICES = {"dell-trading-critical.slice", "dell-services.slice", "dell-batch.slic
 @pytest.mark.parametrize("name", ["docker-compose.live.yml", "docker-compose.brk.yml"])
 def test_every_service_has_a_role_slice(name: str) -> None:
     services = yaml.safe_load((ROOT / name).read_text())["services"]
-    missing = {svc: cfg.get("cgroup_parent") for svc, cfg in services.items() if cfg.get("cgroup_parent") not in SLICES}
+    missing = {
+        svc: cfg.get("cgroup_parent")
+        for svc, cfg in services.items()
+        if cfg.get("cgroup_parent") not in SLICES
+    }
     assert not missing, missing
 
 
