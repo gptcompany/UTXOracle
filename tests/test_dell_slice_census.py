@@ -6,7 +6,7 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-SLICES = {"dell-trading-critical.slice", "dell-services.slice", "dell-batch.slice"}
+SLICES = {"dell-critical.slice", "dell-services.slice", "dell-batch.slice"}
 
 
 @pytest.mark.parametrize("name", ["docker-compose.live.yml", "docker-compose.brk.yml"])
