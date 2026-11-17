@@ -23,6 +23,7 @@ class BrkComposeContract(unittest.TestCase):
                     "network_mode": "host",
                     "restart": "unless-stopped",
                     "stop_grace_period": "300s",
+                    "cgroup_parent": "dell-batch.slice",
                     "mem_limit": "15g",
                     "memswap_limit": "15g",
                     "volumes": [

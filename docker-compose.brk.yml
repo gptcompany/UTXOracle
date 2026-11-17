@@ -2,6 +2,7 @@
 name: brk
 services:
   brk:
+    cgroup_parent: dell-batch.slice
     image: brk@sha256:ca2e444a0598a5c0847642add4bd3f111ff3cc805b8d51aba10c0cfc2317c6c3
     pull_policy: never
     container_name: brk

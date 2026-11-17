@@ -1,5 +1,6 @@
 services:
   utxoracle-live-questdb:
+    cgroup_parent: dell-services.slice
     image: questdb/questdb:latest
     restart: unless-stopped
     init: true
@@ -22,6 +23,7 @@ services:
       retries: 12
       start_period: 20s
   utxoracle-live-worker:
+    cgroup_parent: dell-services.slice
     image: ${UTXORACLE_LIVE_IMAGE:-utxoracle-live:local}
     user: 1000:1000
     command:
@@ -70,6 +72,7 @@ services:
     - ./logs:/app/logs
     - /media/sam/4TB-NVMe/docker-volumes/hyperliquid/hl/data:/app/external/hyperliquid/node-data:ro
   utxoracle-data-updater:
+    cgroup_parent: dell-batch.slice
     image: ${UTXORACLE_LIVE_IMAGE:-utxoracle-live:local}
     user: 1000:1000
     restart: always
@@ -98,6 +101,7 @@ services:
       retries: 3
       start_period: 40s
   utxoracle-live-api:
+    cgroup_parent: dell-services.slice
     image: ${UTXORACLE_LIVE_IMAGE:-utxoracle-live:local}
     user: 1000:1000
     build:
