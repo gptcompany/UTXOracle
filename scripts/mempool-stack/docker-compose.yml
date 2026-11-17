@@ -42,10 +42,13 @@ services:
           "CMD-SHELL",
           "curl -fsS http://localhost:3002/blocks/tip/height | grep -Eq '^[0-9]+$'",
         ]
+      # Derived, not chosen: scripts/mempool-stack/boot-timing.json and tests/test_mempool_stack.py
+      # (start_period = bitcoind RPC warm-up, retries = index catch-up / interval). interval is the
+      # installed cadence; timeout is a LIMIT on a hung probe (measured probe <= 0.09 s), unchanged.
       interval: 30s
       timeout: 10s
-      retries: 5
-      start_period: 30s
+      retries: 20
+      start_period: 560s
 
   db:
     image: mariadb:10.5.21
