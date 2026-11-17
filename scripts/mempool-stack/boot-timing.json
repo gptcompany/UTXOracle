@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "measured_on": "2026-11-17, Dell sam7670, read-only (journalctl, docker logs/inspect, bitcoind debug.log)",
+  "formula": "warmup = bitcoind_ready - electrs_start; catchup = rest_ready - warmup; B = max(warmup) + max(catchup); start_period = ceil(max warmup); retries = ceil(B/interval) - ceil(start_period/interval) + 1",
+  "calibration": {
+    "what": "installed healthcheck that failed at boot of 2026-11-17: probes count from the first one at or after start_period, unhealthy at (ceil(start_period/interval) + retries - 1) * interval",
+    "start_period_s": 30,
+    "interval_s": 30,
+    "retries": 5,
+    "observed_unhealthy_s": 150.0,
+    "source": "electrs started 13:17:35.049Z (docker inspect), compose gave up 13:20:05Z (journalctl -b -u mempool-stack), +-1 s"
+  },
+  "probe_duration_s": [0.0878, 0.0613, 0.0469, 0.0473, 0.0587],
+  "boots": [
+    {
+      "id": "2026-11-15",
+      "electrs_start_utc": "2026-11-15T13:22:04.974Z",
+      "bitcoind_ready_utc": "2026-11-15T13:29:45Z",
+      "rest_ready_s": 1022.057,
+      "source": "docker logs --timestamps mempool-electrs (Config line to 'REST server running'); bitcoind debug.log 'init message: Done loading'"
+    },
+    {
+      "id": "2026-11-17",
+      "electrs_start_utc": "2026-11-17T13:17:35.049Z",
+      "bitcoind_ready_utc": "2026-11-17T13:26:55Z",
+      "rest_ready_s": null,
+      "source": "bitcoind debug.log 'init message: Done loading'; rest_ready_s unknown: docker logs of the current run hold no line after 11:14Z"
+    }
+  ]
+}
