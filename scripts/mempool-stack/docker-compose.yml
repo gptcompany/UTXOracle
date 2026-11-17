@@ -1,0 +1,119 @@
+networks:
+  mempool-network:
+    driver: bridge
+
+services:
+  electrs:
+    image: mempool/electrs:latest
+    container_name: mempool-electrs
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - /data/cold/12TB/prod/apps/mempool-stack/data/electrs:/data
+      - /data/cold/12TB/Bitcoin:/bitcoin:ro
+    environment:
+      - RUST_LOG=electrs=info
+    command:
+      - -vvv
+      - --db-dir
+      - /data
+      - --daemon-dir
+      - /bitcoin
+      - --daemon-rpc-addr
+      - 127.0.0.1:8332
+      - --cookie
+      - bitcoinrpc:${BTC_RPC_PASSWORD}
+      - --network
+      - mainnet
+      - --electrum-rpc-addr
+      - 0.0.0.0:50001
+      - --http-addr
+      - 0.0.0.0:3002
+      - --monitoring-addr
+      - 0.0.0.0:4224
+      - --lightmode
+      - --precache-threads
+      - "8"
+      - --main-loop-delay
+      - "1000"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS http://localhost:3002/blocks/tip/height | grep -Eq '^[0-9]+$'",
+        ]
+      # Derived, not chosen: scripts/mempool-stack/boot-timing.json and tests/test_mempool_stack.py
+      # (start_period = bitcoind RPC warm-up, retries = index catch-up / interval). interval is the
+      # installed cadence; timeout is a LIMIT on a hung probe (measured probe <= 0.09 s), unchanged.
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 560s
+
+  db:
+    image: mariadb:10.5.21
+    container_name: mempool-db
+    restart: unless-stopped
+    networks:
+      - mempool-network
+    volumes:
+      - /data/2TB/prod/apps/mempool-stack/data/mysql:/var/lib/mysql
+    environment:
+      MYSQL_DATABASE: mempool
+      MYSQL_USER: mempool
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  api:
+    image: mempool/backend:latest
+    container_name: mempool-api
+    restart: unless-stopped
+    networks:
+      - mempool-network
+    ports:
+      - "8999:8999"
+    depends_on:
+      db:
+        condition: service_healthy
+      electrs:
+        condition: service_healthy
+    volumes:
+      - /data/2TB/prod/apps/mempool-stack/data/cache:/backend/cache
+    environment:
+      MEMPOOL_BACKEND: "esplora"
+      CORE_RPC_HOST: "host.docker.internal"
+      CORE_RPC_PORT: "8332"
+      CORE_RPC_USERNAME: "bitcoinrpc"
+      CORE_RPC_PASSWORD: ${BTC_RPC_PASSWORD}
+      ESPLORA_REST_API_URL: "http://host.docker.internal:3002"
+      DATABASE_ENABLED: "true"
+      DATABASE_HOST: "db"
+      DATABASE_DATABASE: "mempool"
+      DATABASE_USERNAME: "mempool"
+      DATABASE_PASSWORD: ${MYSQL_PASSWORD}
+      STATISTICS_ENABLED: "true"
+      MEMPOOL_API_URL_PREFIX: "/api/v1/"
+      MEMPOOL_HTTP_PORT: "8999"
+      MEMPOOL_PRICE_UPDATE_INTERVAL: "600"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  web:
+    image: mempool/frontend:latest
+    container_name: mempool-web
+    restart: unless-stopped
+    networks:
+      - mempool-network
+    depends_on:
+      - api
+    ports:
+      - "8080:8080"
+    environment:
+      FRONTEND_HTTP_PORT: "8080"
+      BACKEND_MAINNET_HTTP_HOST: "api"
+    command: "./wait-for db:3306 --timeout=720 -- nginx -g 'daemon off;'"
