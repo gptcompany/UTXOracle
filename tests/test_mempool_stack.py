@@ -179,7 +179,10 @@ class ComposeContract(unittest.TestCase):
             command[command.index("--cookie") + 1], "bitcoinrpc:${BTC_RPC_PASSWORD}"
         )
         for name, service in services.items():
-            for key, value in (service.get("environment") or {}).items():
+            env = service.get("environment") or {}
+            if isinstance(env, list):  # electrs: ["KEY=value"] form
+                env = dict(entry.split("=", 1) for entry in env)
+            for key, value in env.items():
                 if "PASSWORD" in key:
                     self.assertEqual(value, expected[(name, key)], (name, key))
 
